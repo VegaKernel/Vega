@@ -28,11 +28,11 @@ Suggested first packet groups:
 
 ## Phase 2 — services and events
 
-- [ ] Add explicit service contracts for high-coupling TShock subsystems.
-- [ ] Add prioritized event dispatch.
-- [ ] Add cancel reasons.
-- [ ] Add `Monitor` event priority for audit/logging consumers.
-- [ ] Keep legacy hooks as adapters.
+- [x] Reuse the existing prioritized `HandlerList<T>` event infrastructure.
+- [x] Add `Monitor` priority for audit/logging consumers while preserving existing priority values.
+- [ ] Add explicit service contracts for high-coupling TShock subsystems as those seams are migrated.
+- [ ] Add cancel reasons through a compatibility-safe path.
+- [ ] Keep legacy hooks as adapters for new typed packet events.
 
 ## Phase 3 — ProtocolGuard extraction
 

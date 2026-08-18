@@ -55,6 +55,9 @@ namespace TShockAPI
 
 		public void Register(HandlerItem obj)
 		{
+			if (obj.Priority == HandlerPriority.Monitor)
+				obj.GetHandled = true;
+
 			lock (HandlerLock)
 			{
 				Handlers.Add(obj);
@@ -91,7 +94,12 @@ namespace TShockAPI
 
 		public static HandlerItem Create(EventHandler<T> handler, HandlerPriority priority = HandlerPriority.Normal, bool gethandled = false)
 		{
-			return new HandlerItem { Handler = handler, Priority = priority, GetHandled = gethandled };
+			return new HandlerItem
+			{
+				Handler = handler,
+				Priority = priority,
+				GetHandled = gethandled || priority == HandlerPriority.Monitor
+			};
 		}
 		public static HandlerList<T> operator +(HandlerList<T> hand, HandlerItem obj)
 		{
@@ -130,5 +138,9 @@ namespace TShockAPI
 		Normal = 3,
 		Low = 4,
 		Lowest = 5,
+		/// <summary>
+		/// Runs after normal handlers and always receives handled events. Intended for observers such as audit and diagnostics.
+		/// </summary>
+		Monitor = 6,
 	}
 }
