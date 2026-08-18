@@ -33,14 +33,14 @@ jobs:
       - name: Test
         run: dotnet test TShock.sln --no-build --verbosity normal --configuration Release
 
-      - name: Pack TZ.TShockAPI
+      - name: Pack TShockNG
         run: dotnet pack TShockAPI/TShockAPI.csproj --configuration Release --no-build --output artifacts/nuget
 
-      - name: Push TZ.TShockAPI
+      - name: Push TShockNG
         shell: pwsh
         run: |
-          $package = Get-ChildItem artifacts/nuget/TZ.TShockAPI.*.nupkg | Select-Object -First 1
+          $package = Get-ChildItem artifacts/nuget/TShockNG.*.nupkg | Select-Object -First 1
           if (-not $package) {
-            throw "TZ.TShockAPI package was not produced."
+            throw "TShockNG package was not produced."
           }
           dotnet nuget push $package.FullName --api-key "${{ secrets.NUGET_API_KEY }}" --source https://api.nuget.org/v3/index.json --skip-duplicate
