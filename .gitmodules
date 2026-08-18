@@ -1,5 +1,5 @@
 [submodule "TerrariaServerAPI"]
 	path = TerrariaServerAPI
-	url = https://github.com/TerraZ-Team/TSAPI
+	url = https://github.com/TShockNG/TSAPI
 	ignore = dirty
 	branch = general-devel
