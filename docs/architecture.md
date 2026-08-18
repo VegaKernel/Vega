@@ -14,7 +14,7 @@ Primary goals:
 6. Make core services injectable and testable instead of relying on global static state everywhere.
 7. Keep upstream-oriented changes narrow enough that future TShock changes can still be reviewed and ported.
 
-## Repository responsibilities
+## Repository and package responsibilities
 
 ### TShockNG/TShockNG
 
@@ -44,11 +44,13 @@ Owns integration with Terraria/OTAPI and execution infrastructure:
 - time-sliced game-thread work
 - profiling and slow-hook/slow-tick diagnostics
 
-TSAPI should not own TShock domain logic.
+TSAPI should not own TShock domain logic and does not need a Multiplicity dependency.
 
-### TShockNG/Multiplicity
+### TZ.Multiplicity NuGet package
 
-Target repository for the canonical Terraria wire-protocol implementation:
+`TZ.Multiplicity` is the canonical Terraria wire-protocol dependency consumed through NuGet.
+
+It owns:
 
 - packet identifiers
 - packet layouts
@@ -56,7 +58,7 @@ Target repository for the canonical Terraria wire-protocol implementation:
 - zero-copy packet views
 - protocol-version tests
 
-Multiplicity must remain independent of TShock and TSAPI.
+TShockNG consumes a pinned package version rather than adding Multiplicity as a source submodule. Multiplicity remains independent of TShock and TSAPI.
 
 ### TShockNG/ProtocolGuard
 
@@ -67,7 +69,7 @@ Owns reusable semantic packet validation:
 - player/projectile/item/tile/chest validation
 - validation results and violations
 
-ProtocolGuard must not kick players, send packets, mutate Terraria state, or depend on global TShock state.
+ProtocolGuard may consume `TZ.Multiplicity` typed packet models/views through NuGet, but must not kick players, send packets, mutate Terraria state, or depend on global TShock state.
 
 ## Request pipeline
 
@@ -81,7 +83,7 @@ Terraria / OTAPI
 raw packet buffer
       |
       v
-Multiplicity
+TZ.Multiplicity (NuGet)
       |
       +-------------------+
       | typed packet      |

@@ -2,16 +2,16 @@
 
 ## Phase 0 — establish project boundaries
 
-- [ ] Point the `TerrariaServerAPI` submodule at `TShockNG/TSAPI` instead of `TerraZ-Team/TSAPI`.
-- [ ] Add architecture and compatibility documentation.
-- [ ] Add ADRs for protocol ownership, binary compatibility, and threading.
+- [x] Point the `TerrariaServerAPI` submodule at `TShockNG/TSAPI` instead of `TerraZ-Team/TSAPI`.
+- [x] Add architecture and compatibility documentation.
+- [x] Add ADRs for protocol ownership, binary compatibility, and threading.
+- [x] Add `TZ.Multiplicity` as a pinned NuGet dependency for TShockAPI.
 - [ ] Establish clean CI on the TShockNG organization repositories.
 
 ## Phase 1 — typed packet pipeline
 
-- [ ] Add Multiplicity as the canonical packet parser.
 - [ ] Introduce an internal raw packet context containing packet type, player, buffer, offset, and exact payload length.
-- [ ] Use Multiplicity `ParsePayload`/typed packet views for migrated handlers.
+- [ ] Use `TZ.Multiplicity` `ParsePayload`/typed packet views for migrated handlers.
 - [ ] Keep legacy `MemoryStream`-based public hooks working.
 - [ ] Migrate hot/simple packets first.
 - [ ] Add packet-path benchmarks and allocation measurements.
