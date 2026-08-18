@@ -31,7 +31,7 @@ jobs:
         run: dotnet restore TerrariaServerAPI/TSAPI.sln
 
       - name: Build TSAPI
-        run: dotnet build TerrariaServerAPI/TSAPI.sln --configuration Release --no-restore
+        run: dotnet build TerrariaServerAPI/TSAPI.sln --configuration Release --no-restore -warnaserror
 
       - name: Test TSAPI
         run: dotnet test TerrariaServerAPI/TSAPI.sln --configuration Release --no-build --filter "FullyQualifiedName!~TerrariaServerAPI.Tests.Benchmarks" --verbosity normal
@@ -40,7 +40,26 @@ jobs:
         run: dotnet restore TShock.sln
 
       - name: Build TShockNG
-        run: dotnet build TShock.sln --configuration Release --no-restore
+        shell: pwsh
+        run: |
+          dotnet build TShock.sln --configuration Release --no-restore -warnaserror 2>&1 | Tee-Object -FilePath tshock-build.log
+          $exitCode = $LASTEXITCODE
+          if ($exitCode -ne 0) {
+            Write-Host "TShockNG compiler diagnostics:"
+            Get-Content tshock-build.log |
+              Select-String -Pattern '(?i)\b(error|warning)\b.*\b[A-Z]{2,}\d{3,}\b' |
+              Select-Object -Last 200 |
+              ForEach-Object { Write-Host "::error::$($_.Line)" }
+            exit $exitCode
+          }
+
+      - name: Upload TShockNG build log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: tshock-build-log
+          path: tshock-build.log
+          if-no-files-found: ignore
 
       - name: Test TShockNG
         run: dotnet test TShock.sln --configuration Release --no-build --verbosity normal
