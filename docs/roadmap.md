@@ -10,8 +10,9 @@
 
 ## Phase 1 — typed packet pipeline
 
-- [ ] Introduce an internal raw packet context containing packet type, player, buffer, offset, and exact payload length.
-- [ ] Use `TZ.Multiplicity` `ParsePayload`/typed packet views for migrated handlers.
+- [x] Add a stack-only zero-copy `IncomingPacket` abstraction over raw buffer, offset, and exact payload length.
+- [ ] Route `NetGetData` through `IncomingPacket`.
+- [ ] Use `TZ.Multiplicity` typed packet views for migrated handlers.
 - [ ] Keep legacy `MemoryStream`-based public hooks working.
 - [ ] Migrate hot/simple packets first.
 - [ ] Add packet-path benchmarks and allocation measurements.
@@ -34,17 +35,19 @@ Suggested first packet groups:
 
 ## Phase 3 — ProtocolGuard extraction
 
-- [ ] Define immutable validation contexts/snapshots.
+- [x] Define initial side-effect-free validation result model.
+- [x] Add HP/mana validation primitives in ProtocolGuard.
+- [ ] Define additional immutable validation contexts/snapshots.
 - [ ] Move pure checks out of `Bouncer` and packet handlers.
-- [ ] Start with projectile, item, tile, and player sanity validation.
+- [ ] Start with projectile, item, tile, and additional player sanity validation.
 - [ ] Keep enforcement decisions in TShockNG.
 - [ ] Add regression tests for malformed and abusive packets.
 
 ## Phase 4 — execution and freeze reduction
 
 - [ ] Route blocking SQL/HTTP/file work away from the game thread where semantics allow it.
-- [ ] Add thread-affinity assertions for game-thread-only APIs.
-- [ ] Add time-sliced scheduler for large Terraria-state mutations.
+- [x] Add thread-affinity assertions in TSAPI for game-thread-only APIs.
+- [x] Add time-sliced TSAPI scheduler for large Terraria-state mutations.
 - [ ] Add slow-tick and slow-hook watchdog output.
 - [ ] Measure P50/P95/P99/max tick duration before and after changes.
 

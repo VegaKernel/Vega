@@ -83,6 +83,9 @@ Terraria / OTAPI
 raw packet buffer
       |
       v
+IncomingPacket (stack-only view)
+      |
+      v
 TZ.Multiplicity (NuGet)
       |
       +-------------------+
@@ -100,6 +103,10 @@ validation result         | domain decision
       mutate Terraria state
          on game thread
 ```
+
+`IncomingPacket` retains the original receive buffer, offset, and exact payload length. Its `PacketView` is produced with `PacketViewParser.ParsePayload`, so the typed path does not need another payload array. The type is a `ref struct` specifically to prevent receive-buffer-backed views from escaping into asynchronous/background work.
+
+During migration it can still create the existing `MemoryStream` wrapper for legacy handlers without copying the packet payload.
 
 ## Service contracts
 
