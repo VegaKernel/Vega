@@ -11,7 +11,8 @@ permissions:
   contents: read
 
 jobs:
-  build:
+  tsapi:
+    name: TSAPI
     runs-on: windows-latest
 
     steps:
@@ -35,6 +36,23 @@ jobs:
 
       - name: Test TSAPI
         run: dotnet test TerrariaServerAPI/TSAPI.sln --configuration Release --no-build --filter "FullyQualifiedName!~TerrariaServerAPI.Tests.Benchmarks" --verbosity normal
+
+  tshockng:
+    name: TShockNG
+    runs-on: windows-latest
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 10.0.x
+
+      - name: Add MonoMod source
+        run: dotnet nuget add source https://pkgs.dev.azure.com/MonoMod/MonoMod/_packaging/DevBuilds%40Local/nuget/v3/index.json -n DevBuilds@Local
 
       - name: Restore TShockNG
         run: dotnet restore TShock.sln
