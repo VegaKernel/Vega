@@ -37,19 +37,38 @@
 		<PackageReference Include="ModFramework" Version="1.1.15" GeneratePathProperty="true" /> <!-- only used to extract out to ./bin. -->
 		<PackageReference Include="GetText.NET" Version="8.0.5" /> <!-- only used to extract out to ./bin. -->
 
-		<!-- the launcher doesnt need the direct OTAPI reference, but since PackageReference[ExcludeFromSingleFile] doesnt work, exclude the assets and copy manually -->
+		<!-- The launcher does not consume OTAPI directly. Keep these assemblies outside the single-file bundle and copy the package assets manually. -->
 		<PackageReference Include="OTAPI.Upcoming" Version="3.3.11" ExcludeAssets="all" GeneratePathProperty="true" />
-		<None Include="$(PkgOTAPI_Upcoming)\lib\net9.0\OTAPI.dll">
+
+		<!-- Prefer assets matching the launcher TFM. This becomes the path automatically when the packages publish net10.0 assets. -->
+		<None Include="$(PkgOTAPI_Upcoming)\lib\$(TargetFramework)\OTAPI.dll" Condition="Exists('$(PkgOTAPI_Upcoming)\lib\$(TargetFramework)\OTAPI.dll')">
 			<CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
 			<ExcludeFromSingleFile>true</ExcludeFromSingleFile>
 		</None>
-		<None Include="$(PkgOTAPI_Upcoming)\lib\net9.0\OTAPI.Runtime.dll">
+		<None Include="$(PkgOTAPI_Upcoming)\lib\$(TargetFramework)\OTAPI.Runtime.dll" Condition="Exists('$(PkgOTAPI_Upcoming)\lib\$(TargetFramework)\OTAPI.Runtime.dll')">
 			<CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
 			<ExcludeFromSingleFile>true</ExcludeFromSingleFile>
 		</None>
-		<None Include="$(PkgModFramework)\lib\net9.0\ModFramework.dll">
-		  <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
-		  <ExcludeFromSingleFile>true</ExcludeFromSingleFile>
+		<None Include="$(PkgModFramework)\lib\$(TargetFramework)\ModFramework.dll" Condition="Exists('$(PkgModFramework)\lib\$(TargetFramework)\ModFramework.dll')">
+			<CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+			<ExcludeFromSingleFile>true</ExcludeFromSingleFile>
+		</None>
+
+		<!-- Older package releases may expose only a previous TFM. Resolve that asset without hard-coding a framework version. -->
+		<None Include="$(PkgOTAPI_Upcoming)\lib\**\OTAPI.dll" Condition="!Exists('$(PkgOTAPI_Upcoming)\lib\$(TargetFramework)\OTAPI.dll')">
+			<Link>OTAPI.dll</Link>
+			<CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+			<ExcludeFromSingleFile>true</ExcludeFromSingleFile>
+		</None>
+		<None Include="$(PkgOTAPI_Upcoming)\lib\**\OTAPI.Runtime.dll" Condition="!Exists('$(PkgOTAPI_Upcoming)\lib\$(TargetFramework)\OTAPI.Runtime.dll')">
+			<Link>OTAPI.Runtime.dll</Link>
+			<CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+			<ExcludeFromSingleFile>true</ExcludeFromSingleFile>
+		</None>
+		<None Include="$(PkgModFramework)\lib\**\ModFramework.dll" Condition="!Exists('$(PkgModFramework)\lib\$(TargetFramework)\ModFramework.dll')">
+			<Link>ModFramework.dll</Link>
+			<CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+			<ExcludeFromSingleFile>true</ExcludeFromSingleFile>
 		</None>
 	</ItemGroup>
 
