@@ -6,6 +6,7 @@
     <TargetFramework>net10.0</TargetFramework>
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
     <GenerateDocumentationFile>True</GenerateDocumentationFile>
+    <NoWarn>$(NoWarn);1591</NoWarn>
     <!--
       Version information for an assembly consists of the following four values:
 
@@ -58,8 +59,8 @@
     <None Include="..\prebuilts\HttpServer.dll">
       <Link>HttpServer.dll</Link>
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
-      <PackageCopyToOutput>true</PackageCopyToOutput>
       <Pack>true</Pack>
+      <PackagePath>lib/$(TargetFramework)/</PackagePath>
     </None>
   </ItemGroup>
 
