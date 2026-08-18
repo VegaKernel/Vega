@@ -42,8 +42,6 @@ namespace Rests
 		public Dictionary<string, TokenData> Tokens { get; protected set; }
 		public Dictionary<string, TokenData> AppTokens { get; protected set; }
 
-		private RNGCryptoServiceProvider _rng = new RNGCryptoServiceProvider();
-
 		public SecureRest(IPAddress ip, int port)
 			: base(ip, port)
 		{
@@ -118,17 +116,17 @@ namespace Rests
 				if (tokens >= TShock.Config.Settings.RESTMaximumRequestsPerInterval)
 				{
 					TShock.Log.ConsoleError(GetString("A REST login from {0} was blocked as it currently has {1} rate-limit tokens and is at the RESTMaximumRequestsPerInterval threshold.", context.RemoteEndPoint.Address.ToString(), tokens));
-					tokenBucket[context.RemoteEndPoint.Address.ToString()] += 1; // Tokens over limit, increment by one and reject request
+					tokenBucket[context.RemoteEndPoint.Address.ToString()] += 1;
 					return new RestObject("403")
 					{
 						Error = "Username or password may be incorrect or this account may not have sufficient privileges."
 					};
 				}
-				tokenBucket[context.RemoteEndPoint.Address.ToString()] += 1; // Tokens under limit, increment by one and process request
+				tokenBucket[context.RemoteEndPoint.Address.ToString()] += 1;
 			}
 			else
 			{
-				tokenBucket.Add(context.RemoteEndPoint.Address.ToString(), 1); // First time request, set to one and process request
+				tokenBucket.Add(context.RemoteEndPoint.Address.ToString(), 1);
 			}
 
 			UserAccount userAccount = TShock.UserAccounts.GetUserAccountByName(username);
@@ -156,7 +154,7 @@ namespace Rests
 			var randbytes = new byte[32];
 			do
 			{
-				_rng.GetBytes(randbytes);
+				RandomNumberGenerator.Fill(randbytes);
 				tokenHash = randbytes.Aggregate("", (s, b) => s + b.ToString("X2"));
 			} while (Tokens.ContainsKey(tokenHash));
 
@@ -200,8 +198,6 @@ namespace Rests
 				{ Error = GetString("Not authorized. User \"{0}\" has no access to use the specified API endpoint.", tokenData.Username) };
 			}
 
-			//Main.rand being null can cause issues in command execution.
-			//This should solve that
 			if (Main.rand == null)
 			{
 				Main.rand = new Terraria.Utilities.UnifiedRandom();
