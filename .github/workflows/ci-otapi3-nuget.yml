@@ -1,15 +1,20 @@
-name: Publish NuGet
+name: .NET 10 CI / Package
 
 on:
   push:
-    tags:
-      - 'v*'
+    branches:
+      - general-devel
+  pull_request:
+    branches:
+      - general-devel
   workflow_dispatch:
 
+permissions:
+  contents: read
+
 jobs:
-  publish:
+  build-test-pack:
     runs-on: windows-latest
-    environment: release
 
     steps:
       - uses: actions/checkout@v4
@@ -35,12 +40,3 @@ jobs:
 
       - name: Pack TShockNG
         run: dotnet pack TShockAPI/TShockAPI.csproj --configuration Release --no-build --output artifacts/nuget
-
-      - name: Push TShockNG
-        shell: pwsh
-        run: |
-          $package = Get-ChildItem artifacts/nuget/TShockNG.*.nupkg | Select-Object -First 1
-          if (-not $package) {
-            throw "TShockNG package was not produced."
-          }
-          dotnet nuget push $package.FullName --api-key "${{ secrets.NUGET_API_KEY }}" --source https://api.nuget.org/v3/index.json --skip-duplicate
