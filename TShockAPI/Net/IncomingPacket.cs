@@ -1,7 +1,7 @@
 using System;
 using System.IO;
 using Multiplicity.Packets.Views;
-using TerrariaPacketTypes = Terraria.ID.PacketTypes;
+using TerrariaPacketTypes = TerrariaApi.Server.PacketTypes;
 
 namespace TShockAPI.Net;
 
