@@ -7,6 +7,9 @@ on:
   pull_request:
   workflow_dispatch:
 
+permissions:
+  contents: read
+
 jobs:
   build:
     runs-on: windows-latest
@@ -24,14 +27,23 @@ jobs:
       - name: Add MonoMod source
         run: dotnet nuget add source https://pkgs.dev.azure.com/MonoMod/MonoMod/_packaging/DevBuilds%40Local/nuget/v3/index.json -n DevBuilds@Local
 
-      - name: Restore
+      - name: Restore TSAPI
+        run: dotnet restore TerrariaServerAPI/TSAPI.sln
+
+      - name: Build TSAPI
+        run: dotnet build TerrariaServerAPI/TSAPI.sln --configuration Release --no-restore
+
+      - name: Test TSAPI
+        run: dotnet test TerrariaServerAPI/TSAPI.sln --configuration Release --no-build --filter "FullyQualifiedName!~TerrariaServerAPI.Tests.Benchmarks" --verbosity normal
+
+      - name: Restore TShockNG
         run: dotnet restore TShock.sln
 
-      - name: Build
+      - name: Build TShockNG
         run: dotnet build TShock.sln --configuration Release --no-restore
 
-      - name: Test
+      - name: Test TShockNG
         run: dotnet test TShock.sln --configuration Release --no-build --verbosity normal
 
-      - name: Pack
+      - name: Pack TShockNG
         run: dotnet pack TShockAPI/TShockAPI.csproj --configuration Release --no-build --output artifacts/nuget
