@@ -5,8 +5,8 @@
 - [x] Point the `TerrariaServerAPI` submodule at `TShockNG/TSAPI` instead of `TerraZ-Team/TSAPI`.
 - [x] Add architecture and compatibility documentation.
 - [x] Add ADRs for protocol ownership, binary compatibility, and threading.
-- [x] Add the currently published `TZ.Multiplicity` package as a pinned NuGet dependency for TShockAPI.
-- [ ] Upgrade `TZ.Multiplicity` from `2.5.1` to the protocol-319 package when that package is published.
+- [x] Add the published `TZ.Multiplicity` package as a pinned NuGet dependency for TShockAPI.
+- [x] Upgrade `TZ.Multiplicity` to `2.6.0` for Terraria protocol 319.
 - [ ] Establish clean CI on the TShockNG organization repositories.
 
 ## Phase 1 — typed packet pipeline
