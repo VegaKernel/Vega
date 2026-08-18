@@ -2,7 +2,8 @@ name: Publish NuGet
 
 on:
   push:
-    branches: [ general-devel ]
+    tags:
+      - 'v*'
   workflow_dispatch:
 
 jobs:
