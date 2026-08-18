@@ -19,19 +19,19 @@
       so that the update manager works correctly (via the Github releases api and mimic)
     -->
     <Version>6.1.0</Version>
-    <!-- PackageVersion may advance for packaging-only fixes without changing the
-         TShock assembly/API version expected by a 6.1.0 server. -->
+    <!-- PackageVersion may advance independently from the compatibility-facing
+         assembly/API version. -->
     <PackageVersion>6.1.1</PackageVersion>
     <AssemblyTitle>TShock for Terraria</AssemblyTitle>
     <Company>TShock Contributors</Company>
     <Product>TShockAPI</Product>
     <Copyright>Copyright © TShock Contributors 2011-2026</Copyright>
-    <!-- extras for nuget -->
+    <!-- NuGet identity is intentionally independent from the compatibility-facing assembly identity. -->
     <GeneratePackageOnBuild>True</GeneratePackageOnBuild>
     <PackageLicenseExpression>GPL-3.0-or-later</PackageLicenseExpression>
-    <Authors>TShock Contributors</Authors>
-    <Description>TShock is a toolbox for Terraria servers and communities.</Description>
-    <PackageId>TZ.TShockAPI</PackageId> <!-- keep assembly/file names unchanged -->
+    <Authors>TShockNG Contributors</Authors>
+    <Description>TShockNG is a modernized TShock server platform for Terraria.</Description>
+    <PackageId>TShockNG</PackageId>
   </PropertyGroup>
 
   <ItemGroup>
