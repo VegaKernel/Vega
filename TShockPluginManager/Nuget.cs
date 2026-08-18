@@ -52,7 +52,7 @@ namespace TShockPluginManager
 		public Nugetter()
 		{
 			FrameworkReducer = new FrameworkReducer();
-			NuGetFramework = NuGetFramework.ParseFolder("net9.0");
+			NuGetFramework = NuGetFramework.ParseFolder("net10.0");
 			Settings = NuGet.Configuration.Settings.LoadDefaultSettings(root: null);
 			PathContext = NuGetPathContext.Create(Settings);
 			PackageSourceProvider = new PackageSourceProvider(Settings);
@@ -73,26 +73,20 @@ namespace TShockPluginManager
 			IEnumerable<SourceRepository> repositories,
 			ISet<SourcePackageDependencyInfo> availablePackages)
 		{
-			// if we've already gotten dependencies for this package, don't
 			if (availablePackages.Contains(package)) return;
 
 			foreach (var sourceRepository in repositories)
 			{
-				// make sure the source repository can actually tell us about dependencies
 				var dependencyInfoResource = await sourceRepository.GetResourceAsync<DependencyInfoResource>();
-				// get the try and dependencies
 				if (dependencyInfoResource is null) continue;
 				var dependencyInfo = await dependencyInfoResource.ResolvePackage(
 					package, framework, cacheContext, logger, CancellationToken.None);
 
-				// oop, we don't have the ability to get dependency info from this repository, or
-				// it wasn't found. let's try the next source repository!
 				if (dependencyInfo is null) continue;
 
 				availablePackages.Add(dependencyInfo);
 				foreach (var dependency in dependencyInfo.Dependencies)
 				{
-					// make sure we get the dependencies of the dependencies of the dependencies ... as well
 					await GetPackageDependencies(
 						new PackageIdentity(dependency.Id, dependency.VersionRange.MinVersion),
 						framework, cacheContext, logger, repositories, availablePackages);
@@ -103,9 +97,6 @@ namespace TShockPluginManager
 		/// <returns>all the packages representing dependencies bundled with TShock.Server</returns>
 		public async Task<IEnumerable<SourcePackageDependencyInfo>> GetAllBuiltinDependencies()
 		{
-			// this is a convenient approximation of what dependencies will be included with TShock.Server
-			// and really only needs to be updated if new third-party dependencies are added
-
 			var knownBundles = new[] {
 				new PackageIdentity("GetText.NET", NuGetVersion.Parse("1.6.6")),
 				new PackageIdentity("OTAPI.Upcoming", NuGetVersion.Parse("3.3.11")),
@@ -120,8 +111,6 @@ namespace TShockPluginManager
 		public async Task<IEnumerable<SourcePackageDependencyInfo>> GetAllDependenciesFor(IEnumerable<PackageIdentity> targets)
 		{
 			using var cacheContext = new SourceCacheContext();
-
-			// get all of the possible packages in our dependency tree
 			var possiblePackages = new HashSet<SourcePackageDependencyInfo>(PackageIdentityComparer.Default);
 			foreach (var target in targets)
 			{
@@ -136,29 +125,19 @@ namespace TShockPluginManager
 			}
 
 			var resolverContext = new PackageResolverContext(
-				// select minimum possible versions
 				DependencyBehavior.Lowest,
-				// these are the packages the user wanted
 				targets.Select(x => x.Id),
-				// we don't hard-require anything
 				Enumerable.Empty<string>(),
-				// we don't have a lockfile
 				Enumerable.Empty<PackageReference>(),
-				// we don't have fancy versioning
 				Enumerable.Empty<PackageIdentity>(),
-				// these are the packages that we figured out are in the dependency tree from nuget
 				possiblePackages,
-				// all the package sources
 				SourceRepositoryProvider.GetRepositories().Select(s => s.PackageSource),
 				NullLogger.Instance
 			);
 
 			var resolver = new PackageResolver();
-			var packagesToInstall =
-				// get the resolved versioning info from the resolver
-				resolver.Resolve(resolverContext, CancellationToken.None)
-					// and use that to select the specific packages to install from the possible packages
-					.Select(p => possiblePackages.Single(x => PackageIdentityComparer.Default.Equals(x, p)));
+			var packagesToInstall = resolver.Resolve(resolverContext, CancellationToken.None)
+				.Select(p => possiblePackages.Single(x => PackageIdentityComparer.Default.Equals(x, p)));
 
 			return packagesToInstall;
 		}
@@ -195,16 +174,13 @@ namespace TShockPluginManager
 
 			PackageReaderBase packageReader;
 			string pkgPath;
-			// already installed?
 			if (PackagePathResolver.GetInstalledPath(pkg) is string path)
 			{
-				// we're gaming
 				packageReader = new PackageFolderReader(path);
 				pkgPath = path;
 			}
 			else
 			{
-				// gotta download it...
 				var downloadResource = await pkg.Source.GetResourceAsync<DownloadResource>(CancellationToken.None);
 				Console.WriteLine($"Downloading {pkg.Id}...");
 				var downloadResult = await downloadResource.GetDownloadResourceResultAsync(
@@ -214,7 +190,6 @@ namespace TShockPluginManager
 					NullLogger.Instance, CancellationToken.None);
 				packageReader = downloadResult.PackageReader;
 				Console.WriteLine($"Extracting {pkg.Id}...");
-				// and extract the package
 				await PackageExtractor.ExtractPackageAsync(
 					downloadResult.PackageSource,
 					downloadResult.PackageStream,
@@ -222,15 +197,8 @@ namespace TShockPluginManager
 					PackageExtractionContext,
 					CancellationToken.None);
 
-				if (PackagePathResolver.GetInstalledPath(pkg) is string loc)
-				{
-					pkgPath = loc;
-				}
-				else
-				{
-					pkgPath = null;
-					// die somehow
-				}
+				pkgPath = PackagePathResolver.GetInstalledPath(pkg)
+					?? throw new InvalidOperationException($"Package {pkg.Id} was extracted but its installation path could not be resolved.");
 			}
 			return (pkgPath, packageReader);
 		}
@@ -245,12 +213,9 @@ namespace TShockPluginManager
 		/// <summary>installs a locally downloaded package</summary>
 		public void InstallPackage(SourcePackageDependencyInfo pkg, string pkgPath, PackageReaderBase packageReader)
 		{
-			// objects to help us detect if packages already come with the .NET distribution
 			string[] runtimeAssemblies = Directory.GetFiles(RuntimeEnvironment.GetRuntimeDirectory(), "*.dll");
 			var paResolver = new PathAssemblyResolver(runtimeAssemblies);
 			using var mlc = new MetadataLoadContext(paResolver);
-
-			// packages can declare themselves as plugin via the TShockPlugin package type
 			var isPlugin = packageReader.NuspecReader.GetPackageTypes().Any(v => v.Name == "TShockPlugin");
 
 			Console.WriteLine($"Installing {pkg.Id}...");
@@ -261,13 +226,6 @@ namespace TShockPluginManager
 				if (item.Items.Count() == 0)
 					continue;
 
-				// the common ancestor directory of all files in the package.
-				// if a package has the following files:
-				// - /home/orwell/packages/FooBar/hi.dll
-				// - /home/orwell/packages/FooBar/en-US/hi.resources.dll
-				// - /home/orwell/packages/FooBar/de-DE/hi.resources.dll
-				// - /home/orwell/packages/FooBar/ar-AR/hi.resources.dll
-				// this will be /home/orwell/packages/FooBar
 				var rootmostPath = files
 					.Select(x => Path.Join(pkgPath, x))
 					.Aggregate(Path.GetDirectoryName(Path.Join(pkgPath, files.First())), (acc, x) =>
@@ -277,14 +235,9 @@ namespace TShockPluginManager
 
 				foreach (var file in files)
 				{
-					// the absolute path of the package on the filesystem
 					var filePath = Path.Join(pkgPath, file);
-					// the path of the package relative to the package root
 					var packageRelativeFilePath = filePath.Substring(rootmostPath!.Length);
 					bool alreadyExists;
-					// if it's a .dll, we try to detect if we already have the assemblies
-					// (e.g. because we bundle them in TShock.Server or the .NET runtime comes)
-					// with them
 					if (file.EndsWith(".dll"))
 					{
 						var asms = AppDomain.CurrentDomain.GetAssemblies();
@@ -293,7 +246,6 @@ namespace TShockPluginManager
 					}
 					else alreadyExists = false;
 
-					// if it already exists, skip. but only if it's not an explicitly requested plugin.
 					if (alreadyExists && !isPlugin)
 						continue;
 
