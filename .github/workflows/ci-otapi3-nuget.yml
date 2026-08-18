@@ -19,7 +19,7 @@ jobs:
       - name: Setup .NET
         uses: actions/setup-dotnet@v4
         with:
-          dotnet-version: 9.0.x
+          dotnet-version: 10.0.x
 
       - name: Add MonoMod source
         run: dotnet nuget add source https://pkgs.dev.azure.com/MonoMod/MonoMod/_packaging/DevBuilds%40Local/nuget/v3/index.json -n DevBuilds@Local
