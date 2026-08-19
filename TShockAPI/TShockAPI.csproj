@@ -48,6 +48,7 @@
   <ItemGroup>
     <ProjectReference Include="..\TerrariaServerAPI\TerrariaServerAPI\TerrariaServerAPI.csproj" />
     <ProjectReference Include="..\src\TShockNG.Contracts\TShockNG.Contracts.csproj" />
+    <ProjectReference Include="..\src\TShockNG.Core\TShockNG.Core.csproj" />
   </ItemGroup>
 
   <ItemGroup>
