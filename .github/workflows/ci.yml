@@ -29,13 +29,13 @@ jobs:
         run: dotnet nuget add source https://pkgs.dev.azure.com/MonoMod/MonoMod/_packaging/DevBuilds%40Local/nuget/v3/index.json -n DevBuilds@Local
 
       - name: Restore TSAPI
-        run: dotnet restore TerrariaServerAPI/TSAPI.sln
+        run: dotnet restore external/TSAPI/TSAPI.sln
 
       - name: Build TSAPI
-        run: dotnet build TerrariaServerAPI/TSAPI.sln --configuration Release --no-restore -warnaserror
+        run: dotnet build external/TSAPI/TSAPI.sln --configuration Release --no-restore -warnaserror
 
       - name: Test TSAPI
-        run: dotnet test TerrariaServerAPI/TSAPI.sln --configuration Release --no-build --filter "FullyQualifiedName!~TerrariaServerAPI.Tests.Benchmarks" --verbosity normal
+        run: dotnet test external/TSAPI/TSAPI.sln --configuration Release --no-build --filter "FullyQualifiedName!~TerrariaServerAPI.Tests.Benchmarks" --verbosity normal
 
   tshockng:
     name: TShockNG
@@ -83,4 +83,4 @@ jobs:
         run: dotnet test TShock.sln --configuration Release --no-build --verbosity normal
 
       - name: Pack TShockNG
-        run: dotnet pack TShockAPI/TShockAPI.csproj --configuration Release --no-build --output artifacts/nuget
+        run: dotnet pack src/TShockAPI/TShockAPI.csproj --configuration Release --no-build --output artifacts/nuget

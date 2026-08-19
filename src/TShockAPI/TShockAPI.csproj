@@ -46,19 +46,19 @@
   </ItemGroup>
 
   <ItemGroup>
-    <ProjectReference Include="..\TerrariaServerAPI\TerrariaServerAPI\TerrariaServerAPI.csproj" />
-    <ProjectReference Include="..\src\TShockNG.Contracts\TShockNG.Contracts.csproj" />
-    <ProjectReference Include="..\src\TShockNG.Core\TShockNG.Core.csproj" />
+    <ProjectReference Include="..\..\external\TSAPI\TerrariaServerAPI\TerrariaServerAPI.csproj" />
+    <ProjectReference Include="..\TShockNG.Contracts\TShockNG.Contracts.csproj" />
+    <ProjectReference Include="..\TShockNG.Core\TShockNG.Core.csproj" />
   </ItemGroup>
 
   <ItemGroup>
     <Reference Include="HttpServer">
-      <HintPath>..\prebuilts\HttpServer.dll</HintPath>
+      <HintPath>..\..\prebuilts\HttpServer.dll</HintPath>
     </Reference>
   </ItemGroup>
 
   <ItemGroup>
-    <None Include="..\prebuilts\HttpServer.dll">
+    <None Include="..\..\prebuilts\HttpServer.dll">
       <Link>HttpServer.dll</Link>
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
       <Pack>true</Pack>

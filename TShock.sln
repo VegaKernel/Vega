@@ -18,17 +18,17 @@ Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "Solution Items", "Solution 
 		SECURITY.md = SECURITY.md
 	EndProjectSection
 EndProject
-Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "TShockAPI", "TShockAPI\TShockAPI.csproj", "{49606449-072B-4CF5-8088-AA49DA586694}"
+Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "TShockAPI", "src\TShockAPI\TShockAPI.csproj", "{49606449-072B-4CF5-8088-AA49DA586694}"
 EndProject
-Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "TerrariaServerAPI", "TerrariaServerAPI\TerrariaServerAPI\TerrariaServerAPI.csproj", "{6877506E-ADC6-4142-98A6-79E4FA02855A}"
+Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "TerrariaServerAPI", "external\TSAPI\TerrariaServerAPI\TerrariaServerAPI.csproj", "{6877506E-ADC6-4142-98A6-79E4FA02855A}"
 EndProject
-Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "TShockLauncher", "TShockLauncher\TShockLauncher.csproj", "{2A312452-A43F-43E3-8AEB-E22F9A35C210}"
+Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "TShockLauncher", "src\TShockLauncher\TShockLauncher.csproj", "{2A312452-A43F-43E3-8AEB-E22F9A35C210}"
 EndProject
-Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "TShockLauncher.Tests", "TShockLauncher.Tests\TShockLauncher.Tests.csproj", "{90AB47F3-8220-48FC-BDAB-D6E97BFDA51B}"
+Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "TShockLauncher.Tests", "tests\TShockLauncher.Tests\TShockLauncher.Tests.csproj", "{90AB47F3-8220-48FC-BDAB-D6E97BFDA51B}"
 EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "TShockInstaller", "TShockInstaller\TShockInstaller.csproj", "{17AC4DD0-8334-4B5C-ABED-77EAF52D75FA}"
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "TShockInstaller", "src\TShockInstaller\TShockInstaller.csproj", "{17AC4DD0-8334-4B5C-ABED-77EAF52D75FA}"
 EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "TShockPluginManager", "TShockPluginManager\TShockPluginManager.csproj", "{9FFABC7D-B042-4B58-98F5-7FA787B9A757}"
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "TShockPluginManager", "src\TShockPluginManager\TShockPluginManager.csproj", "{9FFABC7D-B042-4B58-98F5-7FA787B9A757}"
 EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution

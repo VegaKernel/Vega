@@ -1,6 +1,6 @@
 # ADR 0007: Normalize repository layout after the .NET 10 baseline
 
-Status: Planned
+Status: Accepted
 
 ## Context
 
@@ -38,6 +38,8 @@ Dockerfile
 `TSAPI` remains a separate repository/submodule and therefore belongs under `external/`, not under `src/`.
 
 Repository-level files required by GitHub, Git, Docker, licensing, solution discovery, and contributors remain at the root. Documentation remains under `docs/`.
+
+Repository-wide assets and tooling that are not first-party product projects, including `i18n/`, `scripts/`, editor metadata, and CI/service configuration, remain at the root. The normalized boundary in this ADR separates first-party source, tests, and external repositories without relocating unrelated repository-wide assets.
 
 ## Migration requirements
 

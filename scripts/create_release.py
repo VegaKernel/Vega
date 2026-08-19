@@ -40,9 +40,9 @@ tshock_symbols = "TShockAPI.pdb"
 bcrypt_bin_name = "BCrypt.Net.dll"
 geoip_db_name = "GeoIP.dat"
 
-terraria_release_bin = os.path.join(cur_wd, "TerrariaServerAPI", "TerrariaServerAPI", "bin", "Release", terraria_bin_name)
-terraria_debug_bin = os.path.join(cur_wd, "TerrariaServerAPI", "TerrariaServerAPI", "bin", "Debug", terraria_bin_name)
-otapi_bin = os.path.join(cur_wd, "TerrariaServerAPI", "TerrariaServerAPI", "bin", "Release", otapi_bin_name)
+terraria_release_bin = os.path.join(cur_wd, "external", "TSAPI", "TerrariaServerAPI", "bin", "Release", terraria_bin_name)
+terraria_debug_bin = os.path.join(cur_wd, "external", "TSAPI", "TerrariaServerAPI", "bin", "Debug", terraria_bin_name)
+otapi_bin = os.path.join(cur_wd, "external", "TSAPI", "TerrariaServerAPI", "bin", "Release", otapi_bin_name)
 mysql_bin = os.path.join(cur_wd, "packages", "MySql.Data.6.9.8", "lib", "net45", mysql_bin_name)
 sqlite_dep = os.path.join(cur_wd, "prebuilts", sqlite_dep_name)
 sqlite_bin = os.path.join(cur_wd, "prebuilts", sqlite_bin_name)
@@ -50,8 +50,8 @@ http_bin = os.path.join(cur_wd, "prebuilts", http_bin_name)
 json_bin = os.path.join(cur_wd, "packages", "Newtonsoft.Json.10.0.3", "lib", "net45", json_bin_name)
 bcrypt_bin = os.path.join(cur_wd, "packages", "BCrypt.Net.0.1.0", "lib", "net35", bcrypt_bin_name)
 geoip_db = os.path.join(cur_wd, "prebuilts", geoip_db_name)
-release_bin = os.path.join(cur_wd, "TShockAPI", "bin", "Release", tshock_bin_name)
-debug_folder = os.path.join(cur_wd, "TShockAPI", "bin", "Debug")
+release_bin = os.path.join(cur_wd, "src", "TShockAPI", "bin", "Release", tshock_bin_name)
+debug_folder = os.path.join(cur_wd, "src", "TShockAPI", "bin", "Debug")
 
 
 def create_release_folder():
@@ -141,11 +141,11 @@ def update_terraria_source():
   subprocess.check_call(['/usr/bin/git', 'submodule', 'init'])
   subprocess.check_call(['/usr/bin/git', 'submodule', 'update'])
   subprocess.check_call(['nuget', 'restore'])
-  subprocess.check_call(['nuget', 'restore', 'TerrariaServerAPI/'])
+  subprocess.check_call(['nuget', 'restore', 'external/TSAPI/'])
 
 def run_bootstrapper():
   for build_config in ['Debug','Release'] :
-    mintaka = subprocess.Popen(['msbuild', './TerrariaServerAPI/TShock.4.OTAPI.sln', '/p:Configuration=' + build_config])
+    mintaka = subprocess.Popen(['msbuild', './external/TSAPI/TShock.4.OTAPI.sln', '/p:Configuration=' + build_config])
     
     mintaka.wait()
     
@@ -153,7 +153,7 @@ def run_bootstrapper():
       raise CalledProcessError(mintaka.returncode)
 
     # run the bootstrapper to generate the new OTAPI.dll
-    os.chdir('./TerrariaServerAPI/TShock.Modifications.Bootstrapper/bin/' + build_config)
+    os.chdir('./external/TSAPI/TShock.Modifications.Bootstrapper/bin/' + build_config)
     bootstrapper_proc = subprocess.Popen(['mono', 'TShock.Modifications.Bootstrapper.exe', '-in=OTAPI.dll', '-mod=../../../TShock.Modifications.**/bin/' + build_config + '/TShock.Modifications.*.dll', '-o=Output/OTAPI.dll'])
     os.chdir(cur_wd)
     
@@ -161,7 +161,7 @@ def run_bootstrapper():
     if (bootstrapper_proc.returncode != 0):
       raise CalledProcessError(bootstrapper_proc.returncode)
 
-    tsapi_proc = subprocess.Popen(['msbuild', './TerrariaServerAPI/TerrariaServerAPI/TerrariaServerAPI.csproj', '/p:Configuration=' + build_config])
+    tsapi_proc = subprocess.Popen(['msbuild', './external/TSAPI/TerrariaServerAPI/TerrariaServerAPI.csproj', '/p:Configuration=' + build_config])
     
     tsapi_proc.wait()
     
@@ -169,8 +169,8 @@ def run_bootstrapper():
       raise CalledProcessError(tsapi_proc.returncode)
 
 def build_software():
-  release_proc = subprocess.Popen(['msbuild', './TShockAPI/TShockAPI.csproj', '/p:Configuration=Release'])
-  debug_proc = subprocess.Popen(['msbuild', './TShockAPI/TShockAPI.csproj', '/p:Configuration=Debug'])
+  release_proc = subprocess.Popen(['msbuild', './src/TShockAPI/TShockAPI.csproj', '/p:Configuration=Release'])
+  debug_proc = subprocess.Popen(['msbuild', './src/TShockAPI/TShockAPI.csproj', '/p:Configuration=Debug'])
   release_proc.wait()
   debug_proc.wait()
   if (release_proc.returncode != 0):
