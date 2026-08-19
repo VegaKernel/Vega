@@ -21,11 +21,13 @@ The supported transition surface is deliberately narrow:
 
 Existing hook argument and `Command` types may be retained temporarily because plugins still need those concepts, but their concrete binary metadata is not frozen. Plugins are expected to rebuild when those types change.
 
-New core code continues to use `TShockNG.Contracts` and must not depend on `TShockAPI` types. The registration interfaces are plugin-entry boundaries, not a second implementation of command or event behavior.
+New Core code continues to use `TShockNG.Contracts` and must not depend on `TShockAPI` types. The registration interfaces are plugin-entry boundaries, not a second implementation of command or event behavior.
 
 No adapter, facade, assembly name, member layout or obsolete global is retained solely to load an old compiled plugin. Compatibility work must have a current source-level consumer or a concrete migration purpose.
 
-ADRs 0001 and 0005 are superseded by this decision.
+ADR 0001 is superseded by this decision.
+
+ADR 0005 is **not** superseded as an architecture. This ADR amends ADR 0005 only where the earlier revision required binary compatibility, frozen assembly/type identity, or a broad compatibility facade. The Contracts/Core/composition-root dependency direction and migration of behavior out of TShockAPI remain active.
 
 ## Consequences
 
