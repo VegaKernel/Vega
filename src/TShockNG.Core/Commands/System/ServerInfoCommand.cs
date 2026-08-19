@@ -1,4 +1,5 @@
 using TShockNG.Contracts.Commands;
+using TShockNG.Contracts.Messaging;
 using TShockNG.Contracts.Operations;
 
 namespace TShockNG.Core.Commands.System;
@@ -10,19 +11,18 @@ public sealed class ServerInfoCommand(IHostMetricsReader metricsReader) : IComma
         Array.Empty<string>(),
         ["tshock.info"]);
 
-    public async ValueTask<CommandExecutionResult> ExecuteAsync(
+    public ValueTask<CommandExecutionResult> ExecuteAsync(
         CommandInvocation invocation,
         CancellationToken cancellationToken)
     {
         HostMetricsSnapshot metrics = metricsReader.Read();
 
-        await invocation.Output.InfoAsync($"Memory usage: {metrics.WorkingSetBytes}", cancellationToken);
-        await invocation.Output.InfoAsync($"Allocated memory: {metrics.VirtualMemoryBytes}", cancellationToken);
-        await invocation.Output.InfoAsync($"Total processor time: {metrics.TotalProcessorTime}", cancellationToken);
-        await invocation.Output.InfoAsync($"Operating system: {metrics.OperatingSystem}", cancellationToken);
-        await invocation.Output.InfoAsync($"Proc count: {metrics.ProcessorCount}", cancellationToken);
-        await invocation.Output.InfoAsync($"Machine name: {metrics.MachineName}", cancellationToken);
-
-        return CommandExecutionResult.Success;
+        return ValueTask.FromResult(CommandExecutionResult.WithMessages(
+            MessageDescriptor.Info("command.serverinfo.memory", metrics.WorkingSetBytes),
+            MessageDescriptor.Info("command.serverinfo.virtual-memory", metrics.VirtualMemoryBytes),
+            MessageDescriptor.Info("command.serverinfo.processor-time", metrics.TotalProcessorTime),
+            MessageDescriptor.Info("command.serverinfo.operating-system", metrics.OperatingSystem),
+            MessageDescriptor.Info("command.serverinfo.processor-count", metrics.ProcessorCount),
+            MessageDescriptor.Info("command.serverinfo.machine-name", metrics.MachineName)));
     }
 }
