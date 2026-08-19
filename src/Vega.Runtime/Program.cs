@@ -1,6 +1,9 @@
 using System.Diagnostics;
 using System.Reflection;
 using TShockPluginManager;
+using Vega.Contracts.Events;
+using Vega.Contracts.Worlds;
+using Vega.Core.Events;
 using Vega.Terraria;
 
 var processStartedAt = Stopwatch.GetTimestamp();
@@ -63,5 +66,10 @@ async Task<int> StartAsync()
         return 0;
     }
 
-    return TerrariaServerHost.Run(args, processStartedAt);
+    // Explicit composition root: no assembly scanning or reflection-based handler discovery.
+    IEventPipeline<WorldHardmodeStarting> hardmodeStarting = new EventPipeline<WorldHardmodeStarting>(
+        Array.Empty<IEventHandler<WorldHardmodeStarting>>(),
+        Array.Empty<IEventMonitor<WorldHardmodeStarting>>());
+
+    return TerrariaServerHost.Run(args, processStartedAt, hardmodeStarting);
 }
