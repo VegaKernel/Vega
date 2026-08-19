@@ -148,7 +148,7 @@ public static class TerrariaServerHost
         TileID.Sets.Crimson[TileID.CrimsonGrass] = true;
         TileID.Sets.Crimson[TileID.FleshIce] = true;
         TileID.Sets.Crimson[TileID.CrimsonPlants] = true;
-        TileID.Sets.Crimstone] = true;
+        TileID.Sets.Crimson[TileID.Crimstone] = true;
         TileID.Sets.Crimson[TileID.Crimsand] = true;
         TileID.Sets.Crimson[TileID.CrimsonVines] = true;
         TileID.Sets.Crimson[TileID.CrimsonThorns] = true;
