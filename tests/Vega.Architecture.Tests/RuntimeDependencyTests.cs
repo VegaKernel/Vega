@@ -20,6 +20,28 @@ public sealed class RuntimeDependencyTests
         });
     }
 
+    [Test]
+    public void VegaTerraria_contains_TSAPI_usage_in_legacy_bridge_only()
+    {
+        var repositoryRoot = FindRepositoryRoot();
+        var terrariaDirectory = Path.Combine(repositoryRoot, "src", "Vega.Terraria");
+
+        var offenders = Directory
+            .EnumerateFiles(terrariaDirectory, "*.cs", SearchOption.AllDirectories)
+            .Where(path => !string.Equals(
+                Path.GetFileName(path),
+                "LegacyTsapiBridge.cs",
+                StringComparison.OrdinalIgnoreCase))
+            .Where(path => File.ReadAllText(path).Contains("TerrariaApi.Server", StringComparison.Ordinal))
+            .Select(path => Path.GetRelativePath(repositoryRoot, path))
+            .ToArray();
+
+        Assert.That(
+            offenders,
+            Is.Empty,
+            $"TSAPI is transitional and must remain isolated to LegacyTsapiBridge. Offenders: {string.Join(", ", offenders)}");
+    }
+
     private static string FindRepositoryRoot()
     {
         foreach (var start in new[] { Directory.GetCurrentDirectory(), AppContext.BaseDirectory })
