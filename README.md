@@ -19,7 +19,7 @@ This is the readme for TShock developers and hackers. We're building out new [TS
 
 If you want to contribute to TShock by sending a pull request or customize it to suit your own sparkly desires, this is the best starting point. By the end of this, you'll be able to build TShock from source, start to finish. More than that, though, you'll know how to start on the path of becoming an expert TShock developer.
 
-This guide works assuming that you have the [.NET 9 SDK](https://dotnet.microsoft.com/en-us/download/dotnet/9.0) installed and that you're familiar with the command line. If that doesn't describe you, you should be able to accomplish the same thing using Visual Studio 2022 or Visual Studio Code.
+This guide works assuming that you have the [.NET 10 SDK](https://dotnet.microsoft.com/en-us/download/dotnet/10.0) installed and that you're familiar with the command line. If that doesn't describe you, you should be able to accomplish the same thing using Visual Studio 2022 or Visual Studio Code.
 
 1. Clone the repository: `git clone https://github.com/Pryaxis/TShock.git --recurse-submodules`
 1. `cd TShock` to enter the repo.
@@ -27,14 +27,14 @@ This guide works assuming that you have the [.NET 9 SDK](https://dotnet.microsof
 
 If you want to run the `TShockLauncher` (which runs a server), run:
 
-1. `dotnet run --project TShockLauncher`
+1. `dotnet run --project src/TShockLauncher`
 
 To produce a packaged release (suitable for distribution), run:
 
-1. `cd TShockLauncher`
-1. `dotnet publish -r win-x64 -f net9.0 -c Release -p:PublishSingleFile=true --self-contained false`
+1. `cd src/TShockLauncher`
+1. `dotnet publish -r win-x64 -f net10.0 -c Release -p:PublishSingleFile=true --self-contained false`
 
-Note that in this example, you'd be building for `win-x64`. You can build for `win-x64`, `osx-x64`, `linux-x64`, `linux-arm64`, `linux-arm`. Your release will be in the `TShockLauncher/bin/Release/net9.0/` folder under the architecture you specified.
+Note that in this example, you'd be building for `win-x64`. You can build for `win-x64`, `osx-x64`, `linux-x64`, `linux-arm64`, `linux-arm`. Your release will be in the `src/TShockLauncher/bin/Release/net10.0/` folder under the architecture you specified.
 
 ### Working with Terraria
 

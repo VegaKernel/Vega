@@ -12,17 +12,17 @@
 	</PropertyGroup>
 
 	<ItemGroup>
-		<ProjectReference Include="..\TerrariaServerAPI\TerrariaServerAPI\TerrariaServerAPI.csproj" ExcludeFromSingleFile="true" />
+		<ProjectReference Include="..\..\external\TSAPI\TerrariaServerAPI\TerrariaServerAPI.csproj" ExcludeFromSingleFile="true" />
 		<ProjectReference Include="..\TShockAPI\TShockAPI.csproj" ExcludeFromSingleFile="true" ReferenceOutputAssembly="false" />
 		<ProjectReference Include="..\TShockPluginManager\TShockPluginManager.csproj"/>
-		<ProjectReference Include="..\src\TShockNG.Core\TShockNG.Core.csproj" />
+		<ProjectReference Include="..\TShockNG.Core\TShockNG.Core.csproj" />
 		<Reference Include="HttpServer" ExcludeFromSingleFile="true">
-			<HintPath>..\prebuilts\HttpServer.dll</HintPath>
+			<HintPath>..\..\prebuilts\HttpServer.dll</HintPath>
 		</Reference>
 	</ItemGroup>
 
 	<ItemGroup>
-		<None Include="..\prebuilts\GeoIP.dat">
+		<None Include="..\..\prebuilts\GeoIP.dat">
 		  <Link>GeoIP.dat</Link>
 		  <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
 		  <ExcludeFromSingleFile>true</ExcludeFromSingleFile>
@@ -84,10 +84,10 @@
 		Name="GenerateMOFiles"
 		DependsOnTargets="CheckMsgfmtCallable"
 		AfterTargets="PostBuildEvent;Publish"
-		Inputs="..\i18n\**\*.po"
+		Inputs="..\..\i18n\**\*.po"
 		Outputs="$(OutDir)i18n\**\*.mo">
 		<ItemGroup Condition="'$(MsgfmtExitCode)' == '0'">
-			<POFiles Include="..\i18n\**\*.po" />
+			<POFiles Include="..\..\i18n\**\*.po" />
 		</ItemGroup>
 		<MakeDir Directories="$(OutDir)i18n/%(POFiles.RecursiveDir)" Condition="'$(MsgfmtExitCode)' == '0'" />
 		<Exec Command="msgfmt -o $(OutDir)i18n/%(RecursiveDir)%(Filename).mo @(POFiles)" Outputs="$(OutDir)i18n\**\*.mo" Condition="'$(MsgfmtExitCode)' == '0'">

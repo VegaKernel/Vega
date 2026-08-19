@@ -9,6 +9,7 @@
 - [x] Add the published `TZ.Multiplicity` package as a pinned NuGet dependency for TShockAPI.
 - [x] Upgrade `TZ.Multiplicity` to `2.6.0` for Terraria protocol 319.
 - [x] Establish clean CI on the TShockNG organization repositories.
+- [x] Normalize first-party source, tests, and external repository layout (ADR 0007).
 
 ## Phase 1 — typed packet pipeline
 

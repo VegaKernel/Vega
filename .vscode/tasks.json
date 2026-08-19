@@ -16,7 +16,7 @@
         {
             "label": "Publish",
             "options": {
-                "cwd": "TShockLauncher"
+                "cwd": "src/TShockLauncher"
             },
             "command": "dotnet",
             "type": "process",
@@ -35,7 +35,7 @@
         {
             "label": "Remote Publish",
             "options": {
-                "cwd": "TShockLauncher/bin/Debug/net9.0/linux-arm64"
+                "cwd": "src/TShockLauncher/bin/Debug/net10.0/linux-arm64"
             },
             "command": "C:\\Program Files\\PuTTY\\pscp.exe",
             "type": "process",

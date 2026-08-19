@@ -12,7 +12,7 @@ COPY . ./
 
 # Build and package release based on target architecture
 RUN dotnet build -v m
-WORKDIR /TShock/TShockLauncher
+WORKDIR /TShock/src/TShockLauncher
 
 # Make TARGETPLATFORM available to the container.
 ARG TARGETPLATFORM
@@ -39,7 +39,7 @@ FROM mcr.microsoft.com/dotnet/runtime:10.0-nanoserver-ltsc2022 AS windows_base
 FROM ${TARGETOS}_base AS final
 
 WORKDIR /server
-COPY --from=builder /TShock/TShockLauncher/output ./
+COPY --from=builder /TShock/src/TShockLauncher/output ./
 
 VOLUME ["/tshock", "/worlds", "/plugins"]
 EXPOSE 7777 7878
