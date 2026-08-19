@@ -1,5 +1,6 @@
 using NUnit.Framework;
 using TShockNG.Contracts.Commands;
+using TShockNG.Contracts.Worlds;
 using TShockNG.Core.Commands;
 
 namespace TShockLauncher.Tests.Core;
@@ -18,6 +19,30 @@ public sealed class CommandDispatcherTests
 
         Assert.That(result.Status, Is.EqualTo(CommandExecutionStatus.Success));
         Assert.That(handler.ExecutionCount, Is.EqualTo(1));
+    }
+
+    [Test]
+    public async Task DefaultsLegacyInvocationToPrimaryWorld()
+    {
+        var handler = new FakeHandler(new CommandDescriptor("alpha", [], []));
+        var dispatcher = new CommandDispatcher([handler]);
+
+        await dispatcher.DispatchAsync(CreateInvocation("alpha"));
+
+        Assert.That(handler.LastWorldId, Is.EqualTo(WorldId.Primary));
+    }
+
+    [Test]
+    public async Task PreservesExplicitWorldIdentity()
+    {
+        var handler = new FakeHandler(new CommandDescriptor("alpha", [], []));
+        var dispatcher = new CommandDispatcher([handler]);
+        var worldId = new WorldId("sandbox-42");
+        var invocation = CreateInvocation("alpha") with { WorldId = worldId };
+
+        await dispatcher.DispatchAsync(invocation);
+
+        Assert.That(handler.LastWorldId, Is.EqualTo(worldId));
     }
 
     [Test]
@@ -64,12 +89,14 @@ public sealed class CommandDispatcherTests
     {
         public CommandDescriptor Descriptor { get; } = descriptor;
         public int ExecutionCount { get; private set; }
+        public WorldId? LastWorldId { get; private set; }
 
         public ValueTask<CommandExecutionResult> ExecuteAsync(
             CommandInvocation invocation,
             CancellationToken cancellationToken)
         {
             ExecutionCount++;
+            LastWorldId = invocation.WorldId;
             return ValueTask.FromResult(CommandExecutionResult.Success);
         }
     }
