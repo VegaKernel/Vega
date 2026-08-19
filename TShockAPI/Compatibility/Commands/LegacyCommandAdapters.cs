@@ -1,3 +1,5 @@
+using System.Threading;
+using System.Threading.Tasks;
 using TShockNG.Contracts.Commands;
 
 namespace TShockAPI.Compatibility.Commands;
