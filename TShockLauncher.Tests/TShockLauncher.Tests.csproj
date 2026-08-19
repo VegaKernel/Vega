@@ -23,6 +23,7 @@
   <ItemGroup>
     <ProjectReference Include="..\TShockAPI\TShockAPI.csproj" />
     <ProjectReference Include="..\TShockLauncher\TShockLauncher.csproj" />
+    <ProjectReference Include="..\src\TShockNG.Core\TShockNG.Core.csproj" />
   </ItemGroup>
 
 </Project>
