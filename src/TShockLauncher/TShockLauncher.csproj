@@ -17,17 +17,10 @@
 		<ProjectReference Include="..\TShockPluginManager\TShockPluginManager.csproj"/>
 		<ProjectReference Include="..\TShockNG.Core\TShockNG.Core.csproj" />
 		<Reference Include="HttpServer" ExcludeFromSingleFile="true">
-			<HintPath>..\..\prebuilts\HttpServer.dll</HintPath>
+			<HintPath>..\..\external\legacy\HttpServer.dll</HintPath>
 		</Reference>
 	</ItemGroup>
 
-	<ItemGroup>
-		<None Include="..\..\prebuilts\GeoIP.dat">
-		  <Link>GeoIP.dat</Link>
-		  <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
-		  <ExcludeFromSingleFile>true</ExcludeFromSingleFile>
-		</None>
-	</ItemGroup>
 
 	<ItemGroup>
 		<PackageReference Include="BCrypt.Net-Next" Version="4.2.0" />
@@ -112,13 +105,13 @@
 	</Target>
 	<Target Name="MoveDevBin" AfterTargets="PostBuildEvent">
 		<ItemGroup>
-			<MoveBinaries Include="$(OutDir)*" Exclude="$(OutDir)\TShock.Server*;$(OutDir)\GeoIP.dat" />
+			<MoveBinaries Include="$(OutDir)*" Exclude="$(OutDir)\TShock.Server*" />
 		</ItemGroup>
 		<Move SourceFiles="@(MoveBinaries)" DestinationFolder="$(OutDir)bin" ContinueOnError="true" />
 	</Target>
 	<Target Name="MovePublishBin" AfterTargets="Publish">
 		<ItemGroup>
-			<MoveBinaries Include="$(PublishDir)*" Exclude="$(PublishDir)\TShock.Server*;$(PublishDir)\GeoIP.dat" />
+			<MoveBinaries Include="$(PublishDir)*" Exclude="$(PublishDir)\TShock.Server*" />
 		</ItemGroup>
 		<Move SourceFiles="@(MoveBinaries)" DestinationFolder="$(PublishDir)bin" ContinueOnError="true" />
 	</Target>

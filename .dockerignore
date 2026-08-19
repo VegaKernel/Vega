@@ -1,20 +1,13 @@
-# Ignore all Git metadata and build output (in all directories).
+# Git metadata and build output.
 **/.git*
 **/bin/
 **/obj/
 
-# Ignore other specific files that aren't needed for the build itself.
-/.all-contributorsrc
+# Repository metadata and documentation not required by the image build.
 /.dockerignore
 /.editorconfig
 /.vscode
-/appveyor.yml
 /COPYING
-/crowdin.yml
 /Dockerfile
 /docs
-/README.md
-/README_cn.md
-/renovate.json
-/scripts
-/SECURITY.md
+/README*.md
