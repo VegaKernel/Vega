@@ -109,6 +109,22 @@ TShockNG should not embed the existing plugin as-is. Its behavior should inform 
 
 This creates a path from current one-world fake scenes to future real sandbox worlds without forcing Core callers to depend directly on `Main.tile`.
 
+### Client platform and connection metadata
+
+`TerraZ-Team/ClientPlatformDetector` demonstrates that Terraria already exposes platform information through the normal `PlayerPlatformInfo` packet. This should become first-class connection/player metadata instead of requiring a separate plugin and ad-hoc extension state on `TSPlayer`.
+
+Requirements:
+
+- parse platform information through the typed packet pipeline rather than manually repositioning a shared `BinaryReader`;
+- associate the reported platform with the authenticated connection/player identity only when the packet's player slot matches the sending connection;
+- represent platform as a typed value with an explicit `Unknown` state;
+- absence of `PlayerPlatformInfo` must not be promoted to a proven `PC` platform; heuristics/fallback guesses, if retained for compatibility, must remain distinguishable from confirmed client-reported metadata;
+- expose confirmed/unknown platform through immutable player/connection snapshots and the modern player metadata contracts;
+- surface platform in administrative player-info commands and Terminal.Gui player details without making authorization or security decisions solely from the client-reported platform;
+- keep the model extensible for future client capability/version metadata without adding more fields directly to legacy `TSPlayer`.
+
+The legacy `/platform <player>` behavior may be preserved as a compatibility command while its data source moves into Core.
+
 ### SSC and Dimensions connection sequencing
 
 `TerraZ-Team/SSCHealthFix` demonstrates a sequencing bug between Dimensions packet queuing and TShock SSC restore: a queued pre-login `PlayerHealth` packet can be replayed after SSC state has been restored and overwrite authoritative max HP.
@@ -161,6 +177,7 @@ The operations UI described by ADR 0010 should consume Core snapshots rather tha
 - packet validation/rate-limit counters;
 - active world/sandbox/scene/provider information;
 - player world/visibility scope;
+- client platform/capability metadata with confirmed-vs-unknown state;
 - security and connection metadata without exposing secret credentials.
 
 ## Migration approach
@@ -179,3 +196,4 @@ The operations UI described by ADR 0010 should consume Core snapshots rather tha
 - World/sandbox work can reuse lessons from FakeProvider rather than rediscovering layered visibility and tile-provider problems later.
 - TPS/time behavior becomes world-aware and observable through the same operations model used by Terminal.Gui.
 - PacketGuard and other guards converge toward one typed validation pipeline rather than accumulating overlapping hooks.
+- Client platform information becomes structured connection metadata instead of plugin-local mutable state.
