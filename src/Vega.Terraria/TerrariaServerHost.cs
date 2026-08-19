@@ -1,6 +1,8 @@
 using ReLogic.OS;
 using Terraria.ID;
+using Vega.Contracts.Events;
 using Vega.Contracts.Runtime;
+using Vega.Contracts.Worlds;
 using Vega.Terraria.Hooking;
 using Vega.Terraria.Threading;
 
@@ -11,9 +13,13 @@ namespace Vega.Terraria;
 /// </summary>
 public static class TerrariaServerHost
 {
-    public static int Run(string[] args, long processStartedAt)
+    public static int Run(
+        string[] args,
+        long processStartedAt,
+        IEventPipeline<WorldHardmodeStarting> hardmodeStarting)
     {
         ArgumentNullException.ThrowIfNull(args);
+        ArgumentNullException.ThrowIfNull(hardmodeStarting);
 
         var lifecycle = new RuntimeLifecycleTracker(processStartedAt);
         lifecycle.Transitioned += ReportLifecycleTransition;
@@ -24,6 +30,7 @@ public static class TerrariaServerHost
 
         using var nativeLifecycleHooks = new NativeLifecycleHooks(lifecycle);
         using var gameThreadDispatcher = new OtapiGameThreadDispatcher();
+        using var worldDecisionHooks = new NativeWorldDecisionHooks(hardmodeStarting);
 
         try
         {
@@ -32,9 +39,10 @@ public static class TerrariaServerHost
 
             nativeLifecycleHooks.Attach();
             gameThreadDispatcher.Attach();
+            worldDecisionHooks.Attach();
 
             // Temporary seam: legacy TShockAPI still receives its historical TSAPI events.
-            // Vega readiness and game-thread scheduling no longer depend on that layer.
+            // Vega readiness, game-thread scheduling and native decision hooks no longer depend on that layer.
             LegacyTsapiBridge.AttachHooks(args);
             legacyHooksAttached = true;
 
