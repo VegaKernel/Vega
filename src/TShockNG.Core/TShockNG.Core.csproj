@@ -9,18 +9,10 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <PackageReference Include="BCrypt.Net-Next" Version="4.2.0" Aliases="BCrypt" />
-    <PackageReference Include="GetText.NET" Version="10.0.1" />
     <PackageReference Include="MaxMind.GeoIP2" Version="6.1.0" />
-    <PackageReference Include="Microsoft.Data.Sqlite" Version="10.0.10" />
-    <PackageReference Include="MySql.Data" Version="26.7.0" />
-    <PackageReference Include="Npgsql" Version="10.0.3" />
-    <PackageReference Include="SQLitePCLRaw.bundle_e_sqlite3" Version="3.0.5" />
-    <PackageReference Include="TZ.Multiplicity" Version="2.6.0" />
   </ItemGroup>
 
   <ItemGroup>
-    <ProjectReference Include="..\..\external\TSAPI\TerrariaServerAPI\TerrariaServerAPI.csproj" />
     <ProjectReference Include="..\TShockNG.Contracts\TShockNG.Contracts.csproj" />
   </ItemGroup>
 
