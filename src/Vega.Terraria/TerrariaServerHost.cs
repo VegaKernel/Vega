@@ -1,6 +1,7 @@
-using System.Diagnostics;
 using ReLogic.OS;
 using Terraria.ID;
+using Vega.Contracts.Runtime;
+using Vega.Terraria.Hooking;
 
 namespace Vega.Terraria;
 
@@ -9,32 +10,42 @@ namespace Vega.Terraria;
 /// </summary>
 public static class TerrariaServerHost
 {
-    public static int Run(string[] args)
+    public static int Run(string[] args, long processStartedAt)
     {
         ArgumentNullException.ThrowIfNull(args);
 
+        var lifecycle = new RuntimeLifecycleTracker(processStartedAt);
+        lifecycle.Transitioned += ReportLifecycleTransition;
+        lifecycle.Advance(RuntimeLifecycleStage.Bootstrap);
+
         AppDomain.CurrentDomain.UnhandledException += OnUnhandledException;
-        var bootstrapStarted = Stopwatch.GetTimestamp();
         var legacyHooksAttached = false;
+
+        using var nativeLifecycleHooks = new NativeLifecycleHooks(lifecycle);
 
         try
         {
             PrepareSavePath(args);
             InitialiseTerrariaInternals();
 
-            // Temporary seam: only hook dispatch/deinitialization still comes from TSAPI.
-            // The process bootstrap itself is now owned by Vega.Terraria.
+            nativeLifecycleHooks.Attach();
+
+            // Temporary seam: legacy TShockAPI still receives its historical TSAPI events.
+            // Vega readiness and process bootstrap are no longer sourced from that layer.
             LegacyTsapiBridge.AttachHooks(args);
             legacyHooksAttached = true;
 
-            Console.WriteLine(
-                $"Vega Terraria bootstrap ready in {Stopwatch.GetElapsedTime(bootstrapStarted).TotalMilliseconds:F1} ms");
+            lifecycle.Advance(RuntimeLifecycleStage.RuntimeReady);
+
+            // No Vega-native module loader exists yet, so registration is an empty bounded stage.
+            lifecycle.Advance(RuntimeLifecycleStage.ModulesRegistered);
 
             if (args.Any(static arg => string.Equals(arg, "-skipassemblyload", StringComparison.OrdinalIgnoreCase)))
             {
                 global::Terraria.Main.SkipAssemblyLoad = true;
             }
 
+            lifecycle.Advance(RuntimeLifecycleStage.WorldLoading);
             global::Terraria.WindowsLaunch.Main(args);
             return 0;
         }
@@ -50,7 +61,35 @@ public static class TerrariaServerHost
                 LegacyTsapiBridge.Shutdown();
             }
 
+            lifecycle.Transitioned -= ReportLifecycleTransition;
             AppDomain.CurrentDomain.UnhandledException -= OnUnhandledException;
+        }
+    }
+
+    private static void ReportLifecycleTransition(RuntimeLifecycleTransition transition)
+    {
+        Console.WriteLine(
+            $"Vega {transition.Stage,-18} {transition.Elapsed.TotalMilliseconds,8:F1} ms " +
+            $"(+{transition.StageDuration.TotalMilliseconds:F1} ms)");
+
+        if (transition.Stage == RuntimeLifecycleStage.RuntimeReady &&
+            transition.StageDuration > TimeSpan.FromMilliseconds(100))
+        {
+            Console.Error.WriteLine(
+                $"Vega startup budget warning: bootstrap took {transition.StageDuration.TotalMilliseconds:F1} ms (> 100 ms).");
+        }
+
+        if (transition.Stage == RuntimeLifecycleStage.WorldLoading &&
+            transition.Elapsed > TimeSpan.FromMilliseconds(300))
+        {
+            Console.Error.WriteLine(
+                $"Vega startup budget warning: pre-world overhead reached {transition.Elapsed.TotalMilliseconds:F1} ms (> 300 ms).");
+        }
+
+        if (transition.Stage == RuntimeLifecycleStage.WorldReady)
+        {
+            Console.WriteLine(
+                $"Terraria world load       {transition.StageDuration.TotalMilliseconds,8:F1} ms");
         }
     }
 
