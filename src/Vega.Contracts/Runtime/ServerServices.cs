@@ -22,7 +22,9 @@ public sealed record ServerServices(
     ICommandDispatcher Commands,
     IIpMetadataProviderFactory IpMetadata,
     IPlayerCultureService Cultures,
-    IPlayerService Players,
+    IPlayerDirectory Players,
+    IPlayerOperations PlayerOperations,
+    IPlayerMessenger PlayerMessenger,
     IRegionService Regions,
     IUpdateChecker Updates,
     IWorldService World);
