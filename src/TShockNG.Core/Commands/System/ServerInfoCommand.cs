@@ -8,7 +8,7 @@ public sealed class ServerInfoCommand(IHostMetricsReader metricsReader) : IComma
     public CommandDescriptor Descriptor { get; } = new(
         "serverinfo",
         Array.Empty<string>(),
-        ["tshock.cfg.serverinfo"]);
+        ["tshock.info"]);
 
     public async ValueTask<CommandExecutionResult> ExecuteAsync(
         CommandInvocation invocation,
