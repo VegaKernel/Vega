@@ -1,3 +1,5 @@
+using TShockNG.Contracts.Worlds;
+
 namespace TShockNG.Contracts.Commands;
 
 public sealed record CommandInvocation(
@@ -5,7 +7,13 @@ public sealed record CommandInvocation(
     IReadOnlyList<string> Arguments,
     ICommandPrincipal Principal,
     ICommandOutput Output,
-    bool Silent = false);
+    bool Silent = false)
+{
+    /// <summary>
+    /// World in which this command is being executed. Legacy callers default to the primary world.
+    /// </summary>
+    public WorldId WorldId { get; init; } = WorldId.Primary;
+}
 
 public interface ICommandPrincipal
 {
