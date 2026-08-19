@@ -7,27 +7,12 @@
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
     <GenerateDocumentationFile>True</GenerateDocumentationFile>
     <NoWarn>$(NoWarn);1572;1573;1574;1587;1591</NoWarn>
-    <!--
-      Version information for an assembly consists of the following four values:
-
-          Major Version
-          Minor Version
-          Build Number
-          Starting in version 4.2.5, we are no longer including the fourth decimal
-          location, which previously held the date and time.
-
-      Also, be sure to release on github with the exact assembly version tag as below
-      so that the update manager works correctly (via the Github releases api and mimic)
-    -->
     <Version>6.1.0</Version>
-    <!-- PackageVersion may advance independently from the compatibility-facing
-         assembly/API version. -->
     <PackageVersion>6.1.1</PackageVersion>
     <AssemblyTitle>TShock for Terraria</AssemblyTitle>
     <Company>TShock Contributors</Company>
     <Product>TShockAPI</Product>
     <Copyright>Copyright © TShock Contributors 2011-2026</Copyright>
-    <!-- NuGet identity is intentionally independent from the assembly identity. -->
     <GeneratePackageOnBuild>True</GeneratePackageOnBuild>
     <PackageLicenseExpression>GPL-3.0-or-later</PackageLicenseExpression>
     <Authors>TShockNG Contributors</Authors>
@@ -49,6 +34,35 @@
     <ProjectReference Include="..\..\external\TSAPI\TerrariaServerAPI\TerrariaServerAPI.csproj" />
     <ProjectReference Include="..\TShockNG.Contracts\TShockNG.Contracts.csproj" />
     <ProjectReference Include="..\TShockNG.Core\TShockNG.Core.csproj" />
+  </ItemGroup>
+
+  <!--
+    Transitional migration bridge. The source files below have moved to their
+    target ownership directories, but still depend on plugin-facing TShockAPI
+    models such as TSPlayer/TShock/hooks. Compile them here until those
+    dependencies are replaced by Contracts/Core boundaries. This keeps the
+    dependency graph one-way and avoids Core referencing TShockAPI.
+  -->
+  <ItemGroup>
+    <Compile Include="..\TShockNG.Core\Accounts\**\*.cs" LinkBase="Migration\Core\Accounts" />
+    <Compile Include="..\TShockNG.Core\Authorization\**\*.cs" LinkBase="Migration\Core\Authorization" />
+    <Compile Include="..\TShockNG.Core\Bans\**\*.cs" LinkBase="Migration\Core\Bans" />
+    <Compile Include="..\TShockNG.Core\Commands\LegacyMonolith\**\*.cs" LinkBase="Migration\Core\Commands" />
+    <Compile Include="..\TShockNG.Core\Infrastructure\Legacy\**\*.cs" LinkBase="Migration\Core\Infrastructure" />
+    <Compile Include="..\TShockNG.Core\Legacy\**\*.cs" LinkBase="Migration\Core\Legacy" />
+    <Compile Include="..\TShockNG.Core\Localization\Legacy\**\*.cs" LinkBase="Migration\Core\Localization" />
+    <Compile Include="..\TShockNG.Core\Logging\Legacy\**\*.cs" LinkBase="Migration\Core\Logging" />
+    <Compile Include="..\TShockNG.Core\Networking\Legacy\**\*.cs" LinkBase="Migration\Core\Networking" />
+    <Compile Include="..\TShockNG.Core\Persistence\**\*.cs" LinkBase="Migration\Core\Persistence" />
+    <Compile Include="..\TShockNG.Core\Players\Legacy\**\*.cs" LinkBase="Migration\Core\Players" />
+    <Compile Include="..\TShockNG.Core\Players\Persistence\**\*.cs" LinkBase="Migration\Core\Players" />
+    <Compile Include="..\TShockNG.Core\Regions\**\*.cs" LinkBase="Migration\Core\Regions" />
+    <Compile Include="..\TShockNG.Core\Restrictions\**\*.cs" LinkBase="Migration\Core\Restrictions" />
+    <Compile Include="..\TShockNG.Core\Security\**\*.cs" LinkBase="Migration\Core\Security" />
+    <Compile Include="..\TShockNG.Core\Updates\Legacy\**\*.cs" LinkBase="Migration\Core\Updates" />
+    <Compile Include="..\TShockNG.Core\Worlds\**\*.cs" LinkBase="Migration\Core\Worlds" />
+    <Compile Include="..\TShockLauncher\CLI\Legacy\**\*.cs" LinkBase="Migration\Launcher\CLI" />
+    <Compile Include="..\TShockLauncher\Networking\LegacySockets\**\*.cs" LinkBase="Migration\Launcher\Networking" />
   </ItemGroup>
 
   <ItemGroup>

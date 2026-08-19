@@ -1,0 +1,11 @@
+<Project>
+  <!--
+    These sources have moved to Launcher ownership but are still compiled by
+    TShockAPI through the ADR 0005 migration bridge until host-facing types are
+    detached from the legacy plugin assembly.
+  -->
+  <ItemGroup>
+    <Compile Remove="CLI\Legacy\**\*.cs" />
+    <Compile Remove="Networking\LegacySockets\**\*.cs" />
+  </ItemGroup>
+</Project>
