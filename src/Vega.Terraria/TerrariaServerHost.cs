@@ -2,6 +2,7 @@ using ReLogic.OS;
 using Terraria.ID;
 using Vega.Contracts.Runtime;
 using Vega.Terraria.Hooking;
+using Vega.Terraria.Threading;
 
 namespace Vega.Terraria;
 
@@ -22,6 +23,7 @@ public static class TerrariaServerHost
         var legacyHooksAttached = false;
 
         using var nativeLifecycleHooks = new NativeLifecycleHooks(lifecycle);
+        using var gameThreadDispatcher = new OtapiGameThreadDispatcher();
 
         try
         {
@@ -29,9 +31,10 @@ public static class TerrariaServerHost
             InitialiseTerrariaInternals();
 
             nativeLifecycleHooks.Attach();
+            gameThreadDispatcher.Attach();
 
             // Temporary seam: legacy TShockAPI still receives its historical TSAPI events.
-            // Vega readiness and process bootstrap are no longer sourced from that layer.
+            // Vega readiness and game-thread scheduling no longer depend on that layer.
             LegacyTsapiBridge.AttachHooks(args);
             legacyHooksAttached = true;
 
