@@ -41,7 +41,8 @@ public sealed class StructuredCommandOutputTests
 
         Assert.That(result.Status, Is.EqualTo(CommandExecutionStatus.Success));
         Assert.That(result.Messages, Has.Count.EqualTo(1));
-        Assert.That(result.Messages![0], Is.EqualTo(MessageDescriptor.Info("command.checkupdates.queued")));
+        Assert.That(result.Messages![0].Key, Is.EqualTo("command.checkupdates.queued"));
+        Assert.That(result.Messages[0].Severity, Is.EqualTo(MessageSeverity.Info));
     }
 
     private static CommandInvocation CreateInvocation() =>
@@ -54,7 +55,7 @@ public sealed class StructuredCommandOutputTests
 
     private sealed class SuccessfulUpdateChecker : IUpdateChecker
     {
-        public ValueTask CheckAsync(CancellationToken cancellationToken = default) => ValueTask.CompletedTask;
+        public Task CheckAsync(CancellationToken cancellationToken = default) => Task.CompletedTask;
     }
 
     private sealed class StubPrincipal : ICommandPrincipal
