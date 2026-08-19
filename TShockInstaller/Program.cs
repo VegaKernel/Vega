@@ -1,14 +1,10 @@
 ﻿using System.Diagnostics;
+using System.Formats.Tar;
 using System.IO.Compression;
 using System.Runtime.InteropServices;
-using ICSharpCode.SharpZipLib.GZip;
-using ICSharpCode.SharpZipLib.Tar;
 
 Console.ForegroundColor = ConsoleColor.White;
 Console.WriteLine($"TShock Installer {typeof(Program).Assembly.GetName().Version}.");
-
-// reference: https://github.com/dotnet/install-scripts/blob/main/src/dotnet-install.sh
-// ./dotnet-install.sh -verbose -version 6.0.11 --runtime dotnet
 
 Console.WriteLine("Determining dotnet runtime url...");
 
@@ -25,17 +21,18 @@ if (arch is null)
 	return;
 }
 
+const string runtimeVersion = "10.0.11";
 string? url = null;
 if (RuntimeInformation.IsOSPlatform(OSPlatform.OSX))
-	url = $"https://dotnetcli.azureedge.net/dotnet/Runtime/9.0.0/dotnet-runtime-9.0.0-osx-{arch}.tar.gz";
+	url = $"https://dotnetcli.azureedge.net/dotnet/Runtime/{runtimeVersion}/dotnet-runtime-{runtimeVersion}-osx-{arch}.tar.gz";
 else if (RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
-	url = $"https://dotnetcli.azureedge.net/dotnet/Runtime/9.0.0/dotnet-runtime-9.0.0-win-{arch}.zip";
+	url = $"https://dotnetcli.azureedge.net/dotnet/Runtime/{runtimeVersion}/dotnet-runtime-{runtimeVersion}-win-{arch}.zip";
 else if (RuntimeInformation.IsOSPlatform(OSPlatform.Linux))
-	url = $"https://dotnetcli.azureedge.net/dotnet/Runtime/9.0.0/dotnet-runtime-9.0.0-linux-{arch}.tar.gz";
+	url = $"https://dotnetcli.azureedge.net/dotnet/Runtime/{runtimeVersion}/dotnet-runtime-{runtimeVersion}-linux-{arch}.tar.gz";
 
-if(url is null)
+if (url is null)
 {
-	Console.WriteLine("Unable to determine .net runtime to install. " +
+	Console.WriteLine("Unable to determine .NET runtime to install. " +
 		"Refer to https://learn.microsoft.com/en-us/dotnet/core/tools/dotnet-install-script " +
 		"and install using --install-dir dotnet, so that the dotnet folder is beside TShock.Server[.exe]");
 	return;
@@ -44,16 +41,16 @@ if(url is null)
 Console.WriteLine("Using url: " + url);
 
 var filename = url.Split('/').Last();
-var is_targz = filename.EndsWith(".tar.gz");
+var isTarGz = filename.EndsWith(".tar.gz", StringComparison.OrdinalIgnoreCase);
 
-var download_info = new FileInfo(filename);
-if (!download_info.Exists) // todo hash check
+var downloadInfo = new FileInfo(filename);
+if (!downloadInfo.Exists)
 {
 	Console.WriteLine($"Downloading: {filename}...");
 
 	using var client = new HttpClient();
-	using var resp = await client.GetStreamAsync(url);
-	using var fs = new FileStream(filename, FileMode.Create);
+	await using var resp = await client.GetStreamAsync(url);
+	await using var fs = new FileStream(filename, FileMode.Create);
 	await resp.CopyToAsync(fs);
 }
 else
@@ -61,26 +58,28 @@ else
 	Console.WriteLine("Using existing download on disk: " + filename);
 }
 
-var dotnet_path = Path.Combine("dotnet", "dotnet" + (is_targz ? "" : ".exe"));
-var tshock_path = "TShock.Server" + (is_targz ? "" : ".exe");
+var dotnetPath = Path.Combine("dotnet", "dotnet" + (isTarGz ? "" : ".exe"));
+var tshockPath = "TShock.Server" + (isTarGz ? "" : ".exe");
 
-if (!File.Exists(dotnet_path))
+if (!File.Exists(dotnetPath))
 {
 	try
 	{
 		Console.WriteLine("Extracting to ./dotnet/");
-		if (is_targz)
+		if (isTarGz)
 		{
-			using var srm_dotnet_file = File.OpenRead(filename);
-			using var srm_gzip = new GZipInputStream(srm_dotnet_file);
+			await using var archive = File.OpenRead(filename);
+			await using var gzip = new GZipStream(archive, CompressionMode.Decompress);
+			TarFile.ExtractToDirectory(gzip, "dotnet", overwriteFiles: true);
 
-			using var tar_archive = TarArchive.CreateInputTarArchive(srm_gzip, System.Text.Encoding.UTF8);
-			tar_archive.ExtractContents("dotnet");
-
-			[DllImport("libc", SetLastError = true)]
-			static extern int chmod(string pathname, int mode);
-
-			chmod(dotnet_path, 755);
+			File.SetUnixFileMode(dotnetPath,
+				UnixFileMode.UserRead |
+				UnixFileMode.UserWrite |
+				UnixFileMode.UserExecute |
+				UnixFileMode.GroupRead |
+				UnixFileMode.GroupExecute |
+				UnixFileMode.OtherRead |
+				UnixFileMode.OtherExecute);
 		}
 		else
 		{
@@ -101,26 +100,26 @@ if (!File.Exists(dotnet_path))
 }
 else
 {
-	Console.WriteLine($"Extract skipped, existing found at: {dotnet_path}");
+	Console.WriteLine($"Extract skipped, existing found at: {dotnetPath}");
 }
 
-var dotnet_root = System.IO.Path.GetFullPath("dotnet");
-Console.WriteLine($"To be able to run {tshock_path} yourself set the environment variable DOTNET_ROOT={dotnet_root}");
+var dotnetRoot = Path.GetFullPath("dotnet");
+Console.WriteLine($"To be able to run {tshockPath} yourself set the environment variable DOTNET_ROOT={dotnetRoot}");
 
-Environment.SetEnvironmentVariable("DOTNET_ROOT", dotnet_root);
+Environment.SetEnvironmentVariable("DOTNET_ROOT", dotnetRoot);
 
-Console.WriteLine($"Extracted, launching: {tshock_path}");
+Console.WriteLine($"Extracted, launching: {tshockPath}");
 
 var proc = new Process();
 
-Console.CancelKeyPress += (sender, e) =>
+Console.CancelKeyPress += (_, e) =>
 {
 	e.Cancel = !proc.HasExited;
 };
 
 proc.StartInfo = new()
 {
-	 FileName = tshock_path,
+	FileName = tshockPath,
 };
 foreach (var arg in args)
 	proc.StartInfo.ArgumentList.Add(arg);
