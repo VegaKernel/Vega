@@ -31,16 +31,11 @@ namespace TShockPluginManager
 	{
 		static public async Task<int> Main(List<string> args)
 		{
-			RootCommand root = new RootCommand(
-				description: C.GetString("Manage plugins and their requirements")
-			);
-			Command cmdSync = new Command(
-				name: "sync",
-				description: C.GetString("Install the plugins as specified in the plugins.json")
-			);
-			cmdSync.SetHandler(Sync);
-			root.Add(cmdSync);
-			return await root.InvokeAsync(args.ToArray());
+			RootCommand root = new(C.GetString("Manage plugins and their requirements"));
+			Command cmdSync = new("sync", C.GetString("Install the plugins as specified in the plugins.json"));
+			cmdSync.SetAction((_, cancellationToken) => Sync(cancellationToken));
+			root.Subcommands.Add(cmdSync);
+			return await root.Parse(args.ToArray()).InvokeAsync();
 		}
 		class SyncManifest
 		{
@@ -63,7 +58,7 @@ namespace TShockPluginManager
 				writer.WriteStringValue(value.ToNormalizedString());
 			}
 		}
-		static async Task Sync()
+		static async Task Sync(CancellationToken cancellationToken)
 		{
 			var opts = new JsonSerializerOptions
 			{
@@ -76,7 +71,7 @@ namespace TShockPluginManager
 			SyncManifest manifest;
 			try
 			{
-				string txt = await File.ReadAllTextAsync("packages.json");
+				string txt = await File.ReadAllTextAsync("packages.json", cancellationToken);
 				manifest = JsonSerializer.Deserialize<SyncManifest>(txt, opts)!;
 			}
 			catch (System.IO.FileNotFoundException)
