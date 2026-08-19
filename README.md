@@ -1,120 +1,79 @@
-# TShockNG
+# Vega
 
 [Русский](README.md) | [English](README_EN.md)
 
-TShockNG — модернизируемая серверная платформа для Terraria на базе TShock и Terraria Server API. Проект сохраняет привычную модель TShock там, где она ещё нужна плагинам, но постепенно переносит поведение в отдельные контракты и сервисы без требования бинарной совместимости со старыми сборками плагинов.
+Vega — самостоятельный современный server framework/runtime для Terraria.
 
-> Проект находится в активной архитектурной переработке. Принятые решения и порядок миграции описаны в [`docs/decisions`](docs/decisions) и [`docs/roadmap.md`](docs/roadmap.md).
+Проект вырос из практического опыта TShock, но **не рассматривается как TShock с модернизированной внутренней архитектурой**. Старый TShock используется как источник проверенного production-поведения, требований, edge cases и тестовых сценариев. Его API и архитектурные формы не являются долгосрочным ограничением Vega.
 
-## Основные направления
-
-- .NET 10 как единая целевая платформа.
-- `TShockNG.Contracts` для независимых контрактов, DTO и интерфейсов.
-- `TShockNG.Core` как целевой слой серверного поведения и прикладных сервисов.
-- `TShockAPI` как переходный интеграционный слой и source-level поверхность для существующих хуков и команд.
-- Типизированная обработка сетевого протокола через `TZ.Multiplicity`.
-- Явное разделение игрового потока, фоновой работы, инфраструктуры и доменной логики.
-- Постепенная декомпозиция старых монолитных подсистем без сохранения бинарной совместимости ради уже собранных плагинов.
-
-## Структура репозитория
+## Архитектурное направление
 
 ```text
-src/
-  TShockAPI/            переходный TShock/API и интеграция
-  TShockNG.Contracts/   независимые контракты
-  TShockNG.Core/        современная серверная логика
-  TShockLauncher/       запуск сервера
-  TShockInstaller/      установщик
-  TShockPluginManager/  управление плагинами
-
-tests/                  тесты
-external/
-  TSAPI/                 Terraria Server API, git submodule
-  legacy/                временные внешние бинарные зависимости
-docs/                    архитектура, ADR и документация
-i18n/                    локализации
+Terraria
+   ↓
+OTAPI
+   ↓
+Vega.Runtime / Vega.Terraria
+   ↓
+Vega.Contracts
+   ↓
+Vega.Core
+   ↓
+Vega.Modules
 ```
 
-## Требования
+- OTAPI остаётся низкоуровневым instrumentation/patching layer.
+- TSAPI не входит в целевую архитектуру Vega.
+- `TShockAPI` не является целевым compatibility layer.
+- Бинарная совместимость с TShock/TSAPI-плагинами не требуется.
+- Source-level legacy compatibility не является долгосрочной целью.
+- TerraZ-плагины будут переноситься на Vega module API.
+- `Vega.Core` не зависит от Terraria, OTAPI, TSAPI или TShockAPI.
 
-- .NET SDK 10
-- Git с поддержкой submodules
+Существующие `TShock*` проекты и TSAPI submodule могут временно оставаться в дереве как migration scaffolding, пока не построен нативный runtime path Vega. Новая архитектура не должна углублять эти зависимости.
 
-## Клонирование
+## Быстрый запуск
 
-```bash
-git clone --recurse-submodules https://github.com/TShockNG/TShockNG.git
-cd TShockNG
-```
-
-Если репозиторий уже был клонирован без submodules:
-
-```bash
-git submodule update --init --recursive
-```
-
-## Сборка
-
-```bash
-dotnet restore TShock.sln
-dotnet build TShock.sln
-```
-
-## Тесты
-
-```bash
-dotnet test TShock.sln
-```
-
-CI дополнительно собирает и тестирует подключённый TSAPI.
-
-## Запуск
-
-```bash
-dotnet run --project src/TShockLauncher
-```
-
-## Публикация
-
-Пример framework-dependent сборки для Linux x64:
-
-```bash
-dotnet publish src/TShockLauncher/TShockLauncher.csproj \
-  -c Release \
-  -f net10.0 \
-  -r linux-x64 \
-  --self-contained false
-```
-
-Runtime Identifier можно заменить, например, на `win-x64`, `linux-arm64` или другой поддерживаемый .NET 10 RID.
-
-## GeoIP
-
-GeoIP использует локальные MMDB-базы MaxMind. При включённом GeoIP сервер ищет в каталоге TShock:
+Скорость запуска является архитектурным инвариантом. Основная точка готовности — `NetworkReady`, после которой сервер может принимать игроков; необязательный warmup продолжается отдельно.
 
 ```text
-GeoLite2-Country.mmdb
-GeoLite2-ASN.mmdb
+ProcessStart
+  → Bootstrap
+  → RuntimeReady
+  → ModulesRegistered
+  → WorldLoading
+  → WorldReady
+  → NetworkReady
+  → BackgroundWarmup
+  → FullyWarmed
 ```
 
-Базы не скачиваются при подключении игрока. Геолокация и ASN отделены от будущей системы определения VPN/proxy/Tor.
+Terraria world loading измеряется отдельно от Vega startup overhead.
 
-## Совместимость плагинов
+Подробности: [`ADR 0017`](docs/decisions/0017-startup-lifecycle-readiness-and-performance-budgets.md).
 
-TShockNG **не гарантирует бинарную совместимость** с уже собранными плагинами TShock. Плагины могут требовать пересборки.
+## Модули
 
-На переходном этапе сохраняется узкая source-level поверхность для регистрации существующих хуков и `Command`. Новые подсистемы должны использовать контракты и сервисы TShockNG, а не расширять старые глобальные API.
+Целевой module API будет Vega-native. Регистрация модуля должна быть дешёвой и синхронной; SQL, HTTP, длительный file I/O, world scans и warmup не выполняются в registration/constructors.
 
-Подробнее: [`ADR 0015`](docs/decisions/0015-source-level-plugin-registration-contracts.md).
+Startup-работа разделяется по readiness barrier: `RuntimeBarrier`, `WorldBarrier`, `NetworkBarrier`, `Background`, `Lazy`.
 
-## Архитектура
+## .NET
 
-Основная документация:
+Текущий runtime baseline — .NET 10.
 
-- [`docs/architecture.md`](docs/architecture.md) — текущая архитектура;
-- [`docs/roadmap.md`](docs/roadmap.md) — порядок модернизации;
-- [`docs/decisions`](docs/decisions) — архитектурные решения ADR.
+## Документация
+
+- [`docs/architecture.md`](docs/architecture.md) — целевая архитектура Vega;
+- [`docs/roadmap.md`](docs/roadmap.md) — этапы перехода;
+- [`docs/decisions`](docs/decisions) — ADR и история архитектурных решений;
+- [`ADR 0016`](docs/decisions/0016-vega-independent-runtime-architecture.md) — переход от TShockNG migration model к самостоятельной Vega;
+- [`ADR 0017`](docs/decisions/0017-startup-lifecycle-readiness-and-performance-budgets.md) — startup lifecycle, readiness и performance budgets.
+
+## Текущее состояние дерева
+
+Физические имена solution/projects (`TShock.sln`, `TShockAPI`, `TShockNG.*` и т. п.) ещё могут отражать промежуточный этап миграции. Их механическое переименование и удаление TSAPI/TShockAPI выполняются отдельными implementation changes, чтобы архитектурное решение не маскировалось огромным нерелевантным diff.
 
 ## Лицензия
 
-Проект распространяется на условиях GPL-3.0-or-later. Полный текст лицензии находится в [`COPYING`](COPYING).
+GPL-3.0-or-later. Полный текст — [`COPYING`](COPYING).

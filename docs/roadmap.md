@@ -1,70 +1,55 @@
-# TShockNG roadmap
+# Vega roadmap
 
-## Phase 0 — establish project boundaries
+## Phase 0 — freeze the target architecture
 
-- [x] Point the `TerrariaServerAPI` submodule at `TShockNG/TSAPI` instead of `TerraZ-Team/TSAPI`.
-- [x] Add architecture and compatibility documentation.
-- [x] Add ADRs for protocol ownership, plugin registration boundaries, and threading.
-- [x] Add source-facing interfaces for hooks and legacy command registration without promising binary compatibility.
-- [x] Add the published `TZ.Multiplicity` package as a pinned NuGet dependency for TShockAPI.
-- [x] Upgrade `TZ.Multiplicity` to `2.6.0` for Terraria protocol 319.
-- [x] Establish clean CI on the TShockNG organization repositories.
-- [x] Normalize first-party source, tests, and external repository layout (ADR 0007).
-- [x] Replace legacy `GeoIP.dat` parsing with local MMDB country/ASN metadata (ADR 0008).
+- [x] Establish .NET 10 baseline.
+- [x] Record production-derived requirements and world/threading constraints.
+- [x] Rename the product/repository identity to Vega.
+- [x] Adopt Vega as an independent runtime rather than a TShock compatibility modernization (ADR 0016).
+- [x] Define startup lifecycle, readiness barriers and performance budgets (ADR 0017).
+- [ ] Add architecture tests that prevent Terraria/OTAPI/TSAPI/TShockAPI references from entering Vega.Core.
 
-## Phase 1 — typed packet pipeline
+## Phase 1 — native runtime boundary
 
-- [x] Add a stack-only zero-copy `IncomingPacket` abstraction over raw buffer, offset, and exact payload length.
-- [ ] Route `NetGetData` through `IncomingPacket`.
-- [ ] Use `TZ.Multiplicity` typed packet views for migrated handlers.
-- [ ] Expose interface-based registration for legacy-shaped packet hooks; no binary compatibility is promised.
-- [ ] Migrate hot/simple packets first.
-- [ ] Add packet-path benchmarks and allocation measurements.
+- [ ] Establish `Vega.Runtime` / `Vega.Terraria` (names may be refined) as the only Terraria/OTAPI integration boundary.
+- [ ] Move process bootstrap/readiness telemetry into the Vega runtime host.
+- [ ] Keep TSAPI only as temporary scaffolding while the native host is incomplete.
+- [ ] Add a game-thread scheduler contract owned by the runtime boundary.
+- [ ] Measure Vega overhead separately from Terraria world load time.
 
-Suggested first packet groups:
+## Phase 2 — Vega module API
 
-- player movement/update
-- inventory slot updates
-- HP/mana/team/PvP/zones
-- projectile creation/update
-- simple tile interaction packets
+- [ ] Implement cheap synchronous module discovery/registration.
+- [ ] Implement explicit startup barriers: Runtime, World, Network, Background and Lazy.
+- [ ] Add per-module startup timing and budget warnings.
+- [ ] Add deterministic module shutdown/cancellation semantics.
+- [ ] Define typed command/event/capability registration without TShock surfaces.
 
-## Phase 2 — services and events
+## Phase 3 — Core isolation
 
-- [x] Reuse the existing prioritized `HandlerList<T>` event infrastructure.
-- [x] Add `Monitor` priority for audit/logging consumers while preserving existing priority values.
-- [ ] Add explicit service contracts for high-coupling TShock subsystems as those seams are migrated.
-- [ ] Add cancel reasons through a compatibility-safe path.
-- [ ] Bridge legacy-shaped events through `IHookRegistry<TEventArgs>` while typed events are migrated.
+- [ ] Remove direct Terraria/TShock dependencies from Core-owned behavior.
+- [ ] Move world/player mutation behind world contexts, snapshots and scheduled capabilities.
+- [ ] Port accounts, authorization, bans, SSC, regions, persistence and administration behavior from reference implementations into Vega-native services.
+- [ ] Keep protocol parsing/validation side-effect-free where possible.
 
-## Phase 3 — ProtocolGuard extraction
+## Phase 4 — production module migration
 
-- [x] Define initial side-effect-free validation result model.
-- [x] Add HP/mana validation primitives in ProtocolGuard.
-- [ ] Define additional immutable validation contexts/snapshots.
-- [ ] Move pure checks out of `Bouncer` and packet handlers.
-- [ ] Start with projectile, item, tile, and additional player sanity validation.
-- [ ] Keep enforcement decisions in TShockNG.
-- [ ] Add regression tests for malformed and abusive packets.
+- [ ] Port TerraZ modules to the Vega module API by capability, not by reproducing TShock class shapes.
+- [ ] Promote true server invariants/security primitives into Core/runtime services.
+- [ ] Keep gameplay/community policy as optional modules.
+- [ ] Add regression tests from known production incidents before retiring legacy workarounds.
 
-## Phase 4 — execution and freeze reduction
+## Phase 5 — remove migration scaffolding
 
-- [ ] Route blocking SQL/HTTP/file work away from the game thread where semantics allow it.
-- [x] Add thread-affinity assertions in TSAPI for game-thread-only APIs.
-- [x] Add time-sliced TSAPI scheduler for large Terraria-state mutations.
-- [ ] Add slow-tick and slow-hook watchdog output.
-- [ ] Measure P50/P95/P99/max tick duration before and after changes.
+- [ ] Remove the TShockAPI project after no required production path depends on it.
+- [ ] Remove TSAPI from the solution/submodules after native Vega hosting is complete.
+- [ ] Remove legacy hook/command/plugin compatibility surfaces.
+- [ ] Rename remaining physical `TShock*` solution/project paths and namespaces to their final Vega names.
+- [ ] Delete migration-only adapters and documentation that no longer describe an active path.
 
-## Phase 5 — remove obsolete infrastructure
+## Phase 6 — world/runtime optimization
 
-- [ ] Extract/replace old REST implementation.
-- [ ] Remove `HttpServer.dll` from the core.
-- [ ] Replace TShock Newtonsoft.Json usage with `System.Text.Json` while preserving configuration compatibility.
-- [ ] Split database provider infrastructure if it materially simplifies the core.
-
-## Phase 6 — internal cleanup
-
-- [ ] Break down `GetDataHandlers.cs` after packet migration makes the split natural.
-- [ ] Reduce `Bouncer.cs` to orchestration/adapters after ProtocolGuard extraction.
-- [ ] Split giant command implementation by domain without breaking public command behavior.
-- [ ] Remove obsolete globals and facades once the hook and legacy-command registration interfaces cover plugin entry points.
+- [ ] Profile Terraria `.wld` loading independently.
+- [ ] Optimize world metadata/index initialization without changing Vega.Core contracts.
+- [ ] Evaluate lazy indexes, time-sliced world operations and sandbox backends.
+- [ ] Keep `NetworkReady` independent from optional background warmup.

@@ -2,38 +2,26 @@
 
 ## Status
 
-Accepted
+Superseded by ADR 0016.
 
 ## Context
 
-The original migration plan treated the existing `TShockAPI.dll` metadata as a compatibility boundary. That would force new architecture to retain a broad facade, old static globals, historical type layouts and adapters whose only purpose is loading already-compiled plugins.
+This ADR removed the original requirement to preserve binary compatibility with compiled TShock plugins while retaining a narrow source-level transition surface for hooks and legacy commands.
 
-TShockNG does not require that constraint. Plugins may be rebuilt for TShockNG. What must remain straightforward is the source-level ability to subscribe to hooks and register commands while those plugin surfaces are migrated.
+That was a useful migration simplification, but Vega no longer treats TShock source compatibility as a target requirement either.
 
-## Decision
+## Historical decision
 
-TShockNG does not guarantee binary compatibility with existing TShock or TShockNG plugin assemblies.
+TShockNG did not guarantee binary compatibility. During migration it exposed narrow registration abstractions for legacy-shaped hooks and `Command` objects so existing plugin source could be rebuilt against the evolving server.
 
-The supported transition surface is deliberately narrow:
+## Superseding direction
 
-1. `IHookRegistry<TEventArgs>` registers and unregisters handlers for legacy-shaped events.
-2. `ILegacyCommandRegistry` registers current `Command` objects and supports lookup/unregistration during the command migration.
+ADR 0016 establishes a Vega-native module API. Existing TerraZ/TShock plugins are ported to that API based on required behavior and capabilities.
 
-Existing hook argument and `Command` types may be retained temporarily because plugins still need those concepts, but their concrete binary metadata is not frozen. Plugins are expected to rebuild when those types change.
-
-New Core code continues to use `TShockNG.Contracts` and must not depend on `TShockAPI` types. The registration interfaces are plugin-entry boundaries, not a second implementation of command or event behavior.
-
-No adapter, facade, assembly name, member layout or obsolete global is retained solely to load an old compiled plugin. Compatibility work must have a current source-level consumer or a concrete migration purpose.
-
-ADR 0001 is superseded by this decision.
-
-ADR 0005 is **not** superseded as an architecture. This ADR amends ADR 0005 only where the earlier revision required binary compatibility, frozen assembly/type identity, or a broad compatibility facade. The Contracts/Core/composition-root dependency direction and migration of behavior out of TShockAPI remain active.
+`IHookRegistry<TEventArgs>`, `ILegacyCommandRegistry`, TShock hook argument types and legacy `Command` models may exist temporarily as migration scaffolding, but they are not long-term public contracts and must not constrain Vega design.
 
 ## Consequences
 
-- Existing compiled plugins may fail to load and must be rebuilt.
-- Plugin authors get explicit registration interfaces instead of mutating the `Commands.ChatCommands` global list.
-- Hook subscription can be passed and tested as an interface instead of requiring direct access to a concrete `HandlerList<TEventArgs>`.
-- TShockNG can change public metadata when architectural cleanup requires it.
-- Legacy-shaped events and commands remain transitional source models, not permanent binary contracts.
-- The modern command dispatcher and typed event pipeline remain the target architecture.
+- neither TShock binary compatibility nor source-level compatibility is a target requirement;
+- legacy registration surfaces can be deleted once the native Vega module path covers required production modules;
+- module/event/command APIs are designed for Vega semantics rather than historical TShock shapes.
