@@ -72,14 +72,17 @@ if (!File.Exists(dotnetPath))
 			await using var gzip = new GZipStream(archive, CompressionMode.Decompress);
 			TarFile.ExtractToDirectory(gzip, "dotnet", overwriteFiles: true);
 
-			File.SetUnixFileMode(dotnetPath,
-				UnixFileMode.UserRead |
-				UnixFileMode.UserWrite |
-				UnixFileMode.UserExecute |
-				UnixFileMode.GroupRead |
-				UnixFileMode.GroupExecute |
-				UnixFileMode.OtherRead |
-				UnixFileMode.OtherExecute);
+			if (!OperatingSystem.IsWindows())
+			{
+				File.SetUnixFileMode(dotnetPath,
+					UnixFileMode.UserRead |
+					UnixFileMode.UserWrite |
+					UnixFileMode.UserExecute |
+					UnixFileMode.GroupRead |
+					UnixFileMode.GroupExecute |
+					UnixFileMode.OtherRead |
+					UnixFileMode.OtherExecute);
+			}
 		}
 		else
 		{
