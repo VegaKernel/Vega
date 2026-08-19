@@ -12,9 +12,7 @@
 		<IncludeNativeLibrariesForSelfExtract>true</IncludeNativeLibrariesForSelfExtract>
 	</PropertyGroup>
 
-	<!-- Transitional runtime bridge. TSAPI/TShockAPI remain here only until Vega.Terraria owns direct OTAPI integration. -->
 	<ItemGroup>
-		<ProjectReference Include="..\..\external\TSAPI\TerrariaServerAPI\TerrariaServerAPI.csproj" ExcludeFromSingleFile="true" />
 		<ProjectReference Include="..\TShockAPI\TShockAPI.csproj" ExcludeFromSingleFile="true" ReferenceOutputAssembly="false" />
 		<ProjectReference Include="..\TShockPluginManager\TShockPluginManager.csproj" />
 		<ProjectReference Include="..\Vega.Core\Vega.Core.csproj" />
