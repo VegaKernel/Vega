@@ -10,6 +10,8 @@
 
   <ItemGroup>
     <ProjectReference Include="..\Vega.Contracts\Vega.Contracts.csproj" />
+    <!-- Temporary containment seam. Remove when Vega owns OTAPI hook dispatch directly. -->
+    <ProjectReference Include="..\..\external\TSAPI\TerrariaServerAPI\TerrariaServerAPI.csproj" />
     <PackageReference Include="OTAPI.Upcoming" Version="3.3.11" />
   </ItemGroup>
 </Project>
