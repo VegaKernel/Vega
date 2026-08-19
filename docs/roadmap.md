@@ -4,17 +4,18 @@
 
 - [x] Point the `TerrariaServerAPI` submodule at `TShockNG/TSAPI` instead of `TerraZ-Team/TSAPI`.
 - [x] Add architecture and compatibility documentation.
-- [x] Add ADRs for protocol ownership, binary compatibility, and threading.
+- [x] Add ADRs for protocol ownership, plugin registration boundaries, and threading.
+- [x] Add source-facing interfaces for hooks and legacy command registration without promising binary compatibility.
 - [x] Add the published `TZ.Multiplicity` package as a pinned NuGet dependency for TShockAPI.
 - [x] Upgrade `TZ.Multiplicity` to `2.6.0` for Terraria protocol 319.
-- [ ] Establish clean CI on the TShockNG organization repositories.
+- [x] Establish clean CI on the TShockNG organization repositories.
 
 ## Phase 1 — typed packet pipeline
 
 - [x] Add a stack-only zero-copy `IncomingPacket` abstraction over raw buffer, offset, and exact payload length.
 - [ ] Route `NetGetData` through `IncomingPacket`.
 - [ ] Use `TZ.Multiplicity` typed packet views for migrated handlers.
-- [ ] Keep legacy `MemoryStream`-based public hooks working.
+- [ ] Expose interface-based registration for legacy-shaped packet hooks; no binary compatibility is promised.
 - [ ] Migrate hot/simple packets first.
 - [ ] Add packet-path benchmarks and allocation measurements.
 
@@ -32,7 +33,7 @@ Suggested first packet groups:
 - [x] Add `Monitor` priority for audit/logging consumers while preserving existing priority values.
 - [ ] Add explicit service contracts for high-coupling TShock subsystems as those seams are migrated.
 - [ ] Add cancel reasons through a compatibility-safe path.
-- [ ] Keep legacy hooks as adapters for new typed packet events.
+- [ ] Bridge legacy-shaped events through `IHookRegistry<TEventArgs>` while typed events are migrated.
 
 ## Phase 3 — ProtocolGuard extraction
 
@@ -64,4 +65,4 @@ Suggested first packet groups:
 - [ ] Break down `GetDataHandlers.cs` after packet migration makes the split natural.
 - [ ] Reduce `Bouncer.cs` to orchestration/adapters after ProtocolGuard extraction.
 - [ ] Split giant command implementation by domain without breaking public command behavior.
-- [ ] Remove obsolete compatibility surfaces only in a future explicitly incompatible API line.
+- [ ] Remove obsolete globals and facades once the hook and legacy-command registration interfaces cover plugin entry points.

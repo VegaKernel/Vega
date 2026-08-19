@@ -42,7 +42,7 @@ Repository-level files required by GitHub, Git, Docker, licensing, solution disc
 ## Migration requirements
 
 - Perform the move only after the .NET 10 baseline is green.
-- Preserve assembly names, package identities, namespaces, and public API compatibility.
+- Preserve package identities and namespaces only where they remain useful; repository relocation does not carry a binary-compatibility requirement.
 - Update all project references, solution paths, workflow paths, Docker paths, scripts, documentation links, and `.gitmodules` atomically.
 - Keep build/test/pack green with zero warnings after the move.
 - Do not combine the layout change with behavior changes.

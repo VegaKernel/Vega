@@ -197,7 +197,8 @@ namespace TShockAPI
 
 	public static class Commands
 	{
-		public static List<Command> ChatCommands = new List<Command>();
+		private static readonly LegacyCommandRegistry commandRegistry = new LegacyCommandRegistry();
+		public static ILegacyCommandRegistry Registry => commandRegistry;
 		public static ReadOnlyCollection<Command> TShockCommands = new ReadOnlyCollection<Command>(new List<Command>());
 
 		/// <summary>
@@ -224,7 +225,7 @@ namespace TShockAPI
 			Action<Command> add = (cmd) =>
 			{
 				tshockCommands.Add(cmd);
-				ChatCommands.Add(cmd);
+				Registry.Register(cmd);
 			};
 
 			add(new Command(SetupToken, "setup")
@@ -695,7 +696,7 @@ namespace TShockAPI
 			else
 				args = ParseParameters(cmdText.Substring(index));
 
-			IEnumerable<Command> cmds = ChatCommands.FindAll(c => c.HasAlias(cmdName));
+			IEnumerable<Command> cmds = Registry.FindAll(cmdName);
 
 			if (Hooks.PlayerHooks.OnPlayerCommand(player, cmdName, cmdText, args, ref cmds, cmdPrefix))
 				return true;
@@ -5364,7 +5365,7 @@ namespace TShockAPI
 					return;
 				}
 
-				IEnumerable<string> cmdNames = from cmd in ChatCommands
+				IEnumerable<string> cmdNames = from cmd in Registry
 											   where cmd.CanRun(args.Player) && (cmd.Name != "setup" || TShock.SetupToken != 0)
 											   select Specifier + cmd.Name;
 
@@ -5383,7 +5384,7 @@ namespace TShockAPI
 					commandName = commandName.Substring(1);
 				}
 
-				Command command = ChatCommands.Find(c => c.Names.Contains(commandName));
+				Command command = Registry.FindFirst(commandName);
 				if (command == null)
 				{
 					args.Player.SendErrorMessage(GetString("Invalid command."));
@@ -5883,7 +5884,7 @@ namespace TShockAPI
 				commandName = givenCommandName;
 
 			bool didMatch = false;
-			foreach (Command matchingCommand in ChatCommands.Where(cmd => cmd.Names.IndexOf(commandName) != -1))
+			foreach (Command matchingCommand in Registry.Where(cmd => cmd.Names.IndexOf(commandName) != -1))
 			{
 				if (matchingCommand.Names.Count > 1)
 					args.Player.SendInfoMessage(

@@ -27,7 +27,7 @@
     <Company>TShock Contributors</Company>
     <Product>TShockAPI</Product>
     <Copyright>Copyright © TShock Contributors 2011-2026</Copyright>
-    <!-- NuGet identity is intentionally independent from the compatibility-facing assembly identity. -->
+    <!-- NuGet identity is intentionally independent from the assembly identity. -->
     <GeneratePackageOnBuild>True</GeneratePackageOnBuild>
     <PackageLicenseExpression>GPL-3.0-or-later</PackageLicenseExpression>
     <Authors>TShockNG Contributors</Authors>
