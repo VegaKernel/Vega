@@ -32,6 +32,7 @@ obj/*
 *.log
 *.sql
 *.sqlite
+*.mmdb
 
 # OS generated files #
 ######################
@@ -73,6 +74,5 @@ _ReSharper.*
 packages/*
 
 # Private key files #
-scripts/ssh_private_key
 
 .idea/

@@ -7,15 +7,12 @@ Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "Solution Items", "Solution 
 	ProjectSection(SolutionItems) = preProject
 		.editorconfig = .editorconfig
 		.gitignore = .gitignore
-		appveyor.yml = appveyor.yml
-		CHANGELOG.md = CHANGELOG.md
-		.github\workflows\ci-otapi3-nuget.yml = .github\workflows\ci-otapi3-nuget.yml
-		.github\workflows\ci-otapi3.yml = .github\workflows\ci-otapi3.yml
+		.gitmodules = .gitmodules
+		.github\workflows\ci.yml = .github\workflows\ci.yml
 		COPYING = COPYING
-		.github\workflows\danger.yml = .github\workflows\danger.yml
+		Dockerfile = Dockerfile
 		README.md = README.md
-		README_cn.md = README_cn.md
-		SECURITY.md = SECURITY.md
+		README_EN.md = README_EN.md
 	EndProjectSection
 EndProject
 Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "TShockAPI", "src\TShockAPI\TShockAPI.csproj", "{49606449-072B-4CF5-8088-AA49DA586694}"

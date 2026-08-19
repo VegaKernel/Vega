@@ -54,6 +54,15 @@ jobs:
       - name: Add MonoMod source
         run: dotnet nuget add source https://pkgs.dev.azure.com/MonoMod/MonoMod/_packaging/DevBuilds%40Local/nuget/v3/index.json -n DevBuilds@Local
 
+      - name: Download pinned MaxMind test databases
+        shell: pwsh
+        run: |
+          $base = "https://raw.githubusercontent.com/maxmind/MaxMind-DB/e1120013c4b5cbc830b958b2b7e73fba444d316d/test-data"
+          $target = "tests/TShockLauncher.Tests/TestData/MaxMind"
+          New-Item -ItemType Directory -Force -Path $target | Out-Null
+          Invoke-WebRequest "$base/GeoIP2-Country-Test.mmdb" -OutFile "$target/GeoIP2-Country-Test.mmdb"
+          Invoke-WebRequest "$base/GeoLite2-ASN-Test.mmdb" -OutFile "$target/GeoLite2-ASN-Test.mmdb"
+
       - name: Restore TShockNG
         run: dotnet restore TShock.sln
 

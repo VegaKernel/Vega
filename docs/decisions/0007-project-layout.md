@@ -19,6 +19,7 @@ Target shape:
 docs/
 external/
   TSAPI/
+  legacy/
 src/
   TShockAPI/
   TShockInstaller/
@@ -26,8 +27,8 @@ src/
   TShockPluginManager/
 tests/
   TShockLauncher.Tests/
-prebuilts/
 README.md
+README_EN.md
 COPYING
 .gitignore
 .gitmodules
@@ -39,13 +40,13 @@ Dockerfile
 
 Repository-level files required by GitHub, Git, Docker, licensing, solution discovery, and contributors remain at the root. Documentation remains under `docs/`.
 
-Repository-wide assets and tooling that are not first-party product projects, including `i18n/`, `scripts/`, editor metadata, and CI/service configuration, remain at the root. The normalized boundary in this ADR separates first-party source, tests, and external repositories without relocating unrelated repository-wide assets.
+Repository-wide assets that remain part of the product, including `i18n/`, editor metadata, Docker configuration, and GitHub Actions CI, remain at the root. Obsolete upstream service configuration and release scripts are removed rather than carried forward. Temporary third-party binaries that are still required by unmigrated subsystems live under `external/legacy/` until those subsystems are replaced.
 
 ## Migration requirements
 
 - Perform the move only after the .NET 10 baseline is green.
 - Preserve package identities and namespaces only where they remain useful; repository relocation does not carry a binary-compatibility requirement.
-- Update all project references, solution paths, workflow paths, Docker paths, scripts, documentation links, and `.gitmodules` atomically.
+- Update all project references, solution paths, workflow paths, Docker paths, documentation links, and `.gitmodules` atomically.
 - Keep build/test/pack green with zero warnings after the move.
 - Do not combine the layout change with behavior changes.
 

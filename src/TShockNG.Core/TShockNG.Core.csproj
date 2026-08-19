@@ -9,6 +9,10 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <PackageReference Include="MaxMind.GeoIP2" Version="6.1.0" />
+  </ItemGroup>
+
+  <ItemGroup>
     <ProjectReference Include="..\TShockNG.Contracts\TShockNG.Contracts.csproj" />
   </ItemGroup>
 </Project>

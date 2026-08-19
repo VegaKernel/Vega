@@ -27,4 +27,8 @@
     <ProjectReference Include="..\..\src\TShockNG.Core\TShockNG.Core.csproj" />
   </ItemGroup>
 
+  <ItemGroup>
+    <None Include="TestData\MaxMind\*.mmdb" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
 </Project>

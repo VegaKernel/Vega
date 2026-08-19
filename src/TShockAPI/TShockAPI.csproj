@@ -53,12 +53,12 @@
 
   <ItemGroup>
     <Reference Include="HttpServer">
-      <HintPath>..\..\prebuilts\HttpServer.dll</HintPath>
+      <HintPath>..\..\external\legacy\HttpServer.dll</HintPath>
     </Reference>
   </ItemGroup>
 
   <ItemGroup>
-    <None Include="..\..\prebuilts\HttpServer.dll">
+    <None Include="..\..\external\legacy\HttpServer.dll">
       <Link>HttpServer.dll</Link>
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
       <Pack>true</Pack>

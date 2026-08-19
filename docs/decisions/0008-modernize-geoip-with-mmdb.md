@@ -1,18 +1,18 @@
 # ADR 0008: Replace legacy GeoIP with an MMDB-based IP metadata provider
 
-Status: Planned
+Status: Accepted
 
 ## Context
 
-TShockNG still contains a legacy `GeoIPCountry` implementation derived from MaxMind's old GeoIP format and a `GeoIP.dat` database layout. That code is kept compiling during the .NET 10 baseline only so framework migration, dependency cleanup, and behavior changes remain separable.
+TShockNG still contains a legacy MaxMind GeoIP parser and database layout. That code was kept compiling during the .NET 10 baseline only so framework migration, dependency cleanup, and behavior changes remained separable.
 
 GeoIP metadata and proxy/reputation detection are different concerns. Country/ASN lookup should not be coupled to VPN, proxy, Tor, hosting, or DNSBL policy.
 
 ## Decision
 
-After the .NET 10 baseline is merged and verified, replace the legacy GeoIP implementation with a modern local MMDB-based provider.
+Replace the legacy GeoIP database implementation with a modern local MMDB-based provider.
 
-The planned provider should expose IP metadata through a small service contract, for example:
+The provider contract is exposed through `TShockNG.Contracts.Networking.IIpMetadataProvider` and `IpMetadata`, while the MMDB implementation lives in `TShockNG.Core`:
 
 ```text
 Country
@@ -22,9 +22,13 @@ ASN
 Organization
 ```
 
-Use local MMDB databases such as GeoLite2 Country and GeoLite2 ASN rather than performing an HTTP request for every player connection. Database refresh must be independent from connection-time lookup.
+Use local GeoIP2/GeoLite2 Country and ASN MMDB databases through `MaxMind.GeoIP2`. `DatabaseReader` instances are opened once and reused for connection-time lookups; there is no runtime HTTP lookup or database download on player connection.
 
-The legacy `GeoIPCountry.cs` implementation and support for the old `GeoIP.dat` format should be removed once the replacement is integrated and compatibility requirements are satisfied.
+TShockNG looks for `GeoLite2-Country.mmdb` and `GeoLite2-ASN.mmdb` under the TShock save path. Missing databases disable only the unavailable metadata source; if neither database exists, GeoIP remains inactive and startup continues with a warning. Invalid existing databases fail closed at provider initialization and do not block server startup.
+
+The old database file and parser are removed from the repository and distribution. A narrow TShock-facing adapter may remain temporarily only to bridge the existing connection path while ADR 0005 moves behavior out of `TShockAPI`; it does not preserve the old database format or binary compatibility.
+
+The MMDB provider does not expose the historical proxy pseudo-country, so reputation policy is no longer inferred from geolocation metadata; a later reputation ADR may introduce an independent policy contract.
 
 ## Separation from anti-proxy
 
@@ -47,12 +51,16 @@ Those signals must live behind a separate reputation contract and policy layer. 
 ## Migration requirements
 
 - Do not perform this replacement before the .NET 10 baseline is green and merged.
-- Preserve existing externally visible behavior where compatibility is required.
+- Preserve join country display behavior when country metadata is available; binary/config compatibility is not a requirement.
 - Keep lookup local and fast on the connection path.
 - Do not introduce mandatory external HTTP dependencies for player login.
 - Keep database update/download logic outside the hot connection path.
 - Keep geolocation/ASN metadata independent from future anti-proxy policy.
 - Add focused tests for known addresses, unknown/private addresses, malformed input, and missing/unavailable MMDB databases.
+
+## Validation
+
+Automated tests cover country metadata, ASN/organization metadata, private/unknown addresses, malformed input, and missing MMDB files. CI downloads the small official MaxMind test databases from a pinned upstream commit solely as test fixtures; production runtime never downloads them.
 
 ## Consequences
 
