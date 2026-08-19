@@ -6,7 +6,7 @@ Accepted
 
 ## Context
 
-TShockNG is being split into `TShockNG.Contracts`, `TShockNG.Core` and the legacy-compatible `TShockAPI.dll` facade. This migration is the point where assumptions about a single global Terraria world must stop leaking into new architecture.
+TShockNG is being split into `TShockNG.Contracts`, `TShockNG.Core` and a transitional `TShockAPI.dll` source-migration surface. This migration is the point where assumptions about a single global Terraria world must stop leaking into new architecture.
 
 The current Terraria/TShock model is strongly process-global: world state, players, entities and many operations are reached through static/global objects such as `Main.*` and `TShock.*`. If the new core repeats those assumptions, adding isolated worlds later would require another broad rewrite.
 
@@ -78,7 +78,7 @@ public interface IWorldContextAccessor
 
 The contracts remain deliberately small. Terraria-specific mutable types are not exposed from `TShockNG.Contracts`.
 
-Command invocations and future event/request contexts should be capable of carrying a world identity/context. The compatibility facade may infer the primary/current world for legacy callers that know nothing about multi-world operation.
+Command invocations and future event/request contexts should be capable of carrying a world identity/context. A temporary legacy source bridge may infer the primary/current world for callers that do not yet know about multi-world operation.
 
 ## Sandbox model
 
@@ -123,18 +123,18 @@ Cross-world operations must not directly mutate another world's Terraria state. 
 
 A failure in one sandbox should be contained as far as the selected backend permits. Multi-process sandboxes provide the strongest isolation and are therefore the preferred first production implementation.
 
-## Compatibility
+## Legacy source migration
 
-`TShockAPI.dll` continues to present the historical single-server surface to existing plugins.
+`TShockAPI.dll` may temporarily expose legacy single-server concepts while their source-level migration paths are still needed. This is not a binary-compatibility guarantee (ADR 0015).
 
-For legacy callers:
+For legacy source callers during that migration:
 
-- `TShock.Players`, legacy commands and existing hooks map to the player's/current primary world as compatibility requires;
-- existing plugins are not required to understand `WorldId`;
+- `TShock.Players`, legacy commands and existing hooks may map to the player's/current primary world;
+- callers using the transitional legacy source surface are not required to understand `WorldId` immediately;
 - modern plugins/services use contracts from `TShockNG.Contracts` and can be world-aware;
-- no existing public type is removed merely to enable sandbox support.
+- legacy members remain only while they have an active source-level migration purpose.
 
-The compatibility facade must not expose arbitrary cross-world mutable Terraria objects.
+The legacy bridge must not expose arbitrary cross-world mutable Terraria objects.
 
 ## Operations UI
 
@@ -157,5 +157,5 @@ The UI can initiate lifecycle/routing commands through application services but 
 - The first useful sandbox implementation can be multi-process and does not depend on solving single-process Terraria isolation.
 - Dimensions compatibility becomes a routing/forwarding building block rather than a permanent external plugin dependency.
 - Commands, localization, operations and future APIs can evolve with explicit world context.
-- Legacy TShock plugins retain the historical single-world facade.
+- Legacy source callers may temporarily use a single-world bridge while they migrate; no historical binary facade is guaranteed.
 - New code that reaches `Main.*` or `TShock.*` directly must be treated as an infrastructure/compatibility boundary, not normal core architecture.
