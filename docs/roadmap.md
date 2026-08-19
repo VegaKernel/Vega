@@ -25,14 +25,14 @@
 
 Implementation priority is intentionally vertical. Each new abstraction should land with a working migrated consumer or the immediately following slice.
 
-- [ ] Implement explicit event priorities: `Earliest`, `Early`, `Normal`, `Late`, `Latest`.
-- [ ] Implement structured monotonic cancellation with machine-readable reason and source.
-- [ ] Allow handlers to opt into execution after cancellation.
-- [ ] Implement a read-only `Monitor` stage that observes the final outcome without mutating it.
-- [ ] Keep final side-effect application owned by the runtime/integration component instead of exposing `Apply` as a generic handler priority.
-- [ ] Separate synchronous handlers from genuinely asynchronous handlers; never block the game thread on async work.
-- [ ] Register handlers explicitly through standard .NET DI/composition root; no reflection-heavy Core scanning.
-- [ ] Migrate one real TShock hook flow end-to-end through the new event pipeline before broadening the framework.
+- [x] Implement explicit event priorities: `Earliest`, `Early`, `Normal`, `Late`, `Latest`.
+- [x] Implement structured monotonic cancellation with machine-readable reason and source.
+- [x] Allow handlers to opt into execution after cancellation.
+- [x] Implement a read-only `Monitor` stage that observes the final outcome without mutating it.
+- [x] Keep final side-effect application owned by the runtime/integration component instead of exposing `Apply` as a generic handler priority.
+- [x] Separate synchronous handlers from genuinely asynchronous handlers; never block the game thread on async work.
+- [x] Register handlers explicitly through composition root; no reflection-heavy Core scanning.
+- [x] Migrate one real Terraria hook flow end-to-end through the new event pipeline (`WorldGen.StartHardmode`).
 
 ## Phase 3 — player boundary
 
@@ -60,7 +60,27 @@ Implementation priority is intentionally vertical. Each new abstraction should l
 - [ ] Promote true server invariants/security primitives into Core/runtime services.
 - [ ] Keep gameplay/community policy as optional modules.
 
-## Phase 6 — typed extension state, only when demanded
+## Phase 6 — Operations API and Terminal UI
+
+The operations surface is an optional consumer of stable read models and application commands. It must not become a privileged path around Core/runtime rules.
+
+- [ ] Define operations/read-model contracts independent of Terminal UI types.
+- [ ] Introduce structured logging with independent file/stdout/TUI sinks.
+- [ ] Implement a server dashboard backed by immutable/bounded snapshots.
+- [ ] Implement a players view using `PlayerSnapshot` / player read models.
+- [ ] Implement a modules view exposing load state, version, dependencies, startup timing and failures where available.
+- [ ] Implement a bounded logs viewer with level/source/text filtering and follow/pause behavior.
+- [ ] Expose runtime, network, process, GC and memory metrics through cheap sampled read models.
+- [ ] Add a command palette over the normal command/application boundary.
+- [ ] Add safe administrative actions only through normal authorization and service contracts.
+- [ ] Preserve plain console mode for scripts, redirected output and troubleshooting.
+- [ ] Support fully headless mode for services, containers and CI.
+- [ ] Keep TUI initialization optional; failure to initialize an interactive terminal must never block server startup.
+- [ ] Never read or mutate Terraria globals directly from the UI thread.
+
+See ADR 0010 for the operations/TUI boundary and runtime-mode requirements.
+
+## Phase 7 — typed extension state, only when demanded
 
 - [ ] Stabilize player/session/entity lifecycle first.
 - [ ] Add strongly typed scoped keys only for a migrated feature that genuinely needs extension state.
@@ -69,7 +89,7 @@ Implementation priority is intentionally vertical. Each new abstraction should l
 
 Concrete future pressure already exists in historical PvP behavior: projectile-to-weapon attribution, death/spectator state and timing windows. These are test cases, not justification for implementing the state system early.
 
-## Phase 7 — optional cluster/inter-server messaging
+## Phase 8 — optional cluster/inter-server messaging
 
 A standalone Vega server must remain fully functional with no cluster transport configured.
 
@@ -96,7 +116,7 @@ Implement these before more complex distributed workflows:
 
 A durable outbox is optional and should be introduced only if a real scenario requires publication durability across process failure.
 
-## Phase 8 — production module migration
+## Phase 9 — production module migration
 
 - [ ] Port TerraZ modules to the Vega module API by capability, not by reproducing TShock class shapes.
 - [ ] Use migrated modules as the forcing function for new contracts instead of building an abstract framework ahead of consumers.
@@ -111,7 +131,7 @@ A durable outbox is optional and should be introduced only if a real scenario re
   - useful scenarios: strongly typed partial item overrides, targeted packet delivery and custom item behavior;
   - its bespoke `PacketWriter` must not be carried forward because Vega uses the shared typed `TZ.Multiplicity` protocol layer.
 
-## Phase 9 — remove migration scaffolding
+## Phase 10 — remove migration scaffolding
 
 - [ ] Remove the TShockAPI project after no required production path depends on it.
 - [ ] Remove TSAPI from the solution/submodules after native Vega hosting/hook dispatch is complete.
@@ -119,12 +139,50 @@ A durable outbox is optional and should be introduced only if a real scenario re
 - [ ] Rename remaining physical `TShock*` project paths/namespaces to final Vega names as they cease being migration sources.
 - [ ] Delete migration-only adapters and documentation that no longer describe an active path.
 
-## Phase 10 — world/runtime optimization
+## Phase 11 — World image and runtime optimization
 
-- [ ] Profile Terraria `.wld` loading independently.
-- [ ] Optimize world metadata/index initialization without changing Vega.Core contracts.
-- [ ] Evaluate lazy indexes and time-sliced world operations.
-- [ ] Keep `NetworkReady` independent from optional background warmup.
+Canonical persistence remains Terraria `.wld`. Vega `.vworld` is a disposable, versioned runtime representation and must always be rebuildable or bypassable.
+
+### Baseline and profiling
+
+- [ ] Profile stock Terraria `.wld` loading and post-load initialization separately.
+- [ ] Record baseline file-read time, tile decoding, allocations, GC, chests/signs/entities creation, post-load work and runtime-index construction.
+- [ ] Record baseline world-load CPU, peak memory and `WorldReady` / `NetworkReady` timing on small, medium and large production-like worlds.
+
+### Level 2: derived Vega World Image
+
+- [ ] Define the internal sectioned/chunked versioned Vega World Image format (`.vworld`).
+- [ ] Keep `.wld` as source of truth for compatibility, import/export, recovery and initial persistence.
+- [ ] Add source `.wld` content fingerprint plus Terraria world-format, Vega schema and compiler-parameter validation.
+- [ ] Do not use timestamps as the only cache-validity criterion.
+- [ ] Implement atomic world-image generation: write temporary file, flush, validate checksums, then atomically replace the previous cache.
+- [ ] Ensure interrupted cache generation cannot damage `.wld` or the previous valid `.vworld`.
+- [ ] Implement fast full-load from the derived runtime image with sequential reads, minimal parsing/branching and bounded temporary allocations.
+- [ ] Cache only measured expensive decoding/precomputation work.
+- [ ] Keep the binary layout and serializer entirely inside `Vega.Terraria` / world infrastructure; Core sees only world contracts/snapshots.
+- [ ] Add precomputed runtime indexes only with real consumers and benchmarks.
+- [ ] Candidate indexes include chest lookup, entities/signs by section, wiring/liquid regions, spatial lookups, initial player-sync data and world map/operations consumers.
+- [ ] Fall back automatically to `.wld` when `.vworld` is absent, stale, incompatible or corrupt.
+- [ ] Log cache hit/miss, invalidation reason, source/cache size, validation/corruption errors and fallback behavior.
+- [ ] Integrate `WldLoadDuration`, `WorldImageBuildDuration`, `WorldImageLoadDuration`, `PostLoadInitializationDuration` and `WorldReadyDuration` with startup telemetry.
+- [ ] Benchmark cold/warm `.wld` against cold/warm `.vworld`, including peak memory, allocations, `WorldReady` and `NetworkReady`.
+- [ ] Decide from measurements whether `.vworld` should be enabled by default. Do not promise or assume a speedup before benchmarks.
+
+### Level 3: chunked / memory-mapped backend, research only
+
+- [ ] Investigate chunked/memory-mapped world storage separately from the Level 2 full-load implementation.
+- [ ] Investigate lazy section loading for very large or multiple/sandboxed world contexts.
+- [ ] Validate Terraria runtime assumptions before changing in-memory world ownership/storage semantics.
+- [ ] Do not make lazy/mmap storage part of Vega 1.0 unless benchmarks and compatibility evidence justify it.
+
+World-image invariant:
+
+```text
+.wld    = canonical compatibility/persistence format
+.vworld = disposable optimized runtime representation
+```
+
+See ADR 0020 for format ownership, validation, fallback and persistence constraints.
 
 ## Architectural guardrails
 
@@ -136,4 +194,6 @@ These apply across all phases:
 - Do not move business logic into helper/extension APIs.
 - Do not add async merely because the language supports it; use it only across genuine asynchronous boundaries.
 - Local business logic stays local. Cluster networking extends capabilities instead of becoming a hidden dependency.
+- Operations/TUI consumes safe read models and application commands; it never owns authoritative game state.
+- `.vworld` is a cache, not a hidden second source of truth or mandatory persistence path.
 - Prefer one working vertical slice over ten unused abstractions.
