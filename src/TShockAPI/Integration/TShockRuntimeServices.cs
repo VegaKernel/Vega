@@ -1,3 +1,6 @@
+#nullable enable
+
+using System;
 using TShockNG.Contracts.Runtime;
 
 namespace TShockAPI.Integration;
