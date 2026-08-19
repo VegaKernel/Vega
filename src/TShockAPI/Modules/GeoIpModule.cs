@@ -11,6 +11,12 @@ public sealed class GeoIpModule : Module
         if (!TShock.Config.Settings.EnableGeoIP)
             return;
 
+        if (TShockRuntimeServices.IpMetadataProviderFactory is null)
+        {
+            TShock.Log.ConsoleWarn(GetString("GeoIP is enabled, but the IP metadata provider was not configured by the launcher."));
+            return;
+        }
+
         var countryDatabasePath = Path.Combine(TShock.SavePath, "GeoLite2-Country.mmdb");
         var asnDatabasePath = Path.Combine(TShock.SavePath, "GeoLite2-ASN.mmdb");
 
@@ -19,9 +25,8 @@ public sealed class GeoIpModule : Module
             var provider = new GeoIPCountry(countryDatabasePath, asnDatabasePath);
             if (!provider.IsAvailable)
             {
-                TShock.Geo?.Dispose();
-                TShock.Geo = null;
                 provider.Dispose();
+                TShock.Geo = null;
                 TShock.Log.ConsoleWarn(GetString(
                     "GeoIP is enabled, but no MMDB database was found. Expected {0} and/or {1}.",
                     countryDatabasePath,
@@ -42,7 +47,7 @@ public sealed class GeoIpModule : Module
 
     public override void Dispose()
     {
-        // TShock disposes Geo before ModuleManager, so only clear the shared reference here.
+        TShock.Geo?.Dispose();
         TShock.Geo = null;
     }
 }

@@ -25,7 +25,7 @@ New core code continues to use `TShockNG.Contracts` and must not depend on `TSho
 
 No adapter, facade, assembly name, member layout or obsolete global is retained solely to load an old compiled plugin. Compatibility work must have a current source-level consumer or a concrete migration purpose.
 
-ADRs 0001 and 0005 are superseded by this decision.
+ADR 0001 is superseded by this decision. ADR 0005 is amended only where it previously required binary compatibility, assembly identity, or a broad legacy facade; its Contracts/Core/composition-root architecture remains active.
 
 ## Consequences
 

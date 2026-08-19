@@ -5,29 +5,31 @@ using System.Globalization;
 using System.IO;
 using System.Net;
 using TShockNG.Contracts.Networking;
-using TShockNG.Core.GeoIP;
+using TShockAPI;
 
 namespace MaxMind;
 
 /// <summary>
-/// Transitional TShock-facing adapter over the modern IP metadata provider.
+/// Transitional TShock-facing adapter over the IP metadata contract.
 /// </summary>
 public sealed class GeoIPCountry : IIpMetadataProvider, IDisposable
 {
-    private readonly MmdbIpMetadataProvider provider;
+    private readonly IIpMetadataProvider provider;
 
     public bool IsAvailable => provider.IsAvailable;
 
     public GeoIPCountry(string unusedPath)
         : this(
-            Path.Combine(TShockAPI.TShock.SavePath, "GeoLite2-Country.mmdb"),
-            Path.Combine(TShockAPI.TShock.SavePath, "GeoLite2-ASN.mmdb"))
+            Path.Combine(TShock.SavePath, "GeoLite2-Country.mmdb"),
+            Path.Combine(TShock.SavePath, "GeoLite2-ASN.mmdb"))
     {
     }
 
     public GeoIPCountry(string? countryDatabasePath, string? asnDatabasePath)
     {
-        provider = new MmdbIpMetadataProvider(countryDatabasePath, asnDatabasePath);
+        var factory = TShockRuntimeServices.IpMetadataProviderFactory ??
+            throw new InvalidOperationException("The IP metadata provider was not configured by the launcher.");
+        provider = factory.Create(countryDatabasePath, asnDatabasePath);
     }
 
     public bool TryLookup(string ipAddress, out IpMetadata metadata) =>
@@ -48,5 +50,5 @@ public sealed class GeoIPCountry : IIpMetadataProvider, IDisposable
         }
     }
 
-    public void Dispose() => provider.Dispose();
+    public void Dispose() => (provider as IDisposable)?.Dispose();
 }

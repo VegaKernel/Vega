@@ -1,4 +1,4 @@
-﻿/*
+/*
 TShock, a server mod for Terraria
 Copyright (C) 2021-2022 Pryaxis & TShock Contributors
 
@@ -28,6 +28,9 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 using System.Reflection;
 using TShockPluginManager;
+using TShockAPI;
+using TShockNG.Core.GeoIP;
+using TShockNG.Core.Hosting;
 
 // On occasion, users have been seen extracting TShock into their client installation directory -- this is of course incorrect, and is known
 // to cause issues. Let's attempt to catch this before anything happens (specifically, before Terraria assemblies are resolved) and prevent
@@ -50,6 +53,10 @@ if (File.Exists("TerrariaServer.exe"))
 Dictionary<string, Assembly> _cache = new Dictionary<string, Assembly>();
 
 System.Runtime.Loader.AssemblyLoadContext.Default.Resolving += Default_Resolving;
+
+TShockRuntimeServices.Configure(
+	new KestrelHttpServerFactory(),
+	new MmdbIpMetadataProviderFactory());
 
 return await StartAsync();
 

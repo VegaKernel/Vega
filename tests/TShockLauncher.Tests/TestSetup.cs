@@ -18,7 +18,7 @@ public class TestSetup
 	{
 		ChatInitializer.Load();
 
-		Program.SavePath = ""; // 1.4.4.2 staticness introduced this where by default it is null, and any touch to Terraria.Main will use it and cause a crash.
+		Terraria.Program.SavePath = ""; // 1.4.4.2 staticness introduced this where by default it is null, and any touch to Terraria.Main will use it and cause a crash.
 		LanguageManager.Instance.SetLanguage(GameCulture.DefaultCulture); // TShockAPI.Localization will fail without ActiveCulture set
 		Lang.InitializeLegacyLocalization(); // TShockAPI.Localization will fail without preparing NPC names etc
 

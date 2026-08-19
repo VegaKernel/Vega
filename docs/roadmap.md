@@ -10,7 +10,7 @@
 - [x] Upgrade `TZ.Multiplicity` to `2.6.0` for Terraria protocol 319.
 - [x] Establish clean CI on the TShockNG organization repositories.
 - [x] Normalize first-party source, tests, and external repository layout (ADR 0007).
-- [x] Replace legacy `GeoIP.dat` parsing with local MMDB country/ASN metadata (ADR 0008).
+- [x] Replace legacy GeoIP parsing with local MMDB country/ASN metadata (ADR 0008).
 
 ## Phase 1 — typed packet pipeline
 
@@ -57,8 +57,8 @@ Suggested first packet groups:
 
 ## Phase 5 — remove obsolete infrastructure
 
-- [ ] Extract/replace old REST implementation.
-- [ ] Remove `HttpServer.dll` from the core.
+- [x] Extract/replace old REST HTTP transport behind Contracts/Core hosting interfaces.
+- [x] Remove inherited `HttpServer.dll` and use Kestrel from the .NET shared framework.
 - [ ] Replace TShock Newtonsoft.Json usage with `System.Text.Json` while preserving configuration compatibility.
 - [ ] Split database provider infrastructure if it materially simplifies the core.
 

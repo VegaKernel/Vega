@@ -30,14 +30,14 @@ src/
 tests/                  tests
 external/
   TSAPI/                 Terraria Server API git submodule
-  legacy/                temporary external binary dependencies
 docs/                    architecture, ADRs, and documentation
 i18n/                    localizations
 ```
 
 ## Requirements
 
-- .NET SDK 10
+- .NET SDK 10 for builds
+- ASP.NET Core Runtime 10 for framework-dependent deployments
 - Git with submodule support
 
 ## Clone

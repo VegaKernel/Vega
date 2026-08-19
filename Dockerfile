@@ -33,8 +33,8 @@ RUN \
   dotnet publish -o output/ -r "${ARCH}" -v m -f net10.0 -c Release -p:PublishSingleFile=true --self-contained false
 
 # Runtime image
-FROM mcr.microsoft.com/dotnet/runtime:10.0 AS linux_base
-FROM mcr.microsoft.com/dotnet/runtime:10.0-nanoserver-ltsc2022 AS windows_base
+FROM mcr.microsoft.com/dotnet/aspnet:10.0 AS linux_base
+FROM mcr.microsoft.com/dotnet/aspnet:10.0-nanoserver-ltsc2022 AS windows_base
 
 FROM ${TARGETOS}_base AS final
 

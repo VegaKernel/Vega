@@ -19,7 +19,6 @@ Target shape:
 docs/
 external/
   TSAPI/
-  legacy/
 src/
   TShockAPI/
   TShockInstaller/
@@ -40,7 +39,7 @@ Dockerfile
 
 Repository-level files required by GitHub, Git, Docker, licensing, solution discovery, and contributors remain at the root. Documentation remains under `docs/`.
 
-Repository-wide assets that remain part of the product, including `i18n/`, editor metadata, Docker configuration, and GitHub Actions CI, remain at the root. Obsolete upstream service configuration and release scripts are removed rather than carried forward. Temporary third-party binaries that are still required by unmigrated subsystems live under `external/legacy/` until those subsystems are replaced.
+Repository-wide assets that remain part of the product, including `i18n/`, editor metadata, Docker configuration, and GitHub Actions CI, remain at the root. Obsolete upstream service configuration and release scripts are removed rather than carried forward.
 
 ## Migration requirements
 

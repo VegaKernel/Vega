@@ -1,4 +1,4 @@
-﻿/*
+/*
 TShock, a server mod for Terraria
 Copyright (C) 2011-2019 Pryaxis & TShock Contributors
 
@@ -20,7 +20,6 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Net;
-using HttpServer;
 using TShockAPI;
 using TShockAPI.DB;
 using Microsoft.Xna.Framework;
@@ -85,7 +84,7 @@ namespace Rests
 			catch (Exception)
 			{
 				return new RestObject("400")
-				{ Error = GetString("The specified token queued for destruction failed to be deleted.") };
+					{ Error = GetString("The specified token queued for destruction failed to be deleted.") };
 			}
 			return new RestObject()
 			{ Response = GetString("Requested token was successfully destroyed.") };
@@ -101,14 +100,14 @@ namespace Rests
 
 		private object NewTokenV2(RestRequestArgs args)
 		{
-			var user = Uri.UnescapeDataString(args.Parameters["username"]);
-			var pass = Uri.UnescapeDataString(args.Parameters["password"]);
+			var user = args.Parameters["username"] ?? string.Empty;
+			var pass = args.Parameters["password"] ?? string.Empty;
 			var context = args.Context;
 
 			return this.NewTokenInternal(user, pass, context);
 		}
 
-		private RestObject NewTokenInternal(string username, string password, IHttpContext context)
+		private RestObject NewTokenInternal(string username, string password, RestHttpContext context)
 		{
 			int tokens = 0;
 			if (tokenBucket.TryGetValue(context.RemoteEndPoint.Address.ToString(), out tokens))
@@ -167,7 +166,7 @@ namespace Rests
 			return response;
 		}
 
-		protected override object ExecuteCommand(RestCommand cmd, RestVerbs verbs, IParameterCollection parms, IRequest request, IHttpContext context)
+		protected override object ExecuteCommand(RestCommand cmd, RestVerbs verbs, EscapedParameterCollection parms, RestHttpRequest request, RestHttpContext context)
 		{
 			if (!cmd.RequiresToken)
 				return base.ExecuteCommand(cmd, verbs, parms, request, context);
@@ -175,13 +174,13 @@ namespace Rests
 			var token = parms["token"];
 			if (token == null)
 				return new RestObject("401")
-				{ Error = GetString("Not authorized. The specified API endpoint requires a token.") };
+					{ Error = GetString("Not authorized. The specified API endpoint requires a token.") };
 
 			SecureRestCommand secureCmd = (SecureRestCommand)cmd;
 			TokenData tokenData;
 			if (!Tokens.TryGetValue(token, out tokenData) && !AppTokens.TryGetValue(token, out tokenData))
 				return new RestObject("403")
-				{ Error = GetString("Not authorized. The specified API endpoint requires a token, but the provided token was not valid.") };
+					{ Error = GetString("Not authorized. The specified API endpoint requires a token, but the provided token was not valid.") };
 
 			Group userGroup = TShock.Groups.GetGroupByName(tokenData.UserGroupName);
 			if (userGroup == null)
@@ -189,13 +188,13 @@ namespace Rests
 				Tokens.Remove(token);
 
 				return new RestObject("403")
-				{ Error = GetString("Not authorized. The provided token became invalid due to group changes, please create a new token.") };
+					{ Error = GetString("Not authorized. The provided token became invalid due to group changes, please create a new token.") };
 			}
 
 			if (secureCmd.Permissions.Length > 0 && secureCmd.Permissions.All(perm => !userGroup.HasPermission(perm)))
 			{
 				return new RestObject("403")
-				{ Error = GetString("Not authorized. User \"{0}\" has no access to use the specified API endpoint.", tokenData.Username) };
+					{ Error = GetString("Not authorized. User \"{0}\" has no access to use the specified API endpoint.", tokenData.Username) };
 			}
 
 			if (Main.rand == null)

@@ -23,9 +23,7 @@ TShockNG is not a clean-room rewrite. Each subsystem should gain a new internal 
 
 ## REST
 
-REST extraction happens after packet/security foundations are stable.
-
-The old public REST facade may remain in `TShockAPI` while the HTTP implementation moves to a modern host. Compatibility types are adapters, not a reason to keep `HttpServer.dll` forever.
+HTTP transport has been extracted behind `TShockNG.Contracts` and is hosted by Kestrel in `TShockNG.Core`. The current route registry and Terraria-facing endpoint callbacks remain transitional TShockAPI integration code and can now migrate endpoint-by-endpoint without owning the HTTP server.
 
 ## Database code
 
