@@ -12,6 +12,8 @@ The existing `Users` table has no language preference, so registered players can
 
 Modern TShockNG modules must also not need to reference GetText.NET, duplicate the server `i18n/` loader, own culture fallback rules, or reimplement player-language resolution. Localization is a server service and modules consume it through stable contracts.
 
+A module owns the wording it contributes to the system, but it does not own delivery policy. The module provides its own localization resources and stable message keys. TShockNG decides when a message is emitted, which recipient/context it targets, which effective culture applies, and how the localized result is rendered and delivered.
+
 ## Decision
 
 After the .NET 10 baseline is green, rework the i18n subsystem around an explicit localization service and add a `lang` player command.
@@ -56,11 +58,12 @@ Requirements:
 Introduce explicit localization contracts in `TShockNG.Contracts`, for example:
 
 ```text
-ILocalizer
-ILanguageCatalog
-ILocalizationContext
-ILocalizationScopeFactory
+ILocalizationCatalog
+ILocalizationRegistry
+ILocalizationFormatter
+ILocalizationContextResolver
 PlayerLanguagePreference
+LocalizedMessage
 ```
 
 The exact names are implementation details, but the responsibilities must be separated:
@@ -70,64 +73,84 @@ The exact names are implementation details, but the responsibilities must be sep
 - resolve the effective culture for a player;
 - format translated messages for an explicit culture/player context;
 - provide a server/default culture for console, logs, and contexts without a player;
-- create module-scoped localization views/namespaces;
-- cache loaded translation catalogs safely.
+- create module-scoped localization namespaces;
+- cache loaded translation catalogs safely;
+- keep message selection/delivery separate from message text ownership.
 
 Do not implement per-player localization by mutating `CultureInfo.CurrentCulture`, `CurrentUICulture`, a process-global `TSHOCK_LANGUAGE`, or another shared static before sending a message. Multiple players with different languages must be safe concurrently.
 
-Prefer APIs shaped around an explicit target, for example conceptually:
+The preferred modern flow is conceptually:
 
 ```text
-localizer.Get(playerContext, "command.home.saved", args)
-localizer.Get(culture, "command.home.saved", args)
-localizer.GetServer("server.started", args)
+module/domain logic
+    -> returns outcome / message key + arguments
+TShockNG Core
+    -> decides whether/when/to whom to emit
+localization service
+    -> resolves module namespace + recipient culture
+message renderer/output
+    -> sends the final localized text
 ```
+
+For example, a Homes module may define resources such as:
+
+```text
+homes.teleported = Teleported to home '{0}'.
+homes.not-found = Home '{0}' was not found.
+```
+
+but the module should return a structured result such as conceptually:
+
+```text
+CommandResult.Success("homes.teleported", homeName)
+```
+
+rather than directly calling `player.SendSuccessMessage(...)`. TShockNG owns the recipient/output channel and localizes that key using the module's registered catalog.
+
+This rule is especially important for reusable domain services: domain code must not decide chat formatting, recipient routing, console-vs-player behavior, or language selection.
 
 Existing `GetString()`-based public/legacy APIs may remain as a compatibility facade during migration, resolving to the server/default culture where no player context exists.
 
-### Module localization contracts
+### Module-owned localization resources
 
-Modern modules must consume localization through `TShockNG.Contracts`; they must not require a direct package reference to GetText.NET or another concrete localization backend merely to translate their own messages.
-
-Target usage should be comparable to:
-
-```text
-IModuleLocalizer<HomeModule> localizer
-
-localizer.Get(playerContext, "home.teleported", homeName)
-```
-
-or an equivalent module-scope API created by the host.
+Modern modules own their localization content. They register a namespaced catalog of message keys and translations with the host during module activation.
 
 Requirements:
 
-- module code depends on interfaces/contracts only;
-- the TShockNG host owns backend selection, catalog loading, culture normalization, caching and fallback;
-- a module receives an isolated localization namespace/domain so keys from unrelated modules cannot collide accidentally;
-- modules may ship source translation resources, but they must not need to ship the TShockNG runtime localization implementation or duplicate the server's `i18n/` infrastructure;
-- module catalogs are discovered/registered through the module lifecycle rather than by writing into global static collections;
-- unloading/reloading a modern module removes or replaces its catalog registration cleanly;
-- the host provides the effective player culture, so modules do not query the account database or `/lang` persistence themselves;
-- console/background/module startup messages can request the server/default culture without inventing a fake player;
-- pluralization and formatted arguments remain backend-independent at the module-facing contract;
-- missing module translations follow the same deterministic fallback rules as core translations and never make the module operation fail;
-- localization contracts should permit future non-GetText backends without recompiling modules against a different localization package.
+- each module defines and ships its own source/default messages and translations;
+- module resources are namespaced by stable module identity so unrelated keys cannot collide;
+- TShockNG does not require modules to reuse or reference TShock core message strings;
+- TShockNG owns culture resolution, catalog lookup, fallback, formatting and delivery;
+- a module may expose semantic message keys/outcomes to Core without knowing the final recipient;
+- Core may suppress, aggregate, redirect, log, render differently, or deliver a module-provided message according to policy;
+- module code must not need a direct dependency on GetText.NET or another concrete localization backend;
+- module resources must be discoverable/registrable through the modern module lifecycle;
+- unload/reload removes or replaces the module catalog cleanly;
+- module translations follow the same fallback chain as core translations;
+- resource registration should support future packaging formats without changing module business logic.
 
-The preferred dependency direction is:
+A useful separation is:
 
 ```text
 Module
-  -> TShockNG.Contracts.Localization
-        ^
-        |
-TShockNG.Core localization service
-        |
-        -> GetText / other backend
+  owns:
+    message keys
+    source/default text
+    translations
+    semantic outcomes
+
+TShockNG Core
+  owns:
+    recipient/context
+    timing
+    severity/channel
+    culture selection
+    fallback
+    rendering
+    final delivery
 ```
 
-A module must never depend on `TShockNG.Core` solely to obtain translations. The composition/module host injects the contract implementation.
-
-Legacy plugins may continue to use historical `GetString()` helpers through `TShockAPI.dll`, but new module APIs should not expose GetText-specific types such as concrete catalog classes.
+This means localization contracts are not merely a `GetString()` service handed to modules. The preferred modern architecture is structured results/events whose localization occurs at the application/output boundary. A direct module localizer may still exist for module-internal formatting needs, but it must not become the default way command/domain handlers send player-facing output.
 
 ### Translation assets and tooling
 
@@ -162,9 +185,10 @@ A missing translation must never prevent a command or gameplay action from compl
 - Preserve existing plugins that call legacy localization helpers where practical.
 - Add modern explicit-culture APIs rather than changing global language state behind plugin code.
 - Do not require plugins/modules to understand database persistence for player language.
-- Expose the player's effective culture through a stable read API so plugins can localize their own responses consistently.
-- Provide localization interfaces suitable for dependency injection into modern modules.
+- Expose the player's effective culture through a stable read API so plugins can localize their own responses consistently when direct formatting is genuinely needed.
+- Provide localization contracts suitable for dependency injection into modern modules.
 - Keep backend-specific translation types out of `TShockNG.Contracts`.
+- Prefer structured message keys/results over direct localized string emission from modern command/domain handlers.
 
 ### Tests
 
@@ -183,7 +207,8 @@ Add automated tests for at least:
 - module translation using the player's effective `/lang` culture;
 - fallback for a missing module translation;
 - module catalog registration and clean removal/reload;
-- a module consuming localization without referencing the concrete localization backend package.
+- a module consuming localization without referencing the concrete localization backend package;
+- a module returning a structured message key while Core controls final delivery and culture resolution.
 
 ## Sequencing
 
@@ -193,18 +218,18 @@ Recommended order:
 
 1. green .NET 10 baseline;
 2. normalize repository layout;
-3. introduce localization contracts and tests;
-4. implement the Core localization service and module localization scopes;
+3. introduce localization/message contracts and tests;
+4. implement the Core localization service and module catalog registry;
 5. migrate translation loading/tooling;
 6. add per-session player language state;
 7. add persistent account language preference;
 8. add `/lang` command;
-9. migrate player-facing core messages to explicit player localization;
-10. migrate modern modules to the localization contracts;
+9. migrate player-facing core messages to structured localized output;
+10. migrate modern modules to module-owned catalogs + structured results;
 11. remove obsolete global-only i18n paths after compatibility verification.
 
 AntiProxy/reputation work is independent and is not part of this ADR.
 
 ## Consequences
 
-Players can independently select their language without affecting other sessions, registered users retain their preference, and localization becomes a testable service rather than process-global state. Modern modules can localize messages through stable TShockNG contracts without carrying GetText.NET or duplicating the server localization stack. The migration touches a large number of player-facing messages, so it must be incremental and protected by compatibility tests rather than performed as one giant textual replacement.
+Players can independently select their language without affecting other sessions, registered users retain their preference, and localization becomes a testable service rather than process-global state. Modern modules own their own message text/translations without carrying the server localization backend, while TShockNG remains authoritative for when, where and in which culture those messages are rendered. The migration touches a large number of player-facing messages, so it must be incremental and protected by compatibility tests rather than performed as one giant textual replacement.
