@@ -1,6 +1,9 @@
+using System.Diagnostics;
 using System.Reflection;
 using TShockPluginManager;
 using Vega.Terraria;
+
+var processStartedAt = Stopwatch.GetTimestamp();
 
 if (File.Exists("TerrariaServer.exe"))
 {
@@ -60,5 +63,5 @@ async Task<int> StartAsync()
         return 0;
     }
 
-    return TerrariaServerHost.Run(args);
+    return TerrariaServerHost.Run(args, processStartedAt);
 }
