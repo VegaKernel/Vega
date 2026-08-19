@@ -6,7 +6,7 @@
     <TargetFramework>net10.0</TargetFramework>
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
     <GenerateDocumentationFile>True</GenerateDocumentationFile>
-    <NoWarn>$(NoWarn);1591</NoWarn>
+    <NoWarn>$(NoWarn);1572;1573;1574;1587;1591</NoWarn>
     <!--
       Version information for an assembly consists of the following four values:
 
@@ -36,12 +36,12 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <PackageReference Include="BCrypt.Net-Next" Version="4.0.3" Aliases="BCrypt" />
-    <PackageReference Include="GetText.NET" Version="8.0.5" />
-    <PackageReference Include="MySql.Data" Version="9.1.0" />
+    <PackageReference Include="BCrypt.Net-Next" Version="4.2.0" Aliases="BCrypt" />
+    <PackageReference Include="GetText.NET" Version="10.0.1" />
+    <PackageReference Include="MySql.Data" Version="26.7.0" />
     <PackageReference Include="Microsoft.Data.Sqlite" Version="10.0.10" />
-    <PackageReference Include="SQLitePCLRaw.bundle_e_sqlite3" Version="2.1.12" />
-    <PackageReference Include="Npgsql" Version="9.0.3" />
+    <PackageReference Include="SQLitePCLRaw.bundle_e_sqlite3" Version="3.0.5" />
+    <PackageReference Include="Npgsql" Version="10.0.3" />
     <PackageReference Include="TZ.Multiplicity" Version="2.6.0" />
   </ItemGroup>
 
