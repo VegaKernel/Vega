@@ -1,42 +1,45 @@
-# 0005: Modern core API with a legacy compatibility facade
+# 0005: Modern core API and explicit integration boundaries
 
 ## Status
 
-Superseded by ADR 0015
+Accepted; architecture migration in progress.
+
+ADR 0015 amends only the binary-compatibility and broad legacy-facade requirements from the original revision. The Contracts/Core/composition-root architecture in this ADR remains active.
 
 ## Context
 
-TShockNG must preserve compatibility with the existing TShock plugin ecosystem while replacing old implementation patterns with a modern architecture suitable for new code.
+TShockNG is replacing tightly coupled historical implementation patterns with an architecture that can be evolved, tested, and composed explicitly.
 
-Keeping the legacy public surface as the primary architecture would preserve technical debt indefinitely. Replacing it outright would break existing compiled plugins.
-
-The migration is therefore incremental: the existing `TShockAPI.dll` remains available for compatibility while implementation is moved behind explicit contracts into a new core.
+The useful part of the original migration plan is the separation between implementation-independent contracts, modern server behavior, and the TShock-facing integration surface. ADR 0015 later removed a different constraint: TShockNG does not need to preserve binary compatibility with already compiled plugins or retain a broad facade solely for that purpose.
 
 ## Decision
 
-TShockNG will use three architectural layers during the compatibility period:
+TShockNG uses three architectural roles:
 
-1. `TShockNG.Contracts` - modern implementation-independent interfaces, DTOs, result types, snapshots and event contracts.
-2. `TShockNG.Core` - the source of truth for server behavior and application services.
-3. `TShockAPI.dll` - a thin legacy compatibility facade that preserves old public names and delegates to the modern contracts.
+1. `TShockNG.Contracts` contains implementation-independent interfaces, DTOs, result types, snapshots and event contracts.
+2. `TShockNG.Core` owns server behavior and infrastructure implementations that do not depend on `TShockAPI`.
+3. `TShockAPI` is the Terraria/TShock integration layer and the temporary source-level plugin surface while legacy hooks and commands are migrated.
 
-The dependency direction is deliberately one-way:
+`TShockLauncher` is the composition root. It constructs concrete Core services and supplies them to the TShock integration layer through Contracts interfaces.
+
+The dependency direction is:
 
 ```text
-                 TShockNG.Contracts
-                    ^          ^
-                    |          |
-             TShockNG.Core   TShockAPI.dll
-                    ^          ^
-                    |          |
-                    +---- composition root
+                    TShockNG.Contracts
+                     ^            ^
+                     |            |
+              TShockNG.Core    TShockAPI
+                     ^            ^
+                     |            |
+                     +--- TShockLauncher
+                         composition root
 ```
 
-`TShockNG.Core` must not reference `TShockAPI.dll`.
+`TShockNG.Core` must not reference `TShockAPI`.
 
-`TShockAPI.dll` must not become a second implementation of server behavior. Its purpose is compatibility, public adapters and legacy-facing interfaces only where preserving an existing contract requires them.
+`TShockAPI` must not instantiate concrete `TShockNG.Core` implementations. It consumes Contracts and receives concrete services from the composition root.
 
-The launcher/composition root is responsible for constructing the modern services and connecting the legacy facade to those services.
+No assembly name, member layout, obsolete global, adapter, or facade is retained solely so an already compiled plugin can load. ADR 0015 governs the supported source-level plugin transition surface.
 
 ## Modern API design
 
@@ -44,77 +47,57 @@ New APIs should prefer:
 
 - explicit service contracts and constructor injection over static global access;
 - typed packet views from `TZ.Multiplicity` instead of ad-hoc `BinaryReader` parsing;
-- explicit result types for validation and operations instead of `bool` plus hidden side effects;
+- explicit result types instead of `bool` plus hidden side effects;
 - immutable or read-only request/context/snapshot types where mutation is not required;
-- `async` APIs for genuinely asynchronous I/O, with `CancellationToken` support;
-- nullable reference type annotations on all new API surfaces;
-- clear thread-affinity contracts for operations that must run on the Terraria game thread;
-- event data that is strongly typed and can carry structured cancellation/decision information;
-- small focused interfaces rather than service-locator style access to the entire server.
-
-Async must not be introduced merely to make signatures look modern. CPU-bound packet parsing and game-thread state mutation remain synchronous unless there is a concrete reason otherwise.
+- `async` APIs only for genuinely asynchronous I/O, with `CancellationToken` support;
+- nullable reference type annotations on new API surfaces;
+- clear game-thread affinity contracts;
+- strongly typed event data with structured cancellation/decision information;
+- small focused interfaces rather than service-locator access to the whole server.
 
 ## Core ownership
 
-The new core becomes the owner of behavior as code is migrated. This includes, progressively:
+Core is the source of truth for migrated behavior. Its ownership includes:
 
-- command execution and command services;
+- command dispatch and command handlers;
 - account, group and permission behavior;
-- database repositories and migrations;
-- server/player state projections;
+- bans and access policy;
+- database repositories, query building and migrations;
+- character persistence and server/player projections;
+- regions, warps and world-domain behavior;
 - network packet processing and validation orchestration;
 - localization selection and per-player culture;
-- GeoIP metadata services;
+- GeoIP metadata;
 - Dimensions forwarding metadata;
-- operational snapshots consumed by the Terminal.Gui UI;
-- modern HTTP/REST hosting after the legacy HTTP server is replaced.
+- operational snapshots and update services;
+- non-Terraria process infrastructure.
 
-Terraria-owned mutable game state remains game-thread-only as defined by ADR 0003. Core services expose snapshots or scheduled operations rather than allowing arbitrary background access to Terraria globals.
+Terraria-owned mutable game state remains game-thread-only as defined by ADR 0003. Integration code may translate between Terraria/TShock objects and Core contracts, but Core must not use TShock globals as its architecture.
 
-## TShockAPI compatibility facade
+## TShockAPI integration surface
 
-Existing public types such as `TShockAPI.TShock`, `TSPlayer`, `Commands`, `GetDataHandlers`, permissions and legacy hooks remain available while compatibility is required.
+`TShockAPI` retains only code that is still genuinely an integration or source-level plugin boundary:
 
-As each subsystem is migrated:
+- TSAPI/Terraria plugin entrypoints and hook wiring;
+- transitional `TSPlayer` and command/hook-shaped plugin models while they still have source-level consumers;
+- `IHookRegistry<TEventArgs>` and `ILegacyCommandRegistry`;
+- integration adapters that translate between Terraria/TShock objects and Contracts/Core;
+- REST code until its separate migration is explicitly undertaken.
 
-1. behavior is implemented in `TShockNG.Core`;
-2. the required public contract is represented in `TShockNG.Contracts`;
-3. the legacy TShockAPI entry point delegates to that contract;
-4. duplicate implementation is removed from the compatibility facade.
-
-Consequently, files such as the current monolithic `Commands.cs` are transitional code, not the target architecture. Command implementations should be split by responsibility and migrated into focused core services/handlers instead of merely dividing one legacy monolith into several equally coupled files.
-
-The facade may contain small compatibility transformations such as legacy argument conversion, return-value mapping and hook bridging. It must not contain database policy, packet validation, business rules or duplicated state machines.
-
-Example direction:
-
-```text
-TSAPI raw packet
-    -> Multiplicity typed view
-    -> TShockNG.Core handler/service
-    -> ProtocolGuard where applicable
-    -> TShockAPI compatibility adapter
-    -> existing TShockAPI hook/plugin surface
-```
-
-Legacy APIs may later be marked with `[Obsolete(..., false)]` after a supported modern replacement exists. Deprecation warnings must not precede a viable migration path.
+Legacy behavior must not remain in `TShockAPI` merely because it historically lived there.
 
 ## Commands migration
 
-`Commands.cs` will be dismantled incrementally rather than maintained as a permanent monolith.
+`Commands.cs` is transitional code, not the target architecture. Command behavior belongs under `TShockNG.Core/Commands`, grouped by responsibility. `TShockAPI` should eventually contain only command registration/integration required by ADR 0015.
 
-The target form is approximately:
+Target direction:
 
 ```text
 TShockNG.Contracts/
   Commands/
-    ICommandDispatcher.cs
-    ICommandContext.cs
-    CommandResult.cs
 
 TShockNG.Core/
   Commands/
-    CommandDispatcher.cs
     Accounts/
     Administration/
     Players/
@@ -123,27 +106,37 @@ TShockNG.Core/
     Items/
 
 TShockAPI/
-  Commands.cs                 # compatibility registration/facade only
-  Compatibility/Commands/     # legacy argument/result adapters
+  Compatibility/Commands/
+  ILegacyCommandRegistry.cs
 ```
 
-The legacy `Command`, `CommandArgs`, aliases, permissions and plugin-visible registration behavior are preserved while old plugins depend on them. New core handlers do not depend on the legacy static `Commands` class.
+## Composition root
 
-## Packaging and binary identity
+`TShockLauncher` owns process composition:
 
-NuGet package identity is independent from assembly identity.
+- construction of concrete Core services;
+- process-level paths/options;
+- host networking/socket selection;
+- supplying services to TShock integration code.
 
-The working package name for the modern distribution is `TShockNG`. Existing compatibility assemblies such as `TShockAPI.dll` retain their historical assembly names while being shipped by the modern package.
+It must not become a service locator used from arbitrary domain code.
 
-`TShockNG.Contracts.dll` and `TShockNG.Core.dll` are new implementation assemblies and therefore do not inherit the compatibility constraints of `TShockAPI.dll`.
+## REST scope
+
+REST is intentionally excluded from the structural migration in the ADR 0005 architecture PR. Existing REST files remain in `TShockAPI/Rest` until the REST/HTTP migration is handled separately.
+
+## Validation
+
+This architecture-only pass is allowed to be temporarily non-buildable while ownership is moved. Compilation repair, dependency cleanup and behavioral verification are a separate follow-up step after the structural review.
+
+The final implementation of ADR 0005 is not complete until the dependency direction is enforced by code and tests.
 
 ## Consequences
 
-- New functionality is implemented in the modern layer first.
-- Legacy APIs become progressively thinner as migration proceeds.
-- `TShockNG.Core` stays free of dependencies on the legacy `TShockAPI.dll`.
-- Protocol parsing and security rules are not duplicated between old and new APIs.
-- Binary compatibility can be retained without forcing new plugins to use the historical API style.
-- The existing TShockAPI directory becomes a compatibility boundary rather than the place where new server architecture accumulates.
-- Large legacy files are dismantled while behavior is moved, instead of receiving purely cosmetic file splits.
-- Removal of legacy compatibility surfaces is reserved for an explicitly incompatible major transition.
+- `TShockAPI` becomes an integration boundary rather than the home of server behavior.
+- `TShockNG.Core` becomes the owner of migrated domain behavior.
+- `TShockNG.Contracts` remains free of Terraria/TShock implementation details.
+- `TShockLauncher` becomes the explicit composition root.
+- binary compatibility is not a constraint;
+- source-level hook and command registration remains available under ADR 0015;
+- REST can migrate independently without blocking the rest of the architecture.
