@@ -1,6 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
 <Project Sdk="Microsoft.NET.Sdk">
-
   <PropertyGroup>
     <OutputType>Library</OutputType>
     <TargetFramework>net10.0</TargetFramework>
@@ -16,7 +15,7 @@
     <GeneratePackageOnBuild>True</GeneratePackageOnBuild>
     <PackageLicenseExpression>GPL-3.0-or-later</PackageLicenseExpression>
     <Authors>TShockNG Contributors</Authors>
-    <Description>TShockNG is a modernized TShock server platform for Terraria.</Description>
+    <Description>Legacy TShock migration assembly retained temporarily while Vega replaces the old runtime path.</Description>
     <PackageId>TShockNG</PackageId>
   </PropertyGroup>
 
@@ -32,37 +31,30 @@
 
   <ItemGroup>
     <ProjectReference Include="..\..\external\TSAPI\TerrariaServerAPI\TerrariaServerAPI.csproj" />
-    <ProjectReference Include="..\TShockNG.Contracts\TShockNG.Contracts.csproj" />
-    <ProjectReference Include="..\TShockNG.Core\TShockNG.Core.csproj" />
+    <ProjectReference Include="..\Vega.Contracts\Vega.Contracts.csproj" />
+    <ProjectReference Include="..\Vega.Core\Vega.Core.csproj" />
   </ItemGroup>
 
-  <!--
-    Transitional migration bridge. The source files below have moved to their
-    target ownership directories, but still depend on plugin-facing TShockAPI
-    models such as TSPlayer/TShock/hooks. Compile them here until those
-    dependencies are replaced by Contracts/Core boundaries. This keeps the
-    dependency graph one-way and avoids Core referencing TShockAPI.
-  -->
   <ItemGroup>
-    <Compile Include="..\TShockNG.Core\Accounts\**\*.cs" LinkBase="Migration\Core\Accounts" />
-    <Compile Include="..\TShockNG.Core\Authorization\**\*.cs" LinkBase="Migration\Core\Authorization" />
-    <Compile Include="..\TShockNG.Core\Bans\**\*.cs" LinkBase="Migration\Core\Bans" />
-    <Compile Include="..\TShockNG.Core\Commands\LegacyMonolith\**\*.cs" LinkBase="Migration\Core\Commands" />
-    <Compile Include="..\TShockNG.Core\Infrastructure\Legacy\**\*.cs" LinkBase="Migration\Core\Infrastructure" />
-    <Compile Include="..\TShockNG.Core\Legacy\**\*.cs" LinkBase="Migration\Core\Legacy" />
-    <Compile Include="..\TShockNG.Core\Localization\Legacy\**\*.cs" LinkBase="Migration\Core\Localization" />
-    <Compile Include="..\TShockNG.Core\Logging\Legacy\**\*.cs" LinkBase="Migration\Core\Logging" />
-    <Compile Include="..\TShockNG.Core\Networking\Legacy\**\*.cs" LinkBase="Migration\Core\Networking" />
-    <Compile Include="..\TShockNG.Core\Persistence\**\*.cs" LinkBase="Migration\Core\Persistence" />
-    <Compile Include="..\TShockNG.Core\Players\Legacy\**\*.cs" LinkBase="Migration\Core\Players" />
-    <Compile Include="..\TShockNG.Core\Players\Persistence\**\*.cs" LinkBase="Migration\Core\Players" />
-    <Compile Include="..\TShockNG.Core\Regions\**\*.cs" LinkBase="Migration\Core\Regions" />
-    <Compile Include="..\TShockNG.Core\Restrictions\**\*.cs" LinkBase="Migration\Core\Restrictions" />
-    <Compile Include="..\TShockNG.Core\Security\**\*.cs" LinkBase="Migration\Core\Security" />
-    <Compile Include="..\TShockNG.Core\Updates\Legacy\**\*.cs" LinkBase="Migration\Core\Updates" />
-    <Compile Include="..\TShockNG.Core\Worlds\**\*.cs" LinkBase="Migration\Core\Worlds" />
-    <Compile Include="..\TShockLauncher\CLI\Legacy\**\*.cs" LinkBase="Migration\Launcher\CLI" />
-    <Compile Include="..\TShockLauncher\Networking\LegacySockets\**\*.cs" LinkBase="Migration\Launcher\Networking" />
+    <Compile Include="..\Vega.Core\Accounts\**\*.cs" LinkBase="Migration\Core\Accounts" />
+    <Compile Include="..\Vega.Core\Authorization\**\*.cs" LinkBase="Migration\Core\Authorization" />
+    <Compile Include="..\Vega.Core\Bans\**\*.cs" LinkBase="Migration\Core\Bans" />
+    <Compile Include="..\Vega.Core\Commands\LegacyMonolith\**\*.cs" LinkBase="Migration\Core\Commands" />
+    <Compile Include="..\Vega.Core\Infrastructure\Legacy\**\*.cs" LinkBase="Migration\Core\Infrastructure" />
+    <Compile Include="..\Vega.Core\Legacy\**\*.cs" LinkBase="Migration\Core\Legacy" />
+    <Compile Include="..\Vega.Core\Localization\Legacy\**\*.cs" LinkBase="Migration\Core\Localization" />
+    <Compile Include="..\Vega.Core\Logging\Legacy\**\*.cs" LinkBase="Migration\Core\Logging" />
+    <Compile Include="..\Vega.Core\Networking\Legacy\**\*.cs" LinkBase="Migration\Core\Networking" />
+    <Compile Include="..\Vega.Core\Persistence\**\*.cs" LinkBase="Migration\Core\Persistence" />
+    <Compile Include="..\Vega.Core\Players\Legacy\**\*.cs" LinkBase="Migration\Core\Players" />
+    <Compile Include="..\Vega.Core\Players\Persistence\**\*.cs" LinkBase="Migration\Core\Players" />
+    <Compile Include="..\Vega.Core\Regions\**\*.cs" LinkBase="Migration\Core\Regions" />
+    <Compile Include="..\Vega.Core\Restrictions\**\*.cs" LinkBase="Migration\Core\Restrictions" />
+    <Compile Include="..\Vega.Core\Security\**\*.cs" LinkBase="Migration\Core\Security" />
+    <Compile Include="..\Vega.Core\Updates\Legacy\**\*.cs" LinkBase="Migration\Core\Updates" />
+    <Compile Include="..\Vega.Core\Worlds\**\*.cs" LinkBase="Migration\Core\Worlds" />
+    <Compile Include="..\Vega.Runtime\CLI\Legacy\**\*.cs" LinkBase="Migration\Runtime\CLI" />
+    <Compile Include="..\Vega.Runtime\Networking\LegacySockets\**\*.cs" LinkBase="Migration\Runtime\Networking" />
   </ItemGroup>
 
   <ItemGroup>
@@ -70,7 +62,6 @@
       <HintPath>..\..\external\legacy\HttpServer.dll</HintPath>
     </Reference>
   </ItemGroup>
-
   <ItemGroup>
     <None Include="..\..\external\legacy\HttpServer.dll">
       <Link>HttpServer.dll</Link>
@@ -79,5 +70,4 @@
       <PackagePath>lib/$(TargetFramework)/</PackagePath>
     </None>
   </ItemGroup>
-
 </Project>

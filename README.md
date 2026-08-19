@@ -4,75 +4,52 @@
 
 Vega — самостоятельный современный server framework/runtime для Terraria.
 
-Проект вырос из практического опыта TShock, но **не рассматривается как TShock с модернизированной внутренней архитектурой**. Старый TShock используется как источник проверенного production-поведения, требований, edge cases и тестовых сценариев. Его API и архитектурные формы не являются долгосрочным ограничением Vega.
+Проект вырос из production-опыта TShock, но не рассматривается как TShock с модернизированной внутренней архитектурой. Старый код остаётся источником поведения, edge cases и regression-сценариев, а не архитектурным фундаментом.
 
-## Архитектурное направление
+## Текущие границы
 
 ```text
-Terraria
-   ↓
-OTAPI
-   ↓
-Vega.Runtime / Vega.Terraria
-   ↓
-Vega.Contracts
-   ↓
-Vega.Core
-   ↓
-Vega.Modules
+Terraria / OTAPI
+       ↓
+Vega.Terraria
+       ↓
+Vega.Runtime
+      / \
+Vega.Contracts  Vega.Core
+       ↑
+Vega modules
 ```
 
-- OTAPI остаётся низкоуровневым instrumentation/patching layer.
-- TSAPI не входит в целевую архитектуру Vega.
-- `TShockAPI` не является целевым compatibility layer.
-- Бинарная совместимость с TShock/TSAPI-плагинами не требуется.
-- Source-level legacy compatibility не является долгосрочной целью.
-- TerraZ-плагины будут переноситься на Vega module API.
-- `Vega.Core` не зависит от Terraria, OTAPI, TSAPI или TShockAPI.
+- `Vega.Contracts` — независимые контракты и DTO.
+- `Vega.Core` — серверное поведение без Terraria, OTAPI, TSAPI и TShockAPI.
+- `Vega.Terraria` — единственное целевое место для Terraria/OTAPI-specific integration.
+- `Vega.Runtime` — process host и composition root.
+- `TShockAPI` и `external/TSAPI` пока остаются только как migration scaffolding и не являются частью target architecture.
 
-Существующие `TShock*` проекты и TSAPI submodule могут временно оставаться в дереве как migration scaffolding, пока не построен нативный runtime path Vega. Новая архитектура не должна углублять эти зависимости.
+`Vega.Core` защищён architecture test: появление ссылки на Terraria/OTAPI/TShockAPI ломает тесты.
+
+## Solution
+
+```bash
+dotnet restore Vega.sln
+dotnet build Vega.sln
+dotnet test Vega.sln
+```
+
+Основной executable: `src/Vega.Runtime/Vega.Runtime.csproj`, assembly `Vega.Server`.
 
 ## Быстрый запуск
 
-Скорость запуска является архитектурным инвариантом. Основная точка готовности — `NetworkReady`, после которой сервер может принимать игроков; необязательный warmup продолжается отдельно.
+`NetworkReady` является основной пользовательской точкой готовности. Необязательный warmup выполняется после открытия сервера. Terraria world loading измеряется отдельно от Vega startup overhead.
 
-```text
-ProcessStart
-  → Bootstrap
-  → RuntimeReady
-  → ModulesRegistered
-  → WorldLoading
-  → WorldReady
-  → NetworkReady
-  → BackgroundWarmup
-  → FullyWarmed
-```
-
-Terraria world loading измеряется отдельно от Vega startup overhead.
-
-Подробности: [`ADR 0017`](docs/decisions/0017-startup-lifecycle-readiness-and-performance-budgets.md).
-
-## Модули
-
-Целевой module API будет Vega-native. Регистрация модуля должна быть дешёвой и синхронной; SQL, HTTP, длительный file I/O, world scans и warmup не выполняются в registration/constructors.
-
-Startup-работа разделяется по readiness barrier: `RuntimeBarrier`, `WorldBarrier`, `NetworkBarrier`, `Background`, `Lazy`.
-
-## .NET
-
-Текущий runtime baseline — .NET 10.
+Подробнее: [`ADR 0017`](docs/decisions/0017-startup-lifecycle-readiness-and-performance-budgets.md).
 
 ## Документация
 
-- [`docs/architecture.md`](docs/architecture.md) — целевая архитектура Vega;
-- [`docs/roadmap.md`](docs/roadmap.md) — этапы перехода;
-- [`docs/decisions`](docs/decisions) — ADR и история архитектурных решений;
-- [`ADR 0016`](docs/decisions/0016-vega-independent-runtime-architecture.md) — переход от TShockNG migration model к самостоятельной Vega;
-- [`ADR 0017`](docs/decisions/0017-startup-lifecycle-readiness-and-performance-budgets.md) — startup lifecycle, readiness и performance budgets.
-
-## Текущее состояние дерева
-
-Физические имена solution/projects (`TShock.sln`, `TShockAPI`, `TShockNG.*` и т. п.) ещё могут отражать промежуточный этап миграции. Их механическое переименование и удаление TSAPI/TShockAPI выполняются отдельными implementation changes, чтобы архитектурное решение не маскировалось огромным нерелевантным diff.
+- [`docs/architecture.md`](docs/architecture.md)
+- [`docs/roadmap.md`](docs/roadmap.md)
+- [`ADR 0016`](docs/decisions/0016-vega-independent-runtime-architecture.md)
+- [`ADR 0017`](docs/decisions/0017-startup-lifecycle-readiness-and-performance-budgets.md)
 
 ## Лицензия
 

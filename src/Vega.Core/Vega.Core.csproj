@@ -1,6 +1,8 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
     <TargetFramework>net10.0</TargetFramework>
+    <RootNamespace>Vega.Core</RootNamespace>
+    <AssemblyName>Vega.Core</AssemblyName>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
     <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
@@ -13,16 +15,10 @@
   </ItemGroup>
 
   <ItemGroup>
-    <ProjectReference Include="..\TShockNG.Contracts\TShockNG.Contracts.csproj" />
+    <ProjectReference Include="..\Vega.Contracts\Vega.Contracts.csproj" />
   </ItemGroup>
 
-  <!--
-    Architecture-only moves place transitional legacy sources under Core immediately.
-    Until each subsystem is detached from TShockAPI plugin models, those files are
-    compiled by TShockAPI through linked source entries instead of creating a
-    forbidden Core -> TShockAPI reference. Remove entries from this list as the
-    corresponding subsystem becomes a real Core implementation.
-  -->
+  <!-- Legacy sources are physically parked here but are not Vega.Core until their Terraria/TShock dependencies are removed. -->
   <ItemGroup>
     <Compile Remove="Accounts\**\*.cs" />
     <Compile Remove="Authorization\**\*.cs" />

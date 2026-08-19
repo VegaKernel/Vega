@@ -2,6 +2,8 @@
 
   <PropertyGroup>
     <TargetFramework>net10.0</TargetFramework>
+    <RootNamespace>Vega.Runtime.Tests</RootNamespace>
+    <AssemblyName>Vega.Runtime.Tests</AssemblyName>
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
     <IsPackable>false</IsPackable>
@@ -23,8 +25,8 @@
 
   <ItemGroup>
     <ProjectReference Include="..\..\src\TShockAPI\TShockAPI.csproj" />
-    <ProjectReference Include="..\..\src\TShockLauncher\TShockLauncher.csproj" />
-    <ProjectReference Include="..\..\src\TShockNG.Core\TShockNG.Core.csproj" />
+    <ProjectReference Include="..\..\src\Vega.Runtime\Vega.Runtime.csproj" />
+    <ProjectReference Include="..\..\src\Vega.Core\Vega.Core.csproj" />
   </ItemGroup>
 
   <ItemGroup>
