@@ -3,35 +3,35 @@
 	<PropertyGroup>
 		<OutputType>Exe</OutputType>
 		<TargetFramework>net10.0</TargetFramework>
+		<RootNamespace>Vega.Runtime</RootNamespace>
+		<AssemblyName>Vega.Server</AssemblyName>
 		<ImplicitUsings>enable</ImplicitUsings>
 		<Nullable>enable</Nullable>
-		<AssemblyName>TShock.Server</AssemblyName>
 		<RunPostBuildEvent>Always</RunPostBuildEvent>
 		<DebugType>embedded</DebugType>
 		<IncludeNativeLibrariesForSelfExtract>true</IncludeNativeLibrariesForSelfExtract>
 	</PropertyGroup>
 
+	<!-- Transitional runtime bridge. TSAPI/TShockAPI remain here only until Vega.Terraria owns direct OTAPI integration. -->
 	<ItemGroup>
 		<ProjectReference Include="..\..\external\TSAPI\TerrariaServerAPI\TerrariaServerAPI.csproj" ExcludeFromSingleFile="true" />
 		<ProjectReference Include="..\TShockAPI\TShockAPI.csproj" ExcludeFromSingleFile="true" ReferenceOutputAssembly="false" />
-		<ProjectReference Include="..\TShockPluginManager\TShockPluginManager.csproj"/>
-		<ProjectReference Include="..\TShockNG.Core\TShockNG.Core.csproj" />
+		<ProjectReference Include="..\TShockPluginManager\TShockPluginManager.csproj" />
+		<ProjectReference Include="..\Vega.Core\Vega.Core.csproj" />
+		<ProjectReference Include="..\Vega.Terraria\Vega.Terraria.csproj" />
 		<Reference Include="HttpServer" ExcludeFromSingleFile="true">
 			<HintPath>..\..\external\legacy\HttpServer.dll</HintPath>
 		</Reference>
 	</ItemGroup>
-
 
 	<ItemGroup>
 		<PackageReference Include="BCrypt.Net-Next" Version="4.2.0" />
 		<PackageReference Include="MySql.Data" Version="26.7.0" />
 		<PackageReference Include="Microsoft.Data.Sqlite" Version="10.0.10" />
 		<PackageReference Include="SQLitePCLRaw.bundle_e_sqlite3" Version="3.0.5" />
-        <PackageReference Include="Npgsql" Version="10.0.3" />
-
+		<PackageReference Include="Npgsql" Version="10.0.3" />
 		<PackageReference Include="ModFramework" Version="1.1.15" GeneratePathProperty="true" />
 		<PackageReference Include="GetText.NET" Version="10.0.1" />
-
 		<PackageReference Include="OTAPI.Upcoming" Version="3.3.11" ExcludeAssets="all" GeneratePathProperty="true" />
 
 		<None Include="$(PkgOTAPI_Upcoming)\lib\$(TargetFramework)\OTAPI.dll" Condition="Exists('$(PkgOTAPI_Upcoming)\lib\$(TargetFramework)\OTAPI.dll')">
@@ -65,26 +65,21 @@
 	</ItemGroup>
 
 	<Target Name="CheckMsgfmtCallable">
-		<Exec Command="msgfmt --help > NUL" IgnoreExitCode="True" Condition=" '$(OS)' == 'Windows_NT' ">
+		<Exec Command="msgfmt --help &gt; NUL" IgnoreExitCode="True" Condition=" '$(OS)' == 'Windows_NT' ">
 			<Output TaskParameter="ExitCode" PropertyName="MsgfmtExitCode" />
 		</Exec>
-		<Exec Command="msgfmt --help 2>/dev/null >/dev/null" IgnoreExitCode="True" Condition=" '$(OS)' != 'Windows_NT' ">
+		<Exec Command="msgfmt --help 2&gt;/dev/null &gt;/dev/null" IgnoreExitCode="True" Condition=" '$(OS)' != 'Windows_NT' ">
 			<Output TaskParameter="ExitCode" PropertyName="MsgfmtExitCode" />
 		</Exec>
 	</Target>
 
-	<Target
-		Name="GenerateMOFiles"
-		DependsOnTargets="CheckMsgfmtCallable"
-		AfterTargets="PostBuildEvent;Publish"
-		Inputs="..\..\i18n\**\*.po"
-		Outputs="$(OutDir)i18n\**\*.mo">
+	<Target Name="GenerateMOFiles" DependsOnTargets="CheckMsgfmtCallable" AfterTargets="PostBuildEvent;Publish" Inputs="..\..\i18n\**\*.po" Outputs="$(OutDir)i18n\**\*.mo">
 		<ItemGroup Condition="'$(MsgfmtExitCode)' == '0'">
 			<POFiles Include="..\..\i18n\**\*.po" />
 		</ItemGroup>
 		<MakeDir Directories="$(OutDir)i18n/%(POFiles.RecursiveDir)" Condition="'$(MsgfmtExitCode)' == '0'" />
 		<Exec Command="msgfmt -o $(OutDir)i18n/%(RecursiveDir)%(Filename).mo @(POFiles)" Outputs="$(OutDir)i18n\**\*.mo" Condition="'$(MsgfmtExitCode)' == '0'">
-			<Output ItemName="Generated" TaskParameter="Outputs"/>
+			<Output ItemName="Generated" TaskParameter="Outputs" />
 		</Exec>
 	</Target>
 
@@ -97,21 +92,24 @@
 		<Copy SourceFiles="@(ApiFiles)" DestinationFolder="$(OutDir)ServerPlugins" ContinueOnError="true" />
 		<Copy SourceFiles="@(ApiFiles)" DestinationFolder="$(PublishDir)ServerPlugins" ContinueOnError="true" />
 	</Target>
+
 	<Target Name="CopyI18n" AfterTargets="Publish">
 		<ItemGroup>
-			<MOFiles Include="$(OutDir)**/*.mo"/>
+			<MOFiles Include="$(OutDir)**/*.mo" />
 		</ItemGroup>
 		<Copy SourceFiles="@(MOFiles)" DestinationFolder="$(PublishDir)%(RecursiveDir)" />
 	</Target>
+
 	<Target Name="MoveDevBin" AfterTargets="PostBuildEvent">
 		<ItemGroup>
-			<MoveBinaries Include="$(OutDir)*" Exclude="$(OutDir)\TShock.Server*" />
+			<MoveBinaries Include="$(OutDir)*" Exclude="$(OutDir)\Vega.Server*" />
 		</ItemGroup>
 		<Move SourceFiles="@(MoveBinaries)" DestinationFolder="$(OutDir)bin" ContinueOnError="true" />
 	</Target>
+
 	<Target Name="MovePublishBin" AfterTargets="Publish">
 		<ItemGroup>
-			<MoveBinaries Include="$(PublishDir)*" Exclude="$(PublishDir)\TShock.Server*" />
+			<MoveBinaries Include="$(PublishDir)*" Exclude="$(PublishDir)\Vega.Server*" />
 		</ItemGroup>
 		<Move SourceFiles="@(MoveBinaries)" DestinationFolder="$(PublishDir)bin" ContinueOnError="true" />
 	</Target>

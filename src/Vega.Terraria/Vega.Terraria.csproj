@@ -1,0 +1,15 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <RootNamespace>Vega.Terraria</RootNamespace>
+    <AssemblyName>Vega.Terraria</AssemblyName>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Vega.Contracts\Vega.Contracts.csproj" />
+    <PackageReference Include="OTAPI.Upcoming" Version="3.3.11" />
+  </ItemGroup>
+</Project>

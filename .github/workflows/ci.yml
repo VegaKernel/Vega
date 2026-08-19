@@ -11,85 +11,52 @@ permissions:
   contents: read
 
 jobs:
-  tsapi:
-    name: TSAPI
+  legacy-tsapi:
+    name: Legacy TSAPI
     runs-on: windows-latest
-
     steps:
       - uses: actions/checkout@v4
         with:
           submodules: recursive
-
       - name: Setup .NET
         uses: actions/setup-dotnet@v4
         with:
           dotnet-version: 10.0.x
-
       - name: Add MonoMod source
         run: dotnet nuget add source https://pkgs.dev.azure.com/MonoMod/MonoMod/_packaging/DevBuilds%40Local/nuget/v3/index.json -n DevBuilds@Local
-
-      - name: Restore TSAPI
+      - name: Restore legacy TSAPI
         run: dotnet restore external/TSAPI/TSAPI.sln
-
-      - name: Build TSAPI
+      - name: Build legacy TSAPI
         run: dotnet build external/TSAPI/TSAPI.sln --configuration Release --no-restore -warnaserror
-
-      - name: Test TSAPI
+      - name: Test legacy TSAPI
         run: dotnet test external/TSAPI/TSAPI.sln --configuration Release --no-build --filter "FullyQualifiedName!~TerrariaServerAPI.Tests.Benchmarks" --verbosity normal
 
-  tshockng:
-    name: TShockNG
+  vega:
+    name: Vega
     runs-on: windows-latest
-
     steps:
       - uses: actions/checkout@v4
         with:
           submodules: recursive
-
       - name: Setup .NET
         uses: actions/setup-dotnet@v4
         with:
           dotnet-version: 10.0.x
-
       - name: Add MonoMod source
         run: dotnet nuget add source https://pkgs.dev.azure.com/MonoMod/MonoMod/_packaging/DevBuilds%40Local/nuget/v3/index.json -n DevBuilds@Local
-
       - name: Download pinned MaxMind test databases
         shell: pwsh
         run: |
           $base = "https://raw.githubusercontent.com/maxmind/MaxMind-DB/e1120013c4b5cbc830b958b2b7e73fba444d316d/test-data"
-          $target = "tests/TShockLauncher.Tests/TestData/MaxMind"
+          $target = "tests/Vega.Runtime.Tests/TestData/MaxMind"
           New-Item -ItemType Directory -Force -Path $target | Out-Null
           Invoke-WebRequest "$base/GeoIP2-Country-Test.mmdb" -OutFile "$target/GeoIP2-Country-Test.mmdb"
           Invoke-WebRequest "$base/GeoLite2-ASN-Test.mmdb" -OutFile "$target/GeoLite2-ASN-Test.mmdb"
-
-      - name: Restore TShockNG
-        run: dotnet restore TShock.sln
-
-      - name: Build TShockNG
-        shell: pwsh
-        run: |
-          dotnet build TShock.sln --configuration Release --no-restore -warnaserror 2>&1 | Tee-Object -FilePath tshock-build.log
-          $exitCode = $LASTEXITCODE
-          if ($exitCode -ne 0) {
-            Write-Host "TShockNG compiler diagnostics:"
-            Get-Content tshock-build.log |
-              Select-String -Pattern '(?i)\b(error|warning)\b.*\b[A-Z]{2,}\d{3,}\b' |
-              Select-Object -Last 200 |
-              ForEach-Object { Write-Host "::error::$($_.Line)" }
-            exit $exitCode
-          }
-
-      - name: Upload TShockNG build log
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: tshock-build-log
-          path: tshock-build.log
-          if-no-files-found: ignore
-
-      - name: Test TShockNG
-        run: dotnet test TShock.sln --configuration Release --no-build --verbosity normal
-
-      - name: Pack TShockNG
+      - name: Restore Vega
+        run: dotnet restore Vega.sln
+      - name: Build Vega
+        run: dotnet build Vega.sln --configuration Release --no-restore -warnaserror
+      - name: Test Vega
+        run: dotnet test Vega.sln --configuration Release --no-build --verbosity normal
+      - name: Pack legacy TShockAPI
         run: dotnet pack src/TShockAPI/TShockAPI.csproj --configuration Release --no-build --output artifacts/nuget
