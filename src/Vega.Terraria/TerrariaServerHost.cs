@@ -15,6 +15,7 @@ public static class TerrariaServerHost
 
         AppDomain.CurrentDomain.UnhandledException += OnUnhandledException;
         var bootstrapStarted = Stopwatch.GetTimestamp();
+        var legacyHooksAttached = false;
 
         try
         {
@@ -24,6 +25,7 @@ public static class TerrariaServerHost
             // Temporary seam: only hook dispatch/deinitialization still comes from TSAPI.
             // The process bootstrap itself is now owned by Vega.Terraria.
             LegacyTsapiBridge.AttachHooks(args);
+            legacyHooksAttached = true;
 
             Console.WriteLine(
                 $"Vega Terraria bootstrap ready in {Stopwatch.GetElapsedTime(bootstrapStarted).TotalMilliseconds:F1} ms");
@@ -43,7 +45,11 @@ public static class TerrariaServerHost
         }
         finally
         {
-            LegacyTsapiBridge.Shutdown();
+            if (legacyHooksAttached)
+            {
+                LegacyTsapiBridge.Shutdown();
+            }
+
             AppDomain.CurrentDomain.UnhandledException -= OnUnhandledException;
         }
     }
