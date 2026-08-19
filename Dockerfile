@@ -1,7 +1,7 @@
 # TARGETPLATFORM and BUILDPLATFORM are automatically filled in by Docker buildx.
 # They should not be set in the global scope manually.
 
-FROM --platform=${BUILDPLATFORM} mcr.microsoft.com/dotnet/sdk:9.0 AS builder
+FROM --platform=${BUILDPLATFORM} mcr.microsoft.com/dotnet/sdk:10.0 AS builder
 
 # Install msgfmt for i18n
 RUN apt-get update && apt-get install -y gettext
@@ -30,11 +30,11 @@ RUN \
     *) echo "Error: Unsupported platform ${TARGETPLATFORM}" && exit 1 \
     ;; \
   esac && \
-  dotnet publish -o output/ -r "${ARCH}" -v m -f net9.0 -c Release -p:PublishSingleFile=true --self-contained false
+  dotnet publish -o output/ -r "${ARCH}" -v m -f net10.0 -c Release -p:PublishSingleFile=true --self-contained false
 
 # Runtime image
-FROM mcr.microsoft.com/dotnet/runtime:9.0 AS linux_base
-FROM mcr.microsoft.com/dotnet/runtime:9.0-nanoserver-ltsc2022 AS windows_base
+FROM mcr.microsoft.com/dotnet/runtime:10.0 AS linux_base
+FROM mcr.microsoft.com/dotnet/runtime:10.0-nanoserver-ltsc2022 AS windows_base
 
 FROM ${TARGETOS}_base AS final
 

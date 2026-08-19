@@ -1,54 +1,75 @@
-# Compatibility policy
+# Plugin migration policy
 
 ## Objective
 
-TShockNG should modernize internals aggressively while keeping the existing TShock plugin ecosystem usable during migration.
+TShockNG modernizes the server API without treating historical `TShockAPI.dll` metadata as a permanent compatibility boundary.
+
+Existing plugins may be rebuilt for TShockNG. The migration goal is to keep the common source-level plugin entry points straightforward while the internal architecture moves to `TShockNG.Contracts` and `TShockNG.Core`.
+
+ADR 0015 is the authoritative compatibility decision.
 
 ## Binary compatibility
 
-Existing compiled plugins reference public metadata from `TShockAPI.dll` and `TerrariaServer.dll`. Preserving only type names in source is not enough.
+TShockNG does not guarantee binary compatibility with existing TShock or earlier TShockNG plugin assemblies.
 
-During the compatibility period:
+Public metadata may change when architectural cleanup requires it. No facade, adapter, assembly identity, field layout, constructor, obsolete global, or other public shape is retained solely so that an already-compiled plugin continues to load unchanged.
 
-- keep assembly names expected by existing plugins;
-- keep existing public types where practical;
-- keep public member shapes and signatures where binary compatibility matters;
-- do not change a public field into a property merely because the new design would prefer one;
-- do not remove constructors used by existing plugins without an adapter path.
+Plugins should be rebuilt against the TShockNG version they target.
 
-## Source compatibility
+## Supported source-level transition surface
 
-New typed APIs may be added alongside old APIs.
+The deliberately narrow legacy-facing registration surface is:
 
-Old APIs may be marked:
+- `IHookRegistry<TEventArgs>` for registering and unregistering handlers for legacy-shaped events;
+- `ILegacyCommandRegistry` for plugins that still register the current legacy `Command` type.
 
-```csharp
-[Obsolete("Use the typed packet API instead.", false)]
-```
+Legacy event arguments and `Command` remain transitional source models. Their concrete binary metadata is not frozen.
 
-`false` is intentional: migration warnings are acceptable; forced immediate breakage is not.
+Plugins should register commands through `Commands.Registry` instead of mutating a global command list.
 
-## Legacy packet hooks
+## Modern API direction
 
-The canonical internal path is:
+New internal code and new APIs should target `TShockNG.Contracts` and `TShockNG.Core` rather than adding new behavior to legacy-shaped types.
+
+The modern API should prefer:
+
+- explicit services and constructor injection instead of static global access;
+- strongly typed packet views and event data;
+- explicit operation and validation result types;
+- immutable or read-only contexts and snapshots where appropriate;
+- nullable annotations on new public surfaces;
+- `async` plus `CancellationToken` for genuine asynchronous I/O;
+- explicit game-thread affinity for Terraria state access;
+- small focused interfaces instead of service-locator access to the entire server.
+
+`async` is not a decoration. CPU-bound packet parsing and game-thread mutation remain synchronous unless asynchronous execution has a concrete semantic or performance benefit.
+
+## Packet and hook migration
+
+The intended internal packet path is:
 
 ```text
 TSAPI raw packet
     -> Multiplicity typed packet
-    -> new TShockNG logic
-    -> legacy event adapter
-    -> existing plugin hook
+    -> TShockNG.Core handler/service
+    -> ProtocolGuard where applicable
+    -> legacy-shaped event bridge where a source-level plugin hook is still needed
 ```
 
-The legacy API must not remain the architectural source of truth.
+Legacy hooks are migration boundaries, not the architectural source of truth. Packet parsing, validation, and game rules must not be duplicated merely to preserve an old API implementation.
 
-## Deprecation stages
+## Removal policy
 
-1. Supported and recommended.
-2. Supported but obsolete with a warning.
-3. Frozen legacy API: bug fixes only.
-4. Removal only in a documented incompatible major API transition.
+Legacy-shaped APIs may be changed or removed once their current source-level migration purpose is gone. There is no staged binary-compatibility freeze.
 
-## Compatibility testing
+When a legacy surface remains, it should have one of these reasons:
 
-TShockNG should eventually maintain a small compatibility test suite containing representative prebuilt plugins to verify that existing binaries still load and their key hooks remain callable.
+1. a current plugin source still needs the registration or event concept;
+2. it is an active bridge to a modern TShockNG contract;
+3. removing it would block an unfinished migration that is already represented in the roadmap.
+
+Historical compatibility by itself is not sufficient justification.
+
+## Testing
+
+Compatibility tests should validate the supported source-level migration contracts, including hook registration and legacy command registration. Prebuilt-plugin binary loading is not a release requirement.

@@ -2,19 +2,20 @@
 
 	<PropertyGroup>
 		<OutputType>Exe</OutputType>
-		<TargetFramework>net9.0</TargetFramework>
+		<TargetFramework>net10.0</TargetFramework>
 		<ImplicitUsings>enable</ImplicitUsings>
 		<Nullable>enable</Nullable>
-		<AssemblyName>TShock.Server</AssemblyName> <!-- TShock was initially decided on by a community poll, however tshock already exists as a folder and will clash -->
+		<AssemblyName>TShock.Server</AssemblyName>
 		<RunPostBuildEvent>Always</RunPostBuildEvent>
 		<DebugType>embedded</DebugType>
-		<IncludeNativeLibrariesForSelfExtract>true</IncludeNativeLibrariesForSelfExtract> <!-- needed for sqlite native libs -->
+		<IncludeNativeLibrariesForSelfExtract>true</IncludeNativeLibrariesForSelfExtract>
 	</PropertyGroup>
 
 	<ItemGroup>
 		<ProjectReference Include="..\TerrariaServerAPI\TerrariaServerAPI\TerrariaServerAPI.csproj" ExcludeFromSingleFile="true" />
-		<ProjectReference Include="..\TShockAPI\TShockAPI.csproj" ExcludeFromSingleFile="true" ReferenceOutputAssembly="false" /> <!-- allow api to rebuilt with this project, so ServerPlugins are refreshed -->
+		<ProjectReference Include="..\TShockAPI\TShockAPI.csproj" ExcludeFromSingleFile="true" ReferenceOutputAssembly="false" />
 		<ProjectReference Include="..\TShockPluginManager\TShockPluginManager.csproj"/>
+		<ProjectReference Include="..\src\TShockNG.Core\TShockNG.Core.csproj" />
 		<Reference Include="HttpServer" ExcludeFromSingleFile="true">
 			<HintPath>..\prebuilts\HttpServer.dll</HintPath>
 		</Reference>
@@ -29,27 +30,44 @@
 	</ItemGroup>
 
 	<ItemGroup>
-		<PackageReference Include="BCrypt.Net-Next" Version="4.0.3" />
-		<PackageReference Include="MySql.Data" Version="9.1.0" />
-		<PackageReference Include="Microsoft.Data.Sqlite" Version="9.0.0" />
-        <PackageReference Include="Npgsql" Version="9.0.3" />
-        
-		<PackageReference Include="ModFramework" Version="1.1.15" GeneratePathProperty="true" /> <!-- only used to extract out to ./bin. -->
-		<PackageReference Include="GetText.NET" Version="8.0.5" /> <!-- only used to extract out to ./bin. -->
+		<PackageReference Include="BCrypt.Net-Next" Version="4.2.0" />
+		<PackageReference Include="MySql.Data" Version="26.7.0" />
+		<PackageReference Include="Microsoft.Data.Sqlite" Version="10.0.10" />
+		<PackageReference Include="SQLitePCLRaw.bundle_e_sqlite3" Version="3.0.5" />
+        <PackageReference Include="Npgsql" Version="10.0.3" />
 
-		<!-- the launcher doesnt need the direct OTAPI reference, but since PackageReference[ExcludeFromSingleFile] doesnt work, exclude the assets and copy manually -->
+		<PackageReference Include="ModFramework" Version="1.1.15" GeneratePathProperty="true" />
+		<PackageReference Include="GetText.NET" Version="10.0.1" />
+
 		<PackageReference Include="OTAPI.Upcoming" Version="3.3.11" ExcludeAssets="all" GeneratePathProperty="true" />
-		<None Include="$(PkgOTAPI_Upcoming)\lib\net9.0\OTAPI.dll">
+
+		<None Include="$(PkgOTAPI_Upcoming)\lib\$(TargetFramework)\OTAPI.dll" Condition="Exists('$(PkgOTAPI_Upcoming)\lib\$(TargetFramework)\OTAPI.dll')">
 			<CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
 			<ExcludeFromSingleFile>true</ExcludeFromSingleFile>
 		</None>
-		<None Include="$(PkgOTAPI_Upcoming)\lib\net9.0\OTAPI.Runtime.dll">
+		<None Include="$(PkgOTAPI_Upcoming)\lib\$(TargetFramework)\OTAPI.Runtime.dll" Condition="Exists('$(PkgOTAPI_Upcoming)\lib\$(TargetFramework)\OTAPI.Runtime.dll')">
 			<CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
 			<ExcludeFromSingleFile>true</ExcludeFromSingleFile>
 		</None>
-		<None Include="$(PkgModFramework)\lib\net9.0\ModFramework.dll">
-		  <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
-		  <ExcludeFromSingleFile>true</ExcludeFromSingleFile>
+		<None Include="$(PkgModFramework)\lib\$(TargetFramework)\ModFramework.dll" Condition="Exists('$(PkgModFramework)\lib\$(TargetFramework)\ModFramework.dll')">
+			<CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+			<ExcludeFromSingleFile>true</ExcludeFromSingleFile>
+		</None>
+
+		<None Include="$(PkgOTAPI_Upcoming)\lib\**\OTAPI.dll" Condition="!Exists('$(PkgOTAPI_Upcoming)\lib\$(TargetFramework)\OTAPI.dll')">
+			<Link>OTAPI.dll</Link>
+			<CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+			<ExcludeFromSingleFile>true</ExcludeFromSingleFile>
+		</None>
+		<None Include="$(PkgOTAPI_Upcoming)\lib\**\OTAPI.Runtime.dll" Condition="!Exists('$(PkgOTAPI_Upcoming)\lib\$(TargetFramework)\OTAPI.Runtime.dll')">
+			<Link>OTAPI.Runtime.dll</Link>
+			<CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+			<ExcludeFromSingleFile>true</ExcludeFromSingleFile>
+		</None>
+		<None Include="$(PkgModFramework)\lib\**\ModFramework.dll" Condition="!Exists('$(PkgModFramework)\lib\$(TargetFramework)\ModFramework.dll')">
+			<Link>ModFramework.dll</Link>
+			<CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+			<ExcludeFromSingleFile>true</ExcludeFromSingleFile>
 		</None>
 	</ItemGroup>
 
@@ -62,7 +80,6 @@
 		</Exec>
 	</Target>
 
-	<!-- The condition for a Target can't come from the values of another target, so instead we have to put the same condition on all three of the items inside. -->
 	<Target
 		Name="GenerateMOFiles"
 		DependsOnTargets="CheckMsgfmtCallable"

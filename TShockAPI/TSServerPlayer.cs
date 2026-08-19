@@ -76,15 +76,7 @@ namespace TShockAPI
 
 			foreach (var snippet in snippets)
 			{
-				if (snippet.Color != null)
-				{
-					Console.ForegroundColor = PickNearbyConsoleColor(snippet.Color);
-				}
-				else
-				{
-					Console.ForegroundColor = ConsoleColor.Gray;
-				}
-
+				Console.ForegroundColor = PickNearbyConsoleColor(snippet.Color);
 				Console.Write(snippet.Text);
 			}
 			Console.WriteLine();
@@ -172,7 +164,6 @@ namespace TShockAPI
 
 		public void StrikeNPC(int npcid, int damage, float knockBack, int hitDirection)
 		{
-			// Main.rand is thread static.
 			if (Main.rand == null)
 				Main.rand = new UnifiedRandom();
 
@@ -182,18 +173,15 @@ namespace TShockAPI
 
 		public void RevertTiles(Dictionary<Vector2, ITile> tiles)
 		{
-			// Update Main.Tile first so that when tile square is sent it is correct
 			foreach (KeyValuePair<Vector2, ITile> entry in tiles)
 			{
 				Main.tile[(int)entry.Key.X, (int)entry.Key.Y] = entry.Value;
 			}
-			// Send all players updated tile squares
 			foreach (Vector2 coords in tiles.Keys)
 			{
 				All.SendTileSquareCentered((int)coords.X, (int)coords.Y, 3);
 			}
 		}
-
 
 		private readonly Dictionary<Color, ConsoleColor> _consoleColorMap = new Dictionary<Color, ConsoleColor>
 		{
@@ -205,14 +193,13 @@ namespace TShockAPI
 			{ new Color(255, 170, 255),     ConsoleColor.Magenta },
 			{ new Color(170, 255, 170),     ConsoleColor.Green },
 			{ new Color(255, 170, 170),     ConsoleColor.Red },
-			{ new Color(139, 0, 0),         ConsoleColor.DarkRed }, // This is the console warning color
-			{ Color.PaleVioletRed,          ConsoleColor.Magenta }, // This is the command logging color
+			{ new Color(139, 0, 0),         ConsoleColor.DarkRed },
+			{ Color.PaleVioletRed,          ConsoleColor.Magenta },
 			{ Color.White,                  ConsoleColor.White }
 		};
 
 		private ConsoleColor PickNearbyConsoleColor(Color color)
 		{
-			//Grabs an integer difference between two colors in euclidean space
 			int ColorDiff(Color c1, Color c2)
 			{
 				return (int)Math.Sqrt((c1.R - c2.R) * (c1.R - c2.R)

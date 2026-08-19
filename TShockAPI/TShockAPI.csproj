@@ -3,9 +3,10 @@
 
   <PropertyGroup>
     <OutputType>Library</OutputType>
-    <TargetFramework>net9.0</TargetFramework>
+    <TargetFramework>net10.0</TargetFramework>
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
     <GenerateDocumentationFile>True</GenerateDocumentationFile>
+    <NoWarn>$(NoWarn);1572;1573;1574;1587;1591</NoWarn>
     <!--
       Version information for an assembly consists of the following four values:
 
@@ -19,32 +20,35 @@
       so that the update manager works correctly (via the Github releases api and mimic)
     -->
     <Version>6.1.0</Version>
-    <!-- PackageVersion may advance for packaging-only fixes without changing the
-         TShock assembly/API version expected by a 6.1.0 server. -->
+    <!-- PackageVersion may advance independently from the compatibility-facing
+         assembly/API version. -->
     <PackageVersion>6.1.1</PackageVersion>
     <AssemblyTitle>TShock for Terraria</AssemblyTitle>
     <Company>TShock Contributors</Company>
     <Product>TShockAPI</Product>
     <Copyright>Copyright © TShock Contributors 2011-2026</Copyright>
-    <!-- extras for nuget -->
+    <!-- NuGet identity is intentionally independent from the assembly identity. -->
     <GeneratePackageOnBuild>True</GeneratePackageOnBuild>
     <PackageLicenseExpression>GPL-3.0-or-later</PackageLicenseExpression>
-    <Authors>TShock Contributors</Authors>
-    <Description>TShock is a toolbox for Terraria servers and communities.</Description>
-    <PackageId>TZ.TShockAPI</PackageId> <!-- keep assembly/file names unchanged -->
+    <Authors>TShockNG Contributors</Authors>
+    <Description>TShockNG is a modernized TShock server platform for Terraria.</Description>
+    <PackageId>TShockNG</PackageId>
   </PropertyGroup>
 
   <ItemGroup>
-    <PackageReference Include="BCrypt.Net-Next" Version="4.0.3" Aliases="BCrypt" />
-    <PackageReference Include="GetText.NET" Version="8.0.5" />
-    <PackageReference Include="MySql.Data" Version="9.1.0" />
-    <PackageReference Include="Microsoft.Data.Sqlite" Version="9.0.0" />
-    <PackageReference Include="Npgsql" Version="9.0.3" />
-    <PackageReference Include="TZ.Multiplicity" Version="2.5.1" />
+    <PackageReference Include="BCrypt.Net-Next" Version="4.2.0" Aliases="BCrypt" />
+    <PackageReference Include="GetText.NET" Version="10.0.1" />
+    <PackageReference Include="MySql.Data" Version="26.7.0" />
+    <PackageReference Include="Microsoft.Data.Sqlite" Version="10.0.10" />
+    <PackageReference Include="SQLitePCLRaw.bundle_e_sqlite3" Version="3.0.5" />
+    <PackageReference Include="Npgsql" Version="10.0.3" />
+    <PackageReference Include="TZ.Multiplicity" Version="2.6.0" />
   </ItemGroup>
 
   <ItemGroup>
     <ProjectReference Include="..\TerrariaServerAPI\TerrariaServerAPI\TerrariaServerAPI.csproj" />
+    <ProjectReference Include="..\src\TShockNG.Contracts\TShockNG.Contracts.csproj" />
+    <ProjectReference Include="..\src\TShockNG.Core\TShockNG.Core.csproj" />
   </ItemGroup>
 
   <ItemGroup>
@@ -57,8 +61,8 @@
     <None Include="..\prebuilts\HttpServer.dll">
       <Link>HttpServer.dll</Link>
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
-      <PackageCopyToOutput>true</PackageCopyToOutput>
       <Pack>true</Pack>
+      <PackagePath>lib/$(TargetFramework)/</PackagePath>
     </None>
   </ItemGroup>
 

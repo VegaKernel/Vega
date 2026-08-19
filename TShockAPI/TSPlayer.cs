@@ -2145,7 +2145,6 @@ namespace TShockAPI
 		public void SendFileTextAsMessage(string file)
 		{
 			string foo = "";
-			bool containsOldFormat = false;
 			using (var tr = new StreamReader(file))
 			{
 				Color lineColor;

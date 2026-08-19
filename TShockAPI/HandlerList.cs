@@ -26,7 +26,7 @@ namespace TShockAPI
 	public class HandlerList : HandlerList<EventArgs>
 	{
 	}
-	public class HandlerList<T> where T : EventArgs
+	public class HandlerList<T> : IHookRegistry<T> where T : EventArgs
 	{
 		public class HandlerItem
 		{
@@ -65,12 +65,17 @@ namespace TShockAPI
 			}
 		}
 
-		public void UnRegister(EventHandler<T> handler)
+		public void Unregister(EventHandler<T> handler)
 		{
 			lock (HandlerLock)
 			{
 				Handlers.RemoveAll(h => h.Handler.Equals(handler));
 			}
+		}
+
+		public void UnRegister(EventHandler<T> handler)
+		{
+			Unregister(handler);
 		}
 
 		public void Invoke(object sender, T e)

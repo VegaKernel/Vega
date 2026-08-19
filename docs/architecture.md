@@ -2,11 +2,11 @@
 
 ## Goals
 
-TShockNG modernizes TShock without forcing an immediate rewrite of the existing plugin ecosystem.
+TShockNG modernizes TShock with an explicit source migration path for plugins. Existing plugin binaries are not guaranteed to load unchanged.
 
 Primary goals:
 
-1. Preserve existing `TShockAPI` binary compatibility where practical.
+1. Do not promise `TShockAPI` binary compatibility; keep only narrow source-facing contracts for hook and legacy-command registration.
 2. Make packet parsing typed and zero-copy where possible.
 3. Separate protocol parsing, validation, server domain logic, and infrastructure.
 4. Keep mutable Terraria state on the game thread.
@@ -28,7 +28,7 @@ Owns TShock domain behavior:
 - bans and accounts
 - configuration
 - world/player state orchestration
-- compatibility API for existing TShock plugins
+- source-facing plugin registration contracts for hooks and legacy `Command` objects
 
 It does not own Terraria wire-format parsing or reusable packet validation rules.
 
@@ -106,7 +106,7 @@ validation result         | domain decision
 
 `IncomingPacket` retains the original receive buffer, offset, and exact payload length. Its `PacketView` is produced with `PacketViewParser.ParsePayload`, so the typed path does not need another payload array. The type is a `ref struct` specifically to prevent receive-buffer-backed views from escaping into asynchronous/background work.
 
-During migration it can still create the existing `MemoryStream` wrapper for legacy handlers without copying the packet payload.
+During packet migration an internal adapter may still create a `MemoryStream` view when a legacy-shaped handler requires it. That implementation detail is not a binary-compatibility guarantee.
 
 ## Service contracts
 
@@ -122,7 +122,7 @@ Initial contracts should include only boundaries we actually need, for example:
 - `ICommandService`
 - `IExecutionDispatcher`
 
-Constructor injection is preferred for new code. Existing global APIs remain available through compatibility adapters while old code is migrated.
+Constructor injection is preferred for new code. Legacy globals may be removed as code is migrated. Plugin entry points are limited to explicit registration contracts rather than a broad compatibility facade.
 
 Do not introduce a reflection-heavy dependency-injection framework merely to imitate a framework architecture. Start with explicit composition and plain constructors.
 
@@ -141,7 +141,7 @@ The new event layer should support ordered handlers:
 
 Cancelable events should carry an optional reason so diagnostics can explain why an operation was rejected.
 
-Legacy TShock hooks remain supported through adapters.
+Legacy-shaped hook events may remain during migration, but registration is exposed through `IHookRegistry<TEventArgs>` and their concrete binary metadata is not stable.
 
 ## Threading model
 
