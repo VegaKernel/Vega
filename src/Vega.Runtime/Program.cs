@@ -4,6 +4,7 @@ using TShockNG.Contracts.Authorization;
 using TShockNG.Contracts.Commands;
 using TShockNG.Core.Commands;
 using TShockNG.Core.Commands.Administration;
+using TShockNG.Core.Commands.Players;
 using TShockNG.Core.Commands.System;
 using TShockNG.Core.Operations;
 using TShockPluginManager;
@@ -88,7 +89,8 @@ async Task<int> StartAsync()
     ICommandHandler[] commandHandlers =
     [
         new ServerInfoCommand(new ProcessHostMetricsReader()),
-        new KickCommand(playerBoundary, playerBoundary, playerAuthorization)
+        new KickCommand(playerBoundary, playerBoundary, playerAuthorization),
+        new PlayingCommand(playerBoundary)
     ];
     ICommandDispatcher commandDispatcher = new CommandDispatcher(commandHandlers);
     var playerHpSecurity = new PlayerHpOwnershipPolicy();
