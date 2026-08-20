@@ -145,6 +145,7 @@ int Start()
     ICommandDispatcher commandDispatcher = new CommandDispatcher(commandHandlers);
     var playerPacketPolicies = new PacketProcessorPipeline<PacketView>(
     [
+        new NpcCoinPickupAuthorityPolicy(),
         new PlayerPacketOwnershipPolicy(),
         pvpModule.PacketProcessor
     ]);

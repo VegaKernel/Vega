@@ -117,7 +117,8 @@ These are behavior/test inputs. Their indentation, static globals, `TSPlayer` fi
 | Sources | Target | Current state |
 | --- | --- | --- |
 | `ExtendedBans` | Typed moderation identities, normalized IP/CIDR matching and authoritative admission | **Partial**, Phase 13/19 |
-| `PacketGuard`, `StateGuard`, `LeashedEntityGuard`, `NoCoinDupe` | Typed deterministic packet/state rules plus separate telemetry | **Partial**, Phase 13 |
+| `PacketGuard`, `StateGuard`, `LeashedEntityGuard` | Typed deterministic packet/state rules plus separate telemetry | **Partial**, Phase 13 |
+| `NoCoinDupe` | Server-authoritative NPC coin-pickup policy | **Native**, Phase 9/13 |
 | `ClientPlatformDetector`, `SSCHealthFix`, `UuidGuardExtension` | Connection metadata, explicit login phases and structured external security signals | **Missing**, Phase 13 |
 | `TPSChecker`, `TimeSync` | World-aware tick telemetry and optional monotonic world clock | **Partial/Missing**, Phase 14 |
 | `PluginLoader` | Deterministic module status and restart-required signal, not arbitrary hot reload | **Partial**, Phase 14 |
@@ -150,6 +151,17 @@ The fresh source confirms FakeProvider is shared infrastructure rather than a si
 - `WorldScene` and `LobbyServer` carry scene/lobby compositions that must be reviewed before the API is frozen.
 
 WorldEdit remains the first complete Phase 16 consumer because it exercises the abstraction without requiring full multi-world process orchestration.
+
+## Completed migration slices
+
+### NoCoinDupe — replace with a server-authoritative Core invariant
+
+- **Evidence:** TerraZ `NoCoinDupe` revision `14b4da35fd6dc1f7ed81445cac2489fe9d034c37`, `NoCoinDupe.cs`; confirmed TShock incident [`Pryaxis/TShock#2004`](https://github.com/Pryaxis/TShock/issues/2004).
+- **Disposition:** `Replace`. Vega rejects every client-originated Multiplicity `SyncExtraValue (92)` packet. Server-originated synchronization remains available.
+- **Owner:** `Vega.Core/Networking/NpcCoinPickupAuthorityPolicy`; OTAPI selection remains in `Vega.Terraria` and explicit composition remains in `Vega.Runtime`.
+- **Validation:** focused policy tests cover inbound rejection, outbound pass-through, unrelated packets and bounded parsing of a serialized 14-byte Multiplicity payload.
+- **Configuration/migration impact:** none. The legacy plugin DLL must not be deployed; the invariant is enabled for every Vega server because accepting a client write to NPC-held coin value is not a gameplay customization point.
+- **Boundary check:** no TShock/TSAPI type or runtime dependency is present. `TZ.Multiplicity` remains the only wire-protocol model.
 
 ## Closure rules for Phases 9 and 10
 

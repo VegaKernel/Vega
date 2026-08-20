@@ -138,6 +138,8 @@ A durable outbox is optional and should be introduced only if a real scenario re
 - [ ] Use each migrated module as the forcing function for its required contract instead of building an abstract framework ahead of a consumer.
 - [ ] Add incident-backed regression tests before retiring the corresponding TShock/TerraZ behavior or workaround.
 
+The first reopened migration slice replaces TerraZ `NoCoinDupe` with `NpcCoinPickupAuthorityPolicy`: inbound Multiplicity `SyncExtraValue (92)` packets are rejected before Terraria can accept client-authored NPC coin state, while server-originated synchronization remains untouched. Its regression suite uses the real 14-byte typed payload and records the confirmed production incident in the migration ledger.
+
 ### Historical implementations to mine for behavior, not architecture
 
 - `popstarfreas/PvPController-1.3`
