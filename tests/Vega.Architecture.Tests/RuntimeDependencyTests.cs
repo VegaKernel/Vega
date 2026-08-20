@@ -65,6 +65,21 @@ public sealed class RuntimeDependencyTests
             $"The Vega player boundary must stay Terraria-native. Offenders: {string.Join(", ", offenders)}");
     }
 
+    [Test]
+    public void Vega_native_packet_security_attaches_before_legacy_TSAPI_hooks()
+    {
+        var repositoryRoot = FindRepositoryRoot();
+        var host = File.ReadAllText(Path.Combine(repositoryRoot, "src", "Vega.Terraria", "TerrariaServerHost.cs"));
+        var nativeAttach = host.IndexOf("playerPacketSecurityHooks.Attach();", StringComparison.Ordinal);
+        var legacyAttach = host.IndexOf("LegacyTsapiBridge.AttachHooks(args);", StringComparison.Ordinal);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(nativeAttach, Is.GreaterThanOrEqualTo(0));
+            Assert.That(legacyAttach, Is.GreaterThan(nativeAttach));
+        });
+    }
+
     private static string FindRepositoryRoot()
     {
         foreach (var start in new[] { Directory.GetCurrentDirectory(), AppContext.BaseDirectory })

@@ -4,6 +4,7 @@ using TShockPluginManager;
 using Vega.Contracts.Events;
 using Vega.Contracts.Worlds;
 using Vega.Core.Events;
+using Vega.Core.Networking;
 using Vega.Terraria;
 using Vega.Terraria.Players;
 using Vega.Terraria.Threading;
@@ -75,11 +76,13 @@ async Task<int> StartAsync()
 
     using var gameThreadDispatcher = new OtapiGameThreadDispatcher();
     using var playerBoundary = new TerrariaPlayerBoundary(gameThreadDispatcher);
+    var playerHpSecurity = new PlayerHpOwnershipPolicy();
 
     return TerrariaServerHost.Run(
         args,
         processStartedAt,
         hardmodeStarting,
         gameThreadDispatcher,
-        playerBoundary);
+        playerBoundary,
+        playerHpSecurity);
 }

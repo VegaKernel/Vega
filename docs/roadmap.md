@@ -47,11 +47,13 @@ The initial Terraria implementation publishes immutable player snapshots from th
 
 ## Phase 4 — packet processing context
 
-- [ ] Use typed packets from `TZ.Multiplicity`; do not introduce a competing packet codec.
-- [ ] Add packet direction, connection identity, player identity and required processing metadata.
-- [ ] Pass one typed context through protocol validation, security and Core policy stages.
-- [ ] Keep raw byte parsing/encoding in the Terraria/protocol integration boundary.
-- [ ] Migrate a real packet-sensitive behavior such as join/security or PvP validation through the context.
+- [x] Use typed packets from `TZ.Multiplicity`; do not introduce a competing packet codec.
+- [x] Add packet direction, connection identity, player identity and required processing metadata.
+- [x] Pass one typed context through protocol validation, security and Core policy stages.
+- [x] Keep raw byte parsing/encoding in the Terraria/protocol integration boundary.
+- [x] Migrate a real packet-sensitive behavior such as join/security or PvP validation through the context.
+
+The first end-to-end packet slice validates inbound `PlayerHp` ownership. `Vega.Terraria` parses the OTAPI payload window through `TZ.Multiplicity`, the typed context flows into a Core anti-spoof policy, and a rejected decision cancels the OTAPI hook before the temporary legacy TSAPI hook bridge runs.
 
 ## Phase 5 — commands and legacy hook migration
 
