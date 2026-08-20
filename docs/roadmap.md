@@ -296,6 +296,56 @@ FakeProvider is already a proven shared capability, not a single-plugin abstract
 - [ ] Do not replace `Main.tile` globally in the first slice. Evaluate a world-provider backend only after overlay consumers are migrated and Terraria/OTAPI ownership assumptions are measured.
 - [ ] Keep single-process multi-world virtualization and arbitrary lazy world storage separate from the provider API; they require their own evidence even though they may later reuse scene contracts.
 
+## Phase 17 — isolated multi-process worlds and sandbox orchestration
+
+Deliver the first production sandbox implementation as supervised Terraria/Vega backend processes. Each active world owns its process, game thread and mutable Terraria state; the control plane coordinates lifecycle, routing and immutable status without proxying ticks, tiles or other hot-path operations. This is the preferred isolation model from ADR 0012 and does not depend on solving single-process virtualization.
+
+### World definitions and lifecycle
+
+- [ ] Define persistent sandbox descriptors with stable `WorldId`, display name, template/source world, persistence mode, player capacity, access policy, expiry/TTL and enabled module set.
+- [ ] Implement create, start, stop, restart, reset and destroy operations with explicit state transitions, cancellation, timeouts and idempotent retries.
+- [ ] Materialize writable sandbox instances from immutable templates without modifying the source; use atomic promotion and recovery so failed creation/reset preserves the previous valid instance.
+- [ ] Distinguish temporary, persistent and externally managed worlds and make retention/cleanup policy explicit for each kind.
+- [ ] Ensure module stop, process exit and control-plane shutdown release leases and resources deterministically without deleting persistent world data.
+
+### Process supervision and isolation
+
+- [ ] Add a backend process supervisor with readiness handshake, heartbeat, graceful shutdown, forced-termination timeout and bounded restart/backoff policy.
+- [ ] Keep world-local player, entity, region, scheduler and Terraria state inside the backend process; cross-world operations exchange typed commands and immutable snapshots only.
+- [ ] Define per-world CPU, memory, disk and concurrent-start limits plus a global admission budget so sandbox creation cannot starve the primary server.
+- [ ] Contain backend crashes and unhealthy worlds, preserve diagnostic logs and expose a typed degraded/failed state instead of silently rerouting players.
+- [ ] Make control-plane restart reconciliation discover already-running backends and orphaned instance directories without duplicating or corrupting worlds.
+
+### Connection routing and player state
+
+- [ ] Complete the Phase 13 forwarding-provenance, trust and admission-order requirements before enabling sandbox routing.
+- [ ] Implement Dimensions-compatible routing as a Vega-owned boundary with authenticated backend identity, replay protection and explicit target `WorldId`; do not trust client-supplied forwarding metadata.
+- [ ] Provide explicit enter, leave and transfer operations with capacity/access checks, readiness gating, actionable failure results and safe fallback to the originating or primary world.
+- [ ] Define per-sandbox SSC policy as inherit, copy-on-enter, isolated or disabled, including conflict handling and persistence on disconnect, transfer and backend failure.
+- [ ] Keep accounts, bans and baseline authorization server-wide while allowing deliberate typed world-local overrides for regions, warps, rules and module policy.
+
+### Operations and administration
+
+- [ ] Expose all managed worlds through Operations/TUI with lifecycle state, endpoint, player count, uptime, TPS, CPU, memory, storage, restart count, template revision and TTL.
+- [ ] Route create/start/stop/reset/destroy/transfer actions through normal authorization, command and audit boundaries; the UI must not manipulate processes or world files directly.
+- [ ] Add structured events and bounded diagnostics for lifecycle transitions, rejected admission, resource pressure, failed transfers, crashes, restart suppression and cleanup.
+- [ ] Support controlled rolling backend updates with explicit version compatibility and no claim of zero-downtime player migration until proven by an end-to-end consumer.
+
+### Performance and production validation
+
+- [ ] Establish budgets for idle and populated memory per backend, tick p50/p95/p99, cold/warm start time, template materialization, player transfer latency, control-plane overhead and shutdown time.
+- [ ] Benchmark one primary world plus increasing active/idle sandbox counts under representative world sizes, NPC/entity load and player concurrency; record CPU, working set, GC pauses, disk I/O and network overhead.
+- [ ] Prove that monitoring and cluster snapshots are sampled/bounded and do not introduce per-tick cross-process RPC or full-world serialization.
+- [ ] Add overload tests for simultaneous starts, crash loops, full capacity, low disk space, control-plane restart and backend loss during player transfer.
+- [ ] Default to bounded on-demand activation and idle TTL shutdown; do not keep every configured sandbox process resident without measured operational need.
+- [ ] Publish deployment guidance and capacity-planning evidence before marking multi-process sandboxes production-ready.
+
+### Deferred single-process backend
+
+- [ ] Treat multiple live Terraria worlds inside one process as a separate research project after the multi-process API and consumers are stable.
+- [ ] Require evidence that Terraria/OTAPI globals, hooks, networking, entity ownership, world save/load and game-thread affinity can be isolated without broad static-state emulation.
+- [ ] Do not make single-process virtualization, lazy world storage or replacement of `Main.tile` a compatibility promise or prerequisite for the Phase 17 sandbox API.
+
 ## Architectural guardrails
 
 These apply across all phases:
