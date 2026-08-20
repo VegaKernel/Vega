@@ -11,6 +11,7 @@ public sealed class OperationsDashboardViewModel(
 {
     private OperationsLogFilter logFilter = new(Limit: 100);
     private OperationsSnapshot? displayed;
+    private IReadOnlyList<OperationsLogRecord>? pausedLogs;
 
     public bool IsFollowing { get; private set; } = true;
 
@@ -18,15 +19,56 @@ public sealed class OperationsDashboardViewModel(
 
     public OperationsSnapshot Refresh()
     {
-        if (IsFollowing || displayed is null)
+        OperationsSnapshot current = snapshots.Capture(logFilter);
+        if (IsFollowing)
         {
-            displayed = snapshots.Capture(logFilter);
+            pausedLogs = null;
+            displayed = current;
+            return current;
         }
 
+        pausedLogs ??= displayed?.Logs.ToArray() ?? current.Logs.ToArray();
+        displayed = current with { Logs = pausedLogs };
         return displayed;
     }
 
-    public string Render() => OperationsDashboardRenderer.Render(Refresh(), IsFollowing, logFilter);
+    public string Render() => OperationsDashboardRenderer.Render(displayed ?? Refresh(), IsFollowing, logFilter);
+
+    public bool ToggleFollowing()
+    {
+        SetFollowing(!IsFollowing);
+        return IsFollowing;
+    }
+
+    public void SetFollowing(bool value)
+    {
+        if (IsFollowing == value)
+        {
+            return;
+        }
+
+        IsFollowing = value;
+        pausedLogs = value ? null : displayed?.Logs.ToArray();
+    }
+
+    public void SetLogFilter(OperationsLogLevel? minimumLevel, string? source, string? text)
+    {
+        logFilter = logFilter with
+        {
+            MinimumLevel = minimumLevel,
+            Source = NormalizeFilterValue(source),
+            Text = NormalizeFilterValue(text)
+        };
+        pausedLogs = null;
+        displayed = null;
+    }
+
+    public void ClearLogFilters()
+    {
+        logFilter = new OperationsLogFilter(Limit: logFilter.Limit);
+        pausedLogs = null;
+        displayed = null;
+    }
 
     public async ValueTask<string> ExecutePaletteAsync(
         string text,
@@ -62,26 +104,22 @@ public sealed class OperationsDashboardViewModel(
         switch (action)
         {
             case "pause":
-                IsFollowing = false;
+                SetFollowing(false);
                 return "Log following paused.";
             case "follow":
-                IsFollowing = true;
+                SetFollowing(true);
                 return "Log following enabled.";
             case "level":
-                logFilter = logFilter with { MinimumLevel = ParseLevel(value) };
-                displayed = null;
+                SetLogFilter(ParseLevel(value), logFilter.Source, logFilter.Text);
                 return $"Minimum log level: {logFilter.MinimumLevel?.ToString() ?? "all"}.";
             case "source":
-                logFilter = logFilter with { Source = EmptyToNull(value) };
-                displayed = null;
+                SetLogFilter(logFilter.MinimumLevel, value, logFilter.Text);
                 return $"Log source filter: {logFilter.Source ?? "all"}.";
             case "find":
-                logFilter = logFilter with { Text = EmptyToNull(value) };
-                displayed = null;
+                SetLogFilter(logFilter.MinimumLevel, logFilter.Source, value);
                 return $"Log text filter: {logFilter.Text ?? "all"}.";
             case "clear":
-                logFilter = new OperationsLogFilter(Limit: logFilter.Limit);
-                displayed = null;
+                ClearLogFilters();
                 return "Log filters cleared.";
             default:
                 return "Palette actions: :pause, :follow, :level <level|all>, :source <text>, :find <text>, :clear.";
@@ -100,10 +138,10 @@ public sealed class OperationsDashboardViewModel(
             : throw new ArgumentException($"Unknown log level '{value}'.");
     }
 
-    private static string? EmptyToNull(string value) =>
+    private static string? NormalizeFilterValue(string? value) =>
         string.IsNullOrWhiteSpace(value) || string.Equals(value, "all", StringComparison.OrdinalIgnoreCase)
             ? null
-            : value;
+            : value.Trim();
 }
 
 public static class OperationsDashboardRenderer
