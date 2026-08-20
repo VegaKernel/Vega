@@ -81,6 +81,27 @@ public sealed class RuntimeDependencyTests
     }
 
     [Test]
+    public void Vega_native_packet_security_owns_migrated_player_identity_packets()
+    {
+        var repositoryRoot = FindRepositoryRoot();
+        var source = File.ReadAllText(Path.Combine(
+            repositoryRoot,
+            "src",
+            "Vega.Terraria",
+            "Hooking",
+            "NativePlayerPacketSecurityHooks.cs"));
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(source, Does.Contain("PacketTypes.PlayerHp"));
+            Assert.That(source, Does.Contain("PacketTypes.PlayerMana"));
+            Assert.That(source, Does.Contain("PacketTypes.PlayerTeam"));
+            Assert.That(source, Does.Contain("PacketTypes.TogglePvp"));
+            Assert.That(source, Does.Not.Contain("GetDataHandlers"));
+        });
+    }
+
+    [Test]
     public void Vega_native_console_commands_attach_before_legacy_TSAPI_hooks()
     {
         var repositoryRoot = FindRepositoryRoot();

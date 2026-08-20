@@ -12,12 +12,13 @@ namespace Vega.Terraria.Hooking;
 /// </summary>
 internal sealed class NativePlayerPacketSecurityHooks : IDisposable
 {
-    private readonly IPacketProcessor<PacketView> playerHpProcessor;
+    private readonly IPacketProcessor<PacketView> playerOwnershipProcessor;
     private bool attached;
 
-    public NativePlayerPacketSecurityHooks(IPacketProcessor<PacketView> playerHpProcessor)
+    public NativePlayerPacketSecurityHooks(IPacketProcessor<PacketView> playerOwnershipProcessor)
     {
-        this.playerHpProcessor = playerHpProcessor ?? throw new ArgumentNullException(nameof(playerHpProcessor));
+        this.playerOwnershipProcessor = playerOwnershipProcessor ??
+            throw new ArgumentNullException(nameof(playerOwnershipProcessor));
     }
 
     public void Attach()
@@ -44,7 +45,7 @@ internal sealed class NativePlayerPacketSecurityHooks : IDisposable
 
     private void OnReceiveData(object? sender, Hooks.MessageBuffer.GetDataEventArgs args)
     {
-        if (args.Result == HookResult.Cancel || args.PacketId != (byte)PacketTypes.PlayerHp)
+        if (args.Result == HookResult.Cancel || !IsPlayerOwnedPacket(args.PacketId))
         {
             return;
         }
@@ -57,7 +58,7 @@ internal sealed class NativePlayerPacketSecurityHooks : IDisposable
             args.Length,
             new ConnectionId(slot),
             new PlayerId(slot),
-            playerHpProcessor,
+            playerOwnershipProcessor,
             DateTimeOffset.UtcNow);
 
         if (decision.Kind is PacketDecisionKind.Handled or PacketDecisionKind.Reject)
@@ -65,4 +66,11 @@ internal sealed class NativePlayerPacketSecurityHooks : IDisposable
             args.Result = HookResult.Cancel;
         }
     }
+
+    private static bool IsPlayerOwnedPacket(byte packetId) =>
+        packetId is
+            (byte)PacketTypes.PlayerHp or
+            (byte)PacketTypes.PlayerMana or
+            (byte)PacketTypes.PlayerTeam or
+            (byte)PacketTypes.TogglePvp;
 }

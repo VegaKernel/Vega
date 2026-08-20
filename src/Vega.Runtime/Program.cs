@@ -96,7 +96,7 @@ async Task<int> StartAsync()
         new PlayingCommand(playerBoundary)
     ];
     ICommandDispatcher commandDispatcher = new CommandDispatcher(commandHandlers);
-    var playerHpSecurity = new PlayerHpOwnershipPolicy();
+    var playerOwnershipSecurity = new PlayerPacketOwnershipPolicy();
 
     return TerrariaServerHost.Run(
         args,
@@ -104,7 +104,7 @@ async Task<int> StartAsync()
         hardmodeStarting,
         gameThreadDispatcher,
         playerBoundary,
-        playerHpSecurity,
+        playerOwnershipSecurity,
         commandDispatcher,
         playerAuthorization);
 }

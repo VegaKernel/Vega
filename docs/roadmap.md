@@ -57,14 +57,16 @@ The first end-to-end packet slice validates inbound `PlayerHp` ownership. `Vega.
 
 ## Phase 5 — commands and legacy hook migration
 
-- [ ] Migrate commands through Vega contracts instead of `Commands.ChatCommands` compatibility surfaces.
-- [ ] Replace TSAPI event groups incrementally with Vega-native OTAPI adapters.
-- [ ] Migrate production behavior by capability rather than reproducing TShock class shapes.
-- [ ] Keep main server semantics in Core services; helper/extensions remain thin convenience layers.
-- [ ] Promote true server invariants/security primitives into Core/runtime services.
-- [ ] Keep gameplay/community policy as optional modules.
+- [x] Migrate commands through Vega contracts instead of `Commands.ChatCommands` compatibility surfaces.
+- [x] Replace TSAPI event groups incrementally with Vega-native OTAPI adapters.
+- [x] Migrate production behavior by capability rather than reproducing TShock class shapes.
+- [x] Keep main server semantics in Core services; helper/extensions remain thin convenience layers.
+- [x] Promote true server invariants/security primitives into Core/runtime services.
+- [x] Keep gameplay/community policy as optional modules.
 
-`serverinfo` is the first migrated command path. The native pipeline now also owns `kick`, `playing`/`online`/`who` and `checkupdates`. Server-console input is intercepted through native OTAPI command processing; player input is recognized from typed `LoadNetModule`/`NetTextModule` payloads before the legacy TSAPI bridge. Unknown commands continue to legacy while the migration is incomplete. Effective player permission checks remain behind `IPlayerAuthorizationService`; the temporary implementation reads the legacy TShock session only inside `Vega.Terraria`, so Core and Contracts do not depend on `TSPlayer`. Update checking similarly uses a narrow transitional adapter in `Vega.Terraria` until Vega owns update discovery and administrator notification.
+`serverinfo` was the first migrated command path. The native pipeline also owns `kick`, `playing`/`online`/`who` and `checkupdates`. Server-console input is intercepted through native OTAPI command processing; player input is recognized from typed `LoadNetModule`/`NetTextModule` payloads before the legacy TSAPI bridge. Effective player permission checks remain behind `IPlayerAuthorizationService`; the temporary implementation reads the legacy TShock session only inside `Vega.Terraria`, so Core and Contracts do not depend on `TSPlayer`. Update checking similarly uses a narrow transitional adapter in `Vega.Terraria` until Vega owns update discovery and administrator notification.
+
+Phase 5 closes the native command/hook migration foundation, not the later removal of every legacy command and hook. Lifecycle, world decisions, console commands, player commands and player packet security now have Vega-owned OTAPI entrypoints that run before the contained TSAPI bridge. Core owns the migrated command behavior and player packet ownership invariant; the latter rejects spoofed `PlayerHp`, `PlayerMana`, `PlayerTeam` and `TogglePvp` identities through typed `TZ.Multiplicity` views. No gameplay/community policy was promoted into Core merely to demonstrate the pipeline. Unknown commands and non-migrated hooks continue through the legacy fallback until the explicit scaffolding-removal work in Phase 10, while optional gameplay/community behavior is ported through Phase 9 modules.
 
 ## Phase 6 — Operations API and Terminal UI
 

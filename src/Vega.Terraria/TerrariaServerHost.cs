@@ -24,7 +24,7 @@ public static class TerrariaServerHost
         IEventPipeline<WorldHardmodeStarting> hardmodeStarting,
         OtapiGameThreadDispatcher gameThreadDispatcher,
         TerrariaPlayerBoundary playerBoundary,
-        IPacketProcessor<PacketView> playerHpSecurity,
+        IPacketProcessor<PacketView> playerOwnershipSecurity,
         ICommandDispatcher commandDispatcher,
         IPlayerAuthorizationService playerAuthorization)
     {
@@ -32,7 +32,7 @@ public static class TerrariaServerHost
         ArgumentNullException.ThrowIfNull(hardmodeStarting);
         ArgumentNullException.ThrowIfNull(gameThreadDispatcher);
         ArgumentNullException.ThrowIfNull(playerBoundary);
-        ArgumentNullException.ThrowIfNull(playerHpSecurity);
+        ArgumentNullException.ThrowIfNull(playerOwnershipSecurity);
         ArgumentNullException.ThrowIfNull(commandDispatcher);
         ArgumentNullException.ThrowIfNull(playerAuthorization);
 
@@ -45,7 +45,7 @@ public static class TerrariaServerHost
 
         using var nativeLifecycleHooks = new NativeLifecycleHooks(lifecycle);
         using var worldDecisionHooks = new NativeWorldDecisionHooks(hardmodeStarting);
-        using var playerPacketSecurityHooks = new NativePlayerPacketSecurityHooks(playerHpSecurity);
+        using var playerPacketSecurityHooks = new NativePlayerPacketSecurityHooks(playerOwnershipSecurity);
         using var consoleCommandHooks = new NativeConsoleCommandHooks(commandDispatcher);
         using var playerCommandHooks = new NativePlayerCommandHooks(
             commandDispatcher,
