@@ -1,23 +1,44 @@
-# Sublime Text #
+# Build outputs
+[Bb]in/
+[Oo]bj/
+artifacts/
+TestResults/
+*.pdb
+*.cache
+
+# IDE and editor-local state
+.vs/
+.vscode/
+.idea/
+_ReSharper.*/
+*.suo
+*.user
+*.userprefs
+*.csproj.user
+*.sdf
+*.opensdf
+*.dotCover
 *.sublime-*
+
+# Packages and local tool output
+packages/
 releases/
-# Compiled source #
-###################
+
+# Runtime data and logs
+*.log
+*.sql
+*.sqlite
+*.mmdb
+
+# Compiled/native artifacts
 *.com
 *.class
 *.dll
 *.exe
 *.o
 *.so
-*/bin/*
-*/obj/*
-bin/*
-obj/*
 
-# Packages #
-############
-# it's better to unpack these files and commit the raw source
-# git has its own built in compression methods
+# Archives and disk images
 *.7z
 *.dmg
 *.gz
@@ -27,52 +48,18 @@ obj/*
 *.tar
 *.zip
 
-# Logs and databases #
-######################
-*.log
-*.sql
-*.sqlite
-*.mmdb
-
-# OS generated files #
-######################
+# OS-generated files
 .DS_Store
 ehthumbs.db
 Icon?
 Thumbs.db
 
-# Visual Studio #
-##################################
-*.userprefs
-*.suo
-*.sdf
-*.opensdf
-*.cache
-*.pdb
-*.csproj.user
-*/_ReSharper*/*
-*.user
-.vs/*
-
-# VS Code (keep shared debug/task configs tracked) #
-.vscode/*
-!.vscode/launch.json
-!.vscode/tasks.json
-
-#Template Bat file#
-###################
+# Local scripts / secrets
 postbuild.bat
-/TestResults
-
-# JetBrains Crap #
-##################
-*.dotCover
-_ReSharper.*
-
-# GTFO NuGet stuff #
-####################
-packages/*
-
-# Private key files #
-
-.idea/
+*.key
+*.pem
+*.pfx
+*.p12
+.env
+.env.*
+!.env.example
