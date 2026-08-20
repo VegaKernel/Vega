@@ -6,6 +6,7 @@ This directory records Vega's target architecture, roadmap and Architecture Deci
 
 - `architecture.md` — target architecture and subsystem boundaries.
 - `roadmap.md` — staged implementation plan.
+- `releasing.md` — versioning and automated NuGet/GitHub release procedure.
 - `events.md`, `extension-state.md`, `cluster.md`, and `operations.md` — implemented subsystem contracts.
 - `decisions/` — Architecture Decision Records (ADRs).
 

@@ -10,6 +10,7 @@
 		<RunPostBuildEvent>Always</RunPostBuildEvent>
 		<DebugType>embedded</DebugType>
 		<IncludeNativeLibrariesForSelfExtract>true</IncludeNativeLibrariesForSelfExtract>
+		<IsPackable>false</IsPackable>
 		<MonoMod_ReallySkipCheckTargetRuntime>true</MonoMod_ReallySkipCheckTargetRuntime>
 	</PropertyGroup>
 

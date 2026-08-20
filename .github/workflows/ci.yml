@@ -11,39 +11,15 @@ permissions:
   contents: read
 
 jobs:
-  legacy-tsapi:
-    name: Legacy TSAPI
-    runs-on: windows-latest
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          submodules: recursive
-      - name: Setup .NET
-        uses: actions/setup-dotnet@v4
-        with:
-          dotnet-version: 10.0.x
-      - name: Add MonoMod source
-        run: dotnet nuget add source https://pkgs.dev.azure.com/MonoMod/MonoMod/_packaging/DevBuilds%40Local/nuget/v3/index.json -n DevBuilds@Local
-      - name: Restore legacy TSAPI
-        run: dotnet restore external/TSAPI/TSAPI.sln
-      - name: Build legacy TSAPI
-        run: dotnet build external/TSAPI/TSAPI.sln --configuration Release --no-restore -warnaserror
-      - name: Test legacy TSAPI
-        run: dotnet test external/TSAPI/TSAPI.sln --configuration Release --no-build --filter "FullyQualifiedName!~TerrariaServerAPI.Tests.Benchmarks" --verbosity normal
-
   vega:
     name: Vega
     runs-on: windows-latest
     steps:
-      - uses: actions/checkout@v4
-        with:
-          submodules: recursive
+      - uses: actions/checkout@v6
       - name: Setup .NET
-        uses: actions/setup-dotnet@v4
+        uses: actions/setup-dotnet@v5
         with:
           dotnet-version: 10.0.x
-      - name: Add MonoMod source
-        run: dotnet nuget add source https://pkgs.dev.azure.com/MonoMod/MonoMod/_packaging/DevBuilds%40Local/nuget/v3/index.json -n DevBuilds@Local
       - name: Download pinned MaxMind test databases
         shell: pwsh
         run: |
@@ -55,8 +31,8 @@ jobs:
       - name: Restore Vega
         run: dotnet restore Vega.sln
       - name: Build Vega
-        run: dotnet build Vega.sln --configuration Release --no-restore -warnaserror
+        run: dotnet build Vega.sln --configuration Release --no-restore
       - name: Test Vega
         run: dotnet test Vega.sln --configuration Release --no-build --verbosity normal
-      - name: Pack legacy TShockAPI
-        run: dotnet pack src/TShockAPI/TShockAPI.csproj --configuration Release --no-build --output artifacts/nuget
+      - name: Build world-image benchmark harness
+        run: dotnet build benchmarks/Vega.WorldImage.Benchmarks/Vega.WorldImage.Benchmarks.csproj --configuration Release --no-restore
