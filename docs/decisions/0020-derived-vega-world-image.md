@@ -163,7 +163,9 @@ A crash during generation must leave `.wld` untouched and must not replace a pre
 
 This ADR does not change the canonical save path.
 
-Initial world saving remains compatible with Terraria `.wld`. `.vworld` is regenerated/updated as a cache and must not become the only authoritative persistence path without a separate architectural decision.
+Initial world saving remains compatible with Terraria `.wld`. `.vworld` is regenerated/updated as a cache and must not become the only authoritative persistence path without a separate architectural decision. Manual, automatic and shutdown saves first complete the canonical `.wld` write and then enqueue a coalesced atomic image rebuild. Orderly shutdown waits for that rebuild so the next start does not inherit a deliberately stale cache.
+
+Operators may select `-world path/to/world.vworld` directly. The runtime treats this as an explicit cache-mode request, resolves the companion `.wld` before Terraria argument processing, and still validates the image against that canonical source. Direct selection changes operator ergonomics, not persistence ownership.
 
 ## Loader boundary
 

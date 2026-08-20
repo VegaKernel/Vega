@@ -1,0 +1,22 @@
+{
+  "autoSave": {
+    "enabled": true,
+    "intervalMinutes": 10
+  },
+  "cleanup": {
+    "enabled": false,
+    "intervalMinutes": 30,
+    "onlyWhenPlayersOnline": true,
+    "items": {
+      "enabled": true,
+      "minimumActiveCount": 200,
+      "minimumAgeSeconds": 300
+    },
+    "projectiles": {
+      "enabled": true,
+      "minimumActiveCount": 700,
+      "excludeMinions": true,
+      "excludeSentries": true
+    }
+  }
+}

@@ -31,6 +31,7 @@ public static class TerrariaServerHost
         INetworkMetricsRecorder networkMetrics,
         IOperationsLogger logger,
         TerrariaWorldImageService worldImages,
+        TerrariaWorldMaintenanceService worldMaintenance,
         IWorldClockController worldClock,
         IReadOnlyList<IRuntimeStartupParticipant> startupParticipants,
         IPacketProcessor<PacketView> playerOwnershipSecurity,
@@ -46,6 +47,7 @@ public static class TerrariaServerHost
         ArgumentNullException.ThrowIfNull(networkMetrics);
         ArgumentNullException.ThrowIfNull(logger);
         ArgumentNullException.ThrowIfNull(worldImages);
+        ArgumentNullException.ThrowIfNull(worldMaintenance);
         ArgumentNullException.ThrowIfNull(worldClock);
         ArgumentNullException.ThrowIfNull(startupParticipants);
         ArgumentNullException.ThrowIfNull(playerOwnershipSecurity);
@@ -95,6 +97,7 @@ public static class TerrariaServerHost
             operationsState.Attach();
             networkMetricsHooks.Attach();
             worldImages.Attach();
+            worldMaintenance.Attach();
             worldClockSynchronizer.Attach();
             worldDecisionHooks.Attach();
             playerPacketSecurityHooks.Attach();

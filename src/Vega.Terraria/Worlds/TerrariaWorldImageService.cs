@@ -12,11 +12,15 @@ namespace Vega.Terraria.Worlds;
 public sealed class TerrariaWorldImageService : IDisposable, IWorldLoadMetricsReader
 {
     private readonly object sync = new();
+    private readonly object buildSync = new();
     private readonly IOperationsLogger logger;
     private readonly IRuntimeLifecycle lifecycle;
     private readonly bool enabled;
     private WorldLoadMetricsSnapshot snapshot = EmptySnapshot();
     private ActiveImage? activeImage;
+    private BuildRequest? pendingBuild;
+    private Task? buildWorker;
+    private bool disposed;
     private bool attached;
     private long loadStarted;
     private long versionLoadStarted;
@@ -55,6 +59,7 @@ public sealed class TerrariaWorldImageService : IDisposable, IWorldLoadMetricsRe
         HookWorldFile.LoadSigns += OnLoadSigns;
         HookWorldFile.LoadNPCs += OnLoadNpcs;
         HookWorldFile.LoadTileEntities += OnLoadTileEntities;
+        HookWorldFile.InternalSaveWorld += OnInternalSaveWorld;
         global::HookEvents.Terraria.Main.get_worldPathName += OnGetWorldPathName;
         lifecycle.Transitioned += OnLifecycleTransition;
         attached = true;
@@ -70,21 +75,29 @@ public sealed class TerrariaWorldImageService : IDisposable, IWorldLoadMetricsRe
 
     public void Dispose()
     {
-        if (!attached)
+        if (attached)
         {
-            return;
+            HookWorldFile.LoadWorld -= OnLoadWorld;
+            HookWorldFile.LoadWorld_Version2 -= OnLoadWorldVersion2;
+            HookWorldFile.LoadWorldTiles -= OnLoadWorldTiles;
+            HookWorldFile.LoadChests -= OnLoadChests;
+            HookWorldFile.LoadSigns -= OnLoadSigns;
+            HookWorldFile.LoadNPCs -= OnLoadNpcs;
+            HookWorldFile.LoadTileEntities -= OnLoadTileEntities;
+            HookWorldFile.InternalSaveWorld -= OnInternalSaveWorld;
+            global::HookEvents.Terraria.Main.get_worldPathName -= OnGetWorldPathName;
+            lifecycle.Transitioned -= OnLifecycleTransition;
+            attached = false;
         }
 
-        HookWorldFile.LoadWorld -= OnLoadWorld;
-        HookWorldFile.LoadWorld_Version2 -= OnLoadWorldVersion2;
-        HookWorldFile.LoadWorldTiles -= OnLoadWorldTiles;
-        HookWorldFile.LoadChests -= OnLoadChests;
-        HookWorldFile.LoadSigns -= OnLoadSigns;
-        HookWorldFile.LoadNPCs -= OnLoadNpcs;
-        HookWorldFile.LoadTileEntities -= OnLoadTileEntities;
-        global::HookEvents.Terraria.Main.get_worldPathName -= OnGetWorldPathName;
-        lifecycle.Transitioned -= OnLifecycleTransition;
-        attached = false;
+        Task? worker;
+        lock (buildSync)
+        {
+            disposed = true;
+            worker = buildWorker;
+        }
+
+        worker?.GetAwaiter().GetResult();
     }
 
     private void OnLoadWorld(object? sender, HookWorldFile.LoadWorldEventArgs args)
@@ -274,6 +287,29 @@ public sealed class TerrariaWorldImageService : IDisposable, IWorldLoadMetricsRe
         tileEntityTicks += Measure(() => args.OriginalMethod(args.reader));
     }
 
+    private void OnInternalSaveWorld(
+        object? sender,
+        HookWorldFile.InternalSaveWorldEventArgs args)
+    {
+        args.ContinueExecution = false;
+        args.OriginalMethod(args.useCloudSaving, args.resetTime, args.useTemps);
+
+        if (!enabled || args.useCloudSaving)
+        {
+            return;
+        }
+
+        string? sourcePath = global::Terraria.Main.ActiveWorldFileData?.Path;
+        if (global::Terraria.Main.ActiveWorldFileData is not { IsCloudSave: false } ||
+            string.IsNullOrWhiteSpace(sourcePath) ||
+            !File.Exists(sourcePath))
+        {
+            return;
+        }
+
+        RebuildAfterSave(sourcePath);
+    }
+
     private void OnGetWorldPathName(
         object? sender,
         global::HookEvents.Terraria.Main.get_worldPathNameEventArgs args)
@@ -306,11 +342,67 @@ public sealed class TerrariaWorldImageService : IDisposable, IWorldLoadMetricsRe
 
     private void ScheduleBuild(string sourcePath, string imagePath)
     {
-        _ = Task.Run(() =>
+        lock (buildSync)
         {
+            if (disposed)
+            {
+                return;
+            }
+
+            pendingBuild = new BuildRequest(sourcePath, imagePath);
+            buildWorker ??= Task.Run(ProcessBuildQueue);
+        }
+    }
+
+    internal void RebuildAfterSave(string sourcePath)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(sourcePath);
+        if (enabled)
+        {
+            ScheduleBuild(sourcePath, Path.ChangeExtension(sourcePath, ".vworld"));
+        }
+    }
+
+    internal void FlushPendingBuilds()
+    {
+        while (true)
+        {
+            Task? worker;
+            lock (buildSync)
+            {
+                worker = buildWorker;
+            }
+
+            if (worker is null)
+            {
+                return;
+            }
+
+            worker.GetAwaiter().GetResult();
+        }
+    }
+
+    private void ProcessBuildQueue()
+    {
+        while (true)
+        {
+            BuildRequest? request;
+            lock (buildSync)
+            {
+                request = pendingBuild;
+                pendingBuild = null;
+                if (request is null)
+                {
+                    buildWorker = null;
+                    return;
+                }
+            }
+
             try
             {
-                WorldImageBuildResult result = VegaWorldImageCompiler.Build(sourcePath, imagePath);
+                WorldImageBuildResult result = VegaWorldImageCompiler.Build(
+                    request.SourcePath,
+                    request.ImagePath);
                 lock (sync)
                 {
                     snapshot = snapshot with
@@ -335,7 +427,7 @@ public sealed class TerrariaWorldImageService : IDisposable, IWorldLoadMetricsRe
                     "world_image build=failed; canonical .wld remains authoritative",
                     ex);
             }
-        });
+        }
     }
 
     private void Quarantine(string imagePath, string reason)
@@ -409,4 +501,6 @@ public sealed class TerrariaWorldImageService : IDisposable, IWorldLoadMetricsRe
             DateTimeOffset.UtcNow);
 
     private sealed record ActiveImage(string Path, VegaWorldImageManifest Manifest);
+
+    private sealed record BuildRequest(string SourcePath, string ImagePath);
 }

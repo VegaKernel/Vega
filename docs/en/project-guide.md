@@ -100,7 +100,7 @@ artifacts/server/
 ├── Vega.Server.runtimeconfig.json
 ├── libs/                  shared Vega and third-party runtime libraries
 ├── ServerPlugins/         bundled Vega.Modules.* assemblies
-├── config/                database, TUI, world-clock, and module settings
+├── config/                database, TUI, world-clock, world-maintenance, and module settings
 ├── runtimes/              platform-specific package assets when present
 └── <culture>/             satellite resources when present
 ```
@@ -136,7 +136,11 @@ The dashboard is a high-contrast desktop of movable and resizable server, perfor
 
 `--vega-world-image=on` enables the experimental derived `.vworld` cache; `off` disables it. The default is off. `.wld` remains canonical, and stale, incompatible, or corrupt images automatically fall back to it.
 
-Use `Vega.Server.exe --vega-world-image=on -world path/to/world.wld`. Vega finds or builds `world.vworld` beside the selected `.wld`; the image is not selected directly. Terraria's normal `save` command always writes `.wld`, and Vega rebuilds a stale image after the source changes. There is deliberately no separate “save as `.vworld`” command.
+Use `Vega.Server.exe --vega-world-image=on -world path/to/world.wld`, or directly select a prepared image with `Vega.Server.exe -world path/to/world.vworld`. Direct selection enables the cache automatically and resolves the companion `.wld` as the canonical save/recovery target, while validated startup reads from `.vworld`. Manual save, autosave, and shutdown save update `.wld` and then queue one coalesced atomic image rebuild.
+
+### World autosave and cleanup
+
+`config/world-maintenance.json` configures autosave enablement/interval and opt-in item/projectile cleanup. Autosave defaults to 10 minutes. Cleanup defaults off; it has a separate interval, online-player requirement, item count/age thresholds, projectile count threshold, and minion/sentry exclusions. Decisions and entity removal run only on the Terraria game thread. See [the world-maintenance guide](../world-maintenance.md).
 
 ### World-clock mode
 

@@ -83,7 +83,7 @@ dotnet publish src/Vega.Runtime/Vega.Runtime.csproj `
 artifacts/server/Vega.Server.exe --vega-ui=plain
 ```
 
-Доступные режимы: `auto`, `tui`, `plain`, `headless`. Для world-image cache используйте явный параметр `--vega-world-image=on`; по умолчанию он выключен, потому что измерения Vega 1.0 не показали стабильного выигрыша.
+Доступные режимы: `auto`, `tui`, `plain`, `headless`. World-image cache включается параметром `--vega-world-image=on` или прямым выбором `-world путь/к/world.vworld`. Ручное и автоматическое сохранение обновляют image. Автосохранение и опциональная очистка предметов/снарядов настраиваются в `config/world-maintenance.json`.
 
 ## Документация
 

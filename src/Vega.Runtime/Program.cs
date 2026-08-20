@@ -190,6 +190,12 @@ int Start()
         }
 
         using var worldImages = new TerrariaWorldImageService(logger, lifecycle, worldImageOptions.Enabled);
+        WorldMaintenanceOptions worldMaintenanceOptions = WorldMaintenanceOptionsStore.Load(
+            Path.Combine(AppContext.BaseDirectory, "config", "world-maintenance.json"),
+            logger);
+        using var worldMaintenance = new TerrariaWorldMaintenanceService(
+            worldMaintenanceOptions,
+            logger);
         var hostMetrics = new ProcessHostMetricsReader();
         var runtimeMetrics = new SampledRuntimeMetricsReader(hostMetrics);
         WorldClockOptions worldClockOptions = WorldClockOptionsStore.Load(
@@ -253,7 +259,15 @@ int Start()
         logger.Log(
             OperationsLogLevel.Information,
             "world-image",
-            $"World image mode: {(worldImageOptions.Enabled ? "on" : "off")}; default remains off pending broader production evidence.");
+            $"World image mode: {(worldImageOptions.Enabled ? "on" : "off")}; " +
+            $"direct_image={worldImageOptions.DirectImageRequested.ToString().ToLowerInvariant()}.");
+        logger.Log(
+            OperationsLogLevel.Information,
+            "world-maintenance",
+            $"Autosave: {(worldMaintenanceOptions.AutoSave.Enabled ? "on" : "off")} " +
+            $"every {worldMaintenanceOptions.AutoSave.IntervalMinutes} min; " +
+            $"cleanup: {(worldMaintenanceOptions.Cleanup.Enabled ? "on" : "off")} " +
+            $"every {worldMaintenanceOptions.Cleanup.IntervalMinutes} min.");
 
         return TerrariaServerHost.Run(
             serverArgs,
@@ -265,6 +279,7 @@ int Start()
             networkMetrics,
             logger,
             worldImages,
+            worldMaintenance,
             worldClock,
             [database],
             playerPacketPolicies,

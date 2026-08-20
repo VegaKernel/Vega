@@ -1,6 +1,9 @@
+using System.Diagnostics;
 using System.Security.Cryptography;
 using System.Text;
 using NUnit.Framework;
+using Vega.Operations;
+using Vega.Operations.Logging;
 using Vega.Terraria.Worlds;
 
 namespace Vega.Runtime.Tests.Worlds;
@@ -19,8 +22,35 @@ public sealed class VegaWorldImageTests
         {
             Assert.That(defaults.Enabled, Is.False);
             Assert.That(enabled.Enabled, Is.True);
+            Assert.That(enabled.DirectImageRequested, Is.False);
             Assert.That(enabled.ServerArguments, Is.EqualTo(new[] { "-world", "world.wld" }));
         });
+    }
+
+    [Test]
+    public void DirectWorldImageSelectionEnablesCacheAndPreservesWldAsSaveTarget()
+    {
+        WorldImageOptions options = WorldImageOptionsParser.Parse(
+            ["-world", "world.vworld", "-port", "7777"]);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(options.Enabled, Is.True);
+            Assert.That(options.DirectImageRequested, Is.True);
+            Assert.That(
+                options.ServerArguments,
+                Is.EqualTo(new[] { "-world", "world.wld", "-port", "7777" }));
+        });
+    }
+
+    [Test]
+    public void DirectWorldImageSelectionCannotBeCombinedWithDisabledCache()
+    {
+        ArgumentException error = Assert.Throws<ArgumentException>(() =>
+            WorldImageOptionsParser.Parse(
+                ["-world=world.vworld", "--vega-world-image=off"]))!;
+
+        Assert.That(error.Message, Does.Contain("cannot be selected"));
     }
 
     [Test]
@@ -104,6 +134,31 @@ public sealed class VegaWorldImageTests
 
         Assert.That(SHA256.HashData(File.ReadAllBytes(imagePath)), Is.EqualTo(previousImageHash));
         Assert.That(File.Exists(imagePath + ".tmp"), Is.False);
+    }
+
+    [Test]
+    public void SuccessfulWorldSaveRequestRebuildsTheImageFingerprint()
+    {
+        using var directory = new TemporaryDirectory();
+        string sourcePath = Path.Combine(directory.Path, "world.wld");
+        string imagePath = Path.Combine(directory.Path, "world.vworld");
+        byte[] source = CreateWorld(maxTilesX: 3, maxTilesY: 4);
+        File.WriteAllBytes(sourcePath, source);
+        VegaWorldImageCompiler.Build(sourcePath, imagePath);
+
+        source[^1] ^= 0x2A;
+        File.WriteAllBytes(sourcePath, source);
+        Assert.That(
+            VegaWorldImageReader.Validate(sourcePath, imagePath).Reason,
+            Is.EqualTo("source-fingerprint"));
+
+        var lifecycle = new RuntimeLifecycleTracker(Stopwatch.GetTimestamp());
+        var logger = new StructuredOperationsLogger([new BoundedOperationsLogStore()]);
+        using var service = new TerrariaWorldImageService(logger, lifecycle, enabled: true);
+        service.RebuildAfterSave(sourcePath);
+        service.FlushPendingBuilds();
+
+        Assert.That(VegaWorldImageReader.Validate(sourcePath, imagePath).IsValid, Is.True);
     }
 
     private static byte[] CreateWorld(int maxTilesX, int maxTilesY)

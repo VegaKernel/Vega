@@ -193,6 +193,8 @@ Canonical persistence remains Terraria `.wld`. Vega `.vworld` is a disposable, v
 - [x] Add precomputed runtime indexes only with real consumers and benchmarks.
 - [x] Candidate indexes include chest lookup, entities/signs by section, wiring/liquid regions, spatial lookups, initial player-sync data and world map/operations consumers.
 - [x] Fall back automatically to `.wld` when `.vworld` is absent, stale, incompatible or corrupt.
+- [x] Accept direct `-world path/to/world.vworld` selection while retaining the companion `.wld` as the canonical save and recovery path.
+- [x] Refresh `.vworld` after manual, automatic and shutdown saves through a coalesced atomic build queue, and flush the pending image during orderly shutdown.
 - [x] Log cache hit/miss, invalidation reason, source/cache size, validation/corruption errors and fallback behavior.
 - [x] Integrate `WldLoadDuration`, `WorldImageBuildDuration`, `WorldImageLoadDuration`, `PostLoadInitializationDuration` and `WorldReadyDuration` with startup telemetry.
 - [x] Benchmark cold/warm `.wld` against cold/warm `.vworld`, including peak memory, allocations, `WorldReady` and `NetworkReady`.
@@ -284,6 +286,8 @@ Each Core capability must land with the named first consumer in the same vertica
 4. [ ] **AutoWorldCleaner**: implement world-scoped cancellable scheduling plus safe item/projectile snapshots and removal operations; keep cleanup thresholds and schedules in a module.
 5. [ ] **InfChests / ChestRegen**: implement stable chest identity, immutable versioned snapshots, game-thread transactional mutation and ACL/event hooks; keep refill, lock and regeneration policy in modules.
 6. [ ] **Mentions**: implement an ordered typed chat transformation pipeline separating content transformation, moderation and per-recipient rendering; keep mention behavior in a module.
+
+The deployable runtime now has an opt-in `config/world-maintenance.json` baseline for item/projectile cleanup: recurring decisions and mutations run on the Terraria game thread, item age/count and projectile count are bounded, and minions/sentries are excluded by default. This does not close item 4 yet. The remaining architectural work is to expose the safe snapshot/removal capability through Contracts/Core and move cleanup schedule/threshold policy out of `Vega.Terraria` into the AutoWorldCleaner module boundary.
 
 ### Explicitly outside Core
 
