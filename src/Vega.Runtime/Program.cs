@@ -1,5 +1,9 @@
 using System.Diagnostics;
 using System.Reflection;
+using TShockNG.Contracts.Commands;
+using TShockNG.Core.Commands;
+using TShockNG.Core.Commands.System;
+using TShockNG.Core.Operations;
 using TShockPluginManager;
 using Vega.Contracts.Events;
 using Vega.Contracts.Worlds;
@@ -74,6 +78,12 @@ async Task<int> StartAsync()
         Array.Empty<IEventHandler<WorldHardmodeStarting>>(),
         Array.Empty<IEventMonitor<WorldHardmodeStarting>>());
 
+    ICommandHandler[] commandHandlers =
+    [
+        new ServerInfoCommand(new ProcessHostMetricsReader())
+    ];
+    ICommandDispatcher commandDispatcher = new CommandDispatcher(commandHandlers);
+
     using var gameThreadDispatcher = new OtapiGameThreadDispatcher();
     using var playerBoundary = new TerrariaPlayerBoundary(gameThreadDispatcher);
     var playerHpSecurity = new PlayerHpOwnershipPolicy();
@@ -84,5 +94,6 @@ async Task<int> StartAsync()
         hardmodeStarting,
         gameThreadDispatcher,
         playerBoundary,
-        playerHpSecurity);
+        playerHpSecurity,
+        commandDispatcher);
 }

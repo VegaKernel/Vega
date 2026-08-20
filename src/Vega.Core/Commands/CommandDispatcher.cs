@@ -21,6 +21,9 @@ public sealed class CommandDispatcher : ICommandDispatcher
         this.handlers = map;
     }
 
+    public bool CanDispatch(string name) =>
+        !string.IsNullOrWhiteSpace(name) && handlers.ContainsKey(name);
+
     public ValueTask<CommandExecutionResult> DispatchAsync(
         CommandInvocation invocation,
         CancellationToken cancellationToken = default)

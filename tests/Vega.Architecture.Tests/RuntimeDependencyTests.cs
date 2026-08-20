@@ -80,6 +80,21 @@ public sealed class RuntimeDependencyTests
         });
     }
 
+    [Test]
+    public void Vega_native_console_commands_attach_before_legacy_TSAPI_hooks()
+    {
+        var repositoryRoot = FindRepositoryRoot();
+        var host = File.ReadAllText(Path.Combine(repositoryRoot, "src", "Vega.Terraria", "TerrariaServerHost.cs"));
+        var nativeAttach = host.IndexOf("consoleCommandHooks.Attach();", StringComparison.Ordinal);
+        var legacyAttach = host.IndexOf("LegacyTsapiBridge.AttachHooks(args);", StringComparison.Ordinal);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(nativeAttach, Is.GreaterThanOrEqualTo(0));
+            Assert.That(legacyAttach, Is.GreaterThan(nativeAttach));
+        });
+    }
+
     private static string FindRepositoryRoot()
     {
         foreach (var start in new[] { Directory.GetCurrentDirectory(), AppContext.BaseDirectory })

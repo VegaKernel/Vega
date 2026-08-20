@@ -22,6 +22,21 @@ public sealed class CommandDispatcherTests
     }
 
     [Test]
+    public void ReportsOnlyRegisteredNamesAndAliasesAsOwned()
+    {
+        var handler = new FakeHandler(new CommandDescriptor("alpha", ["a"], []));
+        var dispatcher = new CommandDispatcher([handler]);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(dispatcher.CanDispatch("alpha"), Is.True);
+            Assert.That(dispatcher.CanDispatch("A"), Is.True);
+            Assert.That(dispatcher.CanDispatch("legacy"), Is.False);
+            Assert.That(dispatcher.CanDispatch(string.Empty), Is.False);
+        });
+    }
+
+    [Test]
     public async Task DefaultsLegacyInvocationToPrimaryWorld()
     {
         var handler = new FakeHandler(new CommandDescriptor("alpha", [], []));

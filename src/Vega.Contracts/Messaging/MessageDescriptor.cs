@@ -18,11 +18,13 @@ public enum MessageSeverity
 /// <param name="Arguments">Formatting arguments interpreted by the localization layer.</param>
 /// <param name="Severity">Semantic output severity.</param>
 /// <param name="Source">Stable module/domain localization namespace. Core messages use <c>tshock</c>.</param>
+/// <param name="DefaultText">Optional source/default text used when no localization catalog can resolve <paramref name="Key"/>.</param>
 public sealed record MessageDescriptor(
     string Key,
     IReadOnlyList<object?> Arguments,
     MessageSeverity Severity = MessageSeverity.Info,
-    string Source = "tshock")
+    string Source = "tshock",
+    string? DefaultText = null)
 {
     public static MessageDescriptor Info(string key, params object?[] arguments) =>
         new(key, arguments, MessageSeverity.Info);
@@ -37,4 +39,6 @@ public sealed record MessageDescriptor(
         new(key, arguments, MessageSeverity.Error);
 
     public MessageDescriptor WithSource(string source) => this with { Source = source };
+
+    public MessageDescriptor WithDefaultText(string defaultText) => this with { DefaultText = defaultText };
 }

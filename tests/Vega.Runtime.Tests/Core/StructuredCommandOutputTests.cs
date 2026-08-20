@@ -29,6 +29,7 @@ public sealed class StructuredCommandOutputTests
         Assert.That(result.Messages, Has.Count.EqualTo(6));
         Assert.That(result.Messages![0].Key, Is.EqualTo("command.serverinfo.memory"));
         Assert.That(result.Messages[0].Arguments, Is.EqualTo(new object?[] { 10L }));
+        Assert.That(result.Messages[0].DefaultText, Is.EqualTo("Working set: {0:N0} bytes"));
     }
 
     [Test]
