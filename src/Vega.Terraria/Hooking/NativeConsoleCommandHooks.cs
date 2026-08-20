@@ -1,4 +1,3 @@
-using System.Globalization;
 using OTAPI;
 using TShockNG.Contracts.Commands;
 using TShockNG.Contracts.Messaging;
@@ -44,8 +43,8 @@ internal sealed class NativeConsoleCommandHooks : IDisposable
     private void OnCommandProcess(object? sender, Hooks.Main.CommandProcessEventArgs args)
     {
         if (args.Result == HookResult.Cancel ||
-            !TryParseCommand(args.Command, out var name, out var arguments, out var silent) ||
-            !dispatcher.CanDispatch(name))
+            !CommandTextParser.TryParse(args.Command, out ParsedCommandText command) ||
+            !dispatcher.CanDispatch(command.Name))
         {
             return;
         }
@@ -53,67 +52,27 @@ internal sealed class NativeConsoleCommandHooks : IDisposable
         // The OTAPI hook is synchronous. Claim the known Vega command before the legacy bridge,
         // then observe its ValueTask asynchronously instead of blocking the console thread.
         args.Result = HookResult.Cancel;
-        _ = ExecuteAsync(name, arguments, silent);
+        _ = ExecuteAsync(command);
     }
 
-    private async Task ExecuteAsync(string name, IReadOnlyList<string> arguments, bool silent)
+    private async Task ExecuteAsync(ParsedCommandText command)
     {
         try
         {
             var invocation = new CommandInvocation(
-                name,
-                arguments,
+                command.Name,
+                command.Arguments,
                 ServerCommandPrincipal.Instance,
                 ConsoleCommandOutput.Instance,
-                silent);
+                command.Silent);
 
             var result = await dispatcher.DispatchAsync(invocation).ConfigureAwait(false);
             WriteResult(result);
         }
         catch (Exception ex)
         {
-            Console.Error.WriteLine($"Vega console command '{name}' failed: {ex}");
+            Console.Error.WriteLine($"Vega console command '{command.Name}' failed: {ex}");
         }
-    }
-
-    private static bool TryParseCommand(
-        string command,
-        out string name,
-        out IReadOnlyList<string> arguments,
-        out bool silent)
-    {
-        name = string.Empty;
-        arguments = Array.Empty<string>();
-        silent = false;
-
-        if (string.IsNullOrWhiteSpace(command))
-        {
-            return false;
-        }
-
-        var text = command.Trim();
-        if (text[0] is '/' or '.')
-        {
-            silent = text[0] == '.';
-            text = text[1..].TrimStart();
-        }
-
-        if (text.Length == 0)
-        {
-            return false;
-        }
-
-        var separator = text.IndexOfAny([' ', '\t']);
-        if (separator < 0)
-        {
-            name = text;
-            return true;
-        }
-
-        name = text[..separator];
-        arguments = text[(separator + 1)..]
-            .Split([' ', '\t'], StringSplitOptions.RemoveEmptyEntries);
-        return name.Length > 0;
     }
 
     private static void WriteResult(CommandExecutionResult result)
@@ -136,26 +95,7 @@ internal sealed class NativeConsoleCommandHooks : IDisposable
 
     private static void WriteMessage(MessageDescriptor message)
     {
-        string text;
-        if (message.DefaultText is not null)
-        {
-            try
-            {
-                text = string.Format(
-                    CultureInfo.InvariantCulture,
-                    message.DefaultText,
-                    message.Arguments.ToArray());
-            }
-            catch (FormatException)
-            {
-                text = FormatKeyAndArguments(message);
-            }
-        }
-        else
-        {
-            text = FormatKeyAndArguments(message);
-        }
-
+        string text = MessageFallbackFormatter.Format(message);
         if (message.Severity is MessageSeverity.Warning or MessageSeverity.Error)
         {
             Console.Error.WriteLine(text);
@@ -165,11 +105,6 @@ internal sealed class NativeConsoleCommandHooks : IDisposable
             Console.WriteLine(text);
         }
     }
-
-    private static string FormatKeyAndArguments(MessageDescriptor message) =>
-        message.Arguments.Count == 0
-            ? message.Key
-            : $"{message.Key}: {string.Join(", ", message.Arguments.Select(static value => value?.ToString() ?? "<null>"))}";
 
     private sealed class ServerCommandPrincipal : ICommandPrincipal
     {

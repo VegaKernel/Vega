@@ -1,5 +1,6 @@
 using System.Diagnostics;
 using System.Reflection;
+using TShockNG.Contracts.Authorization;
 using TShockNG.Contracts.Commands;
 using TShockNG.Core.Commands;
 using TShockNG.Core.Commands.System;
@@ -10,6 +11,7 @@ using Vega.Contracts.Worlds;
 using Vega.Core.Events;
 using Vega.Core.Networking;
 using Vega.Terraria;
+using Vega.Terraria.Authorization;
 using Vega.Terraria.Players;
 using Vega.Terraria.Threading;
 
@@ -83,6 +85,7 @@ async Task<int> StartAsync()
         new ServerInfoCommand(new ProcessHostMetricsReader())
     ];
     ICommandDispatcher commandDispatcher = new CommandDispatcher(commandHandlers);
+    IPlayerAuthorizationService playerAuthorization = new LegacyTShockPlayerAuthorizationService();
 
     using var gameThreadDispatcher = new OtapiGameThreadDispatcher();
     using var playerBoundary = new TerrariaPlayerBoundary(gameThreadDispatcher);
@@ -95,5 +98,6 @@ async Task<int> StartAsync()
         gameThreadDispatcher,
         playerBoundary,
         playerHpSecurity,
-        commandDispatcher);
+        commandDispatcher,
+        playerAuthorization);
 }

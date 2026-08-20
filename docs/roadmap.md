@@ -41,9 +41,9 @@ Implementation priority is intentionally vertical. Each new abstraction should l
 - [x] Introduce `IPlayerOperations` for kick/teleport/authoritative state changes.
 - [x] Introduce `IPlayerMessenger` separately from mutation capabilities.
 - [x] Ensure Terraria player mutation is implemented only in `Vega.Terraria` and scheduled on the game thread.
-- [ ] Migrate a real player/security/command scenario before adding more player abstraction surface.
+- [x] Migrate a real player/security/command scenario before adding more player abstraction surface.
 
-The initial Terraria implementation publishes immutable player snapshots from the game thread and provides slot lookup, exact-name lookup, kick, message delivery and teleport without exposing `Terraria.Player` or `TSPlayer`. Queued operations complete only after the game-thread action has actually produced a result.
+The initial Terraria implementation publishes immutable player snapshots from the game thread and provides slot lookup, exact-name lookup, kick, message delivery and teleport without exposing `Terraria.Player` or `TSPlayer`. Queued operations complete only after the game-thread action has actually produced a result. The first player-facing command slice routes `/serverinfo` output through `IPlayerMessenger` while authorization is supplied through a narrow player-session contract.
 
 ## Phase 4 — packet processing context
 
@@ -63,6 +63,8 @@ The first end-to-end packet slice validates inbound `PlayerHp` ownership. `Vega.
 - [ ] Keep main server semantics in Core services; helper/extensions remain thin convenience layers.
 - [ ] Promote true server invariants/security primitives into Core/runtime services.
 - [ ] Keep gameplay/community policy as optional modules.
+
+`serverinfo` is the first migrated command path. Server-console input is intercepted through native OTAPI command processing; player input is recognized from typed `LoadNetModule`/`NetTextModule` payloads before the legacy TSAPI bridge. Unknown commands continue to legacy while the migration is incomplete. Effective player permission checks remain behind `IPlayerAuthorizationService`; the temporary implementation reads the legacy TShock session only inside `Vega.Terraria`, so Core and Contracts do not depend on `TSPlayer`.
 
 ## Phase 6 — Operations API and Terminal UI
 
