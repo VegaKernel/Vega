@@ -15,7 +15,7 @@ public sealed class LegacyTShockPlayerAuthorizationService : IPlayerAuthorizatio
 
     public bool HasPermission(PlayerId playerId, string permission)
     {
-        if (playerId.Value < 0 || string.IsNullOrWhiteSpace(permission))
+        if (playerId.Slot < 0 || string.IsNullOrWhiteSpace(permission))
         {
             return false;
         }
@@ -28,18 +28,18 @@ public sealed class LegacyTShockPlayerAuthorizationService : IPlayerAuthorizatio
 
         try
         {
-            if (resolved.PlayersField.GetValue(null) is not Array players || playerId.Value >= players.Length)
+            if (resolved.PlayersField.GetValue(null) is not Array players || playerId.Slot >= players.Length)
             {
                 return false;
             }
 
-            object? player = players.GetValue(playerId.Value);
+            object? player = players.GetValue(playerId.Slot);
             return player is not null && resolved.HasPermissionMethod.Invoke(player, [permission]) is true;
         }
         catch (Exception ex)
         {
             Console.Error.WriteLine(
-                $"Legacy TShock authorization lookup failed for slot {playerId.Value}: {ex.Message}");
+                $"Legacy TShock authorization lookup failed for slot {playerId.Slot}: {ex.Message}");
             return false;
         }
     }
