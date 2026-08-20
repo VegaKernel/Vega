@@ -1,23 +1,38 @@
 # Vega
 
-[Русский](README.md) | [English](README_EN.md)
+<p align="center">
+  <a href="README.md"><strong>Русский</strong></a>
+  &nbsp;·&nbsp;
+  <a href="README_EN.md">English</a>
+  &nbsp;·&nbsp;
+  <a href="docs/architecture.md">Архитектура</a>
+  &nbsp;·&nbsp;
+  <a href="docs/roadmap.md">Roadmap</a>
+  &nbsp;·&nbsp;
+  <a href="docs/decisions/">ADR</a>
+</p>
 
 Vega — самостоятельный современный server framework/runtime для Terraria.
 
 Проект вырос из production-опыта TShock, но не рассматривается как TShock с модернизированной внутренней архитектурой. Старый код остаётся источником поведения, edge cases и regression-сценариев, а не архитектурным фундаментом.
 
-## Текущие границы
+## Архитектура
 
-```text
-Terraria / OTAPI
-       ↓
-Vega.Terraria
-       ↓
-Vega.Runtime
-      / \
-Vega.Contracts  Vega.Core
-       ↑
-Vega modules
+```mermaid
+flowchart TB
+    Terraria["Terraria / OTAPI"] --> TerrariaAdapter["Vega.Terraria<br/>Terraria integration boundary"]
+
+    Runtime["Vega.Runtime<br/>process host + composition root"] --> TerrariaAdapter
+    Runtime --> Core["Vega.Core<br/>server behavior"]
+    Runtime --> Contracts["Vega.Contracts<br/>contracts + DTOs"]
+
+    TerrariaAdapter --> Contracts
+    Core --> Contracts
+
+    Modules["Vega modules"] --> Contracts
+    Runtime -. "explicit registration" .-> Modules
+
+    Legacy["TShockAPI + TSAPI<br/>temporary migration scaffolding"] -. "migration only" .-> TerrariaAdapter
 ```
 
 - `Vega.Contracts` — независимые контракты и DTO.
@@ -28,7 +43,7 @@ Vega modules
 
 `Vega.Core` защищён architecture test: появление ссылки на Terraria/OTAPI/TShockAPI ломает тесты.
 
-## Solution
+## Сборка
 
 ```bash
 dotnet restore Vega.sln
@@ -38,7 +53,7 @@ dotnet test Vega.sln
 
 Основной executable: `src/Vega.Runtime/Vega.Runtime.csproj`, assembly `Vega.Server`.
 
-## Быстрый запуск
+## Готовность сервера
 
 `NetworkReady` является основной пользовательской точкой готовности. Необязательный warmup выполняется после открытия сервера. Terraria world loading измеряется отдельно от Vega startup overhead.
 
@@ -53,4 +68,6 @@ dotnet test Vega.sln
 
 ## Лицензия
 
-GPL-3.0-or-later. Полный текст — [`COPYING`](COPYING).
+Оригинальный код Vega является закрытым и распространяется на условиях [`LICENSE`](LICENSE). Все права, прямо не предоставленные владельцем проекта, сохраняются за правообладателем.
+
+Репозиторий пока содержит legacy/migration-код TShock и сторонние компоненты под их собственными лицензиями. Эти лицензии не отменяются закрытой лицензией Vega. Копия GPL-3.0, применимая к унаследованным TShock-файлам, хранится в [`licenses/TShock-GPL-3.0.txt`](licenses/TShock-GPL-3.0.txt).

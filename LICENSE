@@ -1,0 +1,35 @@
+Vega Proprietary License Notice
+
+Copyright (c) 2026 VegaKernel contributors. All rights reserved.
+
+1. Scope
+
+Except where a source file, directory, submodule, dependency, or accompanying notice states otherwise, the original Vega code in this repository is proprietary software.
+
+2. Restrictions
+
+No permission is granted to copy, modify, publish, distribute, sublicense, sell, host, provide as a service, or otherwise use the proprietary portions of Vega outside environments expressly authorized by the project owner, unless prior written permission has been obtained from the project owner.
+
+Access to the source code, repository, binaries, documentation, or development infrastructure does not by itself grant any license or redistribution right.
+
+3. Internal and authorized use
+
+The project owner may authorize specific people or organizations to access, modify, build, test, deploy, or operate Vega. Such authorization is limited to the scope expressly granted and does not transfer ownership or grant redistribution rights.
+
+4. Third-party and legacy code
+
+This repository contains legacy and migration code derived from TShock as well as other third-party components. Those files and components remain governed by their respective licenses and copyright notices. This proprietary notice does not replace, revoke, narrow, or supersede any third-party license.
+
+In particular, files derived from TShock that carry GNU General Public License notices remain subject to the applicable GPL terms. A copy of GNU GPL version 3 is provided in `licenses/TShock-GPL-3.0.txt`.
+
+5. Distribution
+
+If a build, source package, binary, container image, or other deliverable includes third-party or legacy material, any distribution of that deliverable must comply with all licenses applicable to that material. The proprietary status of original Vega code does not remove those obligations.
+
+6. No warranty
+
+THE PROPRIETARY PORTIONS OF VEGA ARE PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE, TITLE, AND NON-INFRINGEMENT.
+
+7. Reservation of rights
+
+All rights not expressly granted in writing are reserved by the project owner and the respective third-party copyright holders.
