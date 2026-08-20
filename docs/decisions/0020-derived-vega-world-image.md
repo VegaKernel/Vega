@@ -1,6 +1,6 @@
 # ADR 0020: Derived Vega World Image for runtime loading
 
-Status: Planned
+Status: Accepted and evaluated for Vega 1.0
 
 ## Context
 
@@ -255,3 +255,11 @@ Default enablement should be based on repeatable evidence that the runtime image
 ## Consequences
 
 Vega can optimize world startup aggressively while preserving Terraria compatibility and recovery. The optimization remains disposable and isolated in the Terraria integration layer, which prevents a custom binary cache from becoming another architectural dependency that the rest of the server is forced to understand.
+
+## Vega 1.0 evaluation
+
+Schema 1 was implemented as a sectioned image containing the canonical source bytes, a chunked stream of packed tile runs, a checksummed manifest and a fixed checksummed footer. Generation uses a same-directory temporary file, durable flush, complete validation and atomic replacement. Cache selection validates the source SHA-256 fingerprint, Terraria version, schema, compiler parameters and both section checksums. Any failure returns to the canonical `.wld` loader; corrupt images are quarantined.
+
+Representative end-to-end measurements on 4200×1200, 6400×1800 and 8400×2400 worlds did not show a repeatable startup improvement. The image was 5.6–5.8 times larger, its current tile reconstruction path was slower on small and medium worlds, and peak working set increased. Vega 1.0 therefore keeps the feature disabled by default and exposes it only through `--vega-world-image=on` for continued profiling. See [`docs/world-images.md`](../world-images.md) for measurements and operating details.
+
+Level 3 was investigated and rejected for Vega 1.0. Terraria eagerly owns and traverses `Main.tile`, world generation and player synchronization assume a complete in-memory world, and memory mapping the cache would not remove object reconstruction or integrity validation. Lazy/mapped ownership needs a separate compatibility experiment and materially better evidence before it can replace those assumptions.

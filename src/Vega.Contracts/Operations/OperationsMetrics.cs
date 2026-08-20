@@ -36,3 +36,34 @@ public interface INetworkMetricsRecorder
 
     void RecordOutbound(int byteCount);
 }
+
+public sealed record WorldLoadMetricsSnapshot(
+    bool CacheHit,
+    string CacheReason,
+    long SourceBytes,
+    long ImageBytes,
+    TimeSpan FileReadDuration,
+    TimeSpan TileDecodeDuration,
+    TimeSpan ChestCreationDuration,
+    TimeSpan SignCreationDuration,
+    TimeSpan NpcCreationDuration,
+    TimeSpan TileEntityCreationDuration,
+    TimeSpan PostLoadInitializationDuration,
+    TimeSpan WldLoadDuration,
+    TimeSpan WorldImageLoadDuration,
+    TimeSpan WorldImageBuildDuration,
+    TimeSpan WorldReadyDuration,
+    long AllocatedBytes,
+    int Gen0Collections,
+    int Gen1Collections,
+    int Gen2Collections,
+    DateTimeOffset SampledAt)
+{
+    public TimeSpan CollectionsDuration =>
+        ChestCreationDuration + SignCreationDuration + NpcCreationDuration + TileEntityCreationDuration;
+}
+
+public interface IWorldLoadMetricsReader
+{
+    WorldLoadMetricsSnapshot Read();
+}

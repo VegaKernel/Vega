@@ -14,7 +14,8 @@ public sealed class OperationsSnapshotProvider(
     IModuleOperationsCatalog modules,
     IOperationsLogStore logs,
     IRuntimeMetricsReader runtimeMetrics,
-    INetworkMetricsReader networkMetrics) : IOperationsSnapshotProvider
+    INetworkMetricsReader networkMetrics,
+    IWorldLoadMetricsReader? worldLoadMetrics = null) : IOperationsSnapshotProvider
 {
     public OperationsSnapshot Capture(OperationsLogFilter? logFilter = null)
     {
@@ -51,7 +52,10 @@ public sealed class OperationsSnapshotProvider(
             Array.AsReadOnly(moduleSnapshots),
             logs.Query(logFilter ?? new OperationsLogFilter()),
             runtimeMetrics.Read(),
-            networkMetrics.Read());
+            networkMetrics.Read())
+        {
+            WorldLoad = worldLoadMetrics?.Read()
+        };
     }
 
     private static string[] BuildWarnings(

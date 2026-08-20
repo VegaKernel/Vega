@@ -12,6 +12,7 @@ using Vega.Terraria.Hooking;
 using Vega.Terraria.Operations;
 using Vega.Terraria.Players;
 using Vega.Terraria.Threading;
+using Vega.Terraria.Worlds;
 
 namespace Vega.Terraria;
 
@@ -29,6 +30,7 @@ public static class TerrariaServerHost
         TerrariaOperationsState operationsState,
         INetworkMetricsRecorder networkMetrics,
         IOperationsLogger logger,
+        TerrariaWorldImageService worldImages,
         IPacketProcessor<PacketView> playerOwnershipSecurity,
         ICommandDispatcher commandDispatcher,
         IPlayerAuthorizationService playerAuthorization)
@@ -41,6 +43,7 @@ public static class TerrariaServerHost
         ArgumentNullException.ThrowIfNull(operationsState);
         ArgumentNullException.ThrowIfNull(networkMetrics);
         ArgumentNullException.ThrowIfNull(logger);
+        ArgumentNullException.ThrowIfNull(worldImages);
         ArgumentNullException.ThrowIfNull(playerOwnershipSecurity);
         ArgumentNullException.ThrowIfNull(commandDispatcher);
         ArgumentNullException.ThrowIfNull(playerAuthorization);
@@ -78,6 +81,7 @@ public static class TerrariaServerHost
             playerBoundary.Attach();
             operationsState.Attach();
             networkMetricsHooks.Attach();
+            worldImages.Attach();
             worldDecisionHooks.Attach();
             playerPacketSecurityHooks.Attach();
             consoleCommandHooks.Attach();

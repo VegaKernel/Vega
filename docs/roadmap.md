@@ -161,35 +161,35 @@ Canonical persistence remains Terraria `.wld`. Vega `.vworld` is a disposable, v
 
 ### Baseline and profiling
 
-- [ ] Profile stock Terraria `.wld` loading and post-load initialization separately.
-- [ ] Record baseline file-read time, tile decoding, allocations, GC, chests/signs/entities creation, post-load work and runtime-index construction.
-- [ ] Record baseline world-load CPU, peak memory and `WorldReady` / `NetworkReady` timing on small, medium and large production-like worlds.
+- [x] Profile stock Terraria `.wld` loading and post-load initialization separately.
+- [x] Record baseline file-read time, tile decoding, allocations, GC, chests/signs/entities creation, post-load work and runtime-index construction.
+- [x] Record baseline world-load CPU, peak memory and `WorldReady` / `NetworkReady` timing on small, medium and large production-like worlds.
 
 ### Level 2: derived Vega World Image
 
-- [ ] Define the internal sectioned/chunked versioned Vega World Image format (`.vworld`).
-- [ ] Keep `.wld` as source of truth for compatibility, import/export, recovery and initial persistence.
-- [ ] Add source `.wld` content fingerprint plus Terraria world-format, Vega schema and compiler-parameter validation.
-- [ ] Do not use timestamps as the only cache-validity criterion.
-- [ ] Implement atomic world-image generation: write temporary file, flush, validate checksums, then atomically replace the previous cache.
-- [ ] Ensure interrupted cache generation cannot damage `.wld` or the previous valid `.vworld`.
-- [ ] Implement fast full-load from the derived runtime image with sequential reads, minimal parsing/branching and bounded temporary allocations.
-- [ ] Cache only measured expensive decoding/precomputation work.
-- [ ] Keep the binary layout and serializer entirely inside `Vega.Terraria` / world infrastructure; Core sees only world contracts/snapshots.
-- [ ] Add precomputed runtime indexes only with real consumers and benchmarks.
-- [ ] Candidate indexes include chest lookup, entities/signs by section, wiring/liquid regions, spatial lookups, initial player-sync data and world map/operations consumers.
-- [ ] Fall back automatically to `.wld` when `.vworld` is absent, stale, incompatible or corrupt.
-- [ ] Log cache hit/miss, invalidation reason, source/cache size, validation/corruption errors and fallback behavior.
-- [ ] Integrate `WldLoadDuration`, `WorldImageBuildDuration`, `WorldImageLoadDuration`, `PostLoadInitializationDuration` and `WorldReadyDuration` with startup telemetry.
-- [ ] Benchmark cold/warm `.wld` against cold/warm `.vworld`, including peak memory, allocations, `WorldReady` and `NetworkReady`.
-- [ ] Decide from measurements whether `.vworld` should be enabled by default. Do not promise or assume a speedup before benchmarks.
+- [x] Define the internal sectioned/chunked versioned Vega World Image format (`.vworld`).
+- [x] Keep `.wld` as source of truth for compatibility, import/export, recovery and initial persistence.
+- [x] Add source `.wld` content fingerprint plus Terraria world-format, Vega schema and compiler-parameter validation.
+- [x] Do not use timestamps as the only cache-validity criterion.
+- [x] Implement atomic world-image generation: write temporary file, flush, validate checksums, then atomically replace the previous cache.
+- [x] Ensure interrupted cache generation cannot damage `.wld` or the previous valid `.vworld`.
+- [x] Implement fast full-load from the derived runtime image with sequential reads, minimal parsing/branching and bounded temporary allocations.
+- [x] Cache only measured expensive decoding/precomputation work.
+- [x] Keep the binary layout and serializer entirely inside `Vega.Terraria` / world infrastructure; Core sees only world contracts/snapshots.
+- [x] Add precomputed runtime indexes only with real consumers and benchmarks.
+- [x] Candidate indexes include chest lookup, entities/signs by section, wiring/liquid regions, spatial lookups, initial player-sync data and world map/operations consumers.
+- [x] Fall back automatically to `.wld` when `.vworld` is absent, stale, incompatible or corrupt.
+- [x] Log cache hit/miss, invalidation reason, source/cache size, validation/corruption errors and fallback behavior.
+- [x] Integrate `WldLoadDuration`, `WorldImageBuildDuration`, `WorldImageLoadDuration`, `PostLoadInitializationDuration` and `WorldReadyDuration` with startup telemetry.
+- [x] Benchmark cold/warm `.wld` against cold/warm `.vworld`, including peak memory, allocations, `WorldReady` and `NetworkReady`.
+- [x] Decide from measurements whether `.vworld` should be enabled by default. Do not promise or assume a speedup before benchmarks.
 
 ### Level 3: chunked / memory-mapped backend, research only
 
-- [ ] Investigate chunked/memory-mapped world storage separately from the Level 2 full-load implementation.
-- [ ] Investigate lazy section loading for very large or multiple/sandboxed world contexts.
-- [ ] Validate Terraria runtime assumptions before changing in-memory world ownership/storage semantics.
-- [ ] Do not make lazy/mmap storage part of Vega 1.0 unless benchmarks and compatibility evidence justify it.
+- [x] Investigate chunked/memory-mapped world storage separately from the Level 2 full-load implementation.
+- [x] Investigate lazy section loading for very large or multiple/sandboxed world contexts.
+- [x] Validate Terraria runtime assumptions before changing in-memory world ownership/storage semantics.
+- [x] Do not make lazy/mmap storage part of Vega 1.0 unless benchmarks and compatibility evidence justify it.
 
 World-image invariant:
 
@@ -199,6 +199,8 @@ World-image invariant:
 ```
 
 See ADR 0020 for format ownership, validation, fallback and persistence constraints.
+
+Schema 1 and its reproducible benchmark harness are complete. Measurements on three real worlds showed no repeatable Vega 1.0 startup benefit and higher memory cost, so `.vworld` remains disabled by default and available only through `--vega-world-image=on`. No speculative runtime indexes or Level 3 lazy/memory-mapped backend were added. See [`docs/world-images.md`](world-images.md) and ADR 0020.
 
 ## Architectural guardrails
 

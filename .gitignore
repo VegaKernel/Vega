@@ -63,3 +63,6 @@ postbuild.bat
 .env
 .env.*
 !.env.example
+*.vworld
+*.vworld.tmp
+*.vworld.corrupt

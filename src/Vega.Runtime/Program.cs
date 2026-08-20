@@ -30,6 +30,7 @@ using Vega.Terraria.Items;
 using Vega.Terraria.Players;
 using Vega.Terraria.Operations;
 using Vega.Terraria.Threading;
+using Vega.Terraria.Worlds;
 
 var processStartedAt = Stopwatch.GetTimestamp();
 
@@ -96,7 +97,18 @@ int Start()
         return 2;
     }
 
-    string[] serverArgs = uiOptions.ServerArguments.ToArray();
+    WorldImageOptions worldImageOptions;
+    try
+    {
+        worldImageOptions = WorldImageOptionsParser.Parse(uiOptions.ServerArguments);
+    }
+    catch (ArgumentException ex)
+    {
+        Console.Error.WriteLine(ex.Message);
+        return 2;
+    }
+
+    string[] serverArgs = worldImageOptions.ServerArguments.ToArray();
 
     // Explicit composition root: no assembly scanning or reflection-based handler discovery.
     IEventPipeline<WorldHardmodeStarting> hardmodeStarting = new EventPipeline<WorldHardmodeStarting>(
@@ -154,6 +166,7 @@ int Start()
     using (fileSink)
     {
         var logger = new StructuredOperationsLogger(sinks);
+        using var worldImages = new TerrariaWorldImageService(logger, lifecycle, worldImageOptions.Enabled);
         var hostMetrics = new ProcessHostMetricsReader();
         var runtimeMetrics = new SampledRuntimeMetricsReader(hostMetrics);
         var modules = new StaticModuleOperationsCatalog(CreateModuleSnapshots(moduleHost));
@@ -167,7 +180,8 @@ int Start()
             modules,
             logStore,
             runtimeMetrics,
-            networkMetrics);
+            networkMetrics,
+            worldImages);
         var operationsCommands = new OperationsCommandService(commandDispatcher);
         using var terminalUi = new TerminalUiHost(snapshots, operationsCommands, logger);
         terminalUi.TryStart(uiOptions.EffectiveMode);
@@ -179,6 +193,10 @@ int Start()
             OperationsLogLevel.Information,
             "cluster",
             $"Cluster transport: {UnavailableClusterClient.Instance.GetType().Name}; standalone operation remains enabled.");
+        logger.Log(
+            OperationsLogLevel.Information,
+            "world-image",
+            $"World image mode: {(worldImageOptions.Enabled ? "on" : "off")}; default remains off pending broader production evidence.");
 
         return TerrariaServerHost.Run(
             serverArgs,
@@ -189,6 +207,7 @@ int Start()
             operationsState,
             networkMetrics,
             logger,
+            worldImages,
             playerPacketPolicies,
             commandDispatcher,
             playerAuthorization);

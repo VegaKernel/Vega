@@ -59,7 +59,10 @@ public sealed record OperationsSnapshot(
     IReadOnlyList<ModuleOperationsSnapshot> Modules,
     IReadOnlyList<OperationsLogRecord> Logs,
     RuntimeMetricsSnapshot Runtime,
-    NetworkMetricsSnapshot Network);
+    NetworkMetricsSnapshot Network)
+{
+    public WorldLoadMetricsSnapshot? WorldLoad { get; init; }
+}
 
 public interface IOperationsSnapshotProvider
 {
