@@ -9,10 +9,10 @@ namespace Vega.Terraria.Hooking;
 /// </summary>
 internal sealed class NativeLifecycleHooks : IDisposable
 {
-    private readonly RuntimeLifecycleTracker lifecycle;
+    private readonly IRuntimeLifecycleController lifecycle;
     private bool attached;
 
-    public NativeLifecycleHooks(RuntimeLifecycleTracker lifecycle)
+    public NativeLifecycleHooks(IRuntimeLifecycleController lifecycle)
     {
         this.lifecycle = lifecycle;
     }

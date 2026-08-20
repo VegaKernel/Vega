@@ -7,22 +7,14 @@ TShock remains an important source of production behavior, requirements, securit
 ## Dependency direction
 
 ```text
-Terraria
-   |
-   v
-OTAPI
-   |
-   v
-Vega.Runtime / Vega.Terraria
-   |
-   v
-Vega.Contracts
-   |
-   v
-Vega.Core
-   |
-   v
-Vega.Modules
+Terraria -> OTAPI -> Vega.Terraria -> Vega.Contracts
+                         ^                  ^
+                         |                  |
+Vega.Runtime ------------+------------------+
+     |                    |                  ^
+     +-> Vega.TerminalUI -> Vega.Operations-+
+     +-> Vega.Core --------------------------+
+     `-> Vega.Modules -----------------------+
 ```
 
 Project names may evolve, but these boundaries are normative.
@@ -75,6 +67,14 @@ Commands.ChatCommands
 ```
 
 World/player state enters Core through explicit contracts, immutable snapshots and scheduled capabilities.
+
+### Vega.Operations
+
+Owns toolkit-independent operational projections, bounded structured logging, cheap sampled metrics and safe action routing. It consumes stable Contracts/application services and never owns authoritative Terraria state.
+
+### Vega.TerminalUI
+
+Owns the optional Terminal.Gui host, rendering and view state. Terminal.Gui types are contained to this project. The UI consumes immutable operations snapshots and routes commands through the normal application boundary; it does not reference Terraria, OTAPI, TSAPI or TShockAPI.
 
 ### Vega modules
 

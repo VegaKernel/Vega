@@ -63,6 +63,7 @@ dotnet test Vega.sln
 
 - [`docs/architecture.md`](docs/architecture.md)
 - [`docs/roadmap.md`](docs/roadmap.md)
+- [`docs/operations.md`](docs/operations.md)
 - [`ADR 0016`](docs/decisions/0016-vega-independent-runtime-architecture.md)
 - [`ADR 0017`](docs/decisions/0017-startup-lifecycle-readiness-and-performance-budgets.md)
 

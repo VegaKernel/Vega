@@ -4,10 +4,12 @@ using Terraria.ID;
 using TShockNG.Contracts.Authorization;
 using TShockNG.Contracts.Commands;
 using TShockNG.Contracts.Networking;
+using TShockNG.Contracts.Operations;
 using Vega.Contracts.Events;
 using Vega.Contracts.Runtime;
 using Vega.Contracts.Worlds;
 using Vega.Terraria.Hooking;
+using Vega.Terraria.Operations;
 using Vega.Terraria.Players;
 using Vega.Terraria.Threading;
 
@@ -20,30 +22,45 @@ public static class TerrariaServerHost
 {
     public static int Run(
         string[] args,
-        long processStartedAt,
+        IRuntimeLifecycleController lifecycle,
         IEventPipeline<WorldHardmodeStarting> hardmodeStarting,
         OtapiGameThreadDispatcher gameThreadDispatcher,
         TerrariaPlayerBoundary playerBoundary,
+        TerrariaOperationsState operationsState,
+        INetworkMetricsRecorder networkMetrics,
+        IOperationsLogger logger,
         IPacketProcessor<PacketView> playerOwnershipSecurity,
         ICommandDispatcher commandDispatcher,
         IPlayerAuthorizationService playerAuthorization)
     {
         ArgumentNullException.ThrowIfNull(args);
+        ArgumentNullException.ThrowIfNull(lifecycle);
         ArgumentNullException.ThrowIfNull(hardmodeStarting);
         ArgumentNullException.ThrowIfNull(gameThreadDispatcher);
         ArgumentNullException.ThrowIfNull(playerBoundary);
+        ArgumentNullException.ThrowIfNull(operationsState);
+        ArgumentNullException.ThrowIfNull(networkMetrics);
+        ArgumentNullException.ThrowIfNull(logger);
         ArgumentNullException.ThrowIfNull(playerOwnershipSecurity);
         ArgumentNullException.ThrowIfNull(commandDispatcher);
         ArgumentNullException.ThrowIfNull(playerAuthorization);
 
-        var lifecycle = new RuntimeLifecycleTracker(processStartedAt);
-        lifecycle.Transitioned += ReportLifecycleTransition;
+        void Report(RuntimeLifecycleTransition transition) => ReportLifecycleTransition(transition, logger);
+        void ReportUnhandled(object sender, UnhandledExceptionEventArgs eventArgs) =>
+            logger.Log(
+                OperationsLogLevel.Critical,
+                "runtime",
+                "Unhandled Vega Terraria runtime exception.",
+                eventArgs.ExceptionObject as Exception);
+
+        lifecycle.Transitioned += Report;
         lifecycle.Advance(RuntimeLifecycleStage.Bootstrap);
 
-        AppDomain.CurrentDomain.UnhandledException += OnUnhandledException;
+        AppDomain.CurrentDomain.UnhandledException += ReportUnhandled;
         var legacyHooksAttached = false;
 
         using var nativeLifecycleHooks = new NativeLifecycleHooks(lifecycle);
+        using var networkMetricsHooks = new NativeNetworkMetricsHooks(networkMetrics);
         using var worldDecisionHooks = new NativeWorldDecisionHooks(hardmodeStarting);
         using var playerPacketSecurityHooks = new NativePlayerPacketSecurityHooks(playerOwnershipSecurity);
         using var consoleCommandHooks = new NativeConsoleCommandHooks(commandDispatcher);
@@ -61,6 +78,8 @@ public static class TerrariaServerHost
             nativeLifecycleHooks.Attach();
             gameThreadDispatcher.Attach();
             playerBoundary.Attach();
+            operationsState.Attach();
+            networkMetricsHooks.Attach();
             worldDecisionHooks.Attach();
             playerPacketSecurityHooks.Attach();
             consoleCommandHooks.Attach();
@@ -88,7 +107,7 @@ public static class TerrariaServerHost
         }
         catch (Exception ex)
         {
-            Console.Error.WriteLine($"Vega Terraria runtime failed:\n{ex}");
+            logger.Log(OperationsLogLevel.Critical, "runtime", "Vega Terraria runtime failed.", ex);
             return 1;
         }
         finally
@@ -98,34 +117,44 @@ public static class TerrariaServerHost
                 LegacyTsapiBridge.Shutdown();
             }
 
-            lifecycle.Transitioned -= ReportLifecycleTransition;
-            AppDomain.CurrentDomain.UnhandledException -= OnUnhandledException;
+            lifecycle.Transitioned -= Report;
+            AppDomain.CurrentDomain.UnhandledException -= ReportUnhandled;
         }
     }
 
-    private static void ReportLifecycleTransition(RuntimeLifecycleTransition transition)
+    private static void ReportLifecycleTransition(
+        RuntimeLifecycleTransition transition,
+        IOperationsLogger logger)
     {
-        Console.WriteLine(
+        logger.Log(
+            OperationsLogLevel.Information,
+            "lifecycle",
             $"Vega {transition.Stage,-18} {transition.Elapsed.TotalMilliseconds,8:F1} ms " +
             $"(+{transition.StageDuration.TotalMilliseconds:F1} ms)");
 
         if (transition.Stage == RuntimeLifecycleStage.RuntimeReady &&
             transition.StageDuration > TimeSpan.FromMilliseconds(100))
         {
-            Console.Error.WriteLine(
+            logger.Log(
+                OperationsLogLevel.Warning,
+                "lifecycle",
                 $"Vega startup budget warning: bootstrap took {transition.StageDuration.TotalMilliseconds:F1} ms (> 100 ms).");
         }
 
         if (transition.Stage == RuntimeLifecycleStage.WorldLoading &&
             transition.Elapsed > TimeSpan.FromMilliseconds(300))
         {
-            Console.Error.WriteLine(
+            logger.Log(
+                OperationsLogLevel.Warning,
+                "lifecycle",
                 $"Vega startup budget warning: pre-world overhead reached {transition.Elapsed.TotalMilliseconds:F1} ms (> 300 ms).");
         }
 
         if (transition.Stage == RuntimeLifecycleStage.WorldReady)
         {
-            Console.WriteLine(
+            logger.Log(
+                OperationsLogLevel.Information,
+                "lifecycle",
                 $"Terraria world load       {transition.StageDuration.TotalMilliseconds,8:F1} ms");
         }
     }
@@ -200,8 +229,4 @@ public static class TerrariaServerHost
         TileID.Sets.Hallow[TileID.Pearlstone] = true;
     }
 
-    private static void OnUnhandledException(object sender, UnhandledExceptionEventArgs args)
-    {
-        Console.Error.WriteLine($"Unhandled Vega Terraria runtime exception:\n{args.ExceptionObject}");
-    }
 }

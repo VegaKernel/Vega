@@ -72,21 +72,23 @@ Phase 5 closes the native command/hook migration foundation, not the later remov
 
 The operations surface is an optional consumer of stable read models and application commands. It must not become a privileged path around Core/runtime rules.
 
-- [ ] Define operations/read-model contracts independent of Terminal UI types.
-- [ ] Introduce structured logging with independent file/stdout/TUI sinks.
-- [ ] Implement a server dashboard backed by immutable/bounded snapshots.
-- [ ] Implement a players view using `PlayerSnapshot` / player read models.
-- [ ] Implement a modules view exposing load state, version, dependencies, startup timing and failures where available.
-- [ ] Implement a bounded logs viewer with level/source/text filtering and follow/pause behavior.
-- [ ] Expose runtime, network, process, GC and memory metrics through cheap sampled read models.
-- [ ] Add a command palette over the normal command/application boundary.
-- [ ] Add safe administrative actions only through normal authorization and service contracts.
-- [ ] Preserve plain console mode for scripts, redirected output and troubleshooting.
-- [ ] Support fully headless mode for services, containers and CI.
-- [ ] Keep TUI initialization optional; failure to initialize an interactive terminal must never block server startup.
-- [ ] Never read or mutate Terraria globals directly from the UI thread.
+- [x] Define operations/read-model contracts independent of Terminal UI types.
+- [x] Introduce structured logging with independent file/stdout/TUI sinks.
+- [x] Implement a server dashboard backed by immutable/bounded snapshots.
+- [x] Implement a players view using `PlayerSnapshot` / player read models.
+- [x] Implement a modules view exposing load state, version, dependencies, startup timing and failures where available.
+- [x] Implement a bounded logs viewer with level/source/text filtering and follow/pause behavior.
+- [x] Expose runtime, network, process, GC and memory metrics through cheap sampled read models.
+- [x] Add a command palette over the normal command/application boundary.
+- [x] Add safe administrative actions only through normal authorization and service contracts.
+- [x] Preserve plain console mode for scripts, redirected output and troubleshooting.
+- [x] Support fully headless mode for services, containers and CI.
+- [x] Keep TUI initialization optional; failure to initialize an interactive terminal must never block server startup.
+- [x] Never read or mutate Terraria globals directly from the UI thread.
 
-See ADR 0010 for the operations/TUI boundary and runtime-mode requirements.
+`Vega.Operations` now implements the toolkit-independent operations API: immutable server/player/module snapshots, bounded structured logs, cheap sampled runtime/process/GC/network metrics and command actions routed through `ICommandDispatcher`. `Vega.TerminalUI` is the only project that references Terminal.Gui. It renders dashboard, player, module and filtered log views from those snapshots and offers follow/pause plus a keyboard command palette. Terraria-owned world/TPS state is sampled on the game thread by `Vega.Terraria`; the UI never traverses Terraria globals.
+
+The runtime supports `auto`, `tui`, `plain` and `headless` modes through `--vega-ui`. Structured events fan out independently to JSON-lines file, stdout when enabled, and a bounded TUI store. The TUI runs as an optional background consumer; initialization and rendering failures are logged and cannot prevent Terraria startup. See ADR 0010 and [`docs/operations.md`](operations.md) for the boundary and operator usage.
 
 ## Phase 7 — typed extension state, only when demanded
 

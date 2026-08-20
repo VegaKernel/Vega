@@ -16,7 +16,9 @@
 		<ProjectReference Include="..\TShockAPI\TShockAPI.csproj" ExcludeFromSingleFile="true" ReferenceOutputAssembly="false" />
 		<ProjectReference Include="..\TShockPluginManager\TShockPluginManager.csproj" />
 		<ProjectReference Include="..\Vega.Core\Vega.Core.csproj" />
+		<ProjectReference Include="..\Vega.Operations\Vega.Operations.csproj" />
 		<ProjectReference Include="..\Vega.Terraria\Vega.Terraria.csproj" />
+		<ProjectReference Include="..\Vega.TerminalUI\Vega.TerminalUI.csproj" />
 		<Reference Include="HttpServer" ExcludeFromSingleFile="true">
 			<HintPath>..\..\external\legacy\HttpServer.dll</HintPath>
 		</Reference>

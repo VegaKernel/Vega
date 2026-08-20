@@ -2,6 +2,7 @@ using System.Diagnostics;
 using System.Reflection;
 using TShockNG.Contracts.Authorization;
 using TShockNG.Contracts.Commands;
+using TShockNG.Contracts.Operations;
 using TShockNG.Core.Commands;
 using TShockNG.Core.Commands.Administration;
 using TShockNG.Core.Commands.Players;
@@ -12,9 +13,16 @@ using Vega.Contracts.Events;
 using Vega.Contracts.Worlds;
 using Vega.Core.Events;
 using Vega.Core.Networking;
+using Vega.Operations;
+using Vega.Operations.Actions;
+using Vega.Operations.Logging;
+using Vega.Operations.Metrics;
+using Vega.Operations.ReadModels;
+using Vega.TerminalUI;
 using Vega.Terraria;
 using Vega.Terraria.Authorization;
 using Vega.Terraria.Players;
+using Vega.Terraria.Operations;
 using Vega.Terraria.Threading;
 using Vega.Terraria.Updates;
 
@@ -72,9 +80,21 @@ Assembly? ResolveFromBin(System.Runtime.Loader.AssemblyLoadContext context, Asse
 
 async Task<int> StartAsync()
 {
-    if (args.Length > 0 && string.Equals(args[0], "plugins", StringComparison.OrdinalIgnoreCase))
+    OperationsUiOptions uiOptions;
+    try
     {
-        await NugetCLI.Main(args.Skip(1).ToList());
+        uiOptions = OperationsUiModeParser.Parse(args);
+    }
+    catch (ArgumentException ex)
+    {
+        Console.Error.WriteLine(ex.Message);
+        return 2;
+    }
+
+    string[] serverArgs = uiOptions.ServerArguments.ToArray();
+    if (serverArgs.Length > 0 && string.Equals(serverArgs[0], "plugins", StringComparison.OrdinalIgnoreCase))
+    {
+        await NugetCLI.Main(serverArgs.Skip(1).ToList());
         return 0;
     }
 
@@ -87,6 +107,7 @@ async Task<int> StartAsync()
     var updateChecker = new LegacyTShockUpdateChecker();
     using var gameThreadDispatcher = new OtapiGameThreadDispatcher();
     using var playerBoundary = new TerrariaPlayerBoundary(gameThreadDispatcher);
+    using var operationsState = new TerrariaOperationsState(gameThreadDispatcher);
 
     ICommandHandler[] commandHandlers =
     [
@@ -97,14 +118,94 @@ async Task<int> StartAsync()
     ];
     ICommandDispatcher commandDispatcher = new CommandDispatcher(commandHandlers);
     var playerOwnershipSecurity = new PlayerPacketOwnershipPolicy();
+    var lifecycle = new RuntimeLifecycleTracker(processStartedAt);
+    var networkMetrics = new NetworkMetricsCounter();
+    var logStore = new BoundedOperationsLogStore();
+    var consoleSink = new ConsoleOperationsLogSink();
+    JsonFileOperationsLogSink? fileSink = TryCreateFileSink();
+    var sinks = new List<IOperationsLogSink> { logStore };
+    if (uiOptions.EffectiveMode != OperationsUiMode.Headless)
+    {
+        sinks.Add(consoleSink);
+    }
 
-    return TerrariaServerHost.Run(
-        args,
-        processStartedAt,
-        hardmodeStarting,
-        gameThreadDispatcher,
-        playerBoundary,
-        playerOwnershipSecurity,
-        commandDispatcher,
-        playerAuthorization);
+    if (fileSink is not null)
+    {
+        sinks.Add(fileSink);
+    }
+
+    using (fileSink)
+    {
+        var logger = new StructuredOperationsLogger(sinks);
+        var hostMetrics = new ProcessHostMetricsReader();
+        var runtimeMetrics = new SampledRuntimeMetricsReader(hostMetrics);
+        var modules = new StaticModuleOperationsCatalog(CreateModuleSnapshots());
+        var snapshots = new OperationsSnapshotProvider(
+            "Vega",
+            Assembly.GetExecutingAssembly().GetName().Version?.ToString() ?? "unknown",
+            DateTimeOffset.UtcNow,
+            lifecycle,
+            playerBoundary,
+            operationsState,
+            modules,
+            logStore,
+            runtimeMetrics,
+            networkMetrics);
+        var operationsCommands = new OperationsCommandService(commandDispatcher);
+        using var terminalUi = new TerminalUiHost(snapshots, operationsCommands, logger);
+        terminalUi.TryStart(uiOptions.EffectiveMode);
+        logger.Log(
+            OperationsLogLevel.Information,
+            "operations",
+            $"Operations mode: {uiOptions.EffectiveMode}; bounded log capacity: {logStore.Capacity}.");
+
+        return TerrariaServerHost.Run(
+            serverArgs,
+            lifecycle,
+            hardmodeStarting,
+            gameThreadDispatcher,
+            playerBoundary,
+            operationsState,
+            networkMetrics,
+            logger,
+            playerOwnershipSecurity,
+            commandDispatcher,
+            playerAuthorization);
+    }
 }
+
+JsonFileOperationsLogSink? TryCreateFileSink()
+{
+    try
+    {
+        return new JsonFileOperationsLogSink(Path.Combine("logs", "vega-operations.jsonl"));
+    }
+    catch (Exception ex)
+    {
+        Console.Error.WriteLine($"Vega file logging is unavailable; startup continues: {ex.Message}");
+        return null;
+    }
+}
+
+IReadOnlyList<ModuleOperationsSnapshot> CreateModuleSnapshots() =>
+[
+    Module("Vega.Runtime", Assembly.GetExecutingAssembly(), ["Vega.Core", "Vega.Operations", "Vega.Terraria", "Vega.TerminalUI"]),
+    Module("Vega.Core", typeof(CommandDispatcher).Assembly, ["Vega.Contracts"]),
+    Module("Vega.Operations", typeof(OperationsSnapshotProvider).Assembly, ["Vega.Contracts"]),
+    Module("Vega.Terraria", typeof(TerrariaServerHost).Assembly, ["Vega.Contracts", "OTAPI", "TZ.Multiplicity"]),
+    Module("Vega.TerminalUI", typeof(TerminalUiHost).Assembly, ["Vega.Contracts", "Terminal.Gui"]),
+    new ModuleOperationsSnapshot(
+        "Legacy.TShockAPI",
+        "compatibility",
+        ModuleLoadState.Registered,
+        ["Legacy.TSAPI"],
+        TimeSpan.Zero)
+];
+
+ModuleOperationsSnapshot Module(string name, Assembly assembly, IReadOnlyList<string> dependencies) =>
+    new(
+        name,
+        assembly.GetName().Version?.ToString() ?? "unknown",
+        ModuleLoadState.Loaded,
+        dependencies,
+        TimeSpan.Zero);

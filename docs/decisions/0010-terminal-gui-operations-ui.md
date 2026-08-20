@@ -1,6 +1,8 @@
 # ADR 0010: Isolated operations API and Terminal UI
 
-Status: Planned
+Status: Accepted
+
+Implemented by the Phase 6 `Vega.Operations` and `Vega.TerminalUI` projects. The initial implementation intentionally exposes only data already available through stable snapshots and actions already owned by the normal command boundary; later modules may enrich the same contracts without giving the UI direct runtime ownership.
 
 ## Context
 

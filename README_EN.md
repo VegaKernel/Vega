@@ -51,6 +51,10 @@ dotnet test Vega.sln
 
 The main executable project is `src/Vega.Runtime/Vega.Runtime.csproj`, producing `Vega.Server`.
 
+## Operations UI
+
+Use `--vega-ui=auto|tui|plain|headless` to select the optional Terminal.Gui dashboard, traditional console mode, or non-interactive service mode. See [`docs/operations.md`](docs/operations.md) for dashboard views, structured logging and command-palette behavior.
+
 ## Server readiness
 
 `NetworkReady` is the primary user-facing readiness point. Optional warmup work runs only after the server is open. Terraria world loading is measured separately from Vega startup overhead.
@@ -61,6 +65,7 @@ See [`ADR 0017`](docs/decisions/0017-startup-lifecycle-readiness-and-performance
 
 - [`docs/architecture.md`](docs/architecture.md)
 - [`docs/roadmap.md`](docs/roadmap.md)
+- [`docs/operations.md`](docs/operations.md)
 - [`ADR 0016`](docs/decisions/0016-vega-independent-runtime-architecture.md)
 - [`ADR 0017`](docs/decisions/0017-startup-lifecycle-readiness-and-performance-budgets.md)
 

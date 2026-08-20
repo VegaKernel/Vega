@@ -1,9 +1,9 @@
 using System.Diagnostics;
 using Vega.Contracts.Runtime;
 
-namespace Vega.Terraria;
+namespace Vega.Operations;
 
-internal sealed class RuntimeLifecycleTracker : IRuntimeLifecycle
+public sealed class RuntimeLifecycleTracker : IRuntimeLifecycleController
 {
     private readonly object sync = new();
     private readonly long processStartedAt;
@@ -49,7 +49,7 @@ internal sealed class RuntimeLifecycleTracker : IRuntimeLifecycle
                     $"Invalid Vega lifecycle transition {currentStage} -> {nextStage}.");
             }
 
-            var now = Stopwatch.GetTimestamp();
+            long now = Stopwatch.GetTimestamp();
             transition = new RuntimeLifecycleTransition(
                 nextStage,
                 Stopwatch.GetElapsedTime(processStartedAt, now),

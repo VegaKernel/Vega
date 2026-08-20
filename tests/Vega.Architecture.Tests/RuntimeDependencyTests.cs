@@ -6,6 +6,56 @@ namespace Vega.Architecture.Tests;
 public sealed class RuntimeDependencyTests
 {
     [Test]
+    public void OperationsAndTerminalUiStayIndependentFromTerrariaAndLegacyApis()
+    {
+        var repositoryRoot = FindRepositoryRoot();
+        string[] directories =
+        [
+            Path.Combine(repositoryRoot, "src", "Vega.Operations"),
+            Path.Combine(repositoryRoot, "src", "Vega.TerminalUI")
+        ];
+        string[] forbiddenTokens =
+        [
+            "Terraria.Main",
+            "Main.player",
+            "OTAPI",
+            "TerrariaApi.Server",
+            "TShockAPI",
+            "TSPlayer"
+        ];
+
+        string[] offenders = directories
+            .SelectMany(directory => Directory.EnumerateFiles(directory, "*.*", SearchOption.AllDirectories))
+            .Where(path => path.EndsWith(".cs", StringComparison.OrdinalIgnoreCase) ||
+                           path.EndsWith(".csproj", StringComparison.OrdinalIgnoreCase))
+            .Where(path => forbiddenTokens.Any(token =>
+                File.ReadAllText(path).Contains(token, StringComparison.Ordinal)))
+            .Select(path => Path.GetRelativePath(repositoryRoot, path))
+            .ToArray();
+
+        Assert.That(offenders, Is.Empty,
+            $"Operations/UI may consume only snapshots and application contracts. Offenders: {string.Join(", ", offenders)}");
+    }
+
+    [Test]
+    public void TerminalGuiDependencyIsContainedToTerminalUiProject()
+    {
+        var repositoryRoot = FindRepositoryRoot();
+        string coreProject = File.ReadAllText(Path.Combine(repositoryRoot, "src", "Vega.Core", "Vega.Core.csproj"));
+        string contractsProject = File.ReadAllText(Path.Combine(repositoryRoot, "src", "Vega.Contracts", "Vega.Contracts.csproj"));
+        string operationsProject = File.ReadAllText(Path.Combine(repositoryRoot, "src", "Vega.Operations", "Vega.Operations.csproj"));
+        string terminalProject = File.ReadAllText(Path.Combine(repositoryRoot, "src", "Vega.TerminalUI", "Vega.TerminalUI.csproj"));
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(coreProject, Does.Not.Contain("Terminal.Gui"));
+            Assert.That(contractsProject, Does.Not.Contain("Terminal.Gui"));
+            Assert.That(operationsProject, Does.Not.Contain("Terminal.Gui"));
+            Assert.That(terminalProject, Does.Contain("Terminal.Gui"));
+        });
+    }
+
+    [Test]
     public void VegaRuntime_does_not_reference_TSAPI_directly()
     {
         var repositoryRoot = FindRepositoryRoot();
