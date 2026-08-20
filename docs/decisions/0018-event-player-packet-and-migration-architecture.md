@@ -161,6 +161,8 @@ This state store is not a universal Core dependency and is not a substitute for 
 
 Implementation priority for this capability is deliberately later than events, players and packet context.
 
+Phase 7 implements this decision after the player boundary stabilized. `TerrariaPlayerBoundary` now gives each active connection a unique `PlayerSessionId` and emits explicit open/close notifications. The opt-in `Vega.Modules.Pvp` consumer uses typed per-session keys for projectile-to-weapon attribution, death timing windows and spectator state; disconnect removes and disposes the entire scope. The state store is explicitly composed for that consumer and is not exposed as a general player property bag.
+
 ### 5. Core services and helpers
 
 Primary server semantics live in Core services.

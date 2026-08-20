@@ -16,6 +16,8 @@
 		<ProjectReference Include="..\TShockAPI\TShockAPI.csproj" ExcludeFromSingleFile="true" ReferenceOutputAssembly="false" />
 		<ProjectReference Include="..\TShockPluginManager\TShockPluginManager.csproj" />
 		<ProjectReference Include="..\Vega.Core\Vega.Core.csproj" />
+		<ProjectReference Include="..\Vega.Cluster\Vega.Cluster.csproj" />
+		<ProjectReference Include="..\Vega.Modules.Pvp\Vega.Modules.Pvp.csproj" />
 		<ProjectReference Include="..\Vega.Operations\Vega.Operations.csproj" />
 		<ProjectReference Include="..\Vega.Terraria\Vega.Terraria.csproj" />
 		<ProjectReference Include="..\Vega.TerminalUI\Vega.TerminalUI.csproj" />

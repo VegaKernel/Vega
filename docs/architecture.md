@@ -13,6 +13,7 @@ Terraria -> OTAPI -> Vega.Terraria -> Vega.Contracts
 Vega.Runtime ------------+------------------+
      |                    |                  ^
      +-> Vega.TerminalUI -> Vega.Operations-+
+     +-> Vega.Cluster -----------------------+
      +-> Vega.Core --------------------------+
      `-> Vega.Modules -----------------------+
 ```
@@ -76,9 +77,15 @@ Owns toolkit-independent operational projections, bounded structured logging, ch
 
 Owns the optional Terminal.Gui host, rendering and view state. Terminal.Gui types are contained to this project. The UI consumes immutable operations snapshots and routes commands through the normal application boundary; it does not reference Terraria, OTAPI, TSAPI or TShockAPI.
 
+### Vega.Cluster
+
+Owns optional cluster dispatch, duplicate detection, observability, reference transport infrastructure and scenario adapters. Typed message contracts live in `Vega.Contracts`; concrete transports do not. A standalone runtime composes an unavailable client and keeps local operation independent from remote availability. See ADR 0019 and [`docs/cluster.md`](cluster.md).
+
 ### Vega modules
 
 Modules consume Vega-native contracts and lifecycle APIs. Existing TerraZ plugins are ported deliberately; neither binary nor source-level TShock compatibility is a target requirement.
+
+The first session-scoped state consumer is `Vega.Modules.Pvp`. Temporary state follows `PlayerSessionId` lifecycle and is disposed on disconnect; it is not attached as a universal bag to player/domain models. See [`docs/extension-state.md`](extension-state.md).
 
 ## TSAPI and TShockAPI
 

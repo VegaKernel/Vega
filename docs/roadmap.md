@@ -92,39 +92,41 @@ The runtime supports `auto`, `tui`, `plain` and `headless` modes through `--vega
 
 ## Phase 7 — typed extension state, only when demanded
 
-- [ ] Stabilize player/session/entity lifecycle first.
-- [ ] Add strongly typed scoped keys only for a migrated feature that genuinely needs extension state.
-- [ ] Support type-safe `GetOrCreate`, `Set`, `Remove` and deterministic cleanup.
-- [ ] Do not make extension state a universal Core dependency or a substitute for modeled domain state.
+- [x] Stabilize player/session/entity lifecycle first.
+- [x] Add strongly typed scoped keys only for a migrated feature that genuinely needs extension state.
+- [x] Support type-safe `GetOrCreate`, `Set`, `Remove` and deterministic cleanup.
+- [x] Do not make extension state a universal Core dependency or a substitute for modeled domain state.
 
-Concrete future pressure already exists in historical PvP behavior: projectile-to-weapon attribution, death/spectator state and timing windows. These are test cases, not justification for implementing the state system early.
+`TerrariaPlayerBoundary` now assigns a unique `PlayerSessionId`, publishes explicit open/close lifecycle notifications and includes the session identity in immutable player snapshots. The first concrete consumer is the dedicated `Vega.Modules.Pvp` slice: it keeps projectile-to-weapon attribution, death windows and spectator state in typed per-session scopes. A disconnect removes and disposes the complete scope, so reusing the same player slot cannot inherit state. The store is explicitly composed for this module; it is not embedded in `PlayerSnapshot`, required by Core services or used for modeled authorization/domain state. See [`docs/extension-state.md`](extension-state.md).
 
 ## Phase 8 — optional cluster/inter-server messaging
 
 A standalone Vega server must remain fully functional with no cluster transport configured.
 
-- [ ] Add strongly typed `ServerId` and cluster message metadata (`MessageId`, correlation, sender, timestamp, schema/version).
-- [ ] Keep Event, Command and Request/Response semantics distinct.
-- [ ] Add narrow publishing/sending contracts without a service-locator API.
-- [ ] Keep Redis/NATS/RabbitMQ/HTTP/WebSocket or any concrete transport outside Core/Contracts.
-- [ ] Route incoming messages through DI-registered typed handlers.
-- [ ] Design for duplicate delivery/idempotency; do not promise exactly-once delivery.
-- [ ] Ensure remote-unavailable behavior does not break unrelated local server operation.
-- [ ] Prevent republish loops: a local operation publishes once; a received replicated event applies local consequences without becoming a new originating event.
+- [x] Add strongly typed `ServerId` and cluster message metadata (`MessageId`, correlation, sender, timestamp, schema/version).
+- [x] Keep Event, Command and Request/Response semantics distinct.
+- [x] Add narrow publishing/sending contracts without a service-locator API.
+- [x] Keep Redis/NATS/RabbitMQ/HTTP/WebSocket or any concrete transport outside Core/Contracts.
+- [x] Route incoming messages through DI-registered typed handlers.
+- [x] Design for duplicate delivery/idempotency; do not promise exactly-once delivery.
+- [x] Ensure remote-unavailable behavior does not break unrelated local server operation.
+- [x] Prevent republish loops: a local operation publishes once; a received replicated event applies local consequences without becoming a new originating event.
 
 ### First end-to-end cluster scenarios
 
 Implement these before more complex distributed workflows:
 
-1. [ ] **Server presence / online state**: establish transport, `ServerId`, expiry/staleness, observability and duplicate handling.
-2. [ ] **Global ban propagation**: typed create/revoke events after successful local ban changes.
-3. [ ] **Immediate global-ban enforcement**: receiving servers apply the ban locally and kick matching currently connected players through `IPlayerDirectory` + `IPlayerOperations`.
-4. [ ] **Group / permission synchronization**: typed account/group/permission changes with local authorization cache/state updates.
-5. [ ] **Inter-server chat**: typed chat event with explicit sender/server identity and local delivery policy.
-6. [ ] Administrative commands, centralized audit/monitoring and aggregated multi-server status.
-7. [ ] Player transfer / Dimensions only after the simpler messaging semantics are proven in production.
+1. [x] **Server presence / online state**: establish transport, `ServerId`, expiry/staleness, observability and duplicate handling.
+2. [x] **Global ban propagation**: typed create/revoke events after successful local ban changes.
+3. [x] **Immediate global-ban enforcement**: receiving servers apply the ban locally and kick matching currently connected players through `IPlayerDirectory` + `IPlayerOperations`.
+4. [x] **Group / permission synchronization**: typed account/group/permission changes with local authorization cache/state updates.
+5. [x] **Inter-server chat**: typed chat event with explicit sender/server identity and local delivery policy.
+6. [x] Administrative commands, centralized audit/monitoring and aggregated multi-server status.
+7. [x] Keep player transfer / Dimensions disabled behind an explicit readiness gate until the simpler messaging semantics are proven in production.
 
 A durable outbox is optional and should be introduced only if a real scenario requires publication durability across process failure.
+
+`Vega.Cluster` provides these verticals with an in-memory reference transport for deterministic integration tests and local composition. Production transport selection remains deliberately open. The runtime uses `UnavailableClusterClient` by default, so local mutations remain authoritative and report publication unavailability separately. Incoming handlers never receive a publisher dependency for the event they apply, preventing echo loops by construction. Player transfer has not been claimed as production-ready: its gate remains closed until presence, ban, authorization and chat have actual production validation. See [`docs/cluster.md`](cluster.md) and ADR 0019.
 
 ## Phase 9 — production module migration
 

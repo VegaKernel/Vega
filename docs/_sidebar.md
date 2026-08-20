@@ -16,4 +16,9 @@
   * [sscconfig.json fields](/ssc-config.md)
 
 * Developer documentation
+  * [Architecture](/architecture.md)
+  * [Roadmap](/roadmap.md)
+  * [Typed extension state](/extension-state.md)
+  * [Optional cluster messaging](/cluster.md)
+  * [Operations](/operations.md)
   * [i18n in the tshock project](/i18n.md)

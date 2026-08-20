@@ -10,10 +10,17 @@ namespace Vega.Terraria.Players;
 /// <summary>
 /// Projects Terraria-owned player state into Vega snapshots and applies targeted player actions on the game thread.
 /// </summary>
-public sealed class TerrariaPlayerBoundary : IPlayerDirectory, IPlayerOperations, IPlayerMessenger, IDisposable
+public sealed class TerrariaPlayerBoundary :
+	IPlayerDirectory,
+	IPlayerOperations,
+	IPlayerMessenger,
+	IPlayerSessionLifecycle,
+	IDisposable
 {
 	private readonly IGameThreadDispatcher dispatcher;
 	private IReadOnlyList<PlayerSnapshot> onlinePlayers = Array.Empty<PlayerSnapshot>();
+	private PlayerSessionId?[] sessionIds = [];
+	private string?[] sessionNames = [];
 	private bool attached;
 
 	public TerrariaPlayerBoundary(IGameThreadDispatcher dispatcher)
@@ -34,6 +41,10 @@ public sealed class TerrariaPlayerBoundary : IPlayerDirectory, IPlayerOperations
 	}
 
 	public IReadOnlyList<PlayerSnapshot> SnapshotOnlinePlayers() => Volatile.Read(ref onlinePlayers);
+
+	public event Action<PlayerSessionOpened>? Opened;
+
+	public event Action<PlayerSessionClosed>? Closed;
 
 	public bool TryGet(PlayerId id, out PlayerSnapshot? player)
 	{
@@ -190,7 +201,22 @@ public sealed class TerrariaPlayerBoundary : IPlayerDirectory, IPlayerOperations
 			attached = false;
 		}
 
+		var timestamp = DateTimeOffset.UtcNow;
+		for (var slot = 0; slot < sessionIds.Length; slot++)
+		{
+			if (sessionIds[slot] is PlayerSessionId sessionId)
+			{
+				Closed?.Invoke(new PlayerSessionClosed(
+					sessionId,
+					new PlayerId(slot),
+					sessionNames[slot] ?? string.Empty,
+					timestamp));
+			}
+		}
+
 		Volatile.Write(ref onlinePlayers, Array.Empty<PlayerSnapshot>());
+		sessionIds = [];
+		sessionNames = [];
 	}
 
 	private void OnUpdate(global::Terraria.Main instance, HookEvents.Terraria.Main.UpdateEventArgs args)
@@ -202,6 +228,7 @@ public sealed class TerrariaPlayerBoundary : IPlayerDirectory, IPlayerOperations
 	private void RefreshSnapshots()
 	{
 		var players = global::Terraria.Main.player;
+		RefreshSessions(players);
 		var count = 0;
 
 		for (var slot = 0; slot < players.Length; slot++)
@@ -239,10 +266,49 @@ public sealed class TerrariaPlayerBoundary : IPlayerDirectory, IPlayerOperations
 				player.statManaMax2,
 				new PlayerPosition(player.position.X, player.position.Y),
 				player.hostile,
-				player.team);
+				player.team)
+			{
+				SessionId = sessionIds[slot]
+			};
 		}
 
 		Volatile.Write(ref onlinePlayers, Array.AsReadOnly(snapshots));
+	}
+
+	private void RefreshSessions(global::Terraria.Player[] players)
+	{
+		if (sessionIds.Length != players.Length)
+		{
+			sessionIds = new PlayerSessionId?[players.Length];
+			sessionNames = new string?[players.Length];
+		}
+
+		var timestamp = DateTimeOffset.UtcNow;
+		for (var slot = 0; slot < players.Length; slot++)
+		{
+			global::Terraria.Player? player = players[slot];
+			if (player is { active: true } && sessionIds[slot] is null)
+			{
+				PlayerSessionId sessionId = PlayerSessionId.New();
+				sessionIds[slot] = sessionId;
+				sessionNames[slot] = player.name;
+				Opened?.Invoke(new PlayerSessionOpened(
+					sessionId,
+					new PlayerId(slot),
+					player.name,
+					timestamp));
+			}
+			else if (player is not { active: true } && sessionIds[slot] is PlayerSessionId sessionId)
+			{
+				Closed?.Invoke(new PlayerSessionClosed(
+					sessionId,
+					new PlayerId(slot),
+					sessionNames[slot] ?? string.Empty,
+					timestamp));
+				sessionIds[slot] = null;
+				sessionNames[slot] = null;
+			}
+		}
 	}
 
 	private ValueTask<PlayerOperationResult> DispatchAsync(

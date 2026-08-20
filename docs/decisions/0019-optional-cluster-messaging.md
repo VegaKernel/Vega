@@ -246,6 +246,14 @@ Redis, NATS, RabbitMQ, HTTP, WebSocket or another implementation may be evaluate
 
 Transport packages and SDKs remain outside `Vega.Core` and `Vega.Contracts`.
 
+### Implementation note (Phase 8)
+
+The first vertical implementation lives in `Vega.Cluster`. It provides explicit typed registration/dispatch, bounded duplicate detection and audit records, plus an in-memory reference transport used for deterministic integration tests and local composition. This reference transport does not select or imply a production transport.
+
+The runtime defaults to `UnavailableClusterClient`. Local global-ban changes are applied before publication and expose transport unavailability separately from the local result. Incoming replicated ban and authorization handlers apply revision-aware local consequences and have no publishing capability, so they cannot echo the received event.
+
+Presence with expiry, global ban create/revoke and immediate kick, authorization replication, policy-controlled chat, targeted administrative commands and bounded status requests are implemented as separate scenario adapters. Player transfer remains disabled behind `PlayerTransferReadinessGate` until those simpler semantics are validated in production. No production validation or exactly-once behavior is claimed by the in-memory integration tests.
+
 ## Consequences
 
 Positive:

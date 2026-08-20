@@ -11,8 +11,11 @@ using TShockNG.Core.Operations;
 using TShockPluginManager;
 using Vega.Contracts.Events;
 using Vega.Contracts.Worlds;
+using Vega.Cluster.Transport;
 using Vega.Core.Events;
+using Vega.Core.Extensions;
 using Vega.Core.Networking;
+using Vega.Modules.Pvp;
 using Vega.Operations;
 using Vega.Operations.Actions;
 using Vega.Operations.Logging;
@@ -107,6 +110,8 @@ async Task<int> StartAsync()
     var updateChecker = new LegacyTShockUpdateChecker();
     using var gameThreadDispatcher = new OtapiGameThreadDispatcher();
     using var playerBoundary = new TerrariaPlayerBoundary(gameThreadDispatcher);
+    using var extensionState = new ExtensionStateStore();
+    using var pvpSessionState = new PvpSessionStateService(extensionState, playerBoundary);
     using var operationsState = new TerrariaOperationsState(gameThreadDispatcher);
 
     ICommandHandler[] commandHandlers =
@@ -158,6 +163,10 @@ async Task<int> StartAsync()
             OperationsLogLevel.Information,
             "operations",
             $"Operations mode: {uiOptions.EffectiveMode}; bounded log capacity: {logStore.Capacity}.");
+        logger.Log(
+            OperationsLogLevel.Information,
+            "cluster",
+            $"Cluster transport: {UnavailableClusterClient.Instance.GetType().Name}; standalone operation remains enabled.");
 
         return TerrariaServerHost.Run(
             serverArgs,
@@ -189,8 +198,13 @@ JsonFileOperationsLogSink? TryCreateFileSink()
 
 IReadOnlyList<ModuleOperationsSnapshot> CreateModuleSnapshots() =>
 [
-    Module("Vega.Runtime", Assembly.GetExecutingAssembly(), ["Vega.Core", "Vega.Operations", "Vega.Terraria", "Vega.TerminalUI"]),
+    Module(
+        "Vega.Runtime",
+        Assembly.GetExecutingAssembly(),
+        ["Vega.Cluster", "Vega.Core", "Vega.Modules.Pvp", "Vega.Operations", "Vega.Terraria", "Vega.TerminalUI"]),
     Module("Vega.Core", typeof(CommandDispatcher).Assembly, ["Vega.Contracts"]),
+    Module("Vega.Cluster", typeof(UnavailableClusterClient).Assembly, ["Vega.Contracts"]),
+    Module("Vega.Modules.Pvp", typeof(PvpSessionStateService).Assembly, ["Vega.Contracts"]),
     Module("Vega.Operations", typeof(OperationsSnapshotProvider).Assembly, ["Vega.Contracts"]),
     Module("Vega.Terraria", typeof(TerrariaServerHost).Assembly, ["Vega.Contracts", "OTAPI", "TZ.Multiplicity"]),
     Module("Vega.TerminalUI", typeof(TerminalUiHost).Assembly, ["Vega.Contracts", "Terminal.Gui"]),

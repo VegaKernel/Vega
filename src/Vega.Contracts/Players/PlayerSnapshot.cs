@@ -14,4 +14,7 @@ public sealed record PlayerSnapshot(
     int MaxMana,
     PlayerPosition Position,
     bool IsHostile,
-    int Team);
+    int Team)
+{
+    public PlayerSessionId? SessionId { get; init; }
+}

@@ -202,6 +202,91 @@ public sealed class RuntimeDependencyTests
         });
     }
 
+    [Test]
+    public void TypedExtensionStateIsOptInAndHasOneConcreteMigratedConsumer()
+    {
+        string repositoryRoot = FindRepositoryRoot();
+        string playerSnapshot = File.ReadAllText(Path.Combine(
+            repositoryRoot,
+            "src",
+            "Vega.Contracts",
+            "Players",
+            "PlayerSnapshot.cs"));
+        string pvpProject = File.ReadAllText(Path.Combine(
+            repositoryRoot,
+            "src",
+            "Vega.Modules.Pvp",
+            "Vega.Modules.Pvp.csproj"));
+        string[] consumers = Directory
+            .EnumerateFiles(Path.Combine(repositoryRoot, "src"), "*.cs", SearchOption.AllDirectories)
+            .Where(path => File.ReadAllText(path).Contains("IExtensionStateStore", StringComparison.Ordinal))
+            .Select(path => Path.GetRelativePath(repositoryRoot, path))
+            .ToArray();
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(playerSnapshot, Does.Not.Contain("ExtensionState"));
+            Assert.That(pvpProject, Does.Not.Contain("Vega.Core"));
+            Assert.That(consumers.Count(path => path.Contains("Vega.Modules.Pvp", StringComparison.Ordinal)), Is.EqualTo(1));
+            Assert.That(consumers.Any(path => path.Contains("Vega.Core\\Extensions", StringComparison.Ordinal)), Is.True);
+        });
+    }
+
+    [Test]
+    public void ClusterTransportAndScenarioImplementationStayOutsideCoreAndContracts()
+    {
+        string repositoryRoot = FindRepositoryRoot();
+        string[] protectedProjects =
+        [
+            Path.Combine(repositoryRoot, "src", "Vega.Contracts"),
+            Path.Combine(repositoryRoot, "src", "Vega.Core")
+        ];
+        string[] concreteTransportPackages =
+        [
+            "StackExchange.Redis",
+            "NATS.Client",
+            "RabbitMQ.Client",
+            "MassTransit"
+        ];
+        string[] offenders = protectedProjects
+            .SelectMany(path => Directory.EnumerateFiles(path, "*.csproj", SearchOption.AllDirectories))
+            .Where(path => concreteTransportPackages.Any(package =>
+                File.ReadAllText(path).Contains(package, StringComparison.OrdinalIgnoreCase)))
+            .Select(path => Path.GetRelativePath(repositoryRoot, path))
+            .ToArray();
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(offenders, Is.Empty);
+            Assert.That(Directory.Exists(Path.Combine(repositoryRoot, "src", "Vega.Cluster", "Transport")), Is.True);
+            Assert.That(Directory.Exists(Path.Combine(repositoryRoot, "src", "Vega.Cluster", "Scenarios")), Is.True);
+        });
+    }
+
+    [Test]
+    public void ReplicatedBanHandlersCannotRepublishAndStandaloneUsesUnavailableClient()
+    {
+        string repositoryRoot = FindRepositoryRoot();
+        string banHandlers = File.ReadAllText(Path.Combine(
+            repositoryRoot,
+            "src",
+            "Vega.Cluster",
+            "Scenarios",
+            "Bans",
+            "GlobalBanReplication.cs"));
+        string handlerSection = banHandlers[banHandlers.IndexOf(
+            "public sealed class GlobalBanCreatedHandler",
+            StringComparison.Ordinal)..];
+        string runtime = File.ReadAllText(Path.Combine(repositoryRoot, "src", "Vega.Runtime", "Program.cs"));
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(handlerSection, Does.Not.Contain("IClusterPublisher"));
+            Assert.That(handlerSection, Does.Not.Contain("PublishAsync"));
+            Assert.That(runtime, Does.Contain("UnavailableClusterClient.Instance"));
+        });
+    }
+
     private static string FindRepositoryRoot()
     {
         foreach (var start in new[] { Directory.GetCurrentDirectory(), AppContext.BaseDirectory })
