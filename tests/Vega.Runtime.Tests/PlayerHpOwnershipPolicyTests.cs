@@ -3,6 +3,7 @@ using Multiplicity.Packets.Views;
 using NUnit.Framework;
 using TShockNG.Contracts.Networking;
 using Vega.Core.Networking;
+using WirePacketTypes = Multiplicity.Packets.PacketTypes;
 
 namespace Vega.Runtime.Tests;
 
@@ -14,7 +15,7 @@ public sealed class PlayerHpOwnershipPolicyTests
     {
         var policy = new PlayerHpOwnershipPolicy();
         var packet = PacketView.FromPayload(
-            PacketTypes.PlayerHp,
+            WirePacketTypes.PlayerHp,
             new byte[] { 7, 100, 0, 120, 0 });
         var context = new PacketProcessingContext<PacketView>(
             packet,
@@ -33,7 +34,7 @@ public sealed class PlayerHpOwnershipPolicyTests
     {
         var policy = new PlayerHpOwnershipPolicy();
         var packet = PacketView.FromPayload(
-            PacketTypes.PlayerHp,
+            WirePacketTypes.PlayerHp,
             new byte[] { 8, 100, 0, 120, 0 });
         var context = new PacketProcessingContext<PacketView>(
             packet,

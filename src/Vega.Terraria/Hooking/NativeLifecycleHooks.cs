@@ -5,7 +5,7 @@ namespace Vega.Terraria.Hooking;
 
 /// <summary>
 /// Vega-owned OTAPI lifecycle hooks. These hooks observe Terraria directly and do not
-/// depend on TerrariaApi.Server or the legacy TSAPI hook manager.
+/// depend on TSAPI server types or the legacy hook manager.
 /// </summary>
 internal sealed class NativeLifecycleHooks : IDisposable
 {

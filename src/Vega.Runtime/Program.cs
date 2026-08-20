@@ -16,6 +16,7 @@ using Vega.Terraria;
 using Vega.Terraria.Authorization;
 using Vega.Terraria.Players;
 using Vega.Terraria.Threading;
+using Vega.Terraria.Updates;
 
 var processStartedAt = Stopwatch.GetTimestamp();
 
@@ -83,12 +84,14 @@ async Task<int> StartAsync()
         Array.Empty<IEventMonitor<WorldHardmodeStarting>>());
 
     IPlayerAuthorizationService playerAuthorization = new LegacyTShockPlayerAuthorizationService();
+    var updateChecker = new LegacyTShockUpdateChecker();
     using var gameThreadDispatcher = new OtapiGameThreadDispatcher();
     using var playerBoundary = new TerrariaPlayerBoundary(gameThreadDispatcher);
 
     ICommandHandler[] commandHandlers =
     [
         new ServerInfoCommand(new ProcessHostMetricsReader()),
+        new CheckUpdatesCommand(updateChecker),
         new KickCommand(playerBoundary, playerBoundary, playerAuthorization),
         new PlayingCommand(playerBoundary)
     ];

@@ -33,7 +33,7 @@ public sealed class StructuredCommandOutputTests
     }
 
     [Test]
-    public async Task CheckUpdatesReturnsSemanticMessageInsteadOfWritingLegacyOutput()
+    public async Task CheckUpdatesReturnsCompletedMessageInsteadOfWritingLegacyOutput()
     {
         var command = new CheckUpdatesCommand(new SuccessfulUpdateChecker());
         var invocation = CreateInvocation();
@@ -42,8 +42,44 @@ public sealed class StructuredCommandOutputTests
 
         Assert.That(result.Status, Is.EqualTo(CommandExecutionStatus.Success));
         Assert.That(result.Messages, Has.Count.EqualTo(1));
-        Assert.That(result.Messages![0].Key, Is.EqualTo("command.checkupdates.queued"));
+        Assert.That(result.Messages![0].Key, Is.EqualTo("command.checkupdates.completed"));
         Assert.That(result.Messages[0].Severity, Is.EqualTo(MessageSeverity.Info));
+        Assert.That(result.Messages[0].DefaultText, Does.StartWith("Update check completed."));
+    }
+
+    [Test]
+    public void CheckUpdatesRequiresMaintenancePermission()
+    {
+        var command = new CheckUpdatesCommand(new SuccessfulUpdateChecker());
+
+        Assert.That(command.Descriptor.Permissions, Is.EqualTo(new[] { "tshock.cfg.maintenance" }));
+    }
+
+    [Test]
+    public async Task CheckUpdatesReturnsStructuredFailure()
+    {
+        var command = new CheckUpdatesCommand(new FailingUpdateChecker());
+
+        CommandExecutionResult result = await command.ExecuteAsync(CreateInvocation(), CancellationToken.None);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(result.Status, Is.EqualTo(CommandExecutionStatus.Failed));
+            Assert.That(result.ErrorCode, Is.EqualTo("update.check_failed"));
+            Assert.That(result.Messages![0].Key, Is.EqualTo("command.checkupdates.failed"));
+            Assert.That(result.Messages[0].DefaultText, Is.EqualTo("Unable to check for updates."));
+        });
+    }
+
+    [Test]
+    public void CheckUpdatesPropagatesCallerCancellation()
+    {
+        var command = new CheckUpdatesCommand(new CancelledUpdateChecker());
+        using var cancellation = new CancellationTokenSource();
+        cancellation.Cancel();
+
+        Assert.CatchAsync<OperationCanceledException>(async () =>
+            await command.ExecuteAsync(CreateInvocation(), cancellation.Token));
     }
 
     private static CommandInvocation CreateInvocation() =>
@@ -57,6 +93,18 @@ public sealed class StructuredCommandOutputTests
     private sealed class SuccessfulUpdateChecker : IUpdateChecker
     {
         public Task CheckAsync(CancellationToken cancellationToken = default) => Task.CompletedTask;
+    }
+
+    private sealed class FailingUpdateChecker : IUpdateChecker
+    {
+        public Task CheckAsync(CancellationToken cancellationToken = default) =>
+            Task.FromException(new InvalidOperationException("Unavailable"));
+    }
+
+    private sealed class CancelledUpdateChecker : IUpdateChecker
+    {
+        public Task CheckAsync(CancellationToken cancellationToken = default) =>
+            Task.FromCanceled(cancellationToken);
     }
 
     private sealed class StubPrincipal : ICommandPrincipal

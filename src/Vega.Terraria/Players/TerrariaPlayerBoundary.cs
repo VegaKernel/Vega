@@ -84,7 +84,7 @@ public sealed class TerrariaPlayerBoundary : IPlayerDirectory, IPlayerOperations
 				}
 
 				global::Terraria.NetMessage.SendData(
-					MessageID.Disconnect,
+					MessageID.Kick,
 					id.Slot,
 					-1,
 					NetworkText.FromLiteral(reason));
@@ -166,7 +166,7 @@ public sealed class TerrariaPlayerBoundary : IPlayerDirectory, IPlayerOperations
 				global::Terraria.RemoteClient.CheckSection(id.Slot, position);
 				player.Teleport(position, 1);
 				global::Terraria.NetMessage.SendData(
-					MessageID.Teleport,
+					MessageID.TeleportEntity,
 					-1,
 					-1,
 					NetworkText.Empty,

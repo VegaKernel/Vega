@@ -19,7 +19,8 @@ public sealed class CheckUpdatesCommand(IUpdateChecker updateChecker) : ICommand
         {
             await updateChecker.CheckAsync(cancellationToken);
             return CommandExecutionResult.WithMessages(
-                MessageDescriptor.Info("command.checkupdates.queued"));
+                MessageDescriptor.Info("command.checkupdates.completed")
+                    .WithDefaultText("Update check completed. Administrators were notified if an update is available."));
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
@@ -29,7 +30,8 @@ public sealed class CheckUpdatesCommand(IUpdateChecker updateChecker) : ICommand
         {
             return CommandExecutionResult.Failed(
                 "update.check_failed",
-                MessageDescriptor.Error("command.checkupdates.failed"));
+                MessageDescriptor.Error("command.checkupdates.failed")
+                    .WithDefaultText("Unable to check for updates."));
         }
     }
 }
