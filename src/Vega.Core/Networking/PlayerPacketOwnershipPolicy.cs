@@ -11,6 +11,11 @@ public sealed class PlayerPacketOwnershipPolicy : IPacketProcessor<PacketView>
 {
     public PacketProcessingDecision Process(scoped in PacketProcessingContext<PacketView> context)
     {
+        if (context.Direction != PacketDirection.Inbound)
+        {
+            return new PacketProcessingDecision(PacketDecisionKind.Continue);
+        }
+
         int? claimedSlot = context.Packet.PacketType switch
         {
             PacketTypes.PlayerHp => context.Packet.AsPlayerHpView().PlayerId,
@@ -18,6 +23,7 @@ public sealed class PlayerPacketOwnershipPolicy : IPacketProcessor<PacketView>
             PacketTypes.PlayerTeam => context.Packet.AsPlayerTeamView().PlayerId,
             PacketTypes.TogglePvp => context.Packet.AsTogglePvpView().PlayerId,
             PacketTypes.SpectatePlayer => context.Packet.AsSpectatePlayerView().PlayerId,
+            PacketTypes.PlayerDeathV2 => context.Packet.AsPlayerDeathV2View().PlayerId,
             _ => null
         };
 

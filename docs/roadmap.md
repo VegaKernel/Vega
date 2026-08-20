@@ -142,6 +142,8 @@ The first reopened migration slice replaces TerraZ `NoCoinDupe` with `NpcCoinPic
 
 The next StateGuard slice extends the existing player-slot ownership rule to typed `SpectatePlayer (150)` payloads. It deliberately does not claim the whole plugin: configurable spectate/ghost/difficulty policy, physical-world borders, permission bypasses and corrective state synchronization stay open until their required Phase 13/19 capabilities exist.
 
+The first full-TShock network slice ports the TerraZ Bouncer fix for `PlayerDeathV2 (118)`. Vega compares the signed wire field as an unsigned 16-bit value and rejects damage above `42000` before Terraria receives it; the same typed payload must also claim the sending connection's player slot. This is one closed invariant, not a claim that Bouncer or `GetDataHandlers` are fully migrated.
+
 ### Historical implementations to mine for behavior, not architecture
 
 - `popstarfreas/PvPController-1.3`
@@ -236,6 +238,7 @@ Move server-wide invariants into Core/runtime, not the historical plugin impleme
 ### Packet and state validation from PacketGuard, StateGuard, LeashedEntityGuard and NoCoinDupe
 
 - [ ] Extend the existing player-slot ownership policy one incident-backed invariant at a time: malformed payloads, item spawn sanity, projectile ownership/limits, repeated death abuse, chest resize, world-edge placement, configured ghost/spectator restrictions, leashed-entity anchors and the known coin-duplication path.
+- [x] Reject the known overflowed high-damage `PlayerDeathV2` exploit and forged death player identities through the typed Multiplicity boundary.
 - [ ] Decode through `TZ.Multiplicity`; never copy the old raw-reader/packet-writer implementations into Core.
 - [ ] Return typed `Allow`, `Reject`, `Correct` or `Violation` outcomes and keep the final Terraria mutation/correction in `Vega.Terraria` on the game thread.
 - [ ] Add narrowly scoped rate limits/deduplication only where a measured protocol abuse requires them.

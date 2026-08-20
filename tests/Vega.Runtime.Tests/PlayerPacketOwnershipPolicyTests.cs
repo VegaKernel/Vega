@@ -14,6 +14,7 @@ public sealed class PlayerPacketOwnershipPolicyTests
     [TestCase(PacketTypes.PlayerTeam)]
     [TestCase(PacketTypes.TogglePvp)]
     [TestCase(PacketTypes.SpectatePlayer)]
+    [TestCase(PacketTypes.PlayerDeathV2)]
     public void MatchingConnectionSlotIsAllowed(PacketTypes packetType)
     {
         PacketProcessingDecision decision = Process(packetType, connectionSlot: 7, claimedSlot: 7);
@@ -26,6 +27,7 @@ public sealed class PlayerPacketOwnershipPolicyTests
     [TestCase(PacketTypes.PlayerTeam)]
     [TestCase(PacketTypes.TogglePvp)]
     [TestCase(PacketTypes.SpectatePlayer)]
+    [TestCase(PacketTypes.PlayerDeathV2)]
     public void ForeignPlayerSlotIsRejected(PacketTypes packetType)
     {
         PacketProcessingDecision decision = Process(packetType, connectionSlot: 7, claimedSlot: 8);
@@ -35,6 +37,25 @@ public sealed class PlayerPacketOwnershipPolicyTests
             Assert.That(decision.Kind, Is.EqualTo(PacketDecisionKind.Reject));
             Assert.That(decision.Reason, Is.EqualTo("packet.player_identity_mismatch"));
         });
+    }
+
+    [Test]
+    public void OutboundPlayerStateIsNotTreatedAsAClientForgery()
+    {
+        var packet = PacketView.FromPayload(
+            PacketTypes.PlayerDeathV2,
+            CreatePlayerDeathPayload(claimedSlot: 8));
+        var context = new PacketProcessingContext<PacketView>(
+            packet,
+            PacketDirection.Outbound,
+            new ConnectionId(7),
+            null,
+            DateTimeOffset.UtcNow);
+        var policy = new PlayerPacketOwnershipPolicy();
+
+        PacketProcessingDecision decision = policy.Process(in context);
+
+        Assert.That(decision.Kind, Is.EqualTo(PacketDecisionKind.Continue));
     }
 
     [Test]
@@ -60,6 +81,7 @@ public sealed class PlayerPacketOwnershipPolicyTests
             PacketTypes.PlayerTeam => [claimedSlot, 1],
             PacketTypes.TogglePvp => [claimedSlot, 1],
             PacketTypes.SpectatePlayer => [claimedSlot, 2, 0],
+            PacketTypes.PlayerDeathV2 => CreatePlayerDeathPayload(claimedSlot),
             _ => throw new ArgumentOutOfRangeException(nameof(packetType))
         };
         var packet = PacketView.FromPayload(packetType, payload);
@@ -67,6 +89,18 @@ public sealed class PlayerPacketOwnershipPolicyTests
         var policy = new PlayerPacketOwnershipPolicy();
 
         return policy.Process(in context);
+    }
+
+    private static byte[] CreatePlayerDeathPayload(byte claimedSlot)
+    {
+        var packet = new PlayerDeathV2
+        {
+            PlayerId = claimedSlot,
+            Damage = 100
+        };
+        using var stream = new MemoryStream();
+        packet.ToStream(stream, includeHeader: false);
+        return stream.ToArray();
     }
 
     private static PacketProcessingContext<PacketView> Context(
