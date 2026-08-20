@@ -1,5 +1,7 @@
 using OTAPI;
 using Vega.Contracts.Runtime;
+using HookWorldFile = HookEvents.Terraria.IO.WorldFile;
+using HookWorldGen = HookEvents.Terraria.WorldGen;
 
 namespace Vega.Terraria.Hooking;
 
@@ -24,6 +26,8 @@ internal sealed class NativeLifecycleHooks : IDisposable
             return;
         }
 
+        HookWorldFile.LoadWorld += OnWorldLoadStarted;
+        HookWorldGen.GenerateWorld += OnWorldGenerationStarted;
         HookEvents.Terraria.Netplay.StartServer += OnStartServer;
         attached = true;
     }
@@ -35,8 +39,24 @@ internal sealed class NativeLifecycleHooks : IDisposable
             return;
         }
 
+        HookWorldFile.LoadWorld -= OnWorldLoadStarted;
+        HookWorldGen.GenerateWorld -= OnWorldGenerationStarted;
         HookEvents.Terraria.Netplay.StartServer -= OnStartServer;
         attached = false;
+    }
+
+    private void OnWorldLoadStarted(object? sender, HookWorldFile.LoadWorldEventArgs args) =>
+        AdvanceToWorldLoading();
+
+    private void OnWorldGenerationStarted(object? sender, HookWorldGen.GenerateWorldEventArgs args) =>
+        AdvanceToWorldLoading();
+
+    private void AdvanceToWorldLoading()
+    {
+        if (lifecycle.CurrentStage == RuntimeLifecycleStage.ModulesRegistered)
+        {
+            lifecycle.Advance(RuntimeLifecycleStage.WorldLoading);
+        }
     }
 
     private void OnStartServer(object? sender, HookEvents.Terraria.Netplay.StartServerEventArgs args)

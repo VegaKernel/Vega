@@ -30,7 +30,7 @@ Structured operational events are written independently to the bounded in-memory
 
 ## Command palette and logs
 
-Enter an ordinary command such as `serverinfo` or `kick <player> <reason>` in the palette to execute it through the normal `ICommandDispatcher` authorization and application boundary.
+Enter a Vega command such as `serverinfo` or `kick <player> <reason>` in the palette to execute it through the normal `ICommandDispatcher` authorization and application boundary. Commands not owned by Vega are queued to Terraria's native server-console parser, so built-in operations such as `save`, `say`, `help` and `exit` remain available without a second thread reading terminal input.
 
 Local palette actions control only the view:
 

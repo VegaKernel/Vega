@@ -382,6 +382,57 @@ Move the complete runtime, public packages and release toolchain to .NET 11 only
 - [ ] Update English and Russian documentation, support policy, diagnostics and release notes with the new runtime prerequisite and rollback procedure.
 - [ ] Mark the migration complete only after CI, packaging, clean-machine deployment, representative world startup and sustained server operation pass on .NET 11.
 
+## Phase 19 — persistent administration, configuration and localization
+
+Vega 1.0 currently has the modern command/authorization boundaries and several read-only contracts, but it does not yet provide a complete TShock-class administration surface. This phase turns those boundaries into a configurable, persistent server product. It must reuse the typed ban work from Phase 13 and the role-lease primitives from Phase 15 instead of creating parallel systems.
+
+### Operator configuration
+
+- [ ] Define a documented deploy-time layout for server, storage, security and module settings under `config/`, with generated example files included in the release archive.
+- [ ] Establish deterministic precedence for command-line arguments, environment variables, Vega configuration, Terraria configuration and built-in defaults; show the source of each effective value in diagnostics without exposing secrets.
+- [ ] Validate configuration before starting authoritative services and report the exact file, property and rejected value; malformed optional module configuration must degrade that module without silently changing policy.
+- [ ] Support atomic, section-scoped reload only for settings proven safe to reload; mark port, world, storage-provider and other restart-only changes explicitly.
+- [ ] Provide `config show`, `config validate` and authorized `config reload` operations through the normal command/audit boundary.
+- [ ] Document world selection/generation, listener/password, slots, default culture, storage, logs, TUI, `.vworld`, modules and cluster configuration in both project-guide languages.
+
+### Accounts, groups and permissions
+
+- [ ] Implement persistent account, group, inheritance and permission stores with stable identifiers, optimistic revisions and schema migrations; the current in-memory session authorization cache is not the source of truth.
+- [ ] Resolve effective permissions deterministically from account assignment, group inheritance, explicit grants/denials and active temporary role leases, with cycle detection and bounded caching.
+- [ ] Add authorized commands for account lifecycle, group create/delete/list/show, parent assignment, permission grant/revoke, player group assignment and temporary group assignment.
+- [ ] Enforce delegated-administration limits from ADR 0014 so an operator cannot grant a role or permission above their own authority.
+- [ ] Persist every account/group/permission mutation and emit a structured audit record containing actor, target, before/after revision, reason and outcome.
+
+### Regions and world authorization
+
+- [ ] Implement the currently contract-only region service with persistent world-scoped region identity, bounds, priority, owner, members, groups and permission/flag ACLs.
+- [ ] Add game-thread-safe region admission/build/use checks through typed world/player contexts rather than module-specific tile hooks.
+- [ ] Add authorized `region` create/delete/list/show/resize/priority/owner/member/group/flag commands with overlap and world validation.
+- [ ] Expose immutable region snapshots and authorized mutations to Operations/TUI so `HouseRegions`, `Region-Vision` and sandbox worlds share one source of truth.
+- [ ] Add migrations and regression tests for overlapping priorities, renamed/deleted worlds, offline owners, permission inheritance and concurrent edits.
+
+### Bans and moderation commands
+
+- [ ] Complete the Phase 13 typed account/UUID/IP/CIDR ban matcher, persistence and connection-admission enforcement before presenting bans as production-ready.
+- [ ] Add authorized `ban`, `unban`, `ban list`, `ban show` and expiration/reason workflows over the same authoritative service used by login and cluster replication.
+- [ ] Add account/player mute primitives only with explicit identity, duration, reason, issuer and audit semantics; do not hide moderation state in command-local tables.
+- [ ] Expose bounded, redacted moderation views in Operations/TUI and verify that sensitive IP/UUID subjects require separate permissions.
+
+### Localization and command completeness
+
+- [ ] Implement ADR 0009 localization catalogs, module namespaces, deterministic fallback and explicit per-recipient culture without process-global culture mutation.
+- [ ] Add `/lang`, `/lang list`, `/lang <culture>` and `/lang reset`; persist registered-account preference and keep guest preference session-scoped.
+- [ ] Add a generated command catalog and `help`/command-discovery output that shows only commands the caller may use, including aliases, syntax and permission requirements.
+- [ ] Keep Vega commands and Terraria native commands reachable from plain console and TUI without competing stdin readers; capture native command output into bounded operations logs/results.
+- [ ] Audit the minimum built-in operator set beyond `serverinfo`, `checkupdates`, `kick` and `playing`, and cover save/shutdown, moderation, identity, groups, regions, configuration and language with end-to-end tests.
+
+### Persistence, migration and release validation
+
+- [ ] Ship a documented default embedded storage provider and explicit provider contracts for external databases; startup must never pretend persistence succeeded when storage is unavailable.
+- [ ] Make schema upgrades transactional with backup/recovery guidance and idempotent migration tests from every released Vega schema.
+- [ ] Add clean-archive tests proving that an operator can extract the release, edit documented configuration, create the first administrator, start a world and manage groups/regions/bans without repository files.
+- [ ] Update English/Russian guides and the deployable archive only after command examples, generated configuration and persistence paths match the running server.
+
 ## Architectural guardrails
 
 These apply across all phases:

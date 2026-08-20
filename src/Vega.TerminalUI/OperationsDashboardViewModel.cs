@@ -6,7 +6,8 @@ namespace Vega.TerminalUI;
 
 public sealed class OperationsDashboardViewModel(
     IOperationsSnapshotProvider snapshots,
-    IOperationsCommandService commands)
+    IOperationsCommandService commands,
+    IUnhandledOperationsCommandSink? unhandledCommands = null)
 {
     private OperationsLogFilter logFilter = new(Limit: 100);
     private OperationsSnapshot? displayed;
@@ -40,6 +41,12 @@ public sealed class OperationsDashboardViewModel(
             OperationsActionResult result = await commands
                 .ExecuteAsync(input, cancellationToken)
                 .ConfigureAwait(false);
+            if (result.ErrorCode == "command.not_found" && unhandledCommands is not null)
+            {
+                await unhandledCommands.SubmitAsync(input, cancellationToken).ConfigureAwait(false);
+                return "Submitted to the Terraria server console.";
+            }
+
             string message = result.Messages.Count > 0
                 ? string.Join(" | ", result.Messages)
                 : result.ErrorCode ?? result.Status.ToString();

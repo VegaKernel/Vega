@@ -16,3 +16,10 @@ public interface IOperationsCommandService
         string commandText,
         CancellationToken cancellationToken = default);
 }
+
+public interface IUnhandledOperationsCommandSink
+{
+    ValueTask SubmitAsync(
+        string commandText,
+        CancellationToken cancellationToken = default);
+}

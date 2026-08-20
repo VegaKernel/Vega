@@ -5,6 +5,7 @@ namespace Vega.TerminalUI;
 /// <summary>
 /// Prevents Terminal.Gui from taking ownership of the console while Terraria is
 /// still using standard input for its interactive world-selection bootstrap.
+/// The WorldLoading transition is emitted only after a world has been selected.
 /// </summary>
 public sealed class TerminalUiReadinessGate : IDisposable
 {
@@ -56,7 +57,7 @@ public sealed class TerminalUiReadinessGate : IDisposable
     {
         lock (sync)
         {
-            if (disposed || started || stage < RuntimeLifecycleStage.NetworkReady)
+            if (disposed || started || stage < RuntimeLifecycleStage.WorldLoading)
             {
                 return;
             }

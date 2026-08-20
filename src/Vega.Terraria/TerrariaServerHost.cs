@@ -97,7 +97,6 @@ public static class TerrariaServerHost
                 global::Terraria.Main.SkipAssemblyLoad = true;
             }
 
-            lifecycle.Advance(RuntimeLifecycleStage.WorldLoading);
             global::Terraria.WindowsLaunch.Main(args);
             return 0;
         }
@@ -130,15 +129,6 @@ public static class TerrariaServerHost
                 OperationsLogLevel.Warning,
                 "lifecycle",
                 $"Vega startup budget warning: bootstrap took {transition.StageDuration.TotalMilliseconds:F1} ms (> 100 ms).");
-        }
-
-        if (transition.Stage == RuntimeLifecycleStage.WorldLoading &&
-            transition.Elapsed > TimeSpan.FromMilliseconds(300))
-        {
-            logger.Log(
-                OperationsLogLevel.Warning,
-                "lifecycle",
-                $"Vega startup budget warning: pre-world overhead reached {transition.Elapsed.TotalMilliseconds:F1} ms (> 300 ms).");
         }
 
         if (transition.Stage == RuntimeLifecycleStage.WorldReady)

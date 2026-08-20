@@ -38,6 +38,17 @@ public interface IServerRuntimeStateReader
     ServerRuntimeStateSnapshot Read();
 }
 
+public sealed record StartupProgressSnapshot(
+    string Activity,
+    double? Fraction,
+    string RawText,
+    DateTimeOffset SampledAt);
+
+public interface IStartupProgressReader
+{
+    StartupProgressSnapshot Read();
+}
+
 public sealed record ServerDashboardSnapshot(
     string ServerName,
     string Version,

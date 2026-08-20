@@ -121,7 +121,7 @@ Vega-specific options are removed before the remaining arguments are passed to T
 | `--vega-ui=plain` | Traditional console input and output |
 | `--vega-ui=headless` | No interactive UI or operations stdout sink |
 
-TUI initialization is best-effort and never blocks server readiness. Vega waits until `NetworkReady` before starting Terminal.Gui so Terraria retains standard input during interactive world selection and loading. Structured file logs are written to `logs/vega-operations.jsonl` when the path is available.
+TUI initialization is best-effort and never blocks server readiness. Vega leaves the native Terraria console in control during interactive world selection, then starts Terminal.Gui at `WorldLoading` with a startup progress screen and switches to the operations dashboard at `NetworkReady`. In TUI mode the command palette exclusively owns terminal input; unknown Vega commands are queued to Terraria's native parser so commands such as `save` and `exit` remain usable. Routine logs stay in the dashboard/file sink instead of painting over the terminal. Structured file logs are written to `logs/vega-operations.jsonl` when the path is available.
 
 ### World-image mode
 

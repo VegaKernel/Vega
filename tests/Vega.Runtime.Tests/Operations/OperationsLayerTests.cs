@@ -10,6 +10,7 @@ using Vega.Operations.Logging;
 using Vega.Operations.Metrics;
 using Vega.Operations.ReadModels;
 using Vega.TerminalUI;
+using Vega.Terraria.Operations;
 
 namespace Vega.Runtime.Tests.Operations;
 
@@ -337,6 +338,30 @@ public sealed class TerminalOperationsTests
         });
     }
 
+    [Test]
+    public async Task UnknownVegaCommandsAreForwardedToTheNativeConsoleQueue()
+    {
+        var fallback = new RecordingUnhandledCommandSink();
+        var viewModel = new OperationsDashboardViewModel(
+            new RecordingSnapshotProvider(CreateSnapshot()),
+            new RecordingOperationsCommands
+            {
+                Result = new OperationsActionResult(
+                    CommandExecutionStatus.Failed,
+                    "command.not_found",
+                    ["Unknown command."])
+            },
+            fallback);
+
+        string result = await viewModel.ExecutePaletteAsync("save");
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(fallback.LastCommand, Is.EqualTo("save"));
+            Assert.That(result, Is.EqualTo("Submitted to the Terraria server console."));
+        });
+    }
+
     [TestCase(OperationsUiMode.Plain)]
     [TestCase(OperationsUiMode.Headless)]
     public void NonInteractiveModesNeverInitializeTerminalGui(OperationsUiMode mode)
@@ -351,7 +376,7 @@ public sealed class TerminalOperationsTests
     }
 
     [Test]
-    public void TerminalModeWaitsUntilNetworkReadyBeforeTakingConsoleInput()
+    public void TerminalModeWaitsForWorldSelectionBeforeTakingConsoleInput()
     {
         var lifecycle = new MutableLifecycle();
         int startCount = 0;
@@ -364,11 +389,12 @@ public sealed class TerminalOperationsTests
                 return true;
             });
 
+        Assert.That(startCount, Is.Zero, "Terraria must retain stdin through world selection.");
+
         lifecycle.Advance(RuntimeLifecycleStage.WorldLoading);
+        Assert.That(startCount, Is.EqualTo(1), "The startup UI should begin after world selection.");
+
         lifecycle.Advance(RuntimeLifecycleStage.WorldReady);
-
-        Assert.That(startCount, Is.Zero, "Terraria must retain stdin through world selection and loading.");
-
         lifecycle.Advance(RuntimeLifecycleStage.NetworkReady);
         lifecycle.Advance(RuntimeLifecycleStage.FullyWarmed);
 
@@ -449,15 +475,28 @@ public sealed class TerminalOperationsTests
     {
         public string? LastCommand { get; private set; }
 
+        public OperationsActionResult Result { get; init; } = new(
+            CommandExecutionStatus.Success,
+            null,
+            ["done"]);
+
         public ValueTask<OperationsActionResult> ExecuteAsync(
             string commandText,
             CancellationToken cancellationToken = default)
         {
             LastCommand = commandText;
-            return ValueTask.FromResult(new OperationsActionResult(
-                CommandExecutionStatus.Success,
-                null,
-                ["done"]));
+            return ValueTask.FromResult(Result);
+        }
+    }
+
+    private sealed class RecordingUnhandledCommandSink : IUnhandledOperationsCommandSink
+    {
+        public string? LastCommand { get; private set; }
+
+        public ValueTask SubmitAsync(string commandText, CancellationToken cancellationToken = default)
+        {
+            LastCommand = commandText;
+            return ValueTask.CompletedTask;
         }
     }
 
@@ -475,5 +514,47 @@ public sealed class TerminalOperationsTests
             CurrentStage = stage;
             Transitioned?.Invoke(new RuntimeLifecycleTransition(stage, TimeSpan.Zero, TimeSpan.Zero));
         }
+    }
+}
+
+[TestFixture]
+[NonParallelizable]
+public sealed class TerrariaStartupProgressTests
+{
+    [Test]
+    public void StatusTextIsExposedAsNormalizedProgress()
+    {
+        using var progress = new TerrariaStartupProgress();
+        progress.Attach(static () => false);
+
+        HookEvents.Terraria.Main.Invokeset_statusText(
+            null,
+            static _ => { },
+            "Loading world data: 42.5%");
+
+        StartupProgressSnapshot snapshot = progress.Read();
+        Assert.Multiple(() =>
+        {
+            Assert.That(snapshot.Activity, Is.EqualTo("Loading world data"));
+            Assert.That(snapshot.Fraction, Is.EqualTo(0.425d).Within(0.0001d));
+            Assert.That(snapshot.RawText, Is.EqualTo("Loading world data: 42.5%"));
+        });
+    }
+
+    [Test]
+    public async Task ActiveTerminalUiRoutesNativeCommandsWithoutCompetingForConsoleInput()
+    {
+        using var progress = new TerrariaStartupProgress();
+        progress.Attach(static () => true);
+        await progress.SubmitAsync("save");
+
+        HookEvents.Terraria.Main.ReadLineInputEventArgs eventArgs =
+            HookEvents.Terraria.Main.InvokeReadLineInput(null, static () => throw new AssertionException("Native Console.ReadLine must not run."));
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(eventArgs.ContinueExecution, Is.False);
+            Assert.That(eventArgs.HookReturnValue, Is.EqualTo("save"));
+        });
     }
 }

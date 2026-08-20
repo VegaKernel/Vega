@@ -1,6 +1,5 @@
 using System.Diagnostics;
 using Vega.Contracts.Operations;
-using Vega.Contracts.Threading;
 
 namespace Vega.Terraria.Operations;
 
@@ -9,7 +8,6 @@ namespace Vega.Terraria.Operations;
 /// </summary>
 public sealed class TerrariaOperationsState : IServerRuntimeStateReader, IDisposable
 {
-    private readonly IGameThreadDispatcher dispatcher;
     private ServerRuntimeStateSnapshot snapshot = new(
         null,
         0,
@@ -22,11 +20,6 @@ public sealed class TerrariaOperationsState : IServerRuntimeStateReader, IDispos
     private double ticksPerSecond;
     private bool attached;
 
-    public TerrariaOperationsState(IGameThreadDispatcher dispatcher)
-    {
-        this.dispatcher = dispatcher ?? throw new ArgumentNullException(nameof(dispatcher));
-    }
-
     public void Attach()
     {
         if (attached)
@@ -35,7 +28,7 @@ public sealed class TerrariaOperationsState : IServerRuntimeStateReader, IDispos
         }
 
         tpsWindowStartedAt = Stopwatch.GetTimestamp();
-        HookEvents.Terraria.Main.Update += OnUpdate;
+        global::Terraria.Main.OnTickForThirdPartySoftwareOnly += OnTick;
         attached = true;
     }
 
@@ -45,14 +38,13 @@ public sealed class TerrariaOperationsState : IServerRuntimeStateReader, IDispos
     {
         if (attached)
         {
-            HookEvents.Terraria.Main.Update -= OnUpdate;
+            global::Terraria.Main.OnTickForThirdPartySoftwareOnly -= OnTick;
             attached = false;
         }
     }
 
-    private void OnUpdate(global::Terraria.Main instance, HookEvents.Terraria.Main.UpdateEventArgs args)
+    private void OnTick()
     {
-        dispatcher.AssertGameThread();
         updatesInWindow++;
 
         long now = Stopwatch.GetTimestamp();

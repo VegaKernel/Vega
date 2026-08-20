@@ -121,7 +121,7 @@ int Start()
     using var playerAuthorization = new PlayerSessionAuthorizationService(playerBoundary);
     using var updateChecker = new GitHubReleaseUpdateChecker();
     using var extensionState = new ExtensionStateStore();
-    using var operationsState = new TerrariaOperationsState(gameThreadDispatcher);
+    using var operationsState = new TerrariaOperationsState();
     var pvpModule = new PvpModule(extensionState, playerBoundary, playerBoundary, playerBoundary);
     var customItemsModule = new CustomItemsModule(new TerrariaCustomItemDelivery(gameThreadDispatcher));
     using var moduleHost = new VegaModuleHost([pvpModule, customItemsModule]);
@@ -154,7 +154,7 @@ int Start()
     var consoleSink = new ConsoleOperationsLogSink();
     JsonFileOperationsLogSink? fileSink = TryCreateFileSink();
     var sinks = new List<IOperationsLogSink> { logStore };
-    if (uiOptions.EffectiveMode != OperationsUiMode.Headless)
+    if (uiOptions.EffectiveMode == OperationsUiMode.Plain)
     {
         sinks.Add(consoleSink);
     }
@@ -184,7 +184,16 @@ int Start()
             networkMetrics,
             worldImages);
         var operationsCommands = new OperationsCommandService(commandDispatcher);
-        using var terminalUi = new TerminalUiHost(snapshots, operationsCommands, logger);
+        using var startupProgress = new TerrariaStartupProgress();
+        using var terminalUi = new TerminalUiHost(
+            snapshots,
+            operationsCommands,
+            logger,
+            startupProgress,
+            startupProgress);
+        startupProgress.Attach(() => terminalUi.IsRunning);
+        terminalUi.Started += startupProgress.AcquireConsoleOwnership;
+        terminalUi.Stopped += startupProgress.ReleaseConsoleOwnership;
         using var terminalUiReadiness = new TerminalUiReadinessGate(
             lifecycle,
             uiOptions.EffectiveMode,

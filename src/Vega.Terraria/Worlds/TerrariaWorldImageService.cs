@@ -127,8 +127,32 @@ public sealed class TerrariaWorldImageService : IDisposable, IWorldLoadMetricsRe
         gen1Before = GC.CollectionCount(1);
         gen2Before = GC.CollectionCount(2);
 
-        args.OriginalMethod();
         bool fellBack = false;
+        try
+        {
+            args.OriginalMethod();
+        }
+        catch (Exception ex) when (cacheHit)
+        {
+            logger.Log(
+                OperationsLogLevel.Warning,
+                "world-image",
+                "world_image cache=fallback reason=cache-load-exception; retrying canonical .wld",
+                ex);
+            activeImage = null;
+            cacheHit = false;
+            cacheReason = "cache-load-exception";
+            fellBack = true;
+            Quarantine(imagePath!, cacheReason);
+            ResetMeasurements();
+            loadStarted = Stopwatch.GetTimestamp();
+            allocatedBefore = GC.GetTotalAllocatedBytes(precise: false);
+            gen0Before = GC.CollectionCount(0);
+            gen1Before = GC.CollectionCount(1);
+            gen2Before = GC.CollectionCount(2);
+            args.OriginalMethod();
+        }
+
         if (cacheHit && global::Terraria.WorldGen.loadFailed)
         {
             logger.Log(
