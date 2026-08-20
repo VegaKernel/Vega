@@ -17,14 +17,33 @@ The Vega option is removed before arguments are passed to Terraria. TUI initiali
 
 ## Dashboard
 
-The TUI refreshes a bounded snapshot containing:
+The TUI uses separate high-contrast, movable and resizable windows instead of repainting one large text document. Its default desktop contains:
 
-- lifecycle, uptime, world/readiness, listener port, players and sampled TPS;
-- immutable `PlayerSnapshot` entries;
-- module name, version, load state, dependencies, startup duration and failures;
-- process working set, managed memory, GC heap/fragmentation/collections and thread-pool availability;
-- inbound/outbound packet and byte counters;
-- recent structured log records and degraded-capability warnings.
+- **Server / world**: lifecycle, uptime, world/readiness, listener port and player count;
+- **Performance**: bounded TPS and process CPU history;
+- **Memory**: bounded working-set and managed-heap history, plus current GC data;
+- **Network**: inbound/outbound rates and cumulative packet/byte counters;
+- **Players**: immutable `PlayerSnapshot` entries;
+- **Modules**: version, load state, dependencies, startup duration and failures;
+- **Logs**: recent structured records and degraded-capability warnings.
+
+The default refresh interval is 750 ms, which avoids the full-screen 150 ms document replacement that made some Windows terminals flicker. Static labels are updated only when their text changes; graph and log history is bounded.
+
+### Window layout
+
+Drag a window title to move it and drag its border to resize it. The following local palette commands manage the desktop:
+
+```text
+:windows                 List available windows and visibility.
+:show performance        Show a window.
+:hide logs               Hide a window.
+:layout save             Persist current positions, sizes and visibility.
+:layout reset            Restore and persist the default desktop.
+```
+
+Layout is loaded from `config/tui.json`. `refreshIntervalMilliseconds` is clamped to 250–5000 ms, `historySamples` to 20–600, and unsafe window geometry is normalized. A missing or malformed file falls back to the built-in layout and produces a structured warning instead of preventing startup. The file is included in development and published server layouts.
+
+The current network window intentionally exposes only counters that exist in the operations contract. Packet-type, handler-latency and security-action breakdowns will be added with the packet observability work in Phase 13; the TUI does not fabricate them from unavailable data.
 
 Structured operational events are written independently to the bounded in-memory store, stdout outside headless mode, and `logs/vega-operations.jsonl` when the file sink is available.
 
@@ -42,6 +61,11 @@ Local palette actions control only the view:
 :source lifecycle
 :find budget
 :clear
+:windows
+:show <overview|performance|memory|network|players|modules|logs>
+:hide <overview|performance|memory|network|players|modules|logs>
+:layout save
+:layout reset
 ```
 
 Log retention is bounded and filtering supports minimum level, source and text. Pausing freezes the displayed immutable snapshot; it never pauses server execution or log ingestion.

@@ -14,6 +14,8 @@ public sealed class OperationsDashboardViewModel(
 
     public bool IsFollowing { get; private set; } = true;
 
+    public OperationsLogFilter LogFilter => logFilter;
+
     public OperationsSnapshot Refresh()
     {
         if (IsFollowing || displayed is null)

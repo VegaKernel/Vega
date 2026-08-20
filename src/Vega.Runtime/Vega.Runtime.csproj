@@ -25,6 +25,13 @@
 	</ItemGroup>
 
 	<ItemGroup>
+		<Content Include="..\..\config\tui.json" Link="config\tui.json">
+			<CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+			<CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
+		</Content>
+	</ItemGroup>
+
+	<ItemGroup>
 		<PackageReference Include="ModFramework" Version="1.1.15" GeneratePathProperty="true" />
 		<PackageReference Include="OTAPI.Upcoming" Version="3.3.11" ExcludeAssets="all" GeneratePathProperty="true" />
 

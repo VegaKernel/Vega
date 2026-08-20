@@ -78,6 +78,7 @@ The operations surface is an optional consumer of stable read models and applica
 - [x] Implement a players view using `PlayerSnapshot` / player read models.
 - [x] Implement a modules view exposing load state, version, dependencies, startup timing and failures where available.
 - [x] Implement a bounded logs viewer with level/source/text filtering and follow/pause behavior.
+- [x] Provide a high-contrast, low-flicker windowed desktop with bounded TPS/CPU and memory graphs, configurable visibility, movable/resizable panels and persisted safe layout.
 - [x] Expose runtime, network, process, GC and memory metrics through cheap sampled read models.
 - [x] Add a command palette over the normal command/application boundary.
 - [x] Add safe administrative actions only through normal authorization and service contracts.
@@ -86,7 +87,7 @@ The operations surface is an optional consumer of stable read models and applica
 - [x] Keep TUI initialization optional; failure to initialize an interactive terminal must never block server startup.
 - [x] Never read or mutate Terraria globals directly from the UI thread.
 
-`Vega.Operations` now implements the toolkit-independent operations API: immutable server/player/module snapshots, bounded structured logs, cheap sampled runtime/process/GC/network metrics and command actions routed through `ICommandDispatcher`. `Vega.TerminalUI` is the only project that references Terminal.Gui. It renders dashboard, player, module and filtered log views from those snapshots and offers follow/pause plus a keyboard command palette. Terraria-owned world/TPS state is sampled on the game thread by `Vega.Terraria`; the UI never traverses Terraria globals.
+`Vega.Operations` now implements the toolkit-independent operations API: immutable server/player/module snapshots, bounded structured logs, cheap sampled runtime/process/GC/network metrics and command actions routed through `ICommandDispatcher`. `Vega.TerminalUI` is the only project that references Terminal.Gui. It renders separate movable/resizable high-contrast windows, bounded TPS/CPU and memory graphs, player/module views and filtered logs from those snapshots. Window visibility and geometry are safely loaded from and persisted to `config/tui.json`. Terraria-owned world/TPS state is sampled on the game thread by `Vega.Terraria`; the UI never traverses Terraria globals.
 
 The runtime supports `auto`, `tui`, `plain` and `headless` modes through `--vega-ui`. Structured events fan out independently to JSON-lines file, stdout when enabled, and a bounded TUI store. The TUI runs as an optional background consumer; initialization and rendering failures are logged and cannot prevent Terraria startup. See ADR 0010 and [`docs/operations.md`](operations.md) for the boundary and operator usage.
 
@@ -130,9 +131,12 @@ A durable outbox is optional and should be introduced only if a real scenario re
 
 ## Phase 9 — production module migration
 
-- [x] Port TerraZ modules to the Vega module API by capability, not by reproducing TShock class shapes.
-- [x] Use migrated modules as the forcing function for new contracts instead of building an abstract framework ahead of consumers.
-- [x] Add regression tests from known production incidents before retiring legacy workarounds.
+- [x] Port the first two behavior references (`PvPController-1.3` and `CustomWeaponAPI`) to prove the Vega module boundary.
+- [x] Restore a pinned pre-cleanup TShock/TSAPI reference snapshot and lock current TerraZ source revisions outside the production solution.
+- [ ] Complete every `Keep`, `Port`, `Replace` or `Drop` decision in the [TShock and TerraZ migration audit](migration-audit.md); an unclassified subsystem or plugin keeps this phase open.
+- [ ] Port accepted TerraZ behavior to the Vega module API by capability, not by reproducing TShock class shapes.
+- [ ] Use each migrated module as the forcing function for its required contract instead of building an abstract framework ahead of a consumer.
+- [ ] Add incident-backed regression tests before retiring the corresponding TShock/TerraZ behavior or workaround.
 
 ### Historical implementations to mine for behavior, not architecture
 
@@ -143,17 +147,19 @@ A durable outbox is optional and should be introduced only if a real scenario re
   - useful scenarios: strongly typed partial item overrides, targeted packet delivery and custom item behavior;
   - its bespoke `PacketWriter` must not be carried forward because Vega uses the shared typed `TZ.Multiplicity` protocol layer.
 
-`VegaModuleHost` now starts explicitly composed modules and exposes their load state and startup duration. `Vega.Modules.Pvp` ports hostile-health authority, ordered projectile/damage attribution, death windows and session cleanup. `Vega.Modules.CustomItems` ports strongly typed partial overrides and requests targeted delivery through a capability; the `Vega.Terraria` implementation serializes `UpdateItemDrop`, `TweakItem` and `ItemOwner` with `TZ.Multiplicity`.
+`VegaModuleHost` now starts explicitly composed modules and exposes their load state and startup duration. `Vega.Modules.Pvp` ports hostile-health authority, ordered projectile/damage attribution, death windows and session cleanup. `Vega.Modules.CustomItems` ports strongly typed partial overrides and requests targeted delivery through a capability; the `Vega.Terraria` implementation serializes `UpdateItemDrop`, `TweakItem` and `ItemOwner` with `TZ.Multiplicity`. These are the first two ports, not evidence that the TerraZ module estate is complete. Phases 13–16 and 19 contain the remaining security, operations, administration, provider and persistent-server work discovered by the audit.
 
 ## Phase 10 — remove migration scaffolding
 
-- [x] Remove the TShockAPI project after no required production path depends on it.
-- [x] Remove TSAPI from the solution/submodules after native Vega hosting/hook dispatch is complete.
-- [x] Remove legacy hook/command/plugin compatibility surfaces.
-- [x] Rename remaining physical `TShock*` project paths/namespaces to final Vega names as they cease being migration sources.
-- [x] Delete migration-only adapters and documentation that no longer describe an active path.
+- [x] Remove TShockAPI and TSAPI from the production solution after the native runtime no longer depends on them.
+- [x] Remove legacy hook/command/plugin compatibility surfaces from the shipping runtime.
+- [x] Rename active physical `TShock*` project paths/namespaces to Vega names.
+- [ ] Resolve every legacy subsystem and TerraZ repository in the [migration audit](migration-audit.md), with source evidence, target owner, disposition and validation recorded.
+- [ ] Preserve the pinned source references until all accepted behavior, edge cases and incident regressions have executable Vega coverage.
+- [ ] Review deleted configuration, command, permission, persistence, localization, REST and operations documentation against the running Vega product; restore or rewrite every still-relevant operator contract.
+- [ ] Close the scaffolding-removal gate only when there are no unresolved `Partial`, `Missing` or `Unclassified` rows—physical deletion alone is not completion.
 
-The runtime now boots Terraria directly through the OTAPI-backed `Vega.Terraria` host. TShockAPI, TSAPI, the legacy plugin manager/installer, reflection adapters, parked legacy Core sources, translations and obsolete compatibility documentation have been removed. Active namespaces are `Vega.Contracts` and `Vega.Core`.
+The runtime now boots Terraria directly through the OTAPI-backed `Vega.Terraria` host, so TShockAPI and TSAPI correctly remain outside the shipping dependency graph. Their removal in `f24b8036` happened before the behavior audit was complete, however. The exact parent snapshot (`72bff778`) and its pinned TSAPI revision (`024e480e`) are therefore retained as external audit inputs while active namespaces remain `Vega.Contracts` and `Vega.Core`. This phase is intentionally reopened; no legacy assembly is reintroduced into the product build.
 
 ## Phase 11 — World image and runtime optimization
 

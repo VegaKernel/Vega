@@ -1,19 +1,23 @@
 using System.Collections.Concurrent;
 using Terminal.Gui.App;
+using Terminal.Gui.Configuration;
 using Terminal.Gui.Drivers;
-using Terminal.Gui.Editor;
-using Terminal.Gui.Editor.Document;
+using Terminal.Gui.Drawing;
 using Terminal.Gui.ViewBase;
 using Terminal.Gui.Views;
 using Vega.Contracts.Operations;
+using TuiAttribute = Terminal.Gui.Drawing.Attribute;
 
 namespace Vega.TerminalUI;
 
 public sealed class TerminalUiHost : IDisposable
 {
+    private const string VegaSchemeName = "VegaDark";
     private readonly OperationsDashboardViewModel viewModel;
     private readonly IOperationsLogger logger;
     private readonly IStartupProgressReader startupProgress;
+    private readonly TerminalUiLayoutStore layoutStore;
+    private readonly TerminalUiLayoutOptions layout;
     private readonly CancellationTokenSource shutdown = new();
     private readonly ManualResetEventSlim initialized = new(false);
     private Thread? uiThread;
@@ -24,11 +28,16 @@ public sealed class TerminalUiHost : IDisposable
         IOperationsCommandService commands,
         IOperationsLogger logger,
         IStartupProgressReader? startupProgress = null,
-        IUnhandledOperationsCommandSink? unhandledCommands = null)
+        IUnhandledOperationsCommandSink? unhandledCommands = null,
+        string? layoutPath = null)
     {
         viewModel = new OperationsDashboardViewModel(snapshots, commands, unhandledCommands);
         this.logger = logger ?? throw new ArgumentNullException(nameof(logger));
         this.startupProgress = startupProgress ?? WaitingStartupProgressReader.Instance;
+        layoutStore = new TerminalUiLayoutStore(
+            layoutPath ?? Path.Combine(AppContext.BaseDirectory, "config", "tui.json"),
+            this.logger);
+        layout = layoutStore.Load();
     }
 
     public bool IsRunning => Volatile.Read(ref running) != 0;
@@ -80,6 +89,7 @@ public sealed class TerminalUiHost : IDisposable
 
     private void Run()
     {
+        OperationsDashboardView? dashboard = null;
         try
         {
             using IApplication app = Application.Create();
@@ -89,17 +99,23 @@ public sealed class TerminalUiHost : IDisposable
             }
 
             app.Init();
+            RegisterColorScheme();
             Volatile.Write(ref running, 1);
             Started?.Invoke(Environment.CurrentManagedThreadId);
             initialized.Set();
-            using Window window = new() { Title = "Vega Operations" };
+            using Window window = new()
+            {
+                Title = "Vega Operations",
+                SchemeName = VegaSchemeName
+            };
             var startup = new FrameView
             {
                 Title = "Starting server",
                 X = 1,
                 Y = 1,
                 Width = Dim.Fill(1),
-                Height = 9
+                Height = 9,
+                SchemeName = VegaSchemeName
             };
             var brand = new Label
             {
@@ -131,41 +147,46 @@ public sealed class TerminalUiHost : IDisposable
             };
             startup.Add(brand, startupStage, progress, startupDetails);
 
-            var content = new Editor
+            var desktop = new View
             {
                 X = 0,
                 Y = 0,
                 Width = Dim.Fill(),
-                Height = Dim.Fill(3),
-                ReadOnly = true,
-                WordWrap = false,
-                GutterOptions = GutterOptions.None,
-                ViewportSettings = ViewportSettingsFlags.HasScrollBars,
-                Document = new TextDocument(string.Empty),
+                Height = Dim.Fill(4),
+                SchemeName = VegaSchemeName,
+                Visible = false
+            };
+            dashboard = new OperationsDashboardView(desktop, layout);
+
+            var commandBar = new FrameView
+            {
+                Title = "Command palette",
+                X = 0,
+                Y = Pos.AnchorEnd(4),
+                Width = Dim.Fill(),
+                Height = 4,
+                SchemeName = VegaSchemeName,
                 Visible = false
             };
             var prompt = new Label
             {
-                X = 0,
-                Y = Pos.Bottom(content),
-                Text = "Command (:pause/:follow/:level/:source/:find/:clear):",
-                Visible = false
+                X = 1,
+                Y = 0,
+                Text = "Command or :windows / :show / :hide / :layout save|reset"
             };
             var command = new TextField
             {
-                X = 0,
-                Y = Pos.Bottom(prompt),
-                Width = Dim.Fill(),
-                Text = string.Empty,
-                Visible = false
+                X = 1,
+                Y = 1,
+                Width = Dim.Percent(48),
+                Text = string.Empty
             };
             var result = new Label
             {
-                X = 0,
-                Y = Pos.Bottom(command),
-                Width = Dim.Fill(),
-                Text = "Ready.",
-                Visible = false
+                X = Pos.Right(command) + 2,
+                Y = 1,
+                Width = Dim.Fill(1),
+                Text = "Ready. Drag window titles; drag borders to resize."
             };
             var results = new ConcurrentQueue<string>();
 
@@ -174,12 +195,13 @@ public sealed class TerminalUiHost : IDisposable
                 string input = command.Text;
                 command.Text = string.Empty;
                 eventArgs.Handled = true;
-                _ = ExecuteAsync(input, results);
+                _ = ExecuteAsync(input, results, dashboard);
             };
 
-            window.Add(startup, content, prompt, command, result);
+            commandBar.Add(prompt, command, result);
+            window.Add(startup, desktop, commandBar);
             bool dashboardVisible = false;
-            app.AddTimeout(TimeSpan.FromMilliseconds(150), () =>
+            app.AddTimeout(TimeSpan.FromMilliseconds(layout.RefreshIntervalMilliseconds), () =>
             {
                 if (shutdown.IsCancellationRequested)
                 {
@@ -212,14 +234,12 @@ public sealed class TerminalUiHost : IDisposable
                     {
                         dashboardVisible = true;
                         startup.Visible = false;
-                        content.Visible = true;
-                        prompt.Visible = true;
-                        command.Visible = true;
-                        result.Visible = true;
+                        desktop.Visible = true;
+                        commandBar.Visible = true;
                         command.SetFocus();
                     }
 
-                    content.Document = new TextDocument(viewModel.Render());
+                    dashboard.Update(snapshot, viewModel.IsFollowing, viewModel.LogFilter);
                 }
 
                 while (results.TryDequeue(out string? message))
@@ -241,16 +261,35 @@ public sealed class TerminalUiHost : IDisposable
         }
         finally
         {
+            if (dashboard is not null)
+            {
+                layoutStore.TrySave(dashboard.CaptureLayout());
+            }
+
             Volatile.Write(ref running, 0);
             initialized.Set();
             Stopped?.Invoke(!shutdown.IsCancellationRequested);
         }
     }
 
-    private async Task ExecuteAsync(string input, ConcurrentQueue<string> results)
+    private async Task ExecuteAsync(
+        string input,
+        ConcurrentQueue<string> results,
+        OperationsDashboardView dashboard)
     {
         try
         {
+            if (dashboard.TryExecuteLayoutCommand(input, out string layoutMessage, out bool saveRequested))
+            {
+                if (saveRequested)
+                {
+                    layoutStore.TrySave(dashboard.CaptureLayout());
+                }
+
+                results.Enqueue(layoutMessage);
+                return;
+            }
+
             results.Enqueue(await viewModel
                 .ExecutePaletteAsync(input, shutdown.Token)
                 .ConfigureAwait(false));
@@ -260,6 +299,22 @@ public sealed class TerminalUiHost : IDisposable
             results.Enqueue($"Error: {ex.Message}");
             logger.Log(OperationsLogLevel.Error, "terminal-ui", "Command palette action failed.", ex);
         }
+    }
+
+    private static void RegisterColorScheme()
+    {
+        var scheme = new Scheme
+        {
+            Normal = new TuiAttribute(Color.White, Color.Black),
+            Focus = new TuiAttribute(Color.Black, Color.BrightCyan),
+            HotNormal = new TuiAttribute(Color.BrightCyan, Color.Black),
+            HotFocus = new TuiAttribute(Color.Black, Color.BrightYellow),
+            Active = new TuiAttribute(Color.White, Color.DarkGray),
+            Editable = new TuiAttribute(Color.White, Color.DarkGray),
+            ReadOnly = new TuiAttribute(Color.White, Color.Black),
+            Disabled = new TuiAttribute(Color.Gray, Color.Black)
+        };
+        SchemeManager.AddScheme(VegaSchemeName, scheme);
     }
 
     private sealed class WaitingStartupProgressReader : IStartupProgressReader

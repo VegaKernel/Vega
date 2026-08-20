@@ -83,7 +83,7 @@ Modules consume Vega-native contracts and lifecycle APIs. Existing TerraZ plugin
 
 `Vega.Modules.Pvp` consumes packet, player-combat and session-state capabilities for ordered PvP policy. `Vega.Modules.CustomItems` consumes a targeted item-delivery capability; `Vega.Terraria` implements that capability and owns all `TZ.Multiplicity` serialization. Temporary PvP state follows `PlayerSessionId` lifecycle and is disposed on disconnect; it is not attached as a universal bag to player/domain models. See [`docs/extension-state.md`](extension-state.md).
 
-TShockAPI, TSAPI and their hook/command/plugin compatibility surfaces are not present in the executable path, solution or source tree. Historical ADRs remain behavioral evidence only.
+TShockAPI, TSAPI and their hook/command/plugin compatibility surfaces are not present in the executable path, solution or active source tree. Their exact pre-cleanup revisions and current TerraZ comparison sources remain pinned outside the production solution through the [migration audit](migration-audit.md); they stay behavioral and regression evidence until the Phase 9/10 ledger is resolved.
 
 ## OTAPI
 

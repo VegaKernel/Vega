@@ -123,6 +123,8 @@ Vega-specific options are removed before the remaining arguments are passed to T
 
 TUI initialization is best-effort and never blocks server readiness. Vega leaves the native Terraria console in control during interactive world selection, then starts Terminal.Gui at `WorldLoading` with a startup progress screen and switches to the operations dashboard at `NetworkReady`. In TUI mode the command palette exclusively owns terminal input; unknown Vega commands are queued to Terraria's native parser so commands such as `save` and `exit` remain usable. Routine logs stay in the dashboard/file sink instead of painting over the terminal. Structured file logs are written to `logs/vega-operations.jsonl` when the path is available.
 
+The dashboard is a high-contrast desktop of movable and resizable server, performance, memory, network, player, module and log windows. TPS/CPU and memory histories are rendered as bounded graphs. Visibility and percentage-based geometry are configured in `config/tui.json`; use `:windows`, `:show <name>`, `:hide <name>`, `:layout save` and `:layout reset` in the palette. See [the operations guide](../operations.md) for the complete window and filtering reference.
+
 ### World-image mode
 
 `--vega-world-image=on` enables the experimental derived `.vworld` cache; `off` disables it. The default is off. `.wld` remains canonical, and stale, incompatible, or corrupt images automatically fall back to it.

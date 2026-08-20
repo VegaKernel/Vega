@@ -287,6 +287,99 @@ public sealed class OperationsReadModelTests
 }
 
 [TestFixture]
+public sealed class TerminalUiLayoutTests
+{
+    [Test]
+    public void LayoutNormalizationRestoresMissingWindowsAndBoundsUnsafeValues()
+    {
+        var candidate = new TerminalUiLayoutOptions(
+            1,
+            10_000,
+            new Dictionary<string, TerminalUiPanelLayout>
+            {
+                ["OVERVIEW"] = new(true, -10, 200, 1, 500)
+            });
+
+        TerminalUiLayoutOptions normalized = TerminalUiLayoutOptions.Normalize(candidate);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(normalized.RefreshIntervalMilliseconds, Is.EqualTo(250));
+            Assert.That(normalized.HistorySamples, Is.EqualTo(600));
+            Assert.That(normalized.Windows, Has.Count.EqualTo(TerminalUiLayoutOptions.WindowNames.Count));
+            Assert.That(normalized.GetWindow(TerminalUiLayoutOptions.Overview), Is.EqualTo(new TerminalUiPanelLayout(true, 0, 95, 15, 100)));
+            Assert.That(normalized.GetWindow(TerminalUiLayoutOptions.Logs).Visible, Is.True);
+        });
+    }
+
+    [Test]
+    public void MetricHistoryCalculatesRatesAndKeepsBoundedNewestSamples()
+    {
+        var history = new OperationsMetricHistory(20);
+        DateTimeOffset started = DateTimeOffset.UtcNow;
+
+        for (int index = 0; index < 25; index++)
+        {
+            history.Add(CreateSnapshot(index, started.AddSeconds(index)));
+        }
+
+        OperationsMetricSample latest = history.Samples[^1];
+        Assert.Multiple(() =>
+        {
+            Assert.That(history.Samples, Has.Count.EqualTo(20));
+            Assert.That(history.Samples[0].TicksPerSecond, Is.EqualTo(5));
+            Assert.That(latest.CpuPercent, Is.EqualTo(25).Within(0.001));
+            Assert.That(latest.InboundKiBPerSecond, Is.EqualTo(1).Within(0.001));
+            Assert.That(latest.OutboundKiBPerSecond, Is.EqualTo(2).Within(0.001));
+        });
+    }
+
+    private static OperationsSnapshot CreateSnapshot(int index, DateTimeOffset sampledAt)
+    {
+        var server = new ServerDashboardSnapshot(
+            "Vega",
+            "1.0",
+            sampledAt,
+            TimeSpan.FromSeconds(index),
+            RuntimeLifecycleStage.NetworkReady,
+            "World",
+            true,
+            true,
+            0,
+            16,
+            7777,
+            index,
+            Array.Empty<string>());
+        var runtime = new RuntimeMetricsSnapshot(
+            new HostMetricsSnapshot(
+                index * 1024 * 1024,
+                0,
+                TimeSpan.FromSeconds(index * 0.5),
+                "test",
+                2,
+                "host"),
+            0,
+            index * 512 * 1024,
+            0,
+            0,
+            0,
+            0,
+            0,
+            1,
+            1,
+            sampledAt);
+
+        return new OperationsSnapshot(
+            server,
+            Array.Empty<PlayerSnapshot>(),
+            Array.Empty<ModuleOperationsSnapshot>(),
+            Array.Empty<OperationsLogRecord>(),
+            runtime,
+            new NetworkMetricsSnapshot(index * 10, index * 1024, index * 20, index * 2048, sampledAt));
+    }
+}
+
+[TestFixture]
 public sealed class TerminalOperationsTests
 {
     [TestCase("tui", OperationsUiMode.Terminal)]

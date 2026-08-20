@@ -1,0 +1,55 @@
+{
+  "refreshIntervalMilliseconds": 750,
+  "historySamples": 120,
+  "windows": {
+    "overview": {
+      "visible": true,
+      "xPercent": 0,
+      "yPercent": 0,
+      "widthPercent": 34,
+      "heightPercent": 30
+    },
+    "performance": {
+      "visible": true,
+      "xPercent": 34,
+      "yPercent": 0,
+      "widthPercent": 40,
+      "heightPercent": 30
+    },
+    "players": {
+      "visible": true,
+      "xPercent": 74,
+      "yPercent": 0,
+      "widthPercent": 26,
+      "heightPercent": 30
+    },
+    "memory": {
+      "visible": true,
+      "xPercent": 0,
+      "yPercent": 30,
+      "widthPercent": 34,
+      "heightPercent": 30
+    },
+    "network": {
+      "visible": true,
+      "xPercent": 34,
+      "yPercent": 30,
+      "widthPercent": 40,
+      "heightPercent": 30
+    },
+    "modules": {
+      "visible": true,
+      "xPercent": 74,
+      "yPercent": 30,
+      "widthPercent": 26,
+      "heightPercent": 30
+    },
+    "logs": {
+      "visible": true,
+      "xPercent": 0,
+      "yPercent": 60,
+      "widthPercent": 100,
+      "heightPercent": 40
+    }
+  }
+}

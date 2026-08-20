@@ -10,6 +10,7 @@ This directory contains Vega's project documentation, implementation notes, road
 - `ru/project-guide.md` — полное русское руководство по архитектуре, сборке, запуску, модулям, упаковке и релизам.
 - `architecture.md` — target architecture and subsystem boundaries.
 - `roadmap.md` — staged implementation plan and completed validation.
+- `migration-audit.md` — pinned TShock/TerraZ sources, capability dispositions, and the Phase 9/10 closure gate.
 - `releasing.md` — versioning, automatic tagged releases, and manual server publication.
 
 ## Subsystems
