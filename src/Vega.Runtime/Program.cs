@@ -11,6 +11,7 @@ using Vega.Core.Authorization;
 using Vega.Core.Modules;
 using Vega.Core.Operations;
 using Vega.Core.Updates;
+using Vega.Core.Worlds;
 using Vega.Contracts.Events;
 using Vega.Contracts.Worlds;
 using Vega.Cluster.Transport;
@@ -172,6 +173,10 @@ int Start()
         using var worldImages = new TerrariaWorldImageService(logger, lifecycle, worldImageOptions.Enabled);
         var hostMetrics = new ProcessHostMetricsReader();
         var runtimeMetrics = new SampledRuntimeMetricsReader(hostMetrics);
+        WorldClockOptions worldClockOptions = WorldClockOptionsStore.Load(
+            Path.Combine(AppContext.BaseDirectory, "config", "world-clock.json"),
+            logger);
+        var worldClock = new MonotonicWorldClock(worldClockOptions);
         var staticModules = new StaticModuleOperationsCatalog(CreateModuleSnapshots(moduleHost));
         ServerPluginHotReloadOptions hotReloadOptions = ServerPluginHotReloadOptionsStore.Load(
             Path.Combine(AppContext.BaseDirectory, "config", "modules.json"),
@@ -197,7 +202,8 @@ int Start()
             runtimeMetrics,
             networkMetrics,
             worldImages,
-            serverPlugins);
+            serverPlugins,
+            worldClock);
         var operationsCommands = new OperationsCommandService(commandDispatcher);
         using var startupProgress = new TerrariaStartupProgress();
         using var terminalUi = new TerminalUiHost(
@@ -236,6 +242,7 @@ int Start()
             networkMetrics,
             logger,
             worldImages,
+            worldClock,
             playerPacketPolicies,
             commandDispatcher,
             playerAuthorization);

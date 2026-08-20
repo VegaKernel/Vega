@@ -6,6 +6,25 @@ namespace Vega.Architecture.Tests;
 public sealed class RuntimeDependencyTests
 {
     [Test]
+    public void WorldClockTouchesTerrariaOnlyFromTheGameTickAdapter()
+    {
+        var repositoryRoot = FindRepositoryRoot();
+        string core = File.ReadAllText(Path.Combine(
+            repositoryRoot, "src", "Vega.Core", "Worlds", "MonotonicWorldClock.cs"));
+        string adapter = File.ReadAllText(Path.Combine(
+            repositoryRoot, "src", "Vega.Terraria", "Worlds", "TerrariaWorldClockSynchronizer.cs"));
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(core, Does.Not.Contain("Terraria.Main"));
+            Assert.That(core, Does.Not.Contain("Task.Run"));
+            Assert.That(adapter, Does.Contain("OnTickForThirdPartySoftwareOnly"));
+            Assert.That(adapter, Does.Not.Contain("Task.Run"));
+            Assert.That(adapter, Does.Not.Contain("System.Threading.Timer"));
+        });
+    }
+
+    [Test]
     public void OperationsAndTerminalUiStayIndependentFromTerrariaAndLegacyApis()
     {
         var repositoryRoot = FindRepositoryRoot();

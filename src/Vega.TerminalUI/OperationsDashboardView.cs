@@ -281,6 +281,16 @@ internal sealed class OperationsDashboardView
                 .Append("  ·  ready ").Append(worldLoad.WorldReadyDuration.TotalSeconds.ToString("F1", CultureInfo.InvariantCulture)).Append('s');
         }
 
+        if (snapshot.WorldClocks.FirstOrDefault() is { } clock)
+        {
+            text.AppendLine()
+                .Append("World clock: ").Append(clock.Predicted.IsDaytime ? "day " : "night ")
+                .Append((clock.Predicted.TimeTicks / 60d).ToString("F1", CultureInfo.InvariantCulture)).Append('s')
+                .Append("  ·  drift ").Append((clock.DriftTicks / 60d).ToString("+0.00;-0.00;0.00", CultureInfo.InvariantCulture)).Append('s')
+                .Append("  ·  corrections ").Append(clock.CorrectionCount)
+                .Append("  ·  reanchors ").Append(clock.ReanchorCount);
+        }
+
         if (server.Warnings.Count > 0)
         {
             text.AppendLine().Append("⚠ ").Append(string.Join(" | ", server.Warnings));

@@ -1,6 +1,7 @@
 using Vega.Contracts.Operations;
 using Vega.Contracts.Players;
 using Vega.Contracts.Runtime;
+using Vega.Contracts.Worlds;
 
 namespace Vega.Operations.ReadModels;
 
@@ -16,7 +17,8 @@ public sealed class OperationsSnapshotProvider(
     IRuntimeMetricsReader runtimeMetrics,
     INetworkMetricsReader networkMetrics,
     IWorldLoadMetricsReader? worldLoadMetrics = null,
-    IModuleDirectoryStatusReader? moduleDirectory = null) : IOperationsSnapshotProvider
+    IModuleDirectoryStatusReader? moduleDirectory = null,
+    IWorldClockReader? worldClocks = null) : IOperationsSnapshotProvider
 {
     public OperationsSnapshot Capture(OperationsLogFilter? logFilter = null)
     {
@@ -71,7 +73,8 @@ public sealed class OperationsSnapshotProvider(
             networkMetrics.Read())
         {
             WorldLoad = worldLoadMetrics?.Read(),
-            ModuleDirectory = moduleDirectoryStatus
+            ModuleDirectory = moduleDirectoryStatus,
+            WorldClocks = Array.AsReadOnly(worldClocks?.SnapshotWorldClocks().ToArray() ?? [])
         };
     }
 

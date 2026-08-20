@@ -31,6 +31,7 @@ public static class TerrariaServerHost
         INetworkMetricsRecorder networkMetrics,
         IOperationsLogger logger,
         TerrariaWorldImageService worldImages,
+        IWorldClockController worldClock,
         IPacketProcessor<PacketView> playerOwnershipSecurity,
         ICommandDispatcher commandDispatcher,
         IPlayerAuthorizationService playerAuthorization)
@@ -44,6 +45,7 @@ public static class TerrariaServerHost
         ArgumentNullException.ThrowIfNull(networkMetrics);
         ArgumentNullException.ThrowIfNull(logger);
         ArgumentNullException.ThrowIfNull(worldImages);
+        ArgumentNullException.ThrowIfNull(worldClock);
         ArgumentNullException.ThrowIfNull(playerOwnershipSecurity);
         ArgumentNullException.ThrowIfNull(commandDispatcher);
         ArgumentNullException.ThrowIfNull(playerAuthorization);
@@ -78,6 +80,7 @@ public static class TerrariaServerHost
             playerAuthorization,
             playerBoundary,
             playerBoundary);
+        using var worldClockSynchronizer = new TerrariaWorldClockSynchronizer(worldClock, logger);
 
         try
         {
@@ -90,6 +93,7 @@ public static class TerrariaServerHost
             operationsState.Attach();
             networkMetricsHooks.Attach();
             worldImages.Attach();
+            worldClockSynchronizer.Attach();
             worldDecisionHooks.Attach();
             playerPacketSecurityHooks.Attach();
             consoleCommandHooks.Attach();

@@ -1,5 +1,6 @@
 using Vega.Contracts.Players;
 using Vega.Contracts.Runtime;
+using Vega.Contracts.Worlds;
 
 namespace Vega.Contracts.Operations;
 
@@ -125,6 +126,9 @@ public sealed record OperationsSnapshot(
 
     public ModuleDirectoryStatusSnapshot ModuleDirectory { get; init; } =
         ModuleDirectoryStatusSnapshot.Unmonitored;
+
+    public IReadOnlyList<WorldClockSnapshot> WorldClocks { get; init; } =
+        Array.Empty<WorldClockSnapshot>();
 }
 
 public interface IOperationsSnapshotProvider

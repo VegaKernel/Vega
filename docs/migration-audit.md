@@ -121,7 +121,7 @@ These are behavior/test inputs. Their indentation, static globals, `TSPlayer` fi
 | `NoCoinDupe` | Server-authoritative NPC coin-pickup policy | **Native**, Phase 9/13 |
 | `ClientPlatformDetector`, `SSCHealthFix`, `UuidGuardExtension` | Connection metadata, explicit login phases and structured external security signals | **Missing**, Phase 13 |
 | `TPSChecker` | Bounded tick-rate telemetry, percentiles, operations warning and `tps` command | **Native**, Phase 14 |
-| `TimeSync` | Optional monotonic world clock | **Missing**, Phase 14 |
+| `TimeSync` | Optional per-world monotonic clock with game-thread correction and explicit-change re-anchoring | **Native**, Phase 14 |
 | `PluginLoader` | Optional administrative unload/replace with tracked cleanup, collectible isolation and restart fallback | **Native**, Phase 14 |
 | `FakeProvider` | Observer-scoped tile layers, entity visibility and symmetric inbound validation | **Missing**, Phase 16 |
 
@@ -189,6 +189,15 @@ WorldEdit remains the first complete Phase 16 consumer because it exercises the 
 - **Unload invariant:** the host first disposes every command, hook or cleanup registered through `IHotModuleContext` in reverse order, preventing new callbacks; it then asks the module to quiesce its own work in `StopAsync`, invokes `DisposeAsync`, requests context unload and verifies collection through a weak reference. Incomplete cleanup is reported as degraded and restart-required, never as successful unload.
 - **Intentional boundary:** explicitly composed `IVegaModule` instances such as bundled PVP and CustomItems stay in the default context and require restart. Arbitrary TSAPI/TShock plugins, hidden static hooks and untracked registrations are not declared safe.
 - **Validation:** a real separately built plugin integration fixture proves initial load, dynamic command ownership, same-file hot replacement, lease removal, administrative unload and collectible-context release. Disabled-mode and dynamic command-registry tests cover the safety switch and cleanup boundary.
+
+### TimeSync — monotonic world clock without background Terraria access
+
+- **Evidence:** TerraZ `TimeSync` revision `8ccf8c3aabdeda39962b31d227f3871d97c4cb94`, `src/TimeSync.cs`. The legacy loop reads `Main.time`/`Main.dayTime` from `Task.Run` every ten seconds and mutates through `TSPlayer.Server.SetTime`.
+- **Disposition:** `Replace`. `MonotonicWorldClock` keeps independent anchors per `WorldId`, advances from `TimeProvider` monotonic timestamps and compares positions on the complete day/night cycle so a boundary crossing is not mistaken for a manual change.
+- **Terraria boundary:** `TerrariaWorldClockSynchronizer` observes and corrects only from `Main.OnTickForThirdPartySoftwareOnly`; a correction updates Terraria time on that same thread and broadcasts `WorldData`. No background worker reads or writes Terraria globals.
+- **Configuration/operations:** `config/world-clock.json` is disabled by default and validates correction/re-anchor thresholds. Operations/TUI show predicted phase/time, drift, correction count and explicit-change re-anchor count.
+- **Validation:** deterministic-time tests cover low-TPS correction, day/night rollover, large explicit changes, independent world anchors and disabled mode.
+- **Boundary check:** Core depends only on `WorldId`, immutable clock values and `TimeProvider`; no TShock/TSAPI type or process-global plugin timer entered Vega.
 
 ## Closure rules for Phases 9 and 10
 

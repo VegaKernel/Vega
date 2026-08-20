@@ -254,17 +254,19 @@ Move server-wide invariants into Core/runtime, not the historical plugin impleme
 
 These capabilities are shared runtime infrastructure, but their policies remain configurable or modular.
 
-- [ ] Complete TPS telemetry derived from TPSChecker with rolling windows, min/max timestamps, tick-duration p50/p95/p99 and structured low-TPS events.
-- [ ] Add an optional per-`WorldId` monotonic world-clock service derived from TimeSync; corrections run on the game thread and explicit time changes re-anchor the clock.
+- [x] Complete TPS telemetry derived from TPSChecker with rolling windows, min/max timestamps, tick-duration p50/p95/p99 and structured low-TPS events.
+- [x] Add an optional per-`WorldId` monotonic world-clock service derived from TimeSync; corrections run on the game thread and explicit time changes re-anchor the clock.
 - [x] Add module-directory change detection and a visible `restart required` state derived from PluginLoader.
 - [x] Add an opt-in administrative hot-reload host for modules that directly implement `IHotReloadableVegaModule`, with collectible load contexts and mandatory tracked cleanup.
 - [x] Make hot reload disableable through `config/modules.json` and disabled by default; built-in `IVegaModule` revisions remain restart-only.
 - [x] Remove dynamic command registrations before module disposal and verify that the collectible context is actually released; require restart after incomplete cleanup.
-- [ ] Surface world-clock, TPS and module-restart state through Operations/TUI snapshots without reading Terraria state from the UI thread.
+- [x] Surface world-clock, TPS and module-restart state through Operations/TUI snapshots without reading Terraria state from the UI thread.
 
 The TPSChecker migration is complete as a source disposition: one game-thread sampler now publishes current, rolling-minute, lifetime min/max with UTC timestamps and bounded tick-duration p50/p95/p99. `tps`/`tpsstats`, low-TPS Operations warnings and the TUI consume that single immutable source. Phase 14 remains open for structured transition events, per-world attribution, TimeSync and module restart detection.
 
 The PluginLoader migration is resolved as a deliberately unsafe, opt-in administrative capability rather than an implicit compatibility loader. With `config/modules.json` disabled, the bounded watcher only marks `restart required`. When enabled, only assemblies that directly export one `IHotReloadableVegaModule` enter an isolated collectible context. `plugin reload` stages the replacement before stopping the active revision; `plugin unload` detaches tracked hooks and commands in reverse order, stops background work, disposes the module and verifies collection of the old context. Any cleanup or collection failure degrades the module and requires restart. Explicitly composed first-party `IVegaModule` instances are never presented as hot-unloadable.
+
+The TimeSync migration replaces its background reads and TShock mutation with a monotonic per-`WorldId` Core clock. The Terraria adapter observes and corrects only from the game tick, broadcasts corrected world data, treats a drift above the configured re-anchor threshold as an explicit time change, and exposes drift/correction/re-anchor counts through Operations/TUI. `config/world-clock.json` keeps the feature disabled by default.
 
 ## Phase 15 — administration primitives with first module consumers
 

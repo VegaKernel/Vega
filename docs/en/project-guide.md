@@ -130,6 +130,10 @@ The dashboard is a high-contrast desktop of movable and resizable server, perfor
 
 `--vega-world-image=on` enables the experimental derived `.vworld` cache; `off` disables it. The default is off. `.wld` remains canonical, and stale, incompatible, or corrupt images automatically fall back to it.
 
+### World-clock mode
+
+`config/world-clock.json` optionally keeps in-game day/night progression tied to monotonic elapsed time instead of degraded TPS. It is disabled by default. Corrections run only on the Terraria game thread; a large explicit time change establishes a new anchor. Current drift and correction/re-anchor counts are visible in Operations/TUI.
+
 ## 8. Lifecycle and readiness
 
 The lifecycle progresses through:

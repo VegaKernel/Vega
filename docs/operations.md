@@ -63,6 +63,8 @@ An unloadable plugin must register commands through `IHotModuleContext.RegisterC
 
 Structured operational events are written independently to the bounded in-memory store, stdout outside headless mode, and `logs/vega-operations.jsonl` when the file sink is available.
 
+Optional TPS-independent world time is configured in `config/world-clock.json`. It is disabled by default. When enabled, the primary Terraria world is corrected from a monotonic per-world clock only on the game thread; drift above `correctionThresholdSeconds` is corrected and broadcast, while drift above `reanchorThresholdSeconds` is treated as an explicit time change. The overview exposes phase, predicted time, drift, correction count and re-anchor count.
+
 ## Command palette and logs
 
 Enter a Vega command such as `serverinfo` or `kick <player> <reason>` in the palette to execute it through the normal `ICommandDispatcher` authorization and application boundary. Commands not owned by Vega are queued to Terraria's native server-console parser, so built-in operations such as `save`, `say`, `help` and `exit` remain available without a second thread reading terminal input.

@@ -1,0 +1,5 @@
+{
+  "enabled": false,
+  "correctionThresholdSeconds": 1,
+  "reanchorThresholdSeconds": 15
+}
