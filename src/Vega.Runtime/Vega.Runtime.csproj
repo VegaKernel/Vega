@@ -20,6 +20,7 @@
 		<ProjectReference Include="..\Vega.Modules.CustomItems\Vega.Modules.CustomItems.csproj" />
 		<ProjectReference Include="..\Vega.Modules.Pvp\Vega.Modules.Pvp.csproj" />
 		<ProjectReference Include="..\Vega.Operations\Vega.Operations.csproj" />
+		<ProjectReference Include="..\Vega.Persistence\Vega.Persistence.csproj" />
 		<ProjectReference Include="..\Vega.Terraria\Vega.Terraria.csproj" />
 		<ProjectReference Include="..\Vega.TerminalUI\Vega.TerminalUI.csproj" />
 	</ItemGroup>
@@ -30,6 +31,10 @@
 			<CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
 		</Content>
 		<Content Include="..\..\config\modules.json" Link="config\modules.json">
+			<CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+			<CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
+		</Content>
+		<Content Include="..\..\config\database.json" Link="config\database.json">
 			<CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
 			<CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
 		</Content>

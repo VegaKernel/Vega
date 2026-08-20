@@ -1,0 +1,7 @@
+{
+  "provider": "sqlite",
+  "sqlitePath": "data/vega.db",
+  "busyTimeoutMilliseconds": 5000,
+  "connectionStringEnvironmentVariable": "VEGA_DATABASE_CONNECTION_STRING",
+  "connectionString": null
+}

@@ -23,12 +23,14 @@ flowchart TB
     Runtime --> Core["Vega.Core<br/>серверная логика"]
     Runtime --> Operations["Vega.Operations<br/>логи + метрики + read models"]
     Runtime --> Cluster["Vega.Cluster<br/>опциональные межсерверные сценарии"]
+    Runtime --> Persistence["Vega.Persistence<br/>доменные хранилища + миграции"]
     Runtime -. "явная регистрация" .-> Modules["ServerPlugins<br/>Vega.Modules.*"]
 
     TerrariaAdapter --> Contracts["Vega.Contracts<br/>контракты + snapshots"]
     Core --> Contracts
     Operations --> Contracts
     Cluster --> Contracts
+    Persistence --> Contracts
     Modules --> Contracts
 
     TerminalUI["Vega.TerminalUI"] --> Operations
@@ -46,6 +48,7 @@ flowchart TB
 - режимы Terminal UI, plain console и headless;
 - структурные логи, runtime/GC/network/TPS-метрики и readiness telemetry;
 - опциональные типизированные cluster-контракты и reference transport;
+- доменное хранение с готовым SQLite и провайдерами PostgreSQL/MySQL;
 - экспериментальный `.vworld` cache с безопасным fallback на `.wld`.
 
 ## Требования
@@ -89,6 +92,7 @@ artifacts/server/Vega.Server.exe --vega-ui=plain
 - [Архитектура](docs/architecture.md)
 - [Operations API и Terminal UI](docs/operations.md)
 - [Cluster messaging](docs/cluster.md)
+- [Хранение и провайдеры баз данных](docs/ru/persistence.md)
 - [World image](docs/world-images.md)
 - [Публикация релизов](docs/releasing.md)
 - [Roadmap](docs/roadmap.md)

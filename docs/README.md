@@ -19,6 +19,7 @@ This directory contains Vega's project documentation, implementation notes, road
 - `extension-state.md` — scoped typed session state.
 - `operations.md` — operations API and Terminal UI.
 - `cluster.md` — optional typed cluster messaging.
+- `persistence.md` / `ru/persistence.md` — SQLite, PostgreSQL and MySQL configuration, migrations, backup and recovery.
 - `world-images.md` — `.vworld` format, fallback rules, and benchmark evidence.
 - `decisions/` — Architecture Decision Records.
 

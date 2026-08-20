@@ -32,6 +32,7 @@
     <ProjectReference Include="..\..\src\Vega.Modules.CustomItems\Vega.Modules.CustomItems.csproj" />
     <ProjectReference Include="..\..\src\Vega.Modules.Pvp\Vega.Modules.Pvp.csproj" />
     <ProjectReference Include="..\..\src\Vega.Operations\Vega.Operations.csproj" />
+    <ProjectReference Include="..\..\src\Vega.Persistence\Vega.Persistence.csproj" />
     <ProjectReference Include="..\..\src\Vega.Terraria\Vega.Terraria.csproj" />
     <ProjectReference Include="..\..\src\Vega.TerminalUI\Vega.TerminalUI.csproj" />
   </ItemGroup>

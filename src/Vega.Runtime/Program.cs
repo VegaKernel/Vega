@@ -25,6 +25,7 @@ using Vega.Operations.Actions;
 using Vega.Operations.Logging;
 using Vega.Operations.Metrics;
 using Vega.Operations.ReadModels;
+using Vega.Persistence;
 using Vega.TerminalUI;
 using Vega.Terraria;
 using Vega.Terraria.Items;
@@ -171,6 +172,23 @@ int Start()
     using (fileSink)
     {
         var logger = new StructuredOperationsLogger(sinks);
+        IVegaDatabase database;
+        try
+        {
+            VegaDatabaseOptions databaseOptions = VegaDatabaseOptionsStore.Load(
+                Path.Combine(AppContext.BaseDirectory, "config", "database.json"));
+            database = VegaDatabaseFactory.Create(databaseOptions, AppContext.BaseDirectory);
+        }
+        catch (Exception ex) when (ex is InvalidDataException or ArgumentException)
+        {
+            logger.Log(
+                OperationsLogLevel.Critical,
+                "persistence",
+                "Vega database configuration is invalid.",
+                ex);
+            return 1;
+        }
+
         using var worldImages = new TerrariaWorldImageService(logger, lifecycle, worldImageOptions.Enabled);
         var hostMetrics = new ProcessHostMetricsReader();
         var runtimeMetrics = new SampledRuntimeMetricsReader(hostMetrics);
@@ -230,6 +248,10 @@ int Start()
             $"Cluster transport: {UnavailableClusterClient.Instance.GetType().Name}; standalone operation remains enabled.");
         logger.Log(
             OperationsLogLevel.Information,
+            "persistence",
+            $"Database provider: {database.Provider}; initialization is required before world loading.");
+        logger.Log(
+            OperationsLogLevel.Information,
             "world-image",
             $"World image mode: {(worldImageOptions.Enabled ? "on" : "off")}; default remains off pending broader production evidence.");
 
@@ -244,6 +266,7 @@ int Start()
             logger,
             worldImages,
             worldClock,
+            [database],
             playerPacketPolicies,
             commandDispatcher,
             playerAuthorization);
@@ -268,10 +291,11 @@ IReadOnlyList<ModuleOperationsSnapshot> CreateModuleSnapshots(VegaModuleHost mod
     Module(
         "Vega.Runtime",
         Assembly.GetExecutingAssembly(),
-        ["Vega.Cluster", "Vega.Core", "Vega.Modules.Pvp", "Vega.Operations", "Vega.Terraria", "Vega.TerminalUI"]),
+        ["Vega.Cluster", "Vega.Core", "Vega.Modules.Pvp", "Vega.Operations", "Vega.Persistence", "Vega.Terraria", "Vega.TerminalUI"]),
     Module("Vega.Core", typeof(CommandDispatcher).Assembly, ["Vega.Contracts"]),
     Module("Vega.Cluster", typeof(UnavailableClusterClient).Assembly, ["Vega.Contracts"]),
     Module("Vega.Operations", typeof(OperationsSnapshotProvider).Assembly, ["Vega.Contracts"]),
+    Module("Vega.Persistence", typeof(IVegaDatabase).Assembly, ["Vega.Contracts", "System.Data.Common"]),
     Module("Vega.Terraria", typeof(TerrariaServerHost).Assembly, ["Vega.Contracts", "OTAPI", "TZ.Multiplicity"]),
     Module("Vega.TerminalUI", typeof(TerminalUiHost).Assembly, ["Vega.Contracts", "Terminal.Gui"]),
     .. moduleHost.SnapshotModules()

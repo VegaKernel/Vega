@@ -23,12 +23,14 @@ flowchart TB
     Runtime --> Core["Vega.Core<br/>server behavior"]
     Runtime --> Operations["Vega.Operations<br/>logs + metrics + read models"]
     Runtime --> Cluster["Vega.Cluster<br/>optional inter-server scenarios"]
+    Runtime --> Persistence["Vega.Persistence<br/>domain stores + migrations"]
     Runtime -. "explicit registration" .-> Modules["ServerPlugins<br/>Vega.Modules.*"]
 
     TerrariaAdapter --> Contracts["Vega.Contracts<br/>contracts + snapshots"]
     Core --> Contracts
     Operations --> Contracts
     Cluster --> Contracts
+    Persistence --> Contracts
     Modules --> Contracts
 
     TerminalUI["Vega.TerminalUI"] --> Operations
@@ -46,6 +48,7 @@ flowchart TB
 - Terminal UI, plain-console, and headless modes;
 - structured logs plus runtime, GC, network, TPS, and readiness telemetry;
 - optional typed cluster contracts with a reference transport;
+- domain persistence with deploy-ready SQLite plus PostgreSQL and MySQL providers;
 - an experimental `.vworld` cache with safe `.wld` fallback.
 
 ## Requirements
@@ -89,6 +92,7 @@ Supported modes are `auto`, `tui`, `plain`, and `headless`. Enable the world-ima
 - [Architecture](docs/architecture.md)
 - [Operations API and Terminal UI](docs/operations.md)
 - [Cluster messaging](docs/cluster.md)
+- [Persistence and database providers](docs/persistence.md)
 - [World images](docs/world-images.md)
 - [Release procedure](docs/releasing.md)
 - [Roadmap](docs/roadmap.md)

@@ -1,0 +1,227 @@
+using Microsoft.Data.Sqlite;
+using NUnit.Framework;
+using Vega.Contracts.Cluster.Events;
+using Vega.Persistence.Sqlite;
+
+namespace Vega.Runtime.Tests.Persistence;
+
+[TestFixture]
+public sealed class SqliteVegaDatabaseTests
+{
+    private string testDirectory = null!;
+    private string databasePath = null!;
+
+    [SetUp]
+    public void SetUp()
+    {
+        testDirectory = Path.Combine(
+            Path.GetTempPath(),
+            "Vega.Persistence.Tests",
+            Guid.NewGuid().ToString("N"));
+        databasePath = Path.Combine(testDirectory, "data", "vega.db");
+    }
+
+    [TearDown]
+    public void TearDown()
+    {
+        SqliteConnection.ClearAllPools();
+        if (Directory.Exists(testDirectory))
+        {
+            Directory.Delete(testDirectory, recursive: true);
+        }
+    }
+
+    [Test]
+    public async Task CleanDatabaseMigratesExactlyOnceAndCanBeReopened()
+    {
+        SqliteVegaDatabase first = await OpenAsync();
+        SqliteVegaDatabase second = await OpenAsync();
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(first.SchemaVersion, Is.EqualTo(1));
+            Assert.That(second.SchemaVersion, Is.EqualTo(1));
+            Assert.That(first.DatabasePath, Is.EqualTo(Path.GetFullPath(databasePath)));
+            Assert.That(File.Exists(databasePath), Is.True);
+            Assert.That(ScalarInt64("SELECT COUNT(*) FROM vega_schema_history;"), Is.EqualTo(1));
+            Assert.That(ScalarInt64("SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = 'global_bans';"), Is.EqualTo(1));
+        });
+    }
+
+    [Test]
+    public void DomainStoreCannotRunBeforeRequiredRuntimeInitialization()
+    {
+        SqliteVegaDatabase database = SqliteVegaDatabase.Create(
+            new SqliteVegaDatabaseOptions(databasePath));
+
+        InvalidOperationException error = Assert.Throws<InvalidOperationException>(() =>
+            database.GlobalBans.SnapshotActive(DateTimeOffset.UtcNow))!;
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(database.IsReady, Is.False);
+            Assert.That(error.Message, Does.Contain("has not completed runtime initialization"));
+            Assert.That(File.Exists(databasePath), Is.False);
+            Assert.That(Directory.Exists(Path.GetDirectoryName(databasePath)!), Is.False);
+        });
+    }
+
+    [Test]
+    public async Task ActiveBanPersistsAcrossDatabaseReopen()
+    {
+        DateTimeOffset createdAt = DateTimeOffset.Parse("2026-08-20T12:00:00Z");
+        GlobalBanCreated created = CreateBan(createdAt);
+        SqliteVegaDatabase first = await OpenAsync();
+
+        bool changed = await first.GlobalBans.ApplyCreatedAsync(created);
+        SqliteVegaDatabase reopened = await OpenAsync();
+        GlobalBanCreated[] active = reopened.GlobalBans
+            .SnapshotActive(createdAt.AddMinutes(1))
+            .ToArray();
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(changed, Is.True);
+            Assert.That(active, Has.Length.EqualTo(1));
+            Assert.That(active[0], Is.EqualTo(created));
+        });
+    }
+
+    [Test]
+    public async Task DuplicateAndStaleRevisionsDoNotOverwriteNewerState()
+    {
+        DateTimeOffset now = DateTimeOffset.Parse("2026-08-20T12:00:00Z");
+        GlobalBanCreated revisionTwo = CreateBan(now) with
+        {
+            Reason = "new reason",
+            Revision = 2
+        };
+        GlobalBanCreated stale = CreateBan(now) with
+        {
+            Reason = "stale reason",
+            Revision = 1
+        };
+        SqliteVegaDatabase database = await OpenAsync();
+
+        bool initial = await database.GlobalBans.ApplyCreatedAsync(revisionTwo);
+        bool duplicate = await database.GlobalBans.ApplyCreatedAsync(revisionTwo);
+        bool staleChanged = await database.GlobalBans.ApplyCreatedAsync(stale);
+        GlobalBanCreated active = database.GlobalBans.SnapshotActive(now)[0];
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(initial, Is.True);
+            Assert.That(duplicate, Is.False);
+            Assert.That(staleChanged, Is.False);
+            Assert.That(active.Revision, Is.EqualTo(2));
+            Assert.That(active.Reason, Is.EqualTo("new reason"));
+        });
+    }
+
+    [Test]
+    public async Task RevocationTombstoneSurvivesRestartAndRejectsOlderCreate()
+    {
+        DateTimeOffset now = DateTimeOffset.Parse("2026-08-20T12:00:00Z");
+        GlobalBanCreated created = CreateBan(now);
+        var revoked = new GlobalBanRevoked(
+            created.BanId,
+            "console",
+            now.AddMinutes(1),
+            2);
+        SqliteVegaDatabase first = await OpenAsync();
+
+        Assert.That(await first.GlobalBans.ApplyRevokedAsync(revoked), Is.True);
+        SqliteVegaDatabase reopened = await OpenAsync();
+        bool staleCreateChanged = await reopened.GlobalBans.ApplyCreatedAsync(created);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(staleCreateChanged, Is.False);
+            Assert.That(reopened.GlobalBans.SnapshotActive(now.AddMinutes(2)), Is.Empty);
+        });
+    }
+
+    [Test]
+    public async Task ExpiredAndRevokedBansAreExcludedFromActiveSnapshot()
+    {
+        DateTimeOffset now = DateTimeOffset.Parse("2026-08-20T12:00:00Z");
+        SqliteVegaDatabase database = await OpenAsync();
+        GlobalBanCreated expired = CreateBan(now.AddMinutes(-2)) with
+        {
+            ExpiresAt = now.AddMinutes(-1)
+        };
+        GlobalBanCreated revoked = CreateBan(now) with
+        {
+            BanId = GlobalBanId.New(),
+            Subject = new GlobalBanSubject(GlobalBanSubjectKind.IpAddress, "192.0.2.4")
+        };
+        GlobalBanCreated active = CreateBan(now) with
+        {
+            BanId = GlobalBanId.New(),
+            Subject = new GlobalBanSubject(GlobalBanSubjectKind.Network, "2001:db8::/48")
+        };
+
+        await database.GlobalBans.ApplyCreatedAsync(expired);
+        await database.GlobalBans.ApplyCreatedAsync(revoked);
+        await database.GlobalBans.ApplyRevokedAsync(new GlobalBanRevoked(
+            revoked.BanId,
+            "console",
+            now.AddSeconds(1),
+            2));
+        await database.GlobalBans.ApplyCreatedAsync(active);
+
+        Assert.That(database.GlobalBans.SnapshotActive(now), Is.EqualTo(new[] { active }));
+    }
+
+    [Test]
+    public async Task DatabaseFromANewerVegaSchemaIsRejectedWithoutDowngrade()
+    {
+        Directory.CreateDirectory(Path.GetDirectoryName(databasePath)!);
+        await using (var connection = new SqliteConnection($"Data Source={databasePath}"))
+        {
+            await connection.OpenAsync();
+            await using SqliteCommand command = connection.CreateCommand();
+            command.CommandText =
+                """
+                CREATE TABLE vega_schema_history (
+                    version INTEGER NOT NULL PRIMARY KEY,
+                    name TEXT NOT NULL,
+                    applied_at_utc TEXT NOT NULL
+                );
+                INSERT INTO vega_schema_history VALUES (99, 'future', '2026-08-20T12:00:00Z');
+                """;
+            await command.ExecuteNonQueryAsync();
+        }
+
+        InvalidDataException error = Assert.ThrowsAsync<InvalidDataException>(async () =>
+            await OpenAsync())!;
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(error.Message, Does.Contain("newer than supported schema"));
+            Assert.That(ScalarInt64("SELECT MAX(version) FROM vega_schema_history;"), Is.EqualTo(99));
+        });
+    }
+
+    private ValueTask<SqliteVegaDatabase> OpenAsync() =>
+        SqliteVegaDatabase.OpenAsync(new SqliteVegaDatabaseOptions(databasePath));
+
+    private long ScalarInt64(string sql)
+    {
+        using var connection = new SqliteConnection($"Data Source={databasePath}");
+        connection.Open();
+        using SqliteCommand command = connection.CreateCommand();
+        command.CommandText = sql;
+        return Convert.ToInt64(command.ExecuteScalar());
+    }
+
+    private static GlobalBanCreated CreateBan(DateTimeOffset createdAt) =>
+        new(
+            new GlobalBanId(Guid.Parse("7d72b775-ded6-4426-bc5e-3d1f5fa46c04")),
+            new GlobalBanSubject(GlobalBanSubjectKind.Account, "alice"),
+            "test reason",
+            "console",
+            createdAt,
+            createdAt.AddHours(1),
+            1);
+}

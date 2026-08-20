@@ -452,10 +452,13 @@ Vega 1.0 currently has the modern command/authorization boundaries and several r
 
 ### Persistence, migration and release validation
 
-- [ ] Ship a documented default embedded storage provider and explicit provider contracts for external databases; startup must never pretend persistence succeeded when storage is unavailable.
+- [x] Ship the domain-oriented `Vega.Persistence` layer with deploy-ready SQLite and selectable PostgreSQL/MySQL providers; initialize it before world loading and fail startup when the selected store is unavailable.
+- [x] Persist the first revision-aware domain consumer (global-ban creation/revocation tombstones) through the same contract used by cluster replication.
 - [ ] Make schema upgrades transactional with backup/recovery guidance and idempotent migration tests from every released Vega schema.
 - [ ] Add clean-archive tests proving that an operator can extract the release, edit documented configuration, create the first administrator, start a world and manage groups/regions/bans without repository files.
 - [ ] Update English/Russian guides and the deployable archive only after command examples, generated configuration and persistence paths match the running server.
+
+ADR 0022 establishes the persistence boundary without reproducing TShock's generic database helpers. Domain contracts never expose SQL or `DbConnection`. SQLite and PostgreSQL use transactional schema upgrades; MySQL uses a database-scoped migration lock plus idempotent retryable DDL because its engine implicitly commits DDL. Schema 1 and its clean/reopen/future-version/revision/tombstone/expiry tests are complete. The phase remains open for account, group, region, SSC and moderation product stores and for real disposable PostgreSQL/MySQL contract tests in CI.
 
 ## Architectural guardrails
 

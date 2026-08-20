@@ -32,6 +32,7 @@ public static class TerrariaServerHost
         IOperationsLogger logger,
         TerrariaWorldImageService worldImages,
         IWorldClockController worldClock,
+        IReadOnlyList<IRuntimeStartupParticipant> startupParticipants,
         IPacketProcessor<PacketView> playerOwnershipSecurity,
         ICommandDispatcher commandDispatcher,
         IPlayerAuthorizationService playerAuthorization)
@@ -46,6 +47,7 @@ public static class TerrariaServerHost
         ArgumentNullException.ThrowIfNull(logger);
         ArgumentNullException.ThrowIfNull(worldImages);
         ArgumentNullException.ThrowIfNull(worldClock);
+        ArgumentNullException.ThrowIfNull(startupParticipants);
         ArgumentNullException.ThrowIfNull(playerOwnershipSecurity);
         ArgumentNullException.ThrowIfNull(commandDispatcher);
         ArgumentNullException.ThrowIfNull(playerAuthorization);
@@ -104,6 +106,8 @@ public static class TerrariaServerHost
             // The explicit composition root has already started and validated every Vega module.
             lifecycle.Advance(RuntimeLifecycleStage.ModulesRegistered);
 
+            InitializeRuntimeParticipants(startupParticipants, logger);
+
             if (args.Any(static arg => string.Equals(arg, "-skipassemblyload", StringComparison.OrdinalIgnoreCase)))
             {
                 global::Terraria.Main.SkipAssemblyLoad = true;
@@ -121,6 +125,23 @@ public static class TerrariaServerHost
         {
             lifecycle.Transitioned -= Report;
             AppDomain.CurrentDomain.UnhandledException -= ReportUnhandled;
+        }
+    }
+
+    private static void InitializeRuntimeParticipants(
+        IReadOnlyList<IRuntimeStartupParticipant> participants,
+        IOperationsLogger logger)
+    {
+        foreach (IRuntimeStartupParticipant participant in participants)
+        {
+            ArgumentNullException.ThrowIfNull(participant);
+            long startedAt = System.Diagnostics.Stopwatch.GetTimestamp();
+            participant.InitializeAsync().AsTask().GetAwaiter().GetResult();
+            TimeSpan elapsed = System.Diagnostics.Stopwatch.GetElapsedTime(startedAt);
+            logger.Log(
+                OperationsLogLevel.Information,
+                "startup",
+                $"{participant.Name} ready in {elapsed.TotalMilliseconds:F1} ms.");
         }
     }
 

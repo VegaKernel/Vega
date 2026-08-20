@@ -6,6 +6,56 @@ namespace Vega.Architecture.Tests;
 public sealed class RuntimeDependencyTests
 {
     [Test]
+    public void PersistenceProvidersStayOutsideCoreAndInitializeBeforeWorldLoading()
+    {
+        var repositoryRoot = FindRepositoryRoot();
+        string persistenceDirectory = Path.Combine(repositoryRoot, "src", "Vega.Persistence");
+        string[] persistenceSources = Directory
+            .EnumerateFiles(persistenceDirectory, "*.*", SearchOption.AllDirectories)
+            .Where(path => path.EndsWith(".cs", StringComparison.OrdinalIgnoreCase) ||
+                           path.EndsWith(".csproj", StringComparison.OrdinalIgnoreCase))
+            .Select(File.ReadAllText)
+            .ToArray();
+        string coreProject = File.ReadAllText(Path.Combine(
+            repositoryRoot, "src", "Vega.Core", "Vega.Core.csproj"));
+        string contractsProject = File.ReadAllText(Path.Combine(
+            repositoryRoot, "src", "Vega.Contracts", "Vega.Contracts.csproj"));
+        string host = File.ReadAllText(Path.Combine(
+            repositoryRoot, "src", "Vega.Terraria", "TerrariaServerHost.cs"));
+
+        int modulesRegistered = host.IndexOf(
+            "lifecycle.Advance(RuntimeLifecycleStage.ModulesRegistered);",
+            StringComparison.Ordinal);
+        int persistenceInitialization = host.IndexOf(
+            "InitializeRuntimeParticipants(startupParticipants, logger);",
+            StringComparison.Ordinal);
+        int terrariaMain = host.IndexOf(
+            "global::Terraria.WindowsLaunch.Main(args);",
+            StringComparison.Ordinal);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(
+                persistenceSources.Any(source =>
+                    source.Contains("TShockAPI", StringComparison.Ordinal) ||
+                    source.Contains("TSPlayer", StringComparison.Ordinal) ||
+                    source.Contains("Terraria.Main", StringComparison.Ordinal) ||
+                    source.Contains("OTAPI", StringComparison.Ordinal)),
+                Is.False,
+                "Persistence must remain independent from Terraria and legacy APIs.");
+            Assert.That(coreProject, Does.Not.Contain("Microsoft.Data.Sqlite"));
+            Assert.That(coreProject, Does.Not.Contain("Npgsql"));
+            Assert.That(coreProject, Does.Not.Contain("MySqlConnector"));
+            Assert.That(contractsProject, Does.Not.Contain("Microsoft.Data.Sqlite"));
+            Assert.That(contractsProject, Does.Not.Contain("Npgsql"));
+            Assert.That(contractsProject, Does.Not.Contain("MySqlConnector"));
+            Assert.That(modulesRegistered, Is.GreaterThanOrEqualTo(0));
+            Assert.That(persistenceInitialization, Is.GreaterThan(modulesRegistered));
+            Assert.That(terrariaMain, Is.GreaterThan(persistenceInitialization));
+        });
+    }
+
+    [Test]
     public void WorldClockTouchesTerrariaOnlyFromTheGameTickAdapter()
     {
         var repositoryRoot = FindRepositoryRoot();

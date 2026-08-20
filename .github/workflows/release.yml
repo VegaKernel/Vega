@@ -84,6 +84,7 @@ jobs:
             'Vega.Core.dll',
             'Vega.Cluster.dll',
             'Vega.Operations.dll',
+            'Vega.Persistence.dll',
             'Vega.Terraria.dll',
             'Vega.TerminalUI.dll',
             'OTAPI.dll',

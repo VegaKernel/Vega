@@ -25,6 +25,7 @@ Vega не загружает плагины TShock или TSAPI и не сохр
 | `src/Vega.Operations` | Структурные логи, метрики, read models и безопасные command actions |
 | `src/Vega.TerminalUI` | Опциональная Terminal.Gui-панель и command palette |
 | `src/Vega.Cluster` | Опциональные типизированные межсерверные сценарии и in-memory reference transport |
+| `src/Vega.Persistence` | Доменное хранение, миграции схемы и провайдеры SQLite/PostgreSQL/MySQL |
 | `src/Vega.Modules.Pvp` | PvP authority, projectile attribution, death windows и session state |
 | `src/Vega.Modules.CustomItems` | Типизированные custom items и адресная доставка через Terraria |
 | `tests/Vega.Architecture.Tests` | Проверки зависимостей и границ владения |
@@ -44,6 +45,7 @@ Vega.Runtime ───────→ Vega.TerminalUI
    ├──→ Vega.Terraria → Vega.Operations
    ├──→ Vega.Core          ↓
    ├──→ Vega.Cluster   Vega.Contracts
+   ├──→ Vega.Persistence   ↑
    └──→ Server modules ────↑
 ```
 
@@ -105,6 +107,10 @@ artifacts/server/
 
 Assembly resolver сначала проверяет `libs/`, затем `ServerPlugins/`. Старые имена каталогов дистрибутива `bin/` и `Plugins/` не используются.
 
+### Провайдер базы данных
+
+По умолчанию используется SQLite с файлом `data/vega.db`. Для внешней базы выберите `postgresql` или `mysql` в `config/database.json` и задайте `VEGA_DATABASE_CONNECTION_STRING`. Подключение и миграции выполняются после дешёвой регистрации runtime/модулей, но до загрузки мира; ошибка останавливает запуск. Настройка, блокировки миграций, резервное копирование и восстановление описаны в [руководстве по хранению данных](persistence.md).
+
 ## 7. Запуск сервера
 
 ```powershell
@@ -129,6 +135,8 @@ Dashboard теперь представляет собой контрастны�
 ### World-image mode
 
 `--vega-world-image=on` включает экспериментальный производный `.vworld` cache; `off` выключает его. По умолчанию режим выключен. `.wld` остаётся каноническим форматом, а устаревший, несовместимый или повреждённый image автоматически приводит к fallback на `.wld`.
+
+Запускайте `Vega.Server.exe --vega-world-image=on -world путь/к/world.wld`. Vega сама найдёт или построит `world.vworld` рядом с выбранным `.wld`; напрямую image не выбирается. Обычная команда Terraria `save` всегда записывает `.wld`, после изменения которого Vega перестроит устаревший image. Отдельной команды «сохранить как `.vworld`» намеренно нет.
 
 ### Режим world clock
 

@@ -14,6 +14,8 @@ Use `--vega-world-image=off` to state the default policy explicitly. Vega remove
 
 On the first enabled load Vega uses `.wld` and builds `world.vworld` in the background. A later load uses the image only after validating the source content fingerprint, Terraria format version, Vega schema, compiler parameters, manifest and section checksums. A stale or incompatible image is rebuilt after normal startup. A corrupt image is moved to `world.vworld.corrupt`; startup continues from `.wld`.
 
+There is no separate `.vworld` world selector or save command. Start the canonical world with `--vega-world-image=on -world path/to/world.wld`; Vega finds `world.vworld` beside it automatically. Terraria's normal `save` command writes the authoritative `.wld`. A changed fingerprint makes the old image stale, so Vega falls back and rebuilds it. Never delete the `.wld` after an image is generated.
+
 Generation writes `world.vworld.tmp`, flushes it to durable storage, reopens and validates the complete artifact, then atomically replaces the previous image. Neither the source `.wld` nor the previous valid image is modified before validation succeeds.
 
 ## Schema 1

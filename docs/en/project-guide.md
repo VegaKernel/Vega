@@ -25,6 +25,7 @@ Vega does not load TShock or TSAPI plugins and does not preserve their API shape
 | `src/Vega.Operations` | Structured logging, metrics, read models, and safe command actions |
 | `src/Vega.TerminalUI` | Optional Terminal.Gui dashboard and command palette |
 | `src/Vega.Cluster` | Optional typed inter-server scenarios and the in-memory reference transport |
+| `src/Vega.Persistence` | Domain persistence, schema migrations, and SQLite/PostgreSQL/MySQL providers |
 | `src/Vega.Modules.Pvp` | PvP authority, projectile attribution, death windows, and per-session state |
 | `src/Vega.Modules.CustomItems` | Typed custom-item definitions and targeted Terraria delivery |
 | `tests/Vega.Architecture.Tests` | Dependency and ownership guardrails |
@@ -44,6 +45,7 @@ Vega.Runtime ───────→ Vega.TerminalUI
    ├──→ Vega.Terraria → Vega.Operations
    ├──→ Vega.Core          ↓
    ├──→ Vega.Cluster   Vega.Contracts
+   ├──→ Vega.Persistence   ↑
    └──→ Server modules ────↑
 ```
 
@@ -98,12 +100,16 @@ artifacts/server/
 ├── Vega.Server.runtimeconfig.json
 ├── libs/                  shared Vega and third-party runtime libraries
 ├── ServerPlugins/         bundled Vega.Modules.* assemblies
-├── config/                TUI and module hot-reload settings
+├── config/                database, TUI, world-clock, and module settings
 ├── runtimes/              platform-specific package assets when present
 └── <culture>/             satellite resources when present
 ```
 
 The assembly resolver checks `libs/` first and then `ServerPlugins/`. The old `bin/` and `Plugins/` distribution names are not used.
+
+### Database provider
+
+SQLite is enabled by default and creates `data/vega.db`. Select `postgresql` or `mysql` in `config/database.json` and supply `VEGA_DATABASE_CONNECTION_STRING` for an external database. Provider connections and migrations run after cheap runtime/module registration but before world loading; failure stops startup. See [the persistence guide](../persistence.md) for configuration, migration locks, backup and recovery.
 
 ## 7. Starting the server
 
@@ -129,6 +135,8 @@ The dashboard is a high-contrast desktop of movable and resizable server, perfor
 ### World-image mode
 
 `--vega-world-image=on` enables the experimental derived `.vworld` cache; `off` disables it. The default is off. `.wld` remains canonical, and stale, incompatible, or corrupt images automatically fall back to it.
+
+Use `Vega.Server.exe --vega-world-image=on -world path/to/world.wld`. Vega finds or builds `world.vworld` beside the selected `.wld`; the image is not selected directly. Terraria's normal `save` command always writes `.wld`, and Vega rebuilds a stale image after the source changes. There is deliberately no separate “save as `.vworld`” command.
 
 ### World-clock mode
 
