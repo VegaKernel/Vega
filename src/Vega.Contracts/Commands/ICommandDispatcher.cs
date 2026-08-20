@@ -5,6 +5,11 @@ namespace TShockNG.Contracts.Commands;
 /// </summary>
 public interface ICommandDispatcher
 {
+    /// <summary>
+    /// Returns whether a command name or alias is owned by the modern command pipeline.
+    /// </summary>
+    bool CanDispatch(string name);
+
     ValueTask<CommandExecutionResult> DispatchAsync(
         CommandInvocation invocation,
         CancellationToken cancellationToken = default);
