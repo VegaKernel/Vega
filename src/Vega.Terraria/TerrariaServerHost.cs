@@ -4,6 +4,7 @@ using Vega.Contracts.Events;
 using Vega.Contracts.Runtime;
 using Vega.Contracts.Worlds;
 using Vega.Terraria.Hooking;
+using Vega.Terraria.Players;
 using Vega.Terraria.Threading;
 
 namespace Vega.Terraria;
@@ -16,10 +17,14 @@ public static class TerrariaServerHost
     public static int Run(
         string[] args,
         long processStartedAt,
-        IEventPipeline<WorldHardmodeStarting> hardmodeStarting)
+        IEventPipeline<WorldHardmodeStarting> hardmodeStarting,
+        OtapiGameThreadDispatcher gameThreadDispatcher,
+        TerrariaPlayerBoundary playerBoundary)
     {
         ArgumentNullException.ThrowIfNull(args);
         ArgumentNullException.ThrowIfNull(hardmodeStarting);
+        ArgumentNullException.ThrowIfNull(gameThreadDispatcher);
+        ArgumentNullException.ThrowIfNull(playerBoundary);
 
         var lifecycle = new RuntimeLifecycleTracker(processStartedAt);
         lifecycle.Transitioned += ReportLifecycleTransition;
@@ -29,7 +34,6 @@ public static class TerrariaServerHost
         var legacyHooksAttached = false;
 
         using var nativeLifecycleHooks = new NativeLifecycleHooks(lifecycle);
-        using var gameThreadDispatcher = new OtapiGameThreadDispatcher();
         using var worldDecisionHooks = new NativeWorldDecisionHooks(hardmodeStarting);
 
         try
@@ -39,6 +43,7 @@ public static class TerrariaServerHost
 
             nativeLifecycleHooks.Attach();
             gameThreadDispatcher.Attach();
+            playerBoundary.Attach();
             worldDecisionHooks.Attach();
 
             // Temporary seam: legacy TShockAPI still receives its historical TSAPI events.

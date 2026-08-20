@@ -36,12 +36,14 @@ Implementation priority is intentionally vertical. Each new abstraction should l
 
 ## Phase 3 — player boundary
 
-- [ ] Introduce demand-driven read-only `PlayerSnapshot`.
-- [ ] Introduce `IPlayerDirectory` for lookup/enumeration.
-- [ ] Introduce `IPlayerOperations` for kick/teleport/authoritative state changes.
-- [ ] Introduce `IPlayerMessenger` separately from mutation capabilities.
-- [ ] Ensure Terraria player mutation is implemented only in `Vega.Terraria` and scheduled on the game thread.
+- [x] Introduce demand-driven read-only `PlayerSnapshot`.
+- [x] Introduce `IPlayerDirectory` for lookup/enumeration.
+- [x] Introduce `IPlayerOperations` for kick/teleport/authoritative state changes.
+- [x] Introduce `IPlayerMessenger` separately from mutation capabilities.
+- [x] Ensure Terraria player mutation is implemented only in `Vega.Terraria` and scheduled on the game thread.
 - [ ] Migrate a real player/security/command scenario before adding more player abstraction surface.
+
+The initial Terraria implementation publishes immutable player snapshots from the game thread and provides slot lookup, exact-name lookup, kick, message delivery and teleport without exposing `Terraria.Player` or `TSPlayer`. Queued operations complete only after the game-thread action has actually produced a result.
 
 ## Phase 4 — packet processing context
 
