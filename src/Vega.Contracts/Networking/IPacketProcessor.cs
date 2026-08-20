@@ -1,6 +1,11 @@
 namespace TShockNG.Contracts.Networking;
 
-public interface IPacketProcessor
+/// <summary>
+/// Processes a typed packet inside the Vega packet-processing boundary.
+/// </summary>
+/// <typeparam name="TPacket">A typed packet value. Stack-only packet views are supported.</typeparam>
+public interface IPacketProcessor<TPacket>
+    where TPacket : allows ref struct
 {
-    PacketProcessingDecision Process(int playerId, int packetType, ReadOnlyMemory<byte> payload);
+    PacketProcessingDecision Process(scoped in PacketProcessingContext<TPacket> context);
 }
