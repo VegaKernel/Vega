@@ -346,6 +346,42 @@ Deliver the first production sandbox implementation as supervised Terraria/Vega 
 - [ ] Require evidence that Terraria/OTAPI globals, hooks, networking, entity ownership, world save/load and game-thread affinity can be isolated without broad static-state emulation.
 - [ ] Do not make single-process virtualization, lazy world storage or replacement of `Main.tile` a compatibility promise or prerequisite for the Phase 17 sandbox API.
 
+## Phase 18 — migrate Vega to .NET 11
+
+Move the complete runtime, public packages and release toolchain to .NET 11 only after a stable SDK/runtime and the critical Terraria integration dependencies are production-usable. Keep the last verified .NET 10 revision and artifacts available as the rollback baseline until the migration passes compatibility, startup and performance validation.
+
+### Dependency and compatibility gate
+
+- [ ] Audit .NET 11 support for OTAPI, ModFramework, MonoMod, `TZ.Multiplicity`, Terminal.Gui, MaxMind, test adapters and every runtime dependency before changing Vega target frameworks.
+- [ ] Build and run a disposable compatibility branch on .NET 11 with zero suppressed loader, JIT, trimming, native-asset or hook failures.
+- [ ] Record required dependency upgrades and their behavioral/API changes; do not carry local forks or binding workarounds without an explicit owner and removal condition.
+- [ ] Decide the public-package compatibility policy from real consumers: multi-target only narrow libraries that still require active .NET 10 consumers, while keeping the server runtime on one authoritative target.
+- [ ] Confirm that every bundled `ServerPlugins` module targets a framework loadable by the .NET 11 host and rejects incompatible modules with an actionable startup diagnostic.
+
+### Project and toolchain migration
+
+- [ ] Change the repository target framework and documented SDK baseline from `net10.0` to `net11.0` in one coordinated change.
+- [ ] Update CI, tagged release, manual publication and local build instructions to install and use the pinned .NET 11 SDK feature band.
+- [ ] Upgrade analyzers, test infrastructure and build tooling, then resolve new warnings intentionally instead of globally suppressing them.
+- [ ] Preserve deterministic package metadata, symbols, assembly/file versions and the `VegaKernel.*` package IDs across the framework transition.
+- [ ] Update the deployable server layout and assembly resolver only where .NET 11 requires it; retain `libs/` and `ServerPlugins/` ownership boundaries.
+
+### Runtime validation
+
+- [ ] Run the complete unit, integration and architecture suite on .NET 11, including packet ownership, game-thread dispatch, module lifecycle, cluster scenarios and `.vworld` fallback/corruption paths.
+- [ ] Smoke-test clean extraction and startup on every supported operating system/runtime identifier, including interactive world selection, plain console, TUI and headless modes.
+- [ ] Validate OTAPI hooks, Terraria world load/save, networking, player join/leave, commands, shutdown and crash diagnostics against representative production worlds.
+- [ ] Pack and inspect every NuGet and symbol package, install them into clean consumer projects and verify that dependency assets resolve without relying on the Vega repository cache.
+- [ ] Run upgrade tests for existing Vega configuration, logs, worlds, `.vworld` images and module deployments; document every incompatible operational change.
+
+### Performance and rollout
+
+- [ ] Compare .NET 11 with the recorded .NET 10 baseline for process startup, `WorldReady`/`NetworkReady`, tick p50/p95/p99, allocations, GC pauses, working set, packet throughput and shutdown time.
+- [ ] Investigate material regressions before release and require measured evidence for runtime or GC tuning changes.
+- [ ] Publish prerelease packages and a deployable release candidate for production-like soak testing before replacing the stable .NET 10 channel.
+- [ ] Update English and Russian documentation, support policy, diagnostics and release notes with the new runtime prerequisite and rollback procedure.
+- [ ] Mark the migration complete only after CI, packaging, clean-machine deployment, representative world startup and sustained server operation pass on .NET 11.
+
 ## Architectural guardrails
 
 These apply across all phases:

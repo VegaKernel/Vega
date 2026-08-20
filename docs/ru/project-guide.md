@@ -121,7 +121,7 @@ Vega удаляет собственные параметры перед пер�
 | `--vega-ui=plain` | Обычный консольный ввод и вывод |
 | `--vega-ui=headless` | Без интерактивного UI и operations stdout sink |
 
-Инициализация TUI выполняется best-effort и не блокирует готовность сервера. Структурные file logs записываются в `logs/vega-operations.jsonl`, когда путь доступен.
+Инициализация TUI выполняется best-effort и не блокирует готовность сервера. Vega запускает Terminal.Gui только после `NetworkReady`, чтобы Terraria сохраняла стандартный ввод во время интерактивного выбора и загрузки мира. Структурные file logs записываются в `logs/vega-operations.jsonl`, когда путь доступен.
 
 ### World-image mode
 

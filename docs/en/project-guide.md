@@ -121,7 +121,7 @@ Vega-specific options are removed before the remaining arguments are passed to T
 | `--vega-ui=plain` | Traditional console input and output |
 | `--vega-ui=headless` | No interactive UI or operations stdout sink |
 
-TUI initialization is best-effort and never blocks server readiness. Structured file logs are written to `logs/vega-operations.jsonl` when the path is available.
+TUI initialization is best-effort and never blocks server readiness. Vega waits until `NetworkReady` before starting Terminal.Gui so Terraria retains standard input during interactive world selection and loading. Structured file logs are written to `logs/vega-operations.jsonl` when the path is available.
 
 ### World-image mode
 

@@ -185,7 +185,10 @@ int Start()
             worldImages);
         var operationsCommands = new OperationsCommandService(commandDispatcher);
         using var terminalUi = new TerminalUiHost(snapshots, operationsCommands, logger);
-        terminalUi.TryStart(uiOptions.EffectiveMode);
+        using var terminalUiReadiness = new TerminalUiReadinessGate(
+            lifecycle,
+            uiOptions.EffectiveMode,
+            terminalUi.TryStart);
         logger.Log(
             OperationsLogLevel.Information,
             "operations",

@@ -350,6 +350,49 @@ public sealed class TerminalOperationsTests
         Assert.That(host.TryStart(mode), Is.False);
     }
 
+    [Test]
+    public void TerminalModeWaitsUntilNetworkReadyBeforeTakingConsoleInput()
+    {
+        var lifecycle = new MutableLifecycle();
+        int startCount = 0;
+        using var gate = new TerminalUiReadinessGate(
+            lifecycle,
+            OperationsUiMode.Terminal,
+            _ =>
+            {
+                startCount++;
+                return true;
+            });
+
+        lifecycle.Advance(RuntimeLifecycleStage.WorldLoading);
+        lifecycle.Advance(RuntimeLifecycleStage.WorldReady);
+
+        Assert.That(startCount, Is.Zero, "Terraria must retain stdin through world selection and loading.");
+
+        lifecycle.Advance(RuntimeLifecycleStage.NetworkReady);
+        lifecycle.Advance(RuntimeLifecycleStage.FullyWarmed);
+
+        Assert.That(startCount, Is.EqualTo(1));
+    }
+
+    [Test]
+    public void TerminalModeStartsImmediatelyWhenRuntimeIsAlreadyReady()
+    {
+        var lifecycle = new MutableLifecycle(RuntimeLifecycleStage.NetworkReady);
+        int startCount = 0;
+
+        using var gate = new TerminalUiReadinessGate(
+            lifecycle,
+            OperationsUiMode.Terminal,
+            _ =>
+            {
+                startCount++;
+                return true;
+            });
+
+        Assert.That(startCount, Is.EqualTo(1));
+    }
+
     private static OperationsSnapshot CreateSnapshot()
     {
         var server = new ServerDashboardSnapshot(
@@ -415,6 +458,22 @@ public sealed class TerminalOperationsTests
                 CommandExecutionStatus.Success,
                 null,
                 ["done"]));
+        }
+    }
+
+    private sealed class MutableLifecycle(
+        RuntimeLifecycleStage initialStage = RuntimeLifecycleStage.ProcessStart) : IRuntimeLifecycle
+    {
+        public RuntimeLifecycleStage CurrentStage { get; private set; } = initialStage;
+
+        public TimeSpan Elapsed => TimeSpan.Zero;
+
+        public event Action<RuntimeLifecycleTransition>? Transitioned;
+
+        public void Advance(RuntimeLifecycleStage stage)
+        {
+            CurrentStage = stage;
+            Transitioned?.Invoke(new RuntimeLifecycleTransition(stage, TimeSpan.Zero, TimeSpan.Zero));
         }
     }
 }
