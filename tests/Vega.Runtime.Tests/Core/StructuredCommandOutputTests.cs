@@ -1,11 +1,11 @@
 using NUnit.Framework;
-using TShockNG.Contracts.Commands;
-using TShockNG.Contracts.Messaging;
-using TShockNG.Contracts.Operations;
-using TShockNG.Contracts.Updates;
-using TShockNG.Core.Commands.System;
+using Vega.Contracts.Commands;
+using Vega.Contracts.Messaging;
+using Vega.Contracts.Operations;
+using Vega.Contracts.Updates;
+using Vega.Core.Commands.System;
 
-namespace TShockLauncher.Tests.Core;
+namespace Vega.Runtime.Tests.Core;
 
 [TestFixture]
 public sealed class StructuredCommandOutputTests

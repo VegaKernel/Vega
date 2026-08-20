@@ -1,4 +1,4 @@
-namespace TShockNG.Contracts.Updates;
+namespace Vega.Contracts.Updates;
 
 public interface IUpdateChecker
 {

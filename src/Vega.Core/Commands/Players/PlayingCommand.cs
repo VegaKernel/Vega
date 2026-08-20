@@ -1,9 +1,9 @@
 using System.Text;
-using TShockNG.Contracts.Commands;
-using TShockNG.Contracts.Messaging;
-using TShockNG.Contracts.Players;
+using Vega.Contracts.Commands;
+using Vega.Contracts.Messaging;
+using Vega.Contracts.Players;
 
-namespace TShockNG.Core.Commands.Players;
+namespace Vega.Core.Commands.Players;
 
 public sealed class PlayingCommand(IPlayerDirectory players) : ICommandHandler
 {

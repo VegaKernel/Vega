@@ -1,9 +1,9 @@
 using NUnit.Framework;
-using TShockNG.Contracts.Commands;
-using TShockNG.Contracts.Messaging;
-using TShockNG.Contracts.Operations;
-using TShockNG.Contracts.Players;
-using TShockNG.Core.Commands;
+using Vega.Contracts.Commands;
+using Vega.Contracts.Messaging;
+using Vega.Contracts.Operations;
+using Vega.Contracts.Players;
+using Vega.Core.Commands;
 using Vega.Contracts.Runtime;
 using Vega.Operations.Actions;
 using Vega.Operations.Logging;

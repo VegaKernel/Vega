@@ -1,4 +1,4 @@
-namespace TShockNG.Contracts.Bans;
+namespace Vega.Contracts.Bans;
 
 public interface IBanService
 {

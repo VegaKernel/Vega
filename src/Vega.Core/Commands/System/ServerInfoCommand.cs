@@ -1,8 +1,8 @@
-using TShockNG.Contracts.Commands;
-using TShockNG.Contracts.Messaging;
-using TShockNG.Contracts.Operations;
+using Vega.Contracts.Commands;
+using Vega.Contracts.Messaging;
+using Vega.Contracts.Operations;
 
-namespace TShockNG.Core.Commands.System;
+namespace Vega.Core.Commands.System;
 
 public sealed class ServerInfoCommand(IHostMetricsReader metricsReader) : ICommandHandler
 {

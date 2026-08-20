@@ -6,12 +6,11 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
     <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+    <MonoMod_ReallySkipCheckTargetRuntime>true</MonoMod_ReallySkipCheckTargetRuntime>
   </PropertyGroup>
 
   <ItemGroup>
     <ProjectReference Include="..\Vega.Contracts\Vega.Contracts.csproj" />
-    <!-- Temporary containment seam. Remove when Vega owns OTAPI hook dispatch directly. -->
-    <ProjectReference Include="..\..\external\TSAPI\TerrariaServerAPI\TerrariaServerAPI.csproj" />
     <PackageReference Include="OTAPI.Upcoming" Version="3.3.11" />
     <PackageReference Include="TZ.Multiplicity" Version="2.6.0" />
   </ItemGroup>

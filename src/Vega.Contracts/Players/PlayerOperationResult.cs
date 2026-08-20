@@ -1,4 +1,4 @@
-namespace TShockNG.Contracts.Players;
+namespace Vega.Contracts.Players;
 
 public enum PlayerOperationStatus
 {

@@ -1,7 +1,7 @@
 using NUnit.Framework;
-using TShockNG.Core.GeoIP;
+using Vega.Core.GeoIP;
 
-namespace TShockLauncher.Tests.Core;
+namespace Vega.Runtime.Tests.Core;
 
 [TestFixture]
 public sealed class IpMetadataProviderTests

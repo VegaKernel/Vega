@@ -1,4 +1,4 @@
-namespace TShockNG.Contracts.Worlds;
+namespace Vega.Contracts.Worlds;
 
 /// <summary>
 /// Stable identifier of a managed world context.

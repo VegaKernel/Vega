@@ -1,9 +1,9 @@
-using TShockNG.Contracts.Authorization;
-using TShockNG.Contracts.Commands;
-using TShockNG.Contracts.Messaging;
-using TShockNG.Contracts.Players;
+using Vega.Contracts.Authorization;
+using Vega.Contracts.Commands;
+using Vega.Contracts.Messaging;
+using Vega.Contracts.Players;
 
-namespace TShockNG.Core.Commands.Administration;
+namespace Vega.Core.Commands.Administration;
 
 public sealed class KickCommand(
     IPlayerDirectory players,

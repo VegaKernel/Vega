@@ -1,9 +1,9 @@
 using NUnit.Framework;
-using TShockNG.Contracts.Commands;
-using TShockNG.Contracts.Worlds;
-using TShockNG.Core.Commands;
+using Vega.Contracts.Commands;
+using Vega.Contracts.Worlds;
+using Vega.Core.Commands;
 
-namespace TShockLauncher.Tests.Core;
+namespace Vega.Runtime.Tests.Core;
 
 [TestFixture]
 public sealed class CommandDispatcherTests

@@ -1,4 +1,4 @@
-namespace TShockNG.Contracts.Messaging;
+namespace Vega.Contracts.Messaging;
 
 /// <summary>
 /// Semantic severity of a message before a concrete output adapter renders it.

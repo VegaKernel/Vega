@@ -1,7 +1,7 @@
 using System.Diagnostics;
-using TShockNG.Contracts.Operations;
+using Vega.Contracts.Operations;
 
-namespace TShockNG.Core.Operations;
+namespace Vega.Core.Operations;
 
 public sealed class ProcessHostMetricsReader : IHostMetricsReader
 {

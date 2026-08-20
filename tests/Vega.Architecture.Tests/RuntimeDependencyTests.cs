@@ -71,25 +71,22 @@ public sealed class RuntimeDependencyTests
     }
 
     [Test]
-    public void VegaTerraria_contains_TSAPI_usage_in_legacy_bridge_only()
+    public void VegaRepository_has_no_TSAPI_or_TShock_runtime_projects()
     {
         var repositoryRoot = FindRepositoryRoot();
-        var terrariaDirectory = Path.Combine(repositoryRoot, "src", "Vega.Terraria");
+        string solution = File.ReadAllText(Path.Combine(repositoryRoot, "Vega.sln"));
+        string host = File.ReadAllText(Path.Combine(
+            repositoryRoot, "src", "Vega.Terraria", "TerrariaServerHost.cs"));
 
-        var offenders = Directory
-            .EnumerateFiles(terrariaDirectory, "*.cs", SearchOption.AllDirectories)
-            .Where(path => !string.Equals(
-                Path.GetFileName(path),
-                "LegacyTsapiBridge.cs",
-                StringComparison.OrdinalIgnoreCase))
-            .Where(path => File.ReadAllText(path).Contains("TerrariaApi.Server", StringComparison.Ordinal))
-            .Select(path => Path.GetRelativePath(repositoryRoot, path))
-            .ToArray();
-
-        Assert.That(
-            offenders,
-            Is.Empty,
-            $"TSAPI is transitional and must remain isolated to LegacyTsapiBridge. Offenders: {string.Join(", ", offenders)}");
+        Assert.Multiple(() =>
+        {
+            Assert.That(Directory.Exists(Path.Combine(repositoryRoot, "src", "TShockAPI")), Is.False);
+            Assert.That(Directory.Exists(Path.Combine(repositoryRoot, "external", "TSAPI")), Is.False);
+            Assert.That(solution, Does.Not.Contain("TShockAPI"));
+            Assert.That(solution, Does.Not.Contain("TSAPI"));
+            Assert.That(host, Does.Not.Contain("LegacyTsapiBridge"));
+            Assert.That(host, Does.Not.Contain("TerrariaApi.Server"));
+        });
     }
 
     [Test]
@@ -116,17 +113,16 @@ public sealed class RuntimeDependencyTests
     }
 
     [Test]
-    public void Vega_native_packet_security_attaches_before_legacy_TSAPI_hooks()
+    public void Vega_native_packet_security_attaches_without_legacy_bridge()
     {
         var repositoryRoot = FindRepositoryRoot();
         var host = File.ReadAllText(Path.Combine(repositoryRoot, "src", "Vega.Terraria", "TerrariaServerHost.cs"));
         var nativeAttach = host.IndexOf("playerPacketSecurityHooks.Attach();", StringComparison.Ordinal);
-        var legacyAttach = host.IndexOf("LegacyTsapiBridge.AttachHooks(args);", StringComparison.Ordinal);
 
         Assert.Multiple(() =>
         {
             Assert.That(nativeAttach, Is.GreaterThanOrEqualTo(0));
-            Assert.That(legacyAttach, Is.GreaterThan(nativeAttach));
+            Assert.That(host, Does.Not.Contain("LegacyTsapiBridge"));
         });
     }
 
@@ -152,32 +148,30 @@ public sealed class RuntimeDependencyTests
     }
 
     [Test]
-    public void Vega_native_console_commands_attach_before_legacy_TSAPI_hooks()
+    public void Vega_native_console_commands_attach_without_legacy_bridge()
     {
         var repositoryRoot = FindRepositoryRoot();
         var host = File.ReadAllText(Path.Combine(repositoryRoot, "src", "Vega.Terraria", "TerrariaServerHost.cs"));
         var nativeAttach = host.IndexOf("consoleCommandHooks.Attach();", StringComparison.Ordinal);
-        var legacyAttach = host.IndexOf("LegacyTsapiBridge.AttachHooks(args);", StringComparison.Ordinal);
 
         Assert.Multiple(() =>
         {
             Assert.That(nativeAttach, Is.GreaterThanOrEqualTo(0));
-            Assert.That(legacyAttach, Is.GreaterThan(nativeAttach));
+            Assert.That(host, Does.Not.Contain("LegacyTsapiBridge"));
         });
     }
 
     [Test]
-    public void Vega_native_player_commands_attach_before_legacy_TSAPI_hooks()
+    public void Vega_native_player_commands_attach_without_legacy_bridge()
     {
         var repositoryRoot = FindRepositoryRoot();
         var host = File.ReadAllText(Path.Combine(repositoryRoot, "src", "Vega.Terraria", "TerrariaServerHost.cs"));
         var nativeAttach = host.IndexOf("playerCommandHooks.Attach();", StringComparison.Ordinal);
-        var legacyAttach = host.IndexOf("LegacyTsapiBridge.AttachHooks(args);", StringComparison.Ordinal);
 
         Assert.Multiple(() =>
         {
             Assert.That(nativeAttach, Is.GreaterThanOrEqualTo(0));
-            Assert.That(legacyAttach, Is.GreaterThan(nativeAttach));
+            Assert.That(host, Does.Not.Contain("LegacyTsapiBridge"));
         });
     }
 
@@ -199,6 +193,33 @@ public sealed class RuntimeDependencyTests
             Assert.That(source, Does.Contain("IPlayerMessenger"));
             Assert.That(source, Does.Not.Contain("Commands.HandleCommand"));
             Assert.That(source, Does.Not.Contain("TSPlayer"));
+        });
+    }
+
+    [Test]
+    public void ProductionModules_use_Vega_capabilities_and_shared_protocol()
+    {
+        string repositoryRoot = FindRepositoryRoot();
+        string customItems = File.ReadAllText(Path.Combine(
+            repositoryRoot,
+            "src",
+            "Vega.Terraria",
+			"Items",
+            "CustomItemPacketFactory.cs"));
+        string pvp = File.ReadAllText(Path.Combine(
+            repositoryRoot,
+            "src",
+            "Vega.Modules.Pvp",
+            "PvpPacketPolicy.cs"));
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(customItems, Does.Contain("Multiplicity.Packets"));
+            Assert.That(customItems, Does.Contain("TweakItem"));
+            Assert.That(customItems, Does.Not.Contain("PacketWriter"));
+            Assert.That(pvp, Does.Contain("IPacketProcessor<PacketView>"));
+            Assert.That(pvp, Does.Contain("IPlayerCombatDirectory"));
+            Assert.That(pvp, Does.Not.Contain("TSPlayer"));
         });
     }
 
@@ -227,7 +248,7 @@ public sealed class RuntimeDependencyTests
         {
             Assert.That(playerSnapshot, Does.Not.Contain("ExtensionState"));
             Assert.That(pvpProject, Does.Not.Contain("Vega.Core"));
-            Assert.That(consumers.Count(path => path.Contains("Vega.Modules.Pvp", StringComparison.Ordinal)), Is.EqualTo(1));
+            Assert.That(consumers.Count(path => path.Contains("Vega.Modules.Pvp", StringComparison.Ordinal)), Is.EqualTo(2));
             Assert.That(consumers.Any(path => path.Contains("Vega.Core\\Extensions", StringComparison.Ordinal)), Is.True);
         });
     }

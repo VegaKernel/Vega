@@ -1,11 +1,11 @@
 using NUnit.Framework;
-using TShockNG.Contracts.Commands;
-using TShockNG.Contracts.Messaging;
-using TShockNG.Contracts.Players;
-using TShockNG.Core.Commands;
-using TShockNG.Core.Commands.Players;
+using Vega.Contracts.Commands;
+using Vega.Contracts.Messaging;
+using Vega.Contracts.Players;
+using Vega.Core.Commands;
+using Vega.Core.Commands.Players;
 
-namespace TShockLauncher.Tests.Core;
+namespace Vega.Runtime.Tests.Core;
 
 [TestFixture]
 public sealed class PlayingCommandTests

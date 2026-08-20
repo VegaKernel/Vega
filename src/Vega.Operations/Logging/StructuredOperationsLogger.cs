@@ -1,5 +1,5 @@
 using System.Text.Json;
-using TShockNG.Contracts.Operations;
+using Vega.Contracts.Operations;
 
 namespace Vega.Operations.Logging;
 

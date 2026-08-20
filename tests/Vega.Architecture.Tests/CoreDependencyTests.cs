@@ -1,5 +1,5 @@
 using NUnit.Framework;
-using TShockNG.Core.Commands;
+using Vega.Core.Commands;
 
 namespace Vega.Architecture.Tests;
 

@@ -1,4 +1,4 @@
-namespace TShockNG.Contracts.Players;
+namespace Vega.Contracts.Players;
 
 /// <summary>
 /// Terraria world-space position in pixels (16 pixels per tile).

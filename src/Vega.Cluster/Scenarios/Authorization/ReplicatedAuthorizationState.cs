@@ -1,4 +1,4 @@
-using TShockNG.Contracts.Accounts;
+using Vega.Contracts.Accounts;
 using Vega.Contracts.Cluster;
 using Vega.Contracts.Cluster.Events;
 

@@ -1,4 +1,4 @@
-namespace TShockNG.Contracts.Networking;
+namespace Vega.Contracts.Networking;
 
 public enum PacketDirection
 {

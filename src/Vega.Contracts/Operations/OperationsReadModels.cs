@@ -1,7 +1,7 @@
-using TShockNG.Contracts.Players;
+using Vega.Contracts.Players;
 using Vega.Contracts.Runtime;
 
-namespace TShockNG.Contracts.Operations;
+namespace Vega.Contracts.Operations;
 
 public enum ModuleLoadState
 {

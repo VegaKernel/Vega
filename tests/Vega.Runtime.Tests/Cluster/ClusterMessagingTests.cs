@@ -1,8 +1,8 @@
 using NUnit.Framework;
-using TShockNG.Contracts.Accounts;
-using TShockNG.Contracts.Commands;
-using TShockNG.Contracts.Operations;
-using TShockNG.Contracts.Players;
+using Vega.Contracts.Accounts;
+using Vega.Contracts.Commands;
+using Vega.Contracts.Operations;
+using Vega.Contracts.Players;
 using Vega.Cluster;
 using Vega.Cluster.Dispatching;
 using Vega.Cluster.Observability;

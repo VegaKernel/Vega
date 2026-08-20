@@ -1,15 +1,15 @@
-using TShockNG.Contracts.Accounts;
-using TShockNG.Contracts.Authorization;
-using TShockNG.Contracts.Bans;
-using TShockNG.Contracts.Commands;
-using TShockNG.Contracts.Localization;
-using TShockNG.Contracts.Networking;
-using TShockNG.Contracts.Players;
-using TShockNG.Contracts.Regions;
-using TShockNG.Contracts.Updates;
-using TShockNG.Contracts.Worlds;
+using Vega.Contracts.Accounts;
+using Vega.Contracts.Authorization;
+using Vega.Contracts.Bans;
+using Vega.Contracts.Commands;
+using Vega.Contracts.Localization;
+using Vega.Contracts.Networking;
+using Vega.Contracts.Players;
+using Vega.Contracts.Regions;
+using Vega.Contracts.Updates;
+using Vega.Contracts.Worlds;
 
-namespace TShockNG.Contracts.Runtime;
+namespace Vega.Contracts.Runtime;
 
 /// <summary>
 /// Explicit composition bundle passed only across the launcher/integration boundary.

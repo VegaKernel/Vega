@@ -1,4 +1,4 @@
-namespace TShockNG.Contracts.Players;
+namespace Vega.Contracts.Players;
 
 /// <summary>
 /// Provides immutable snapshots of currently connected players without exposing Terraria objects.

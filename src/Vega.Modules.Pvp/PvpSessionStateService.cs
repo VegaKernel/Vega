@@ -1,5 +1,5 @@
 using System.Diagnostics.CodeAnalysis;
-using TShockNG.Contracts.Players;
+using Vega.Contracts.Players;
 using Vega.Contracts.Extensions;
 
 namespace Vega.Modules.Pvp;
@@ -21,6 +21,8 @@ public sealed class PvpSessionStateService : IDisposable
 {
     private static readonly ExtensionStateKey<ProjectileAttributionState> ProjectileAttributionKey =
         new("pvp.projectile-weapon-attribution");
+    private static readonly ExtensionStateKey<ProjectileAttributionState> ProjectileTypeAttributionKey =
+        new("pvp.projectile-type-weapon-attribution");
     private static readonly ExtensionStateKey<PvpDeathWindow> DeathWindowKey = new("pvp.death-window");
     private static readonly ExtensionStateKey<bool> SpectatingKey = new("pvp.spectating");
 
@@ -64,6 +66,50 @@ public sealed class PvpSessionStateService : IDisposable
         scope.TryGet(ProjectileAttributionKey, out ProjectileAttributionState? projectiles) &&
         projectiles is not null &&
         projectiles.Remove(projectileIdentity);
+
+	public bool TryRecordProjectileWeaponType(
+		PlayerId playerId,
+		int projectileType,
+		int weaponItemType,
+		DateTimeOffset timestamp)
+	{
+		if (!TryScopeFor(playerId, out IExtensionStateScope? scope))
+		{
+			return false;
+		}
+
+		scope.GetOrCreate(ProjectileTypeAttributionKey, static () => new ProjectileAttributionState())
+			.Set(new ProjectileWeaponAttribution(projectileType, weaponItemType, timestamp));
+		return true;
+	}
+
+	public bool TryGetProjectileWeaponType(
+		PlayerId playerId,
+		int projectileType,
+		out ProjectileWeaponAttribution? attribution)
+	{
+		attribution = null;
+		return TryScopeFor(playerId, out IExtensionStateScope? scope) &&
+			scope.TryGet(ProjectileTypeAttributionKey, out ProjectileAttributionState? projectiles) &&
+			projectiles is not null &&
+			projectiles.TryGet(projectileType, out attribution);
+	}
+
+	public bool TryRecordDeath(PlayerId playerId, DateTimeOffset timestamp, TimeSpan duration)
+	{
+		if (duration <= TimeSpan.Zero)
+		{
+			throw new ArgumentOutOfRangeException(nameof(duration));
+		}
+
+		if (!TryScopeFor(playerId, out IExtensionStateScope? scope))
+		{
+			return false;
+		}
+
+		scope.Set(DeathWindowKey, new PvpDeathWindow(timestamp, duration));
+		return true;
+	}
 
 	public void RecordDeath(PlayerId playerId, DateTimeOffset timestamp, TimeSpan duration) =>
 		ScopeFor(playerId).Set(

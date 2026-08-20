@@ -1,6 +1,6 @@
-using TShockNG.Contracts.Players;
+using Vega.Contracts.Players;
 
-namespace TShockNG.Contracts.Networking;
+namespace Vega.Contracts.Networking;
 
 /// <summary>
 /// Stack-only processing context for a typed packet and the runtime metadata that accompanies it.

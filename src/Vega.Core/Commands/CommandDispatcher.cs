@@ -1,7 +1,7 @@
-using TShockNG.Contracts.Commands;
-using TShockNG.Contracts.Messaging;
+using Vega.Contracts.Commands;
+using Vega.Contracts.Messaging;
 
-namespace TShockNG.Core.Commands;
+namespace Vega.Core.Commands;
 
 public sealed class CommandDispatcher : ICommandDispatcher
 {

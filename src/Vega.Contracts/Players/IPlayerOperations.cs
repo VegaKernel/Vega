@@ -1,4 +1,4 @@
-namespace TShockNG.Contracts.Players;
+namespace Vega.Contracts.Players;
 
 /// <summary>
 /// Authoritative player mutations. Implementations must marshal Terraria state changes to the game thread.

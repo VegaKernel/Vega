@@ -10,30 +10,21 @@
 		<RunPostBuildEvent>Always</RunPostBuildEvent>
 		<DebugType>embedded</DebugType>
 		<IncludeNativeLibrariesForSelfExtract>true</IncludeNativeLibrariesForSelfExtract>
+		<MonoMod_ReallySkipCheckTargetRuntime>true</MonoMod_ReallySkipCheckTargetRuntime>
 	</PropertyGroup>
 
 	<ItemGroup>
-		<ProjectReference Include="..\TShockAPI\TShockAPI.csproj" ExcludeFromSingleFile="true" ReferenceOutputAssembly="false" />
-		<ProjectReference Include="..\TShockPluginManager\TShockPluginManager.csproj" />
 		<ProjectReference Include="..\Vega.Core\Vega.Core.csproj" />
 		<ProjectReference Include="..\Vega.Cluster\Vega.Cluster.csproj" />
+		<ProjectReference Include="..\Vega.Modules.CustomItems\Vega.Modules.CustomItems.csproj" />
 		<ProjectReference Include="..\Vega.Modules.Pvp\Vega.Modules.Pvp.csproj" />
 		<ProjectReference Include="..\Vega.Operations\Vega.Operations.csproj" />
 		<ProjectReference Include="..\Vega.Terraria\Vega.Terraria.csproj" />
 		<ProjectReference Include="..\Vega.TerminalUI\Vega.TerminalUI.csproj" />
-		<Reference Include="HttpServer" ExcludeFromSingleFile="true">
-			<HintPath>..\..\external\legacy\HttpServer.dll</HintPath>
-		</Reference>
 	</ItemGroup>
 
 	<ItemGroup>
-		<PackageReference Include="BCrypt.Net-Next" Version="4.2.0" />
-		<PackageReference Include="MySql.Data" Version="26.7.0" />
-		<PackageReference Include="Microsoft.Data.Sqlite" Version="10.0.10" />
-		<PackageReference Include="SQLitePCLRaw.bundle_e_sqlite3" Version="3.0.5" />
-		<PackageReference Include="Npgsql" Version="10.0.3" />
 		<PackageReference Include="ModFramework" Version="1.1.15" GeneratePathProperty="true" />
-		<PackageReference Include="GetText.NET" Version="10.0.1" />
 		<PackageReference Include="OTAPI.Upcoming" Version="3.3.11" ExcludeAssets="all" GeneratePathProperty="true" />
 
 		<None Include="$(PkgOTAPI_Upcoming)\lib\$(TargetFramework)\OTAPI.dll" Condition="Exists('$(PkgOTAPI_Upcoming)\lib\$(TargetFramework)\OTAPI.dll')">
@@ -65,42 +56,6 @@
 			<ExcludeFromSingleFile>true</ExcludeFromSingleFile>
 		</None>
 	</ItemGroup>
-
-	<Target Name="CheckMsgfmtCallable">
-		<Exec Command="msgfmt --help &gt; NUL" IgnoreExitCode="True" Condition=" '$(OS)' == 'Windows_NT' ">
-			<Output TaskParameter="ExitCode" PropertyName="MsgfmtExitCode" />
-		</Exec>
-		<Exec Command="msgfmt --help 2&gt;/dev/null &gt;/dev/null" IgnoreExitCode="True" Condition=" '$(OS)' != 'Windows_NT' ">
-			<Output TaskParameter="ExitCode" PropertyName="MsgfmtExitCode" />
-		</Exec>
-	</Target>
-
-	<Target Name="GenerateMOFiles" DependsOnTargets="CheckMsgfmtCallable" AfterTargets="PostBuildEvent;Publish" Inputs="..\..\i18n\**\*.po" Outputs="$(OutDir)i18n\**\*.mo">
-		<ItemGroup Condition="'$(MsgfmtExitCode)' == '0'">
-			<POFiles Include="..\..\i18n\**\*.po" />
-		</ItemGroup>
-		<MakeDir Directories="$(OutDir)i18n/%(POFiles.RecursiveDir)" Condition="'$(MsgfmtExitCode)' == '0'" />
-		<Exec Command="msgfmt -o $(OutDir)i18n/%(RecursiveDir)%(Filename).mo @(POFiles)" Outputs="$(OutDir)i18n\**\*.mo" Condition="'$(MsgfmtExitCode)' == '0'">
-			<Output ItemName="Generated" TaskParameter="Outputs" />
-		</Exec>
-	</Target>
-
-	<Target Name="CreateServerPlugins" AfterTargets="PostBuildEvent;Publish">
-		<MakeDir Directories="$(OutDir)ServerPlugins" />
-		<MakeDir Directories="$(PublishDir)ServerPlugins" />
-		<ItemGroup>
-			<ApiFiles Include="$(ProjectDir)../TShockAPI/bin/$(Configuration)/$(TargetFramework)/TShockAPI*" />
-		</ItemGroup>
-		<Copy SourceFiles="@(ApiFiles)" DestinationFolder="$(OutDir)ServerPlugins" ContinueOnError="true" />
-		<Copy SourceFiles="@(ApiFiles)" DestinationFolder="$(PublishDir)ServerPlugins" ContinueOnError="true" />
-	</Target>
-
-	<Target Name="CopyI18n" AfterTargets="Publish">
-		<ItemGroup>
-			<MOFiles Include="$(OutDir)**/*.mo" />
-		</ItemGroup>
-		<Copy SourceFiles="@(MOFiles)" DestinationFolder="$(PublishDir)%(RecursiveDir)" />
-	</Target>
 
 	<Target Name="MoveDevBin" AfterTargets="PostBuildEvent">
 		<ItemGroup>

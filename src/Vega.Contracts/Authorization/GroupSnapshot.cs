@@ -1,4 +1,4 @@
-namespace TShockNG.Contracts.Authorization;
+namespace Vega.Contracts.Authorization;
 
 public sealed record GroupSnapshot(
     string Name,

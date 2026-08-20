@@ -1,6 +1,6 @@
 using System.Globalization;
 using System.Text;
-using TShockNG.Contracts.Operations;
+using Vega.Contracts.Operations;
 
 namespace Vega.TerminalUI;
 

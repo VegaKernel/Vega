@@ -1,5 +1,5 @@
 using NUnit.Framework;
-using TShockNG.Contracts.Players;
+using Vega.Contracts.Players;
 using Vega.Contracts.Extensions;
 using Vega.Core.Extensions;
 using Vega.Modules.Pvp;

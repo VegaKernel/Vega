@@ -1,5 +1,5 @@
 using System.Diagnostics;
-using TShockNG.Contracts.Operations;
+using Vega.Contracts.Operations;
 using Vega.Contracts.Threading;
 
 namespace Vega.Terraria.Operations;

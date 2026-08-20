@@ -1,5 +1,5 @@
-using TShockNG.Contracts.Operations;
-using TShockNG.Contracts.Players;
+using Vega.Contracts.Operations;
+using Vega.Contracts.Players;
 using Vega.Cluster.Scenarios.Presence;
 using Vega.Contracts.Cluster;
 using Vega.Contracts.Cluster.Commands;

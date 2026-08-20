@@ -1,8 +1,8 @@
 using Multiplicity.Packets;
 using Multiplicity.Packets.Views;
 using NUnit.Framework;
-using TShockNG.Contracts.Networking;
-using TShockNG.Contracts.Players;
+using Vega.Contracts.Networking;
+using Vega.Contracts.Players;
 using Vega.Terraria.Networking;
 using WirePacketTypes = Multiplicity.Packets.PacketTypes;
 

@@ -1,6 +1,6 @@
-using TShockNG.Contracts.Messaging;
+using Vega.Contracts.Messaging;
 
-namespace TShockNG.Contracts.Commands;
+namespace Vega.Contracts.Commands;
 
 public sealed record CommandDescriptor(
     string Name,

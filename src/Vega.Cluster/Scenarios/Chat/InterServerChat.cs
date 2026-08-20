@@ -1,4 +1,4 @@
-using TShockNG.Contracts.Players;
+using Vega.Contracts.Players;
 using Vega.Contracts.Cluster;
 using Vega.Contracts.Cluster.Events;
 

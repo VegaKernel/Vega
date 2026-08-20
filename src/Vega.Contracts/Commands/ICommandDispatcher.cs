@@ -1,4 +1,4 @@
-namespace TShockNG.Contracts.Commands;
+namespace Vega.Contracts.Commands;
 
 /// <summary>
 /// Dispatches commands through the modern command pipeline.

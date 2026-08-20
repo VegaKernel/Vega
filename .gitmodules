@@ -1,5 +1,0 @@
-[submodule "TSAPI"]
-	path = external/TSAPI
-	url = https://github.com/TShockNG/TSAPI
-	ignore = dirty
-	branch = general-devel

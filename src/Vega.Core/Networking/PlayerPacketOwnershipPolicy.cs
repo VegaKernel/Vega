@@ -1,6 +1,6 @@
 using Multiplicity.Packets;
 using Multiplicity.Packets.Views;
-using TShockNG.Contracts.Networking;
+using Vega.Contracts.Networking;
 
 namespace Vega.Core.Networking;
 

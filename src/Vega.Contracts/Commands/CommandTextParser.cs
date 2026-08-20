@@ -1,4 +1,4 @@
-namespace TShockNG.Contracts.Commands;
+namespace Vega.Contracts.Commands;
 
 /// <summary>
 /// Parsed command text independent from a concrete console or chat transport.

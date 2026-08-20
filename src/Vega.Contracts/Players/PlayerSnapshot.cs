@@ -1,4 +1,4 @@
-namespace TShockNG.Contracts.Players;
+namespace Vega.Contracts.Players;
 
 /// <summary>
 /// Immutable read model of the Terraria-owned player state that Vega exposes outside the game-thread boundary.

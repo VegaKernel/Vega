@@ -1,4 +1,4 @@
-namespace TShockNG.Contracts.Networking;
+namespace Vega.Contracts.Networking;
 
 /// <summary>
 /// Creates IP metadata providers for a concrete runtime configuration.

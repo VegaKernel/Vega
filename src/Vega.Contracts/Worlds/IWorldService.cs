@@ -1,4 +1,4 @@
-namespace TShockNG.Contracts.Worlds;
+namespace Vega.Contracts.Worlds;
 
 public interface IWorldService
 {

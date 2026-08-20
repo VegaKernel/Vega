@@ -1,4 +1,4 @@
-namespace TShockNG.Contracts.Worlds;
+namespace Vega.Contracts.Worlds;
 
 /// <summary>
 /// Read-only identity surface for a managed world. Mutable Terraria state is intentionally not exposed here.

@@ -1,8 +1,8 @@
 using NUnit.Framework;
-using TShockNG.Contracts.Commands;
-using TShockNG.Contracts.Messaging;
+using Vega.Contracts.Commands;
+using Vega.Contracts.Messaging;
 
-namespace TShockLauncher.Tests.Core;
+namespace Vega.Runtime.Tests.Core;
 
 [TestFixture]
 public sealed class CommandBoundaryTests

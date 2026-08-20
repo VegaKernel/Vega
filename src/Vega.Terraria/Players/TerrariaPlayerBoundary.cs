@@ -2,7 +2,7 @@ using Microsoft.Xna.Framework;
 using Terraria.Chat;
 using Terraria.ID;
 using Terraria.Localization;
-using TShockNG.Contracts.Players;
+using Vega.Contracts.Players;
 using Vega.Contracts.Threading;
 
 namespace Vega.Terraria.Players;
@@ -12,6 +12,7 @@ namespace Vega.Terraria.Players;
 /// </summary>
 public sealed class TerrariaPlayerBoundary :
 	IPlayerDirectory,
+	IPlayerCombatDirectory,
 	IPlayerOperations,
 	IPlayerMessenger,
 	IPlayerSessionLifecycle,
@@ -19,6 +20,8 @@ public sealed class TerrariaPlayerBoundary :
 {
 	private readonly IGameThreadDispatcher dispatcher;
 	private IReadOnlyList<PlayerSnapshot> onlinePlayers = Array.Empty<PlayerSnapshot>();
+	private IReadOnlyDictionary<PlayerId, PlayerCombatSnapshot> combatSnapshots =
+		new Dictionary<PlayerId, PlayerCombatSnapshot>();
 	private PlayerSessionId?[] sessionIds = [];
 	private string?[] sessionNames = [];
 	private bool attached;
@@ -41,6 +44,9 @@ public sealed class TerrariaPlayerBoundary :
 	}
 
 	public IReadOnlyList<PlayerSnapshot> SnapshotOnlinePlayers() => Volatile.Read(ref onlinePlayers);
+
+	public bool TryGetCombatSnapshot(PlayerId playerId, out PlayerCombatSnapshot? snapshot) =>
+		Volatile.Read(ref combatSnapshots).TryGetValue(playerId, out snapshot);
 
 	public event Action<PlayerSessionOpened>? Opened;
 
@@ -215,6 +221,9 @@ public sealed class TerrariaPlayerBoundary :
 		}
 
 		Volatile.Write(ref onlinePlayers, Array.Empty<PlayerSnapshot>());
+		Volatile.Write(
+			ref combatSnapshots,
+			new Dictionary<PlayerId, PlayerCombatSnapshot>());
 		sessionIds = [];
 		sessionNames = [];
 	}
@@ -242,10 +251,14 @@ public sealed class TerrariaPlayerBoundary :
 		if (count == 0)
 		{
 			Volatile.Write(ref onlinePlayers, Array.Empty<PlayerSnapshot>());
+			Volatile.Write(
+				ref combatSnapshots,
+				new Dictionary<PlayerId, PlayerCombatSnapshot>());
 			return;
 		}
 
 		var snapshots = new PlayerSnapshot[count];
+		var combat = new Dictionary<PlayerId, PlayerCombatSnapshot>(count);
 		var index = 0;
 
 		for (var slot = 0; slot < players.Length; slot++)
@@ -256,8 +269,9 @@ public sealed class TerrariaPlayerBoundary :
 				continue;
 			}
 
+			var playerId = new PlayerId(slot);
 			snapshots[index++] = new PlayerSnapshot(
-				new PlayerId(slot),
+				playerId,
 				player.name,
 				player.dead,
 				player.statLife,
@@ -270,9 +284,17 @@ public sealed class TerrariaPlayerBoundary :
 			{
 				SessionId = sessionIds[slot]
 			};
+
+			global::Terraria.Item heldItem = player.HeldItem;
+			combat[playerId] = new PlayerCombatSnapshot(
+				playerId,
+				checked((short)heldItem.type),
+				heldItem.prefix,
+				heldItem.useAmmo == AmmoID.Arrow);
 		}
 
 		Volatile.Write(ref onlinePlayers, Array.AsReadOnly(snapshots));
+		Volatile.Write(ref combatSnapshots, combat);
 	}
 
 	private void RefreshSessions(global::Terraria.Player[] players)

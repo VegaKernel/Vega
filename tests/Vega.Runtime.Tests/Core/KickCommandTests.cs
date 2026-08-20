@@ -1,10 +1,10 @@
 using NUnit.Framework;
-using TShockNG.Contracts.Authorization;
-using TShockNG.Contracts.Commands;
-using TShockNG.Contracts.Players;
-using TShockNG.Core.Commands.Administration;
+using Vega.Contracts.Authorization;
+using Vega.Contracts.Commands;
+using Vega.Contracts.Players;
+using Vega.Core.Commands.Administration;
 
-namespace TShockLauncher.Tests.Core;
+namespace Vega.Runtime.Tests.Core;
 
 [TestFixture]
 public sealed class KickCommandTests

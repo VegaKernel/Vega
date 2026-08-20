@@ -32,16 +32,13 @@ flowchart TB
     Modules["Vega modules"] --> Contracts
     Runtime -. "explicit registration" .-> Modules
 
-    Legacy["TShockAPI + TSAPI<br/>temporary migration scaffolding"] -. "migration only" .-> TerrariaAdapter
 ```
 
 - `Vega.Contracts` — независимые контракты и DTO.
-- `Vega.Core` — серверное поведение без Terraria, OTAPI, TSAPI и TShockAPI.
+- `Vega.Core` — серверное поведение без Terraria и OTAPI.
 - `Vega.Terraria` — единственное целевое место для Terraria/OTAPI-specific integration.
 - `Vega.Runtime` — process host и composition root.
-- `TShockAPI` и `external/TSAPI` пока остаются только как migration scaffolding и не являются частью target architecture.
-
-`Vega.Core` защищён architecture test: появление ссылки на Terraria/OTAPI/TShockAPI ломает тесты.
+`Vega.Core` защищён architecture test: появление ссылки на Terraria/OTAPI ломает тесты. TShockAPI и TSAPI полностью удалены из runtime, solution и дерева исходников.
 
 ## Сборка
 
@@ -71,4 +68,4 @@ dotnet test Vega.sln
 
 Оригинальный код Vega является закрытым и распространяется на условиях [`LICENSE`](LICENSE). Все права, прямо не предоставленные владельцем проекта, сохраняются за правообладателем.
 
-Репозиторий пока содержит legacy/migration-код TShock и сторонние компоненты под их собственными лицензиями. Эти лицензии не отменяются закрытой лицензией Vega. Копия GPL-3.0, применимая к унаследованным TShock-файлам, хранится в [`licenses/TShock-GPL-3.0.txt`](licenses/TShock-GPL-3.0.txt).
+Сторонние пакеты сохраняют лицензии своих правообладателей; подробности находятся в [`licenses/README.md`](licenses/README.md).

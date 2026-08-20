@@ -1,4 +1,4 @@
-namespace TShockNG.Contracts.Networking;
+namespace Vega.Contracts.Networking;
 
 /// <summary>
 /// Identifies the runtime connection that owns a packet independently from authenticated player identity.

@@ -1,4 +1,4 @@
-namespace TShockNG.Contracts.Networking;
+namespace Vega.Contracts.Networking;
 
 /// <summary>
 /// Processes a typed packet inside the Vega packet-processing boundary.

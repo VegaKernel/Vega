@@ -1,5 +1,5 @@
-using TShockNG.Contracts.Operations;
-using TShockNG.Contracts.Players;
+using Vega.Contracts.Operations;
+using Vega.Contracts.Players;
 using Vega.Contracts.Runtime;
 
 namespace Vega.Operations.ReadModels;

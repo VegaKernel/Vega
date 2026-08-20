@@ -1,16 +1,16 @@
 using Multiplicity.Packets;
 using Multiplicity.Packets.Views;
 using OTAPI;
-using TShockNG.Contracts.Authorization;
-using TShockNG.Contracts.Commands;
-using TShockNG.Contracts.Messaging;
-using TShockNG.Contracts.Players;
+using Vega.Contracts.Authorization;
+using Vega.Contracts.Commands;
+using Vega.Contracts.Messaging;
+using Vega.Contracts.Players;
 
 namespace Vega.Terraria.Hooking;
 
 /// <summary>
-/// Routes Vega-owned player chat commands through the modern command dispatcher before legacy TSAPI sees them.
-/// Non-command chat and unknown commands continue through the legacy path while migration is incomplete.
+/// Routes Vega-owned player chat commands through the command dispatcher.
+/// Non-command chat and unknown commands remain available to Terraria's normal chat path.
 /// </summary>
 internal sealed class NativePlayerCommandHooks : IDisposable
 {
@@ -121,7 +121,7 @@ internal sealed class NativePlayerCommandHooks : IDisposable
         }
         catch (Exception)
         {
-            // Malformed or currently unsupported chat payloads stay on the legacy path during migration.
+            // Malformed or unsupported chat payloads remain available to Terraria's normal chat path.
             return false;
         }
     }

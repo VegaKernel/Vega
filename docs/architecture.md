@@ -47,7 +47,7 @@ Owns process-level hosting:
 
 Contains implementation-independent contracts, identifiers, DTOs, snapshots, events and capability interfaces.
 
-It must not reference Terraria, OTAPI, TSAPI or TShockAPI.
+It must not reference Terraria or OTAPI.
 
 ### Vega.Core
 
@@ -59,12 +59,8 @@ Core must not know about:
 Terraria.Main
 Terraria.Player
 OTAPI
-TSAPI
-TerrariaApi.Server
-ServerApi.Hooks
-TShockAPI.TShock
-TSPlayer
-Commands.ChatCommands
+reflection-based compatibility bridges
+mutable integration globals
 ```
 
 World/player state enters Core through explicit contracts, immutable snapshots and scheduled capabilities.
@@ -75,7 +71,7 @@ Owns toolkit-independent operational projections, bounded structured logging, ch
 
 ### Vega.TerminalUI
 
-Owns the optional Terminal.Gui host, rendering and view state. Terminal.Gui types are contained to this project. The UI consumes immutable operations snapshots and routes commands through the normal application boundary; it does not reference Terraria, OTAPI, TSAPI or TShockAPI.
+Owns the optional Terminal.Gui host, rendering and view state. Terminal.Gui types are contained to this project. The UI consumes immutable operations snapshots and routes commands through the normal application boundary; it does not reference Terraria or OTAPI.
 
 ### Vega.Cluster
 
@@ -85,13 +81,9 @@ Owns optional cluster dispatch, duplicate detection, observability, reference tr
 
 Modules consume Vega-native contracts and lifecycle APIs. Existing TerraZ plugins are ported deliberately; neither binary nor source-level TShock compatibility is a target requirement.
 
-The first session-scoped state consumer is `Vega.Modules.Pvp`. Temporary state follows `PlayerSessionId` lifecycle and is disposed on disconnect; it is not attached as a universal bag to player/domain models. See [`docs/extension-state.md`](extension-state.md).
+`Vega.Modules.Pvp` consumes packet, player-combat and session-state capabilities for ordered PvP policy. `Vega.Modules.CustomItems` consumes a targeted item-delivery capability; `Vega.Terraria` implements that capability and owns all `TZ.Multiplicity` serialization. Temporary PvP state follows `PlayerSessionId` lifecycle and is disposed on disconnect; it is not attached as a universal bag to player/domain models. See [`docs/extension-state.md`](extension-state.md).
 
-## TSAPI and TShockAPI
-
-TSAPI and TShockAPI may temporarily remain in the repository while migration keeps the existing executable path alive. They are migration scaffolding, not target layers.
-
-New architecture must not add dependencies on them. Their removal is an explicit implementation milestone after native Vega runtime/module paths cover required behavior.
+TShockAPI, TSAPI and their hook/command/plugin compatibility surfaces are not present in the executable path, solution or source tree. Historical ADRs remain behavioral evidence only.
 
 ## OTAPI
 
@@ -153,4 +145,4 @@ The runtime times each stage/module and warns when configured budgets are exceed
 
 ## Architectural history
 
-ADRs before 0016 record the TShockNG migration era. They remain useful history, but ADR 0016 supersedes the long-term assumptions that TShockAPI, TSAPI or legacy plugin surfaces belong in Vega's target architecture.
+ADRs before 0016 record the TShockNG migration era. They remain useful history, but ADR 0016 supersedes those assumptions and phases 9–10 completed their physical removal.

@@ -1,4 +1,4 @@
-using TShockNG.Contracts.Operations;
+using Vega.Contracts.Operations;
 
 namespace Vega.Operations.Logging;
 

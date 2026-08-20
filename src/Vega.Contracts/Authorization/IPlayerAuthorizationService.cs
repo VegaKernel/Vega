@@ -1,6 +1,6 @@
-using TShockNG.Contracts.Players;
+using Vega.Contracts.Players;
 
-namespace TShockNG.Contracts.Authorization;
+namespace Vega.Contracts.Authorization;
 
 /// <summary>
 /// Resolves effective authorization for a connected player session.

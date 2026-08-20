@@ -1,4 +1,4 @@
-namespace TShockNG.Contracts.Regions;
+namespace Vega.Contracts.Regions;
 
 public interface IRegionService
 {

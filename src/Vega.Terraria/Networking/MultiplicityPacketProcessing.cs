@@ -1,6 +1,6 @@
 using Multiplicity.Packets.Views;
-using TShockNG.Contracts.Networking;
-using TShockNG.Contracts.Players;
+using Vega.Contracts.Networking;
+using Vega.Contracts.Players;
 
 namespace Vega.Terraria.Networking;
 

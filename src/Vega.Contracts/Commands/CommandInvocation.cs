@@ -1,6 +1,6 @@
-using TShockNG.Contracts.Worlds;
+using Vega.Contracts.Worlds;
 
-namespace TShockNG.Contracts.Commands;
+namespace Vega.Contracts.Commands;
 
 public sealed record CommandInvocation(
     string Name,

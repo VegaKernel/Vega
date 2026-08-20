@@ -1,4 +1,4 @@
-namespace TShockNG.Contracts.Accounts;
+namespace Vega.Contracts.Accounts;
 
 public sealed record AccountSnapshot(
     AccountId Id,

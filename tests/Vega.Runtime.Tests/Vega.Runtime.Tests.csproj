@@ -7,6 +7,7 @@
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
     <IsPackable>false</IsPackable>
+    <MonoMod_ReallySkipCheckTargetRuntime>true</MonoMod_ReallySkipCheckTargetRuntime>
   </PropertyGroup>
 
   <ItemGroup>
@@ -24,10 +25,10 @@
   </ItemGroup>
 
   <ItemGroup>
-    <ProjectReference Include="..\..\src\TShockAPI\TShockAPI.csproj" />
     <ProjectReference Include="..\..\src\Vega.Runtime\Vega.Runtime.csproj" />
     <ProjectReference Include="..\..\src\Vega.Core\Vega.Core.csproj" />
     <ProjectReference Include="..\..\src\Vega.Cluster\Vega.Cluster.csproj" />
+    <ProjectReference Include="..\..\src\Vega.Modules.CustomItems\Vega.Modules.CustomItems.csproj" />
     <ProjectReference Include="..\..\src\Vega.Modules.Pvp\Vega.Modules.Pvp.csproj" />
     <ProjectReference Include="..\..\src\Vega.Operations\Vega.Operations.csproj" />
     <ProjectReference Include="..\..\src\Vega.Terraria\Vega.Terraria.csproj" />

@@ -1,10 +1,10 @@
 # Event pipeline
 
-TShockNG evolves the existing `HandlerList<T>` API instead of introducing a second event framework.
+Vega uses one typed event pipeline with explicit ordering and cancellation semantics.
 
 ## Existing behavior
 
-`HandlerList<T>` already provides ordered priorities:
+The pipeline provides ordered priorities:
 
 1. `Highest`
 2. `High`
@@ -16,7 +16,7 @@ Handlers can opt into receiving an event after another handler marks it handled 
 
 ## Monitor priority
 
-TShockNG adds:
+Vega adds:
 
 6. `Monitor`
 
@@ -35,4 +35,4 @@ Existing numeric values `Highest = 1` through `Lowest = 5` are unchanged. Existi
 
 ## Future work
 
-The existing `HandledEventArgs` model does not carry a structured cancellation reason. A reason should be added only through a compatibility-safe extension or a new typed event layer; the existing public member shape must not be broken merely to make the API prettier.
+Cancellation carries a structured reason and source through the typed event context. The integration boundary applies the final side effect after all handlers and monitors have run.

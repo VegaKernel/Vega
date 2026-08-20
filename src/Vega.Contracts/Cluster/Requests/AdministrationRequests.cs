@@ -1,4 +1,4 @@
-using TShockNG.Contracts.Commands;
+using Vega.Contracts.Commands;
 using Vega.Contracts.Runtime;
 
 namespace Vega.Contracts.Cluster.Requests;

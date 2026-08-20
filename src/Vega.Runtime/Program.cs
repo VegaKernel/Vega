@@ -1,20 +1,23 @@
 using System.Diagnostics;
 using System.Reflection;
-using TShockNG.Contracts.Authorization;
-using TShockNG.Contracts.Commands;
-using TShockNG.Contracts.Operations;
-using TShockNG.Core.Commands;
-using TShockNG.Core.Commands.Administration;
-using TShockNG.Core.Commands.Players;
-using TShockNG.Core.Commands.System;
-using TShockNG.Core.Operations;
-using TShockPluginManager;
+using Multiplicity.Packets.Views;
+using Vega.Contracts.Commands;
+using Vega.Contracts.Operations;
+using Vega.Core.Commands;
+using Vega.Core.Commands.Administration;
+using Vega.Core.Commands.Players;
+using Vega.Core.Commands.System;
+using Vega.Core.Authorization;
+using Vega.Core.Modules;
+using Vega.Core.Operations;
+using Vega.Core.Updates;
 using Vega.Contracts.Events;
 using Vega.Contracts.Worlds;
 using Vega.Cluster.Transport;
 using Vega.Core.Events;
 using Vega.Core.Extensions;
 using Vega.Core.Networking;
+using Vega.Modules.CustomItems;
 using Vega.Modules.Pvp;
 using Vega.Operations;
 using Vega.Operations.Actions;
@@ -23,11 +26,10 @@ using Vega.Operations.Metrics;
 using Vega.Operations.ReadModels;
 using Vega.TerminalUI;
 using Vega.Terraria;
-using Vega.Terraria.Authorization;
+using Vega.Terraria.Items;
 using Vega.Terraria.Players;
 using Vega.Terraria.Operations;
 using Vega.Terraria.Threading;
-using Vega.Terraria.Updates;
 
 var processStartedAt = Stopwatch.GetTimestamp();
 
@@ -43,7 +45,7 @@ if (File.Exists("TerrariaServer.exe"))
 var assemblyCache = new Dictionary<string, Assembly>(StringComparer.OrdinalIgnoreCase);
 System.Runtime.Loader.AssemblyLoadContext.Default.Resolving += ResolveFromBin;
 
-return await StartAsync();
+return Start();
 
 Assembly? ResolveFromBin(System.Runtime.Loader.AssemblyLoadContext context, AssemblyName assemblyName)
 {
@@ -81,7 +83,7 @@ Assembly? ResolveFromBin(System.Runtime.Loader.AssemblyLoadContext context, Asse
     return assembly;
 }
 
-async Task<int> StartAsync()
+int Start()
 {
     OperationsUiOptions uiOptions;
     try
@@ -95,24 +97,30 @@ async Task<int> StartAsync()
     }
 
     string[] serverArgs = uiOptions.ServerArguments.ToArray();
-    if (serverArgs.Length > 0 && string.Equals(serverArgs[0], "plugins", StringComparison.OrdinalIgnoreCase))
-    {
-        await NugetCLI.Main(serverArgs.Skip(1).ToList());
-        return 0;
-    }
 
     // Explicit composition root: no assembly scanning or reflection-based handler discovery.
     IEventPipeline<WorldHardmodeStarting> hardmodeStarting = new EventPipeline<WorldHardmodeStarting>(
         Array.Empty<IEventHandler<WorldHardmodeStarting>>(),
         Array.Empty<IEventMonitor<WorldHardmodeStarting>>());
 
-    IPlayerAuthorizationService playerAuthorization = new LegacyTShockPlayerAuthorizationService();
-    var updateChecker = new LegacyTShockUpdateChecker();
     using var gameThreadDispatcher = new OtapiGameThreadDispatcher();
     using var playerBoundary = new TerrariaPlayerBoundary(gameThreadDispatcher);
+    using var playerAuthorization = new PlayerSessionAuthorizationService(playerBoundary);
+    using var updateChecker = new GitHubReleaseUpdateChecker();
     using var extensionState = new ExtensionStateStore();
-    using var pvpSessionState = new PvpSessionStateService(extensionState, playerBoundary);
     using var operationsState = new TerrariaOperationsState(gameThreadDispatcher);
+    var pvpModule = new PvpModule(extensionState, playerBoundary, playerBoundary, playerBoundary);
+    var customItemsModule = new CustomItemsModule(new TerrariaCustomItemDelivery(gameThreadDispatcher));
+    using var moduleHost = new VegaModuleHost([pvpModule, customItemsModule]);
+    try
+    {
+        moduleHost.Start();
+    }
+    catch (Exception ex)
+    {
+        Console.Error.WriteLine($"Vega module startup failed: {ex}");
+        return 1;
+    }
 
     ICommandHandler[] commandHandlers =
     [
@@ -122,7 +130,11 @@ async Task<int> StartAsync()
         new PlayingCommand(playerBoundary)
     ];
     ICommandDispatcher commandDispatcher = new CommandDispatcher(commandHandlers);
-    var playerOwnershipSecurity = new PlayerPacketOwnershipPolicy();
+    var playerPacketPolicies = new PacketProcessorPipeline<PacketView>(
+    [
+        new PlayerPacketOwnershipPolicy(),
+        pvpModule.PacketProcessor
+    ]);
     var lifecycle = new RuntimeLifecycleTracker(processStartedAt);
     var networkMetrics = new NetworkMetricsCounter();
     var logStore = new BoundedOperationsLogStore();
@@ -144,7 +156,7 @@ async Task<int> StartAsync()
         var logger = new StructuredOperationsLogger(sinks);
         var hostMetrics = new ProcessHostMetricsReader();
         var runtimeMetrics = new SampledRuntimeMetricsReader(hostMetrics);
-        var modules = new StaticModuleOperationsCatalog(CreateModuleSnapshots());
+        var modules = new StaticModuleOperationsCatalog(CreateModuleSnapshots(moduleHost));
         var snapshots = new OperationsSnapshotProvider(
             "Vega",
             Assembly.GetExecutingAssembly().GetName().Version?.ToString() ?? "unknown",
@@ -177,7 +189,7 @@ async Task<int> StartAsync()
             operationsState,
             networkMetrics,
             logger,
-            playerOwnershipSecurity,
+            playerPacketPolicies,
             commandDispatcher,
             playerAuthorization);
     }
@@ -196,7 +208,7 @@ JsonFileOperationsLogSink? TryCreateFileSink()
     }
 }
 
-IReadOnlyList<ModuleOperationsSnapshot> CreateModuleSnapshots() =>
+IReadOnlyList<ModuleOperationsSnapshot> CreateModuleSnapshots(VegaModuleHost moduleHost) =>
 [
     Module(
         "Vega.Runtime",
@@ -204,16 +216,10 @@ IReadOnlyList<ModuleOperationsSnapshot> CreateModuleSnapshots() =>
         ["Vega.Cluster", "Vega.Core", "Vega.Modules.Pvp", "Vega.Operations", "Vega.Terraria", "Vega.TerminalUI"]),
     Module("Vega.Core", typeof(CommandDispatcher).Assembly, ["Vega.Contracts"]),
     Module("Vega.Cluster", typeof(UnavailableClusterClient).Assembly, ["Vega.Contracts"]),
-    Module("Vega.Modules.Pvp", typeof(PvpSessionStateService).Assembly, ["Vega.Contracts"]),
     Module("Vega.Operations", typeof(OperationsSnapshotProvider).Assembly, ["Vega.Contracts"]),
     Module("Vega.Terraria", typeof(TerrariaServerHost).Assembly, ["Vega.Contracts", "OTAPI", "TZ.Multiplicity"]),
     Module("Vega.TerminalUI", typeof(TerminalUiHost).Assembly, ["Vega.Contracts", "Terminal.Gui"]),
-    new ModuleOperationsSnapshot(
-        "Legacy.TShockAPI",
-        "compatibility",
-        ModuleLoadState.Registered,
-        ["Legacy.TSAPI"],
-        TimeSpan.Zero)
+    .. moduleHost.SnapshotModules()
 ];
 
 ModuleOperationsSnapshot Module(string name, Assembly assembly, IReadOnlyList<string> dependencies) =>

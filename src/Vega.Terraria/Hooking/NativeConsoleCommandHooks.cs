@@ -1,12 +1,12 @@
 using OTAPI;
-using TShockNG.Contracts.Commands;
-using TShockNG.Contracts.Messaging;
+using Vega.Contracts.Commands;
+using Vega.Contracts.Messaging;
 
 namespace Vega.Terraria.Hooking;
 
 /// <summary>
-/// Routes server-console commands owned by Vega into the modern command dispatcher before the legacy TSAPI bridge.
-/// Unknown commands continue through the legacy path while migration is incomplete.
+/// Routes server-console commands owned by Vega into the modern command dispatcher.
+/// Unknown commands remain available to Terraria's normal console path.
 /// </summary>
 internal sealed class NativeConsoleCommandHooks : IDisposable
 {
@@ -49,8 +49,8 @@ internal sealed class NativeConsoleCommandHooks : IDisposable
             return;
         }
 
-        // The OTAPI hook is synchronous. Claim the known Vega command before the legacy bridge,
-        // then observe its ValueTask asynchronously instead of blocking the console thread.
+        // The OTAPI hook is synchronous. Claim the known Vega command, then observe its
+        // ValueTask asynchronously instead of blocking the console thread.
         args.Result = HookResult.Cancel;
         _ = ExecuteAsync(command);
     }

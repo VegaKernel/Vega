@@ -18,8 +18,8 @@
 - [x] Add Vega-owned OTAPI lifecycle/readiness hooks.
 - [x] Add a bounded Vega-native game-thread dispatcher contract and OTAPI implementation.
 - [x] Measure Vega overhead separately from Terraria world load time.
-- [ ] Replace remaining `LegacyTsapiBridge` hook dispatch with Vega-native hook adapters.
-- [ ] Keep TSAPI only as temporary scaffolding while legacy TShockAPI still consumes historical hooks.
+- [x] Replace the remaining compatibility hook dispatch with Vega-native OTAPI adapters.
+- [x] Remove TSAPI after the native host no longer requires it.
 
 ## Phase 2 — typed event model and first migrated behavior
 
@@ -53,7 +53,7 @@ The initial Terraria implementation publishes immutable player snapshots from th
 - [x] Keep raw byte parsing/encoding in the Terraria/protocol integration boundary.
 - [x] Migrate a real packet-sensitive behavior such as join/security or PvP validation through the context.
 
-The first end-to-end packet slice validates inbound `PlayerHp` ownership. `Vega.Terraria` parses the OTAPI payload window through `TZ.Multiplicity`, the typed context flows into a Core anti-spoof policy, and a rejected decision cancels the OTAPI hook before the temporary legacy TSAPI hook bridge runs.
+The first end-to-end packet slice validates inbound `PlayerHp` ownership. `Vega.Terraria` parses the OTAPI payload window through `TZ.Multiplicity`, the typed context flows into a Core anti-spoof policy, and a rejected decision cancels the native OTAPI hook.
 
 ## Phase 5 — commands and legacy hook migration
 
@@ -64,9 +64,9 @@ The first end-to-end packet slice validates inbound `PlayerHp` ownership. `Vega.
 - [x] Promote true server invariants/security primitives into Core/runtime services.
 - [x] Keep gameplay/community policy as optional modules.
 
-`serverinfo` was the first migrated command path. The native pipeline also owns `kick`, `playing`/`online`/`who` and `checkupdates`. Server-console input is intercepted through native OTAPI command processing; player input is recognized from typed `LoadNetModule`/`NetTextModule` payloads before the legacy TSAPI bridge. Effective player permission checks remain behind `IPlayerAuthorizationService`; the temporary implementation reads the legacy TShock session only inside `Vega.Terraria`, so Core and Contracts do not depend on `TSPlayer`. Update checking similarly uses a narrow transitional adapter in `Vega.Terraria` until Vega owns update discovery and administrator notification.
+`serverinfo` was the first native command path. The pipeline also owns `kick`, `playing`/`online`/`who` and `checkupdates`. Server-console input is intercepted through OTAPI command processing; player input is recognized from typed `LoadNetModule`/`NetTextModule` payloads. Effective player permissions live in Vega session state behind `IPlayerAuthorizationService`, and update discovery uses the Vega GitHub release endpoint.
 
-Phase 5 closes the native command/hook migration foundation, not the later removal of every legacy command and hook. Lifecycle, world decisions, console commands, player commands and player packet security now have Vega-owned OTAPI entrypoints that run before the contained TSAPI bridge. Core owns the migrated command behavior and player packet ownership invariant; the latter rejects spoofed `PlayerHp`, `PlayerMana`, `PlayerTeam` and `TogglePvp` identities through typed `TZ.Multiplicity` views. No gameplay/community policy was promoted into Core merely to demonstrate the pipeline. Unknown commands and non-migrated hooks continue through the legacy fallback until the explicit scaffolding-removal work in Phase 10, while optional gameplay/community behavior is ported through Phase 9 modules.
+Lifecycle, world decisions, console commands, player commands and packet security have Vega-owned OTAPI entrypoints. Core owns command behavior and the player packet ownership invariant; optional gameplay policy remains in modules. Unknown commands and non-command chat remain available to Terraria's normal paths.
 
 ## Phase 6 — Operations API and Terminal UI
 
@@ -130,9 +130,9 @@ A durable outbox is optional and should be introduced only if a real scenario re
 
 ## Phase 9 — production module migration
 
-- [ ] Port TerraZ modules to the Vega module API by capability, not by reproducing TShock class shapes.
-- [ ] Use migrated modules as the forcing function for new contracts instead of building an abstract framework ahead of consumers.
-- [ ] Add regression tests from known production incidents before retiring legacy workarounds.
+- [x] Port TerraZ modules to the Vega module API by capability, not by reproducing TShock class shapes.
+- [x] Use migrated modules as the forcing function for new contracts instead of building an abstract framework ahead of consumers.
+- [x] Add regression tests from known production incidents before retiring legacy workarounds.
 
 ### Historical implementations to mine for behavior, not architecture
 
@@ -143,13 +143,17 @@ A durable outbox is optional and should be introduced only if a real scenario re
   - useful scenarios: strongly typed partial item overrides, targeted packet delivery and custom item behavior;
   - its bespoke `PacketWriter` must not be carried forward because Vega uses the shared typed `TZ.Multiplicity` protocol layer.
 
+`VegaModuleHost` now starts explicitly composed modules and exposes their load state and startup duration. `Vega.Modules.Pvp` ports hostile-health authority, ordered projectile/damage attribution, death windows and session cleanup. `Vega.Modules.CustomItems` ports strongly typed partial overrides and requests targeted delivery through a capability; the `Vega.Terraria` implementation serializes `UpdateItemDrop`, `TweakItem` and `ItemOwner` with `TZ.Multiplicity`.
+
 ## Phase 10 — remove migration scaffolding
 
-- [ ] Remove the TShockAPI project after no required production path depends on it.
-- [ ] Remove TSAPI from the solution/submodules after native Vega hosting/hook dispatch is complete.
-- [ ] Remove legacy hook/command/plugin compatibility surfaces.
-- [ ] Rename remaining physical `TShock*` project paths/namespaces to final Vega names as they cease being migration sources.
-- [ ] Delete migration-only adapters and documentation that no longer describe an active path.
+- [x] Remove the TShockAPI project after no required production path depends on it.
+- [x] Remove TSAPI from the solution/submodules after native Vega hosting/hook dispatch is complete.
+- [x] Remove legacy hook/command/plugin compatibility surfaces.
+- [x] Rename remaining physical `TShock*` project paths/namespaces to final Vega names as they cease being migration sources.
+- [x] Delete migration-only adapters and documentation that no longer describe an active path.
+
+The runtime now boots Terraria directly through the OTAPI-backed `Vega.Terraria` host. TShockAPI, TSAPI, the legacy plugin manager/installer, reflection adapters, parked legacy Core sources, translations and obsolete compatibility documentation have been removed. Active namespaces are `Vega.Contracts` and `Vega.Core`.
 
 ## Phase 11 — World image and runtime optimization
 

@@ -1,6 +1,6 @@
 using System.Globalization;
 
-namespace TShockNG.Contracts.Messaging;
+namespace Vega.Contracts.Messaging;
 
 /// <summary>
 /// Formats a structured message when no localization catalog has resolved it yet.

@@ -1,10 +1,10 @@
 using Multiplicity.Packets.Views;
 using ReLogic.OS;
 using Terraria.ID;
-using TShockNG.Contracts.Authorization;
-using TShockNG.Contracts.Commands;
-using TShockNG.Contracts.Networking;
-using TShockNG.Contracts.Operations;
+using Vega.Contracts.Authorization;
+using Vega.Contracts.Commands;
+using Vega.Contracts.Networking;
+using Vega.Contracts.Operations;
 using Vega.Contracts.Events;
 using Vega.Contracts.Runtime;
 using Vega.Contracts.Worlds;
@@ -57,8 +57,6 @@ public static class TerrariaServerHost
         lifecycle.Advance(RuntimeLifecycleStage.Bootstrap);
 
         AppDomain.CurrentDomain.UnhandledException += ReportUnhandled;
-        var legacyHooksAttached = false;
-
         using var nativeLifecycleHooks = new NativeLifecycleHooks(lifecycle);
         using var networkMetricsHooks = new NativeNetworkMetricsHooks(networkMetrics);
         using var worldDecisionHooks = new NativeWorldDecisionHooks(hardmodeStarting);
@@ -85,15 +83,9 @@ public static class TerrariaServerHost
             consoleCommandHooks.Attach();
             playerCommandHooks.Attach();
 
-            // Temporary seam: legacy TShockAPI still receives its historical TSAPI events.
-            // Vega readiness, game-thread scheduling, native decisions, migrated packet security and
-            // migrated console/player commands no longer depend on that hook layer.
-            LegacyTsapiBridge.AttachHooks(args);
-            legacyHooksAttached = true;
-
             lifecycle.Advance(RuntimeLifecycleStage.RuntimeReady);
 
-            // No Vega-native module loader exists yet, so registration is an empty bounded stage.
+            // The explicit composition root has already started and validated every Vega module.
             lifecycle.Advance(RuntimeLifecycleStage.ModulesRegistered);
 
             if (args.Any(static arg => string.Equals(arg, "-skipassemblyload", StringComparison.OrdinalIgnoreCase)))
@@ -112,11 +104,6 @@ public static class TerrariaServerHost
         }
         finally
         {
-            if (legacyHooksAttached)
-            {
-                LegacyTsapiBridge.Shutdown();
-            }
-
             lifecycle.Transitioned -= Report;
             AppDomain.CurrentDomain.UnhandledException -= ReportUnhandled;
         }

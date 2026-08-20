@@ -1,31 +1,30 @@
 using Multiplicity.Packets;
 using Multiplicity.Packets.Views;
 using NUnit.Framework;
-using TShockNG.Contracts.Networking;
+using Vega.Contracts.Networking;
 using Vega.Core.Networking;
-using WirePacketTypes = Multiplicity.Packets.PacketTypes;
 
 namespace Vega.Runtime.Tests;
 
 [TestFixture]
 public sealed class PlayerPacketOwnershipPolicyTests
 {
-    [TestCase(WirePacketTypes.PlayerHp)]
-    [TestCase(WirePacketTypes.PlayerMana)]
-    [TestCase(WirePacketTypes.PlayerTeam)]
-    [TestCase(WirePacketTypes.TogglePvp)]
-    public void MatchingConnectionSlotIsAllowed(WirePacketTypes packetType)
+    [TestCase(PacketTypes.PlayerHp)]
+    [TestCase(PacketTypes.PlayerMana)]
+    [TestCase(PacketTypes.PlayerTeam)]
+    [TestCase(PacketTypes.TogglePvp)]
+    public void MatchingConnectionSlotIsAllowed(PacketTypes packetType)
     {
         PacketProcessingDecision decision = Process(packetType, connectionSlot: 7, claimedSlot: 7);
 
         Assert.That(decision.Kind, Is.EqualTo(PacketDecisionKind.Continue));
     }
 
-    [TestCase(WirePacketTypes.PlayerHp)]
-    [TestCase(WirePacketTypes.PlayerMana)]
-    [TestCase(WirePacketTypes.PlayerTeam)]
-    [TestCase(WirePacketTypes.TogglePvp)]
-    public void ForeignPlayerSlotIsRejected(WirePacketTypes packetType)
+    [TestCase(PacketTypes.PlayerHp)]
+    [TestCase(PacketTypes.PlayerMana)]
+    [TestCase(PacketTypes.PlayerTeam)]
+    [TestCase(PacketTypes.TogglePvp)]
+    public void ForeignPlayerSlotIsRejected(PacketTypes packetType)
     {
         PacketProcessingDecision decision = Process(packetType, connectionSlot: 7, claimedSlot: 8);
 
@@ -39,7 +38,7 @@ public sealed class PlayerPacketOwnershipPolicyTests
     [Test]
     public void UnrelatedPacketIsIgnored()
     {
-        var packet = PacketView.FromPayload(WirePacketTypes.PlayerActive, new byte[] { 8, 1 });
+        var packet = PacketView.FromPayload(PacketTypes.PlayerActive, new byte[] { 8, 1 });
         var context = Context(packet, connectionSlot: 7);
         var policy = new PlayerPacketOwnershipPolicy();
 
@@ -49,15 +48,15 @@ public sealed class PlayerPacketOwnershipPolicyTests
     }
 
     private static PacketProcessingDecision Process(
-        WirePacketTypes packetType,
+        PacketTypes packetType,
         int connectionSlot,
         byte claimedSlot)
     {
         byte[] payload = packetType switch
         {
-            WirePacketTypes.PlayerHp or WirePacketTypes.PlayerMana => [claimedSlot, 100, 0, 120, 0],
-            WirePacketTypes.PlayerTeam => [claimedSlot, 1],
-            WirePacketTypes.TogglePvp => [claimedSlot, 1],
+            PacketTypes.PlayerHp or PacketTypes.PlayerMana => [claimedSlot, 100, 0, 120, 0],
+            PacketTypes.PlayerTeam => [claimedSlot, 1],
+            PacketTypes.TogglePvp => [claimedSlot, 1],
             _ => throw new ArgumentOutOfRangeException(nameof(packetType))
         };
         var packet = PacketView.FromPayload(packetType, payload);

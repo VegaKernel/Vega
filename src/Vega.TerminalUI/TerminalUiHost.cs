@@ -4,7 +4,7 @@ using Terminal.Gui.Editor;
 using Terminal.Gui.Editor.Document;
 using Terminal.Gui.ViewBase;
 using Terminal.Gui.Views;
-using TShockNG.Contracts.Operations;
+using Vega.Contracts.Operations;
 
 namespace Vega.TerminalUI;
 

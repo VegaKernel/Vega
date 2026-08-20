@@ -18,25 +18,4 @@
   <ItemGroup>
     <ProjectReference Include="..\Vega.Contracts\Vega.Contracts.csproj" />
   </ItemGroup>
-
-  <!-- Legacy sources are physically parked here but are not Vega.Core until their Terraria/TShock dependencies are removed. -->
-  <ItemGroup>
-    <Compile Remove="Accounts\**\*.cs" />
-    <Compile Remove="Authorization\**\*.cs" />
-    <Compile Remove="Bans\**\*.cs" />
-    <Compile Remove="Commands\LegacyMonolith\**\*.cs" />
-    <Compile Remove="Infrastructure\Legacy\**\*.cs" />
-    <Compile Remove="Legacy\**\*.cs" />
-    <Compile Remove="Localization\Legacy\**\*.cs" />
-    <Compile Remove="Logging\Legacy\**\*.cs" />
-    <Compile Remove="Networking\Legacy\**\*.cs" />
-    <Compile Remove="Persistence\**\*.cs" />
-    <Compile Remove="Players\Legacy\**\*.cs" />
-    <Compile Remove="Players\Persistence\**\*.cs" />
-    <Compile Remove="Regions\**\*.cs" />
-    <Compile Remove="Restrictions\**\*.cs" />
-    <Compile Remove="Security\**\*.cs" />
-    <Compile Remove="Updates\Legacy\**\*.cs" />
-    <Compile Remove="Worlds\**\*.cs" />
-  </ItemGroup>
 </Project>

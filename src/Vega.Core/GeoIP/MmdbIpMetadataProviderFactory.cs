@@ -1,6 +1,6 @@
-using TShockNG.Contracts.Networking;
+using Vega.Contracts.Networking;
 
-namespace TShockNG.Core.GeoIP;
+namespace Vega.Core.GeoIP;
 
 public sealed class MmdbIpMetadataProviderFactory : IIpMetadataProviderFactory
 {

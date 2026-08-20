@@ -1,4 +1,4 @@
-namespace TShockNG.Contracts.Operations;
+namespace Vega.Contracts.Operations;
 
 public enum OperationsLogLevel
 {

@@ -1,8 +1,8 @@
-using TShockNG.Contracts.Commands;
-using TShockNG.Contracts.Messaging;
-using TShockNG.Contracts.Updates;
+using Vega.Contracts.Commands;
+using Vega.Contracts.Messaging;
+using Vega.Contracts.Updates;
 
-namespace TShockNG.Core.Commands.System;
+namespace Vega.Core.Commands.System;
 
 public sealed class CheckUpdatesCommand(IUpdateChecker updateChecker) : ICommandHandler
 {
@@ -20,7 +20,7 @@ public sealed class CheckUpdatesCommand(IUpdateChecker updateChecker) : ICommand
             await updateChecker.CheckAsync(cancellationToken);
             return CommandExecutionResult.WithMessages(
                 MessageDescriptor.Info("command.checkupdates.completed")
-                    .WithDefaultText("Update check completed. Administrators were notified if an update is available."));
+                    .WithDefaultText("Update check completed."));
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {

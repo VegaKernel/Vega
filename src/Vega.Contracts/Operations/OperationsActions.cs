@@ -1,6 +1,6 @@
-using TShockNG.Contracts.Commands;
+using Vega.Contracts.Commands;
 
-namespace TShockNG.Contracts.Operations;
+namespace Vega.Contracts.Operations;
 
 public sealed record OperationsActionResult(
     CommandExecutionStatus Status,

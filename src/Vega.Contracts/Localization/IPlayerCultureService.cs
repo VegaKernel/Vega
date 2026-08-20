@@ -1,4 +1,4 @@
-namespace TShockNG.Contracts.Localization;
+namespace Vega.Contracts.Localization;
 
 public interface IPlayerCultureService
 {
