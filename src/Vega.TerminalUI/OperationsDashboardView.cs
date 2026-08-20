@@ -15,6 +15,7 @@ namespace Vega.TerminalUI;
 internal sealed class OperationsDashboardView
 {
     private const string SchemeName = "VegaDark";
+    private const double TargetTicksPerSecond = 60d;
     private readonly View desktop;
     private readonly Dictionary<string, View> windows = new(StringComparer.OrdinalIgnoreCase);
     private readonly Label overviewText = CreateLabel();
@@ -24,6 +25,7 @@ internal sealed class OperationsDashboardView
     private readonly Editor logsText = CreateLogEditor();
     private readonly GraphView performanceGraph = CreateGraph("TPS + CPU");
     private readonly GraphView memoryGraph = CreateGraph("Memory");
+    private readonly PathAnnotation tpsTargetPath = new() { LineColor = new TuiAttribute(TuiColor.Gray, TuiColor.Black) };
     private readonly PathAnnotation tpsPath = new() { LineColor = new TuiAttribute(TuiColor.BrightGreen, TuiColor.Black) };
     private readonly PathAnnotation cpuPath = new() { LineColor = new TuiAttribute(TuiColor.BrightCyan, TuiColor.Black) };
     private readonly PathAnnotation workingSetPath = new() { LineColor = new TuiAttribute(TuiColor.BrightYellow, TuiColor.Black) };
@@ -59,6 +61,36 @@ internal sealed class OperationsDashboardView
         SetLogText(RenderLogs(snapshot, isFollowing, filter));
         UpdateGraphs(sample);
     }
+
+    public bool ToggleWindowVisibility(string name)
+    {
+        if (!windows.TryGetValue(name, out View? view))
+        {
+            return false;
+        }
+
+        view.Visible = !view.Visible;
+        if (view.Visible)
+        {
+            view.SetFocus();
+        }
+
+        return true;
+    }
+
+    public bool FocusWindow(string name)
+    {
+        if (!windows.TryGetValue(name, out View? view))
+        {
+            return false;
+        }
+
+        view.Visible = true;
+        view.SetFocus();
+        return true;
+    }
+
+    public void ResetLayout() => ApplyLayout(TerminalUiLayoutOptions.Default);
 
     public bool TryExecuteLayoutCommand(string input, out string message, out bool saveRequested)
     {
@@ -103,7 +135,7 @@ internal sealed class OperationsDashboardView
 
         if (action == ":layout" && name == "reset")
         {
-            ApplyLayout(TerminalUiLayoutOptions.Default);
+            ResetLayout();
             saveRequested = true;
             message = "Window layout reset and saved.";
             return true;
@@ -184,6 +216,7 @@ internal sealed class OperationsDashboardView
 
     private void ConfigurePerformanceGraph()
     {
+        performanceGraph.Annotations.Add(tpsTargetPath);
         performanceGraph.Annotations.Add(tpsPath);
         performanceGraph.Annotations.Add(cpuPath);
         performanceGraph.AxisX.Visible = false;
@@ -210,9 +243,10 @@ internal sealed class OperationsDashboardView
     private void UpdateGraphs(OperationsMetricSample current)
     {
         IReadOnlyList<OperationsMetricSample> samples = history.Samples;
+        tpsTargetPath.Points = samples.Select((_, index) => new PointF(index, (float)TargetTicksPerSecond)).ToList();
         tpsPath.Points = Points(samples, static sample => (float)sample.TicksPerSecond);
         cpuPath.Points = Points(samples, static sample => (float)sample.CpuPercent);
-        performanceGraph.Title = $"TPS green {current.TicksPerSecond:F1} · CPU cyan {current.CpuPercent:F1}%";
+        performanceGraph.Title = $"TPS green {current.TicksPerSecond:F1}/{TargetTicksPerSecond:F0} · target gray · CPU cyan {current.CpuPercent:F1}%";
         FitGraph(performanceGraph, samples.Count, 100);
 
         workingSetPath.Points = Points(samples, static sample => (float)sample.WorkingSetMiB);
