@@ -1,16 +1,28 @@
 # Releasing Vega
 
-`Directory.Build.props` is the single source of truth for the Vega version. Release tags must use the matching `vMAJOR.MINOR.PATCH` form; Vega 1.0.0 is tagged `v1.0.0`.
+`Directory.Build.props` is the single source of truth for the Vega version. Release tags must use the matching `vMAJOR.MINOR.PATCH` form; Vega 1.0.0 uses `v1.0.0`.
 
-The manual `Release` GitHub Actions workflow selects the newest `vMAJOR.MINOR.PATCH` tag, builds and tests that exact revision, publishes the standalone server archive, packs the public Vega components, pushes their packages to NuGet.org and creates or refreshes a GitHub release with generated notes and SHA-256 checksums.
+Vega has two release workflows with separate responsibilities.
 
-The server archive is ready to start after extraction. Runtime libraries live in `libs/`; first-party server modules live in `ServerPlugins/`. `Vega.Server.exe` and its host metadata stay at the archive root.
+## Automatic tagged release
 
-Before running the workflow, configure the repository Actions secret `NUGET_API_KEY` with a NuGet.org API key allowed to publish the `VegaKernel.*` package IDs. Create and push the tag, then run the `Release` workflow from the Actions page:
+`Release Tag` runs when a `v*` tag is pushed. It accepts only the exact `vMAJOR.MINOR.PATCH` form and requires the tag version to match `VersionPrefix`. The workflow restores, builds and tests the tagged revision, packs the public `VegaKernel.*` libraries and symbol packages, publishes them to NuGet.org, and creates or refreshes the matching GitHub Release.
+
+Configure the repository Actions secret `NUGET_API_KEY` with a NuGet.org API key allowed to publish the `VegaKernel.*` package IDs before pushing the tag:
 
 ```powershell
 git tag -a v1.0.0 -m "Vega 1.0.0"
 git push origin v1.0.0
 ```
 
-The workflow rejects malformed tags and tags whose version does not match `VersionPrefix`. A GitHub release is created only after every NuGet package has been accepted or already exists with the same version. Re-running the workflow is safe: NuGet duplicates are skipped and existing release assets are replaced.
+The GitHub Release contains the deployable server ZIP, all `.nupkg` and `.snupkg` files, and `SHA256SUMS.txt`. NuGet duplicates are skipped and existing GitHub Release assets are replaced, so a previously interrupted run can be re-run safely.
+
+## Manual server publication
+
+`Publish Manual` is started from the Actions page. It selects and checks out the newest `vMAJOR.MINOR.PATCH` tag, verifies that the tag matches `VersionPrefix`, restores and publishes only `Vega.Runtime`, and creates or refreshes the matching GitHub Release. It deliberately skips tests, package creation and NuGet publication.
+
+Use this workflow when NuGet packages are already published and only the server distribution needs to be regenerated. It does not require `NUGET_API_KEY`.
+
+## Server archive layout
+
+Both workflows publish `Vega.Server-VERSION.zip`. The archive is ready to start immediately after extraction: `Vega.Server.exe`, host metadata, the license, both README files and `VERSION` are at its root; runtime libraries are under `libs/`; bundled first-party modules are under `ServerPlugins/`. The legacy `bin/` and `Plugins/` directories are rejected during publication.

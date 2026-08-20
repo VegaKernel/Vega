@@ -1,0 +1,214 @@
+name: Release Tag
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-tag-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  release:
+    name: Publish NuGet packages and GitHub release
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Validate tag and project version
+        id: version
+        shell: pwsh
+        env:
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: |
+          if ($env:RELEASE_TAG -notmatch '^v(?<version>[0-9]+\.[0-9]+\.[0-9]+)$') {
+            throw "Release tags must use vMAJOR.MINOR.PATCH; received '$env:RELEASE_TAG'."
+          }
+          $tagVersion = $Matches.version
+
+          [xml] $props = Get-Content -LiteralPath Directory.Build.props -Raw
+          $projectVersion = [string] $props.Project.PropertyGroup.VersionPrefix
+          if ($tagVersion -ne $projectVersion) {
+            throw "Tag version '$tagVersion' does not match VersionPrefix '$projectVersion'."
+          }
+
+          "version=$tagVersion" >> $env:GITHUB_OUTPUT
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v5
+        with:
+          dotnet-version: 10.0.x
+
+      - name: Validate NuGet credentials
+        shell: pwsh
+        env:
+          NUGET_API_KEY: ${{ secrets.NUGET_API_KEY }}
+        run: |
+          if ([string]::IsNullOrWhiteSpace($env:NUGET_API_KEY)) {
+            throw "Repository secret NUGET_API_KEY is required."
+          }
+
+      - name: Download pinned MaxMind test databases
+        shell: pwsh
+        run: |
+          $base = "https://raw.githubusercontent.com/maxmind/MaxMind-DB/e1120013c4b5cbc830b958b2b7e73fba444d316d/test-data"
+          $target = "tests/Vega.Runtime.Tests/TestData/MaxMind"
+          New-Item -ItemType Directory -Force -Path $target | Out-Null
+          Invoke-WebRequest "$base/GeoIP2-Country-Test.mmdb" -OutFile "$target/GeoIP2-Country-Test.mmdb"
+          Invoke-WebRequest "$base/GeoLite2-ASN-Test.mmdb" -OutFile "$target/GeoLite2-ASN-Test.mmdb"
+
+      - name: Restore
+        run: dotnet restore Vega.sln
+
+      - name: Build
+        run: dotnet build Vega.sln --configuration Release --no-restore
+
+      - name: Test
+        run: dotnet test Vega.sln --configuration Release --no-build --no-restore --verbosity normal
+
+      - name: Pack NuGet components
+        shell: pwsh
+        env:
+          RELEASE_VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          $projects = @(
+            "src/Vega.Contracts/Vega.Contracts.csproj",
+            "src/Vega.Core/Vega.Core.csproj",
+            "src/Vega.Cluster/Vega.Cluster.csproj",
+            "src/Vega.Operations/Vega.Operations.csproj",
+            "src/Vega.Modules.Pvp/Vega.Modules.Pvp.csproj",
+            "src/Vega.Modules.CustomItems/Vega.Modules.CustomItems.csproj",
+            "src/Vega.Terraria/Vega.Terraria.csproj",
+            "src/Vega.TerminalUI/Vega.TerminalUI.csproj"
+          )
+          foreach ($project in $projects) {
+            dotnet pack $project --configuration Release --no-build --no-restore `
+              --output artifacts/nuget -p:PackageVersion=$env:RELEASE_VERSION
+            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          }
+
+      - name: Publish deployable server
+        shell: pwsh
+        env:
+          RELEASE_VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          dotnet publish src/Vega.Runtime/Vega.Runtime.csproj `
+            --configuration Release `
+            --no-build `
+            --no-restore `
+            --output artifacts/server
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+          Copy-Item -LiteralPath LICENSE, README.md, README_EN.md `
+            -Destination artifacts/server/
+          Set-Content -LiteralPath artifacts/server/VERSION `
+            -Value $env:RELEASE_VERSION -Encoding ascii
+
+      - name: Verify deployment layout
+        shell: pwsh
+        run: |
+          $root = 'artifacts/server'
+          $requiredRoot = @(
+            'Vega.Server.exe',
+            'Vega.Server.dll',
+            'Vega.Server.deps.json',
+            'Vega.Server.runtimeconfig.json',
+            'LICENSE',
+            'README.md',
+            'README_EN.md',
+            'VERSION'
+          )
+          $requiredLibraries = @(
+            'Vega.Contracts.dll',
+            'Vega.Core.dll',
+            'Vega.Cluster.dll',
+            'Vega.Operations.dll',
+            'Vega.Terraria.dll',
+            'Vega.TerminalUI.dll',
+            'OTAPI.dll',
+            'OTAPI.Runtime.dll',
+            'ModFramework.dll'
+          )
+          $requiredPlugins = @(
+            'Vega.Modules.Pvp.dll',
+            'Vega.Modules.CustomItems.dll'
+          )
+
+          $missing = @()
+          $missing += $requiredRoot |
+            Where-Object { -not (Test-Path -LiteralPath (Join-Path $root $_) -PathType Leaf) }
+          $missing += $requiredLibraries |
+            Where-Object { -not (Test-Path -LiteralPath (Join-Path "$root/libs" $_) -PathType Leaf) }
+          $missing += $requiredPlugins |
+            Where-Object { -not (Test-Path -LiteralPath (Join-Path "$root/ServerPlugins" $_) -PathType Leaf) }
+
+          if ($missing.Count -ne 0) {
+            throw "Deployment layout is incomplete: $($missing -join ', ')."
+          }
+          if (Test-Path -LiteralPath "$root/bin" -PathType Container) {
+            throw "Legacy bin directory must not be published."
+          }
+          if (Test-Path -LiteralPath "$root/Plugins" -PathType Container) {
+            throw "Legacy Plugins directory must not be published."
+          }
+
+      - name: Create release artifacts
+        shell: pwsh
+        env:
+          RELEASE_VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          New-Item -ItemType Directory -Force -Path artifacts/release | Out-Null
+          Compress-Archive -Path artifacts/server/* `
+            -DestinationPath "artifacts/release/Vega.Server-$env:RELEASE_VERSION.zip"
+          Copy-Item -Path artifacts/nuget/*.nupkg, artifacts/nuget/*.snupkg `
+            -Destination artifacts/release/
+
+          Get-ChildItem artifacts/release -File | ForEach-Object {
+            $hash = (Get-FileHash -LiteralPath $_.FullName -Algorithm SHA256).Hash.ToLowerInvariant()
+            "$hash *$($_.Name)"
+          } | Set-Content -LiteralPath artifacts/release/SHA256SUMS.txt -Encoding ascii
+
+      - name: Upload verified release artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: Vega-${{ steps.version.outputs.version }}
+          path: artifacts/release/*
+          if-no-files-found: error
+
+      - name: Publish to NuGet.org
+        shell: pwsh
+        env:
+          NUGET_API_KEY: ${{ secrets.NUGET_API_KEY }}
+        run: |
+          Get-ChildItem artifacts/nuget/*.nupkg | ForEach-Object {
+            dotnet nuget push $_.FullName --api-key $env:NUGET_API_KEY `
+              --source https://api.nuget.org/v3/index.json --skip-duplicate
+            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          }
+
+      - name: Publish GitHub release
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ github.ref_name }}
+          RELEASE_VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          gh release view $env:RELEASE_TAG --repo $env:GITHUB_REPOSITORY *> $null
+          if ($LASTEXITCODE -eq 0) {
+            gh release upload $env:RELEASE_TAG artifacts/release/* `
+              --repo $env:GITHUB_REPOSITORY --clobber
+          }
+          else {
+            gh release create $env:RELEASE_TAG artifacts/release/* `
+              --repo $env:GITHUB_REPOSITORY `
+              --verify-tag `
+              --title "Vega $env:RELEASE_VERSION" `
+              --generate-notes
+          }
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }

@@ -158,17 +158,9 @@ Cluster support is optional. The current transport is an in-memory reference imp
 
 `Directory.Build.props` is the version source. Library projects pack as `VegaKernel.*`; `Vega.Runtime` is distributed as the server archive instead of a NuGet library.
 
-The manual GitHub `Release` workflow:
+The automatic `Release Tag` workflow runs when a `vMAJOR.MINOR.PATCH` tag is pushed. It validates the tag against `VersionPrefix`, restores, builds and tests the solution, packs the public libraries and symbol packages, pushes them to NuGet.org, and creates or refreshes the GitHub Release with the deployable server ZIP and checksums. The repository must contain the `NUGET_API_KEY` Actions secret before a release tag is pushed.
 
-1. selects the newest `vMAJOR.MINOR.PATCH` tag;
-2. checks out that exact revision;
-3. restores, builds, and tests the solution;
-4. packs public libraries and symbol packages;
-5. publishes the complete server archive;
-6. pushes packages to NuGet.org;
-7. creates or refreshes the GitHub Release and checksums.
-
-The repository must contain the `NUGET_API_KEY` Actions secret before the workflow is run. See [the release procedure](../releasing.md).
+The separate `Publish Manual` workflow selects the newest valid tag and only rebuilds its deployable server archive and GitHub Release assets. It deliberately skips tests and NuGet publication and does not require the NuGet secret. See [the release procedure](../releasing.md).
 
 ## 12. Current limitations
 

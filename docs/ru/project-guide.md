@@ -158,17 +158,9 @@ Cluster support опционален. Текущий transport — in-memory ref
 
 Источником версии является `Directory.Build.props`. Библиотечные проекты упаковываются как `VegaKernel.*`; `Vega.Runtime` поставляется серверным архивом, а не NuGet-библиотекой.
 
-Ручной GitHub workflow `Release`:
+Автоматический workflow `Release Tag` запускается при отправке тега `vMAJOR.MINOR.PATCH`. Он сверяет тег с `VersionPrefix`, восстанавливает, собирает и тестирует solution, упаковывает публичные библиотеки и symbol packages, публикует их в NuGet.org и создаёт или обновляет GitHub Release с готовым серверным ZIP-архивом и checksums. До отправки релизного тега в репозитории должен быть настроен Actions secret `NUGET_API_KEY`.
 
-1. выбирает последний тег `vMAJOR.MINOR.PATCH`;
-2. checkout-ит именно эту ревизию;
-3. восстанавливает, собирает и тестирует solution;
-4. упаковывает публичные библиотеки и symbol packages;
-5. публикует полный серверный архив;
-6. отправляет пакеты в NuGet.org;
-7. создаёт или обновляет GitHub Release и checksums.
-
-Перед запуском workflow в репозитории должен быть Actions secret `NUGET_API_KEY`. Подробности: [процедура релиза](../releasing.md).
+Отдельный workflow `Publish Manual` выбирает последний корректный тег и только пересобирает его готовый к развёртыванию серверный архив и assets GitHub Release. Он намеренно не запускает тесты и публикацию в NuGet и не требует NuGet-секрета. Подробности: [процедура релиза](../releasing.md).
 
 ## 12. Текущие ограничения
 
