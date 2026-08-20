@@ -33,23 +33,95 @@ public static class CommandTextParser
             return false;
         }
 
-        var separator = text.IndexOfAny([' ', '\t', '\r', '\n']);
+        int separator = FindWhitespace(text);
         if (separator < 0)
         {
             command = new ParsedCommandText(text, Array.Empty<string>(), silent);
             return true;
         }
 
-        var name = text[..separator];
+        string name = text[..separator];
         if (name.Length == 0)
         {
             return false;
         }
 
-        var arguments = text[(separator + 1)..]
-            .Split([' ', '\t', '\r', '\n'], StringSplitOptions.RemoveEmptyEntries);
-
-        command = new ParsedCommandText(name, arguments, silent);
+        command = new ParsedCommandText(
+            name,
+            ParseArguments(text[(separator + 1)..]),
+            silent);
         return true;
     }
+
+    private static IReadOnlyList<string> ParseArguments(string text)
+    {
+        var arguments = new List<string>();
+        var current = new System.Text.StringBuilder();
+        bool inQuotes = false;
+
+        for (int index = 0; index < text.Length; index++)
+        {
+            char character = text[index];
+
+            if (character == '\\' && ++index < text.Length)
+            {
+                char escaped = text[index];
+                if (escaped is not ('"' or ' ' or '\\'))
+                {
+                    current.Append('\\');
+                }
+
+                current.Append(escaped);
+            }
+            else if (character == '"')
+            {
+                inQuotes = !inQuotes;
+                if (!inQuotes)
+                {
+                    arguments.Add(current.ToString());
+                    current.Clear();
+                }
+                else if (current.Length > 0)
+                {
+                    arguments.Add(current.ToString());
+                    current.Clear();
+                }
+            }
+            else if (IsWhitespace(character) && !inQuotes)
+            {
+                if (current.Length > 0)
+                {
+                    arguments.Add(current.ToString());
+                    current.Clear();
+                }
+            }
+            else
+            {
+                current.Append(character);
+            }
+        }
+
+        if (current.Length > 0)
+        {
+            arguments.Add(current.ToString());
+        }
+
+        return arguments;
+    }
+
+    private static int FindWhitespace(string text)
+    {
+        for (int index = 0; index < text.Length; index++)
+        {
+            if (IsWhitespace(text[index]))
+            {
+                return index;
+            }
+        }
+
+        return -1;
+    }
+
+    private static bool IsWhitespace(char character) =>
+        character is ' ' or '\t' or '\n' or '\r';
 }

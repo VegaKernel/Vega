@@ -150,7 +150,7 @@ internal sealed class NativePlayerCommandHooks : IDisposable
         catch (Exception ex)
         {
             Console.Error.WriteLine(
-                $"Vega player command '{command.Name}' failed for slot {playerId.Value}: {ex}");
+                $"Vega player command '{command.Name}' failed for slot {playerId.Slot}: {ex}");
         }
     }
 

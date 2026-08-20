@@ -23,12 +23,38 @@ public sealed class CommandBoundaryTests
     }
 
     [Test]
-    public void SplitsSimpleArgumentsWithoutOwningLegacyCommandSyntax()
+    public void SplitsSimpleArguments()
     {
         bool parsed = CommandTextParser.TryParse("/alpha one\ttwo three", out ParsedCommandText command);
 
         Assert.That(parsed, Is.True);
         Assert.That(command.Arguments, Is.EqualTo(new[] { "one", "two", "three" }));
+    }
+
+    [Test]
+    public void PreservesQuotedArgumentsForPlayerNamesAndReasons()
+    {
+        bool parsed = CommandTextParser.TryParse(
+            "/kick \"Player With Space\" \"griefing spawn\"",
+            out ParsedCommandText command);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(parsed, Is.True);
+            Assert.That(command.Name, Is.EqualTo("kick"));
+            Assert.That(command.Arguments, Is.EqualTo(new[] { "Player With Space", "griefing spawn" }));
+        });
+    }
+
+    [Test]
+    public void PreservesLegacyEscapedQuoteSpaceAndBackslashSemantics()
+    {
+        bool parsed = CommandTextParser.TryParse(
+            "/alpha one\\ two \"three\\\"four\" five\\\\six",
+            out ParsedCommandText command);
+
+        Assert.That(parsed, Is.True);
+        Assert.That(command.Arguments, Is.EqualTo(new[] { "one two", "three\"four", "five\\six" }));
     }
 
     [Test]
