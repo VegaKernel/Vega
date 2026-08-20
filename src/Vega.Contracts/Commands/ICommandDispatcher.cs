@@ -16,6 +16,17 @@ public interface ICommandDispatcher
 }
 
 /// <summary>
+/// Owns command registrations whose lifetime can be shorter than the server process.
+/// </summary>
+public interface ICommandRegistry
+{
+    /// <summary>
+    /// Registers a handler until the returned lease is disposed.
+    /// </summary>
+    IDisposable Register(ICommandHandler handler);
+}
+
+/// <summary>
 /// Handles one modern command.
 /// </summary>
 public interface ICommandHandler

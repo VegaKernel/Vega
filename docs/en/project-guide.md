@@ -49,7 +49,7 @@ Vega.Runtime ───────→ Vega.TerminalUI
 
 `Vega.Contracts` is the shared semantic boundary. `Vega.Core` cannot reference Terraria, OTAPI, TSAPI, or TShockAPI. `Vega.Terraria` owns all conversions between mutable game objects and Vega snapshots or operations. Architecture tests fail when forbidden dependencies cross that boundary.
 
-The default runtime composes modules explicitly; it does not scan arbitrary assemblies. `ServerPlugins/` is the distribution location for bundled server modules, not yet a promise of dynamic hot-loading. Adding a DLL to that directory alone does not register it.
+The runtime composes bundled modules explicitly. `ServerPlugins/` also supports a separate unload-safe contract for opt-in administrative hot replacement; it is disabled by default and never treats ordinary `IVegaModule` assemblies as unloadable.
 
 ## 4. Prerequisites
 
@@ -98,6 +98,7 @@ artifacts/server/
 ├── Vega.Server.runtimeconfig.json
 ├── libs/                  shared Vega and third-party runtime libraries
 ├── ServerPlugins/         bundled Vega.Modules.* assemblies
+├── config/                TUI and module hot-reload settings
 ├── runtimes/              platform-specific package assets when present
 └── <culture>/             satellite resources when present
 ```
@@ -150,6 +151,8 @@ Bundled modules implement `IVegaModule` and are created by the runtime compositi
 
 Modules should depend on the narrowest capability they need. They must not mutate `Terraria.Main`, retain mutable player objects, introduce a competing packet codec, or hide business behavior in global helpers. Temporary extension state is scoped to a concrete player session and removed deterministically on disconnect.
 
+An external hot-loadable plugin directly implements `IHotReloadableVegaModule` and has one public parameterless entry point. Enable the administrative function in `config/modules.json`; the filesystem watcher then applies create/change/delete/rename events automatically. `plugin list`, `plugin reload <name-or-dll>` and `plugin unload <name-or-dll>` provide explicit control. Commands and hooks must be registered through the supplied `IHotModuleContext`; the host removes them before disposal and verifies collection of the isolated load context. Failed cleanup requires restart. Bundled `IVegaModule` revisions always require restart.
+
 ## 10. Operations and cluster behavior
 
 `Vega.Operations` exposes immutable server, player, module, log, and metric projections. The Terminal UI is only a consumer; administrative actions still use the normal command and authorization boundaries.
@@ -169,7 +172,7 @@ The separate `Publish Manual` workflow selects the newest valid tag and only reb
 - per-player language selection and translation catalog persistence are not implemented;
 - Dimensions packet forwarding is not implemented;
 - sandbox backends and multi-world process management are not implemented;
-- `ServerPlugins/` does not provide arbitrary dynamic discovery or hot reload;
+- hot replacement supports only the unload-safe Vega contract and is disabled by default; legacy or bundled module DLLs require restart;
 - cluster scenarios have no selected production transport;
 - `.vworld` is experimental and disabled by default;
 - several advanced inventory, chest, overlay, role-lease, and world-reset primitives remain roadmap work.

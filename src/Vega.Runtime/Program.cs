@@ -143,7 +143,7 @@ int Start()
         new KickCommand(playerBoundary, playerBoundary, playerAuthorization),
         new PlayingCommand(playerBoundary)
     ];
-    ICommandDispatcher commandDispatcher = new CommandDispatcher(commandHandlers);
+    var commandDispatcher = new CommandDispatcher(commandHandlers);
     var playerPacketPolicies = new PacketProcessorPipeline<PacketView>(
     [
         new NpcCoinPickupAuthorityPolicy(),
@@ -172,7 +172,19 @@ int Start()
         using var worldImages = new TerrariaWorldImageService(logger, lifecycle, worldImageOptions.Enabled);
         var hostMetrics = new ProcessHostMetricsReader();
         var runtimeMetrics = new SampledRuntimeMetricsReader(hostMetrics);
-        var modules = new StaticModuleOperationsCatalog(CreateModuleSnapshots(moduleHost));
+        var staticModules = new StaticModuleOperationsCatalog(CreateModuleSnapshots(moduleHost));
+        ServerPluginHotReloadOptions hotReloadOptions = ServerPluginHotReloadOptionsStore.Load(
+            Path.Combine(AppContext.BaseDirectory, "config", "modules.json"),
+            logger);
+        using var serverPlugins = new ServerPluginHotReloadHost(
+            Path.Combine(AppContext.BaseDirectory, "ServerPlugins"),
+            hotReloadOptions,
+            commandDispatcher,
+            logger);
+        serverPlugins.Start();
+        using IDisposable pluginCommandRegistration = commandDispatcher.Register(
+            new ServerPluginCommand(serverPlugins));
+        var modules = new CompositeModuleOperationsCatalog(staticModules, serverPlugins);
         var snapshots = new OperationsSnapshotProvider(
             "Vega",
             Assembly.GetExecutingAssembly().GetName().Version?.ToString() ?? "unknown",
@@ -184,7 +196,8 @@ int Start()
             logStore,
             runtimeMetrics,
             networkMetrics,
-            worldImages);
+            worldImages,
+            serverPlugins);
         var operationsCommands = new OperationsCommandService(commandDispatcher);
         using var startupProgress = new TerrariaStartupProgress();
         using var terminalUi = new TerminalUiHost(

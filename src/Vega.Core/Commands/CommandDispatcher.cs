@@ -3,9 +3,10 @@ using Vega.Contracts.Messaging;
 
 namespace Vega.Core.Commands;
 
-public sealed class CommandDispatcher : ICommandDispatcher
+public sealed class CommandDispatcher : ICommandDispatcher, ICommandRegistry
 {
-    private readonly IReadOnlyDictionary<string, ICommandHandler> handlers;
+    private readonly object sync = new();
+    private IReadOnlyDictionary<string, ICommandHandler> handlers;
 
     public CommandDispatcher(IEnumerable<ICommandHandler> handlers)
     {
@@ -23,7 +24,26 @@ public sealed class CommandDispatcher : ICommandDispatcher
     }
 
     public bool CanDispatch(string name) =>
-        !string.IsNullOrWhiteSpace(name) && handlers.ContainsKey(name);
+        !string.IsNullOrWhiteSpace(name) && Volatile.Read(ref handlers).ContainsKey(name);
+
+    public IDisposable Register(ICommandHandler handler)
+    {
+        ArgumentNullException.ThrowIfNull(handler);
+
+        lock (sync)
+        {
+            var updated = new Dictionary<string, ICommandHandler>(handlers, StringComparer.OrdinalIgnoreCase);
+            Register(updated, handler.Descriptor.Name, handler);
+            foreach (string alias in handler.Descriptor.Aliases)
+            {
+                Register(updated, alias, handler);
+            }
+
+            Volatile.Write(ref handlers, updated);
+        }
+
+        return new Registration(this, handler);
+    }
 
     public ValueTask<CommandExecutionResult> DispatchAsync(
         CommandInvocation invocation,
@@ -31,7 +51,7 @@ public sealed class CommandDispatcher : ICommandDispatcher
     {
         ArgumentNullException.ThrowIfNull(invocation);
 
-        if (!handlers.TryGetValue(invocation.Name, out ICommandHandler? handler))
+        if (!Volatile.Read(ref handlers).TryGetValue(invocation.Name, out ICommandHandler? handler))
         {
             return ValueTask.FromResult(CreateFailure(
                 CommandExecutionStatus.Failed,
@@ -78,5 +98,38 @@ public sealed class CommandDispatcher : ICommandDispatcher
 
         if (!handlers.TryAdd(name, handler))
             throw new InvalidOperationException($"Command name or alias '{name}' is already registered.");
+    }
+
+    private void Unregister(ICommandHandler handler)
+    {
+        lock (sync)
+        {
+            var updated = new Dictionary<string, ICommandHandler>(handlers, StringComparer.OrdinalIgnoreCase);
+            foreach (string name in updated
+                .Where(pair => ReferenceEquals(pair.Value, handler))
+                .Select(static pair => pair.Key)
+                .ToArray())
+            {
+                updated.Remove(name);
+            }
+
+            Volatile.Write(ref handlers, updated);
+        }
+    }
+
+    private sealed class Registration(CommandDispatcher owner, ICommandHandler handler) : IDisposable
+    {
+        private CommandDispatcher? owner = owner;
+        private ICommandHandler? handler = handler;
+
+        public void Dispose()
+        {
+            CommandDispatcher? currentOwner = Interlocked.Exchange(ref owner, null);
+            ICommandHandler? currentHandler = Interlocked.Exchange(ref handler, null);
+            if (currentOwner is not null && currentHandler is not null)
+            {
+                currentOwner.Unregister(currentHandler);
+            }
+        }
     }
 }

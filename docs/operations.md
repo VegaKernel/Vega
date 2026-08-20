@@ -47,6 +47,20 @@ The current network window intentionally exposes only counters that exist in the
 
 The `tps` command (alias `tpsstats`, permission `tickrate.check`) reports the same immutable tick statistics outside the TUI. Below 15 TPS, the operations snapshot carries a critical warning. Tick statistics start at `NetworkReady`, so world-loading stalls do not corrupt the serving lifetime's extrema. Vega intentionally does not expose the legacy plugin's global reset/toggle switches because they could hide diagnostic history or alerts from other operations consumers.
 
+Vega monitors top-level `ServerPlugins/*.dll` deployment changes. Administrative hot reload is disabled by default in `config/modules.json`:
+
+```json
+{
+  "enabled": false,
+  "debounceMilliseconds": 750,
+  "unloadTimeoutMilliseconds": 5000
+}
+```
+
+With the switch off, a DLL change produces a visible `restart required` state. With it on, create/change automatically loads or replaces a conforming plugin, delete unloads it, and rename is handled as an unload/load transition. An assembly is hot-loadable only when it directly exports exactly one public, parameterless `IHotReloadableVegaModule`. Use `plugin list`, `plugin reload <name-or-dll>` or `plugin unload <name-or-dll>` for explicit administration; the permission is `server.plugins.manage`.
+
+An unloadable plugin must register commands through `IHotModuleContext.RegisterCommand` and every hook/resource through `Track` or `RegisterCleanup`. Vega first removes tracked registrations in reverse order so no new callbacks enter the plugin, then calls `StopAsync` to quiesce its own work, calls `DisposeAsync`, requests unload of the collectible context and verifies that it was collected. A static reference or failed cleanup produces `restart required`; Vega does not report a false successful unload. Bundled modules created as `IVegaModule` remain restart-only.
+
 Structured operational events are written independently to the bounded in-memory store, stdout outside headless mode, and `logs/vega-operations.jsonl` when the file sink is available.
 
 ## Command palette and logs

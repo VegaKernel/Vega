@@ -15,7 +15,8 @@ public sealed class OperationsSnapshotProvider(
     IOperationsLogStore logs,
     IRuntimeMetricsReader runtimeMetrics,
     INetworkMetricsReader networkMetrics,
-    IWorldLoadMetricsReader? worldLoadMetrics = null) : IOperationsSnapshotProvider
+    IWorldLoadMetricsReader? worldLoadMetrics = null,
+    IModuleDirectoryStatusReader? moduleDirectory = null) : IOperationsSnapshotProvider
 {
     public OperationsSnapshot Capture(OperationsLogFilter? logFilter = null)
     {
@@ -28,7 +29,9 @@ public sealed class OperationsSnapshotProvider(
                 Dependencies = Array.AsReadOnly(module.Dependencies.ToArray())
             })
             .ToArray();
-        string[] warnings = BuildWarnings(state, moduleSnapshots);
+        ModuleDirectoryStatusSnapshot moduleDirectoryStatus =
+            moduleDirectory?.Read() ?? ModuleDirectoryStatusSnapshot.Unmonitored;
+        string[] warnings = BuildWarnings(state, moduleSnapshots, moduleDirectoryStatus);
         RuntimeLifecycleStage stage = lifecycle.CurrentStage;
 
         TickRateStatisticsSnapshot tickRate = state.TickRate.SampleCount > 0
@@ -67,13 +70,15 @@ public sealed class OperationsSnapshotProvider(
             runtimeMetrics.Read(),
             networkMetrics.Read())
         {
-            WorldLoad = worldLoadMetrics?.Read()
+            WorldLoad = worldLoadMetrics?.Read(),
+            ModuleDirectory = moduleDirectoryStatus
         };
     }
 
     private static string[] BuildWarnings(
         ServerRuntimeStateSnapshot state,
-        IReadOnlyList<ModuleOperationsSnapshot> modules)
+        IReadOnlyList<ModuleOperationsSnapshot> modules,
+        ModuleDirectoryStatusSnapshot moduleDirectory)
     {
         var warnings = new List<string>();
         if (DateTimeOffset.UtcNow - state.SampledAt > TimeSpan.FromSeconds(5))
@@ -84,6 +89,16 @@ public sealed class OperationsSnapshotProvider(
         if (state.TickRate.SampleCount > 0 && state.TickRate.Current < 15)
         {
             warnings.Add($"Critical tick rate: {state.TickRate.Current:F1} TPS.");
+        }
+
+        if (moduleDirectory.IsRestartRequired)
+        {
+            warnings.Add("ServerPlugins change could not be hot-applied; restart required.");
+        }
+
+        if (moduleDirectory.Failure is not null)
+        {
+            warnings.Add($"ServerPlugins hot-reload issue: {moduleDirectory.Failure}");
         }
 
         foreach (ModuleOperationsSnapshot module in modules)
@@ -114,4 +129,14 @@ public sealed class StaticModuleOperationsCatalog : IModuleOperationsCatalog
     }
 
     public IReadOnlyList<ModuleOperationsSnapshot> SnapshotModules() => modules;
+}
+
+public sealed class CompositeModuleOperationsCatalog(params IModuleOperationsCatalog[] catalogs) : IModuleOperationsCatalog
+{
+    private readonly IModuleOperationsCatalog[] catalogs = catalogs ??
+        throw new ArgumentNullException(nameof(catalogs));
+
+    public IReadOnlyList<ModuleOperationsSnapshot> SnapshotModules() => Array.AsReadOnly(catalogs
+        .SelectMany(static catalog => catalog.SnapshotModules())
+        .ToArray());
 }

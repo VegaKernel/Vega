@@ -1,0 +1,5 @@
+{
+  "enabled": false,
+  "debounceMilliseconds": 750,
+  "unloadTimeoutMilliseconds": 5000
+}

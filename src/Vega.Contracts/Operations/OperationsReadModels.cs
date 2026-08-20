@@ -25,6 +25,27 @@ public interface IModuleOperationsCatalog
     IReadOnlyList<ModuleOperationsSnapshot> SnapshotModules();
 }
 
+public sealed record ModuleDirectoryStatusSnapshot(
+    bool IsMonitored,
+    bool IsHotReloadEnabled,
+    bool IsRestartRequired,
+    DateTimeOffset? ChangedAt,
+    IReadOnlyList<string> ChangedFiles,
+    string? Failure = null)
+{
+    public static ModuleDirectoryStatusSnapshot Unmonitored { get; } = new(
+        false,
+        false,
+        false,
+        null,
+        Array.Empty<string>());
+}
+
+public interface IModuleDirectoryStatusReader
+{
+    ModuleDirectoryStatusSnapshot Read();
+}
+
 public sealed record ServerRuntimeStateSnapshot(
     string? WorldName,
     int MaximumPlayers,
@@ -101,6 +122,9 @@ public sealed record OperationsSnapshot(
     NetworkMetricsSnapshot Network)
 {
     public WorldLoadMetricsSnapshot? WorldLoad { get; init; }
+
+    public ModuleDirectoryStatusSnapshot ModuleDirectory { get; init; } =
+        ModuleDirectoryStatusSnapshot.Unmonitored;
 }
 
 public interface IOperationsSnapshotProvider

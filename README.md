@@ -72,6 +72,8 @@ dotnet publish src/Vega.Runtime/Vega.Runtime.csproj `
 
 После публикации launcher остаётся в корне, общие зависимости находятся в `libs/`, а встроенные серверные модули — в `ServerPlugins/`.
 
+Горячая замена внешних unload-safe плагинов в `ServerPlugins/` доступна через `IHotReloadableVegaModule`, но выключена по умолчанию в `config/modules.json`. При включении watcher автоматически обрабатывает создание, изменение, удаление и переименование DLL; встроенные `IVegaModule` по-прежнему требуют перезапуска.
+
 ## Запуск
 
 ```powershell

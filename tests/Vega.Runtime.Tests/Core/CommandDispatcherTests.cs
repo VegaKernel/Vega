@@ -100,6 +100,25 @@ public sealed class CommandDispatcherTests
         Assert.Throws<InvalidOperationException>(() => new CommandDispatcher([first, second]));
     }
 
+    [Test]
+    public async Task DynamicRegistrationIsRemovedWithItsLease()
+    {
+        var dispatcher = new CommandDispatcher([]);
+        var handler = new FakeHandler(new CommandDescriptor("dynamic", ["dyn"], []));
+
+        IDisposable registration = dispatcher.Register(handler);
+        Assert.That(dispatcher.CanDispatch("dyn"), Is.True);
+        Assert.That((await dispatcher.DispatchAsync(CreateInvocation("dynamic"))).Status,
+            Is.EqualTo(CommandExecutionStatus.Success));
+
+        registration.Dispose();
+
+        Assert.That(dispatcher.CanDispatch("dynamic"), Is.False);
+        Assert.That(dispatcher.CanDispatch("dyn"), Is.False);
+        Assert.That((await dispatcher.DispatchAsync(CreateInvocation("dynamic"))).ErrorCode,
+            Is.EqualTo("command.not_found"));
+    }
+
     private static CommandInvocation CreateInvocation(string name, ICommandPrincipal? principal = null)
         => new(name, [], principal ?? new FakePrincipal("player", false, ["server.secure"]), new FakeOutput());
 

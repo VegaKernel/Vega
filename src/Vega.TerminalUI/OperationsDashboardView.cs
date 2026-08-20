@@ -308,10 +308,22 @@ internal sealed class OperationsDashboardView
                 $"[{player.Id.Slot,3}] {player.Name,-18} HP {player.Life,4}/{player.MaxLife,-4} MP {player.Mana,3}/{player.MaxMana,-3} T{player.Team} {(player.IsHostile ? "PvP" : string.Empty)}"));
     }
 
-    private static string RenderModules(OperationsSnapshot snapshot) => string.Join(
-        Environment.NewLine,
-        snapshot.Modules.Select(module =>
-            $"{StateGlyph(module.State)} {module.Name} {module.Version}\n   {module.StartupDuration.TotalMilliseconds:F1} ms{FormatFailure(module.Failure)}"));
+    private static string RenderModules(OperationsSnapshot snapshot)
+    {
+        string modules = $"Hot reload: {(snapshot.ModuleDirectory.IsHotReloadEnabled ? "enabled" : "disabled")}" +
+            Environment.NewLine + string.Join(
+            Environment.NewLine,
+            snapshot.Modules.Select(module =>
+                $"{StateGlyph(module.State)} {module.Name} {module.Version}\n   {module.StartupDuration.TotalMilliseconds:F1} ms{FormatFailure(module.Failure)}"));
+        if (!snapshot.ModuleDirectory.IsRestartRequired)
+        {
+            return modules;
+        }
+
+        return "⚠ RESTART REQUIRED\n" +
+            string.Join(", ", snapshot.ModuleDirectory.ChangedFiles) +
+            Environment.NewLine + modules;
+    }
 
     private static string RenderLogs(
         OperationsSnapshot snapshot,

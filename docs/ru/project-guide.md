@@ -49,7 +49,7 @@ Vega.Runtime ───────→ Vega.TerminalUI
 
 `Vega.Contracts` является общей семантической границей. `Vega.Core` не может ссылаться на Terraria, OTAPI, TSAPI или TShockAPI. `Vega.Terraria` владеет всеми преобразованиями между изменяемыми игровыми объектами и Vega snapshots/operations. Architecture tests падают, если запрещённая зависимость пересекает эту границу.
 
-Текущий runtime подключает модули явно и не сканирует произвольные сборки. `ServerPlugins/` — каталог поставки встроенных серверных модулей, но пока не обещание динамической hot-load системы. Простое копирование DLL в этот каталог не регистрирует модуль.
+Runtime подключает встроенные модули явно. Для `ServerPlugins/` также существует отдельный unload-safe контракт административной горячей замены; он выключен по умолчанию и никогда не считает обычные сборки `IVegaModule` безопасно выгружаемыми.
 
 ## 4. Требования
 
@@ -98,6 +98,7 @@ artifacts/server/
 ├── Vega.Server.runtimeconfig.json
 ├── libs/                  общие библиотеки Vega и сторонние зависимости
 ├── ServerPlugins/         встроенные сборки Vega.Modules.*
+├── config/                настройки TUI и горячей перезагрузки модулей
 ├── runtimes/              platform-specific assets пакетов, если есть
 └── <culture>/             satellite resources, если есть
 ```
@@ -150,6 +151,8 @@ ProcessStart → Bootstrap → RuntimeReady → ModulesRegistered
 
 Модуль должен зависеть от минимально необходимой capability. Модули не должны менять `Terraria.Main`, удерживать изменяемые player objects, создавать конкурирующий packet codec или прятать бизнес-логику в глобальных helpers. Временный extension state привязан к конкретной player session и детерминированно удаляется при disconnect.
 
+Внешний горячо загружаемый плагин напрямую реализует `IHotReloadableVegaModule` и имеет одну публичную точку входа без параметров. Административная функция включается в `config/modules.json`, после чего watcher автоматически применяет create/change/delete/rename. Для явного управления есть `plugin list`, `plugin reload <name-or-dll>` и `plugin unload <name-or-dll>`. Команды и хуки плагина должны регистрироваться через переданный `IHotModuleContext`: хост снимает их до утилизации модуля и проверяет сборку изолированного load context. Ошибка очистки требует перезапуска. Для встроенных ревизий `IVegaModule` всегда нужен перезапуск.
+
 ## 10. Operations и cluster behavior
 
 `Vega.Operations` предоставляет неизменяемые server/player/module/log/metric projections. Terminal UI является только потребителем; административные действия проходят через обычные command и authorization boundaries.
@@ -169,7 +172,7 @@ Cluster support опционален. Текущий transport — in-memory ref
 - per-player выбор языка и persistence каталогов переводов не реализованы;
 - Dimensions packet forwarding не реализован;
 - sandbox backends и управление multi-world процессами не реализованы;
-- `ServerPlugins/` не поддерживает произвольный dynamic discovery или hot reload;
+- горячая замена поддерживает только unload-safe контракт Vega и выключена по умолчанию; legacy и встроенные DLL требуют перезапуска;
 - для cluster-сценариев не выбран production transport;
 - `.vworld` остаётся экспериментальным и выключен по умолчанию;
 - расширенные inventory, chest, overlay, role-lease и world-reset примитивы остаются дальнейшей работой.

@@ -72,6 +72,8 @@ dotnet publish src/Vega.Runtime/Vega.Runtime.csproj `
 
 The launcher stays at the publish root, shared dependencies live in `libs/`, and bundled server modules live in `ServerPlugins/`.
 
+Hot replacement for external unload-safe `IHotReloadableVegaModule` plugins in `ServerPlugins/` is available but disabled by default in `config/modules.json`. When enabled, the watcher automatically handles DLL creation, change, deletion, and rename; bundled `IVegaModule` revisions still require restart.
+
 ## Run
 
 ```powershell

@@ -89,7 +89,7 @@ The restored source contains substantially more than a bootstrap bridge. Fresh T
 | Save, backup and world lifecycle | `SaveManager`, `BackupManager`, world hooks | **Partial**: Terraria save passthrough and `.vworld` cache | Add controlled backup/reset orchestration, failure recovery and registered persistence participants. |
 | REST administration | `Rest/*`, secure tokens and 42 routes | **Missing** | Decide a Vega management API independently of legacy route compatibility; preserve authorization/redaction requirements. |
 | GeoIP and connection identity | `GeoIPCountry` and connection handling | **Partial**: MMDB provider exists | Complete forwarded endpoint/provenance, sensitive-field authorization and platform metadata in Phase 13. |
-| Plugin/module lifecycle | TSAPI plugin host, `ModuleManager`, plugin installer | **Partial**: explicit first-party module host | Add directory-change/restart-required observability; arbitrary legacy hot reload remains an explicit drop. |
+| Plugin/module lifecycle | TSAPI plugin host, `ModuleManager`, plugin installer | **Native**: explicit first-party host plus opt-in unload-safe plugin host | Keep built-ins restart-only; collectible plugins must use tracked cleanup and pass unload verification. |
 | Logs, metrics and operational state | text/SQL logs and server-info/status surfaces | **Partial**: structured bounded logs and sampled process/network state | Add tick percentiles, security counters, module state and persistence diagnostics without unbounded hot-path work. |
 | Chat and moderation pipeline | chat hooks, mute/whisper/broadcast/MOTD/rules | **Missing** except cluster chat DTOs | Typed ordered transformation/moderation/rendering, commands and per-recipient localization; optional community policy stays modular. |
 
@@ -122,7 +122,7 @@ These are behavior/test inputs. Their indentation, static globals, `TSPlayer` fi
 | `ClientPlatformDetector`, `SSCHealthFix`, `UuidGuardExtension` | Connection metadata, explicit login phases and structured external security signals | **Missing**, Phase 13 |
 | `TPSChecker` | Bounded tick-rate telemetry, percentiles, operations warning and `tps` command | **Native**, Phase 14 |
 | `TimeSync` | Optional monotonic world clock | **Missing**, Phase 14 |
-| `PluginLoader` | Deterministic module status and restart-required signal, not arbitrary hot reload | **Partial**, Phase 14 |
+| `PluginLoader` | Optional administrative unload/replace with tracked cleanup, collectible isolation and restart fallback | **Native**, Phase 14 |
 | `FakeProvider` | Observer-scoped tile layers, entity visibility and symmetric inbound validation | **Missing**, Phase 16 |
 
 ### Administration primitives with module consumers
@@ -180,6 +180,15 @@ WorldEdit remains the first complete Phase 16 consumer because it exercises the 
 - **Intentional drops:** mutable process-global `/tpsalerts` is replaced by always-visible operations warnings; `/tpsreset` is dropped because erasing lifetime extrema destroys diagnostic evidence. A process restart begins a new observation lifetime.
 - **Validation/performance:** deterministic-time tests cover rolling retention, extrema, reset semantics and percentile calculation. The tick hot path uses fixed arrays and a bounded queue; percentile sorting reuses one scratch buffer and runs once per sampling interval.
 - **Boundary check:** no TShock hooks, players, commands or static plugin state were copied. Terraria owns sampling; Contracts owns the immutable model; Core owns presentation; Terminal UI only reads snapshots.
+
+### PluginLoader — constrained administrative unload and replacement
+
+- **Evidence:** TerraZ `PluginLoader` revision `e2ad55782710e1223e760223b7d31a4336caf0b8`, `PluginsManager.cs` and its create/change/delete/rename watcher paths.
+- **Disposition:** `Replace`. Vega keeps explicit first-party composition and adds a separate opt-in host only for assemblies directly exporting one `IHotReloadableVegaModule`. Each image is loaded from memory into its own collectible `AssemblyLoadContext`; replacement is staged before the active revision is stopped.
+- **User-facing replacement:** `plugin list`, `plugin reload <name-or-dll>` and `plugin unload <name-or-dll>` use the normal command/permission pipeline. `config/modules.json` disables the entire hot path by default. Operations/TUI expose the mode, dynamic module state, changed files and restart requirement.
+- **Unload invariant:** the host first disposes every command, hook or cleanup registered through `IHotModuleContext` in reverse order, preventing new callbacks; it then asks the module to quiesce its own work in `StopAsync`, invokes `DisposeAsync`, requests context unload and verifies collection through a weak reference. Incomplete cleanup is reported as degraded and restart-required, never as successful unload.
+- **Intentional boundary:** explicitly composed `IVegaModule` instances such as bundled PVP and CustomItems stay in the default context and require restart. Arbitrary TSAPI/TShock plugins, hidden static hooks and untracked registrations are not declared safe.
+- **Validation:** a real separately built plugin integration fixture proves initial load, dynamic command ownership, same-file hot replacement, lease removal, administrative unload and collectible-context release. Disabled-mode and dynamic command-registry tests cover the safety switch and cleanup boundary.
 
 ## Closure rules for Phases 9 and 10
 

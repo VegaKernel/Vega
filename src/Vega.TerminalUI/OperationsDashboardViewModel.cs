@@ -145,6 +145,11 @@ public static class OperationsDashboardRenderer
 
         text.AppendLine();
         text.AppendLine("MODULES");
+        text.AppendLine($"  hot reload: {(snapshot.ModuleDirectory.IsHotReloadEnabled ? "enabled" : "disabled")}");
+        if (snapshot.ModuleDirectory.IsRestartRequired)
+        {
+            text.AppendLine($"  RESTART REQUIRED: {string.Join(", ", snapshot.ModuleDirectory.ChangedFiles)}");
+        }
         foreach (ModuleOperationsSnapshot module in snapshot.Modules)
         {
             text.AppendLine($"  {module.Name,-22} {module.Version,-12} {module.State,-10} {module.StartupDuration.TotalMilliseconds,7:F1} ms deps=[{string.Join(",", module.Dependencies)}]{FormatFailure(module.Failure)}");
