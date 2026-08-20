@@ -13,6 +13,7 @@ public sealed class PlayerPacketOwnershipPolicyTests
     [TestCase(PacketTypes.PlayerMana)]
     [TestCase(PacketTypes.PlayerTeam)]
     [TestCase(PacketTypes.TogglePvp)]
+    [TestCase(PacketTypes.SpectatePlayer)]
     public void MatchingConnectionSlotIsAllowed(PacketTypes packetType)
     {
         PacketProcessingDecision decision = Process(packetType, connectionSlot: 7, claimedSlot: 7);
@@ -24,6 +25,7 @@ public sealed class PlayerPacketOwnershipPolicyTests
     [TestCase(PacketTypes.PlayerMana)]
     [TestCase(PacketTypes.PlayerTeam)]
     [TestCase(PacketTypes.TogglePvp)]
+    [TestCase(PacketTypes.SpectatePlayer)]
     public void ForeignPlayerSlotIsRejected(PacketTypes packetType)
     {
         PacketProcessingDecision decision = Process(packetType, connectionSlot: 7, claimedSlot: 8);
@@ -57,6 +59,7 @@ public sealed class PlayerPacketOwnershipPolicyTests
             PacketTypes.PlayerHp or PacketTypes.PlayerMana => [claimedSlot, 100, 0, 120, 0],
             PacketTypes.PlayerTeam => [claimedSlot, 1],
             PacketTypes.TogglePvp => [claimedSlot, 1],
+            PacketTypes.SpectatePlayer => [claimedSlot, 2, 0],
             _ => throw new ArgumentOutOfRangeException(nameof(packetType))
         };
         var packet = PacketView.FromPayload(packetType, payload);

@@ -140,6 +140,8 @@ A durable outbox is optional and should be introduced only if a real scenario re
 
 The first reopened migration slice replaces TerraZ `NoCoinDupe` with `NpcCoinPickupAuthorityPolicy`: inbound Multiplicity `SyncExtraValue (92)` packets are rejected before Terraria can accept client-authored NPC coin state, while server-originated synchronization remains untouched. Its regression suite uses the real 14-byte typed payload and records the confirmed production incident in the migration ledger.
 
+The next StateGuard slice extends the existing player-slot ownership rule to typed `SpectatePlayer (150)` payloads. It deliberately does not claim the whole plugin: configurable spectate/ghost/difficulty policy, physical-world borders, permission bypasses and corrective state synchronization stay open until their required Phase 13/19 capabilities exist.
+
 ### Historical implementations to mine for behavior, not architecture
 
 - `popstarfreas/PvPController-1.3`

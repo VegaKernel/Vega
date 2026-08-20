@@ -4,7 +4,6 @@ using NUnit.Framework;
 using Vega.Contracts.Networking;
 using Vega.Contracts.Players;
 using Vega.Terraria.Networking;
-using WirePacketTypes = Multiplicity.Packets.PacketTypes;
 
 namespace Vega.Runtime.Tests;
 
@@ -26,7 +25,7 @@ public sealed class MultiplicityPacketProcessingTests
         };
 
         var decision = MultiplicityPacketProcessing.ProcessInboundPayload(
-            (byte)WirePacketTypes.PlayerHp,
+            (byte)PacketTypes.PlayerHp,
             payloadWindow,
             0,
             payloadWindow.Length,
@@ -40,7 +39,7 @@ public sealed class MultiplicityPacketProcessingTests
         {
             Assert.That(decision.Kind, Is.EqualTo(PacketDecisionKind.Continue));
             Assert.That(processor.Called, Is.True);
-            Assert.That(processor.PacketType, Is.EqualTo(WirePacketTypes.PlayerHp));
+            Assert.That(processor.PacketType, Is.EqualTo(PacketTypes.PlayerHp));
             Assert.That(processor.PayloadLength, Is.EqualTo(5));
             Assert.That(processor.Direction, Is.EqualTo(PacketDirection.Inbound));
             Assert.That(processor.ConnectionId, Is.EqualTo(new ConnectionId(7)));
@@ -57,7 +56,7 @@ public sealed class MultiplicityPacketProcessingTests
         var payload = new byte[4];
 
         var decision = MultiplicityPacketProcessing.ProcessInboundPayload(
-            (byte)WirePacketTypes.PlayerHp,
+            (byte)PacketTypes.PlayerHp,
             payload,
             0,
             payload.Length,
@@ -78,7 +77,7 @@ public sealed class MultiplicityPacketProcessingTests
     {
         public bool Called { get; private set; }
 
-        public WirePacketTypes PacketType { get; private set; }
+        public PacketTypes PacketType { get; private set; }
 
         public int PayloadLength { get; private set; }
 

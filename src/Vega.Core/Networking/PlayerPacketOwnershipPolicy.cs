@@ -17,6 +17,7 @@ public sealed class PlayerPacketOwnershipPolicy : IPacketProcessor<PacketView>
             PacketTypes.PlayerMana => context.Packet.AsPlayerManaView().PlayerId,
             PacketTypes.PlayerTeam => context.Packet.AsPlayerTeamView().PlayerId,
             PacketTypes.TogglePvp => context.Packet.AsTogglePvpView().PlayerId,
+            PacketTypes.SpectatePlayer => context.Packet.AsSpectatePlayerView().PlayerId,
             _ => null
         };
 

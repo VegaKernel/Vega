@@ -163,6 +163,14 @@ WorldEdit remains the first complete Phase 16 consumer because it exercises the 
 - **Configuration/migration impact:** none. The legacy plugin DLL must not be deployed; the invariant is enabled for every Vega server because accepting a client write to NPC-held coin value is not a gameplay customization point.
 - **Boundary check:** no TShock/TSAPI type or runtime dependency is present. `TZ.Multiplicity` remains the only wire-protocol model.
 
+### StateGuard — player-slot ownership slice
+
+- **Evidence:** TerraZ `StateGuard` revision `2c3963b3ed14ceb6b6580053d8cf31c443093604`, `Handlers/SpectateHandler.cs`.
+- **Disposition:** `Port to Core` for the packet identity rule only. `PlayerPacketOwnershipPolicy` now rejects a `SpectatePlayer (150)` payload whose typed `PlayerId` differs from the connection slot.
+- **Validation:** the existing table-driven ownership suite covers matching and forged spectate identities through `SpectatePlayerView`.
+- **Remaining behavior:** disabling spectate, ghost suppression, forced character difficulty, border mutation policy, bypass authorization, corrective synchronization and warning throttling remain unresolved. They require configuration and Terraria correction capabilities rather than more branches in this packet policy.
+- **Boundary check:** the rule uses `TZ.Multiplicity`; no StateGuard/TShock types or permission model entered Vega Core.
+
 ## Closure rules for Phases 9 and 10
 
 For every TShock subsystem and TerraZ repository, the final ledger must record:
