@@ -72,6 +72,7 @@ internal sealed class NativePlayerPacketSecurityHooks : IDisposable
             (byte)PacketTypes.PlayerHp or
             (byte)PacketTypes.PlayerMana or
             (byte)PacketTypes.PlayerTeam or
+            (byte)PacketTypes.TeamChangeFromUI or
             (byte)PacketTypes.TogglePvp or
             (byte)PacketTypes.SpectatePlayer or
             (byte)PacketTypes.SyncExtraValue or

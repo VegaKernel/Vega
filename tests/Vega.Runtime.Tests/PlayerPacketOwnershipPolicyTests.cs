@@ -12,6 +12,7 @@ public sealed class PlayerPacketOwnershipPolicyTests
     [TestCase(PacketTypes.PlayerHp)]
     [TestCase(PacketTypes.PlayerMana)]
     [TestCase(PacketTypes.PlayerTeam)]
+    [TestCase(PacketTypes.TeamChangeFromUI)]
     [TestCase(PacketTypes.TogglePvp)]
     [TestCase(PacketTypes.SpectatePlayer)]
     [TestCase(PacketTypes.PlayerDeathV2)]
@@ -25,6 +26,7 @@ public sealed class PlayerPacketOwnershipPolicyTests
     [TestCase(PacketTypes.PlayerHp)]
     [TestCase(PacketTypes.PlayerMana)]
     [TestCase(PacketTypes.PlayerTeam)]
+    [TestCase(PacketTypes.TeamChangeFromUI)]
     [TestCase(PacketTypes.TogglePvp)]
     [TestCase(PacketTypes.SpectatePlayer)]
     [TestCase(PacketTypes.PlayerDeathV2)]
@@ -78,7 +80,7 @@ public sealed class PlayerPacketOwnershipPolicyTests
         byte[] payload = packetType switch
         {
             PacketTypes.PlayerHp or PacketTypes.PlayerMana => [claimedSlot, 100, 0, 120, 0],
-            PacketTypes.PlayerTeam => [claimedSlot, 1],
+            PacketTypes.PlayerTeam or PacketTypes.TeamChangeFromUI => [claimedSlot, 1],
             PacketTypes.TogglePvp => [claimedSlot, 1],
             PacketTypes.SpectatePlayer => [claimedSlot, 2, 0],
             PacketTypes.PlayerDeathV2 => CreatePlayerDeathPayload(claimedSlot),

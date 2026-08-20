@@ -84,7 +84,7 @@ The restored source contains substantially more than a bootstrap bridge. Fresh T
 | Database/schema providers | `DbBuilder`, SQL query builders and all domain managers | **Missing** | Default embedded store, migrations, transactional upgrades and explicit external-provider boundary in Phase 19. Do not copy the generic legacy DAL blindly. |
 | Server configuration | `TShockConfig`, `ServerSideConfig`, config docs and CLI overrides | **Missing** | Typed `config/` layout, validation, provenance, safe reload and bilingual operator docs in Phase 19. |
 | Localization | `I18n`, English resource, PO catalogs and language docs | **Partial**: culture contracts only | Per-recipient catalogs, fallback, `/lang` and module namespaces without process-global culture mutation. |
-| Packet/state validation | `GetDataHandlers`, `Bouncer`, specialized handlers | **Partial**: typed boundary, six player-slot ownership rules and two universal authority checks | Extract incident-backed invariants into Phase 13 one at a time; correction remains in `Vega.Terraria`. |
+| Packet/state validation | `GetDataHandlers`, `Bouncer`, specialized handlers | **Partial**: typed boundary, seven player-slot ownership rules and two universal authority checks | Extract incident-backed invariants into Phase 13 one at a time; correction remains in `Vega.Terraria`. |
 | Item/projectile/tile restrictions | `ItemBans`, `ItemManager`, `ProjectileManager`, `TileManager` | **Missing** | Decide universal security policy versus optional rules, persist accepted restrictions and cover permission exceptions. |
 | Save, backup and world lifecycle | `SaveManager`, `BackupManager`, world hooks | **Partial**: Terraria save passthrough and `.vworld` cache | Add controlled backup/reset orchestration, failure recovery and registered persistence participants. |
 | REST administration | `Rest/*`, secure tokens and 42 routes | **Missing** | Decide a Vega management API independently of legacy route compatibility; preserve authorization/redaction requirements. |
@@ -180,6 +180,14 @@ WorldEdit remains the first complete Phase 16 consumer because it exercises the 
 - **Validation:** serialized Multiplicity payload tests cover the inclusive `42000` boundary, `42001`, `65535` encoded as signed `-1`, outbound synchronization, unrelated packets, matching/forged player slots and the actual inbound protocol adapter.
 - **Configuration/migration impact:** none. This is a universal protocol-safety invariant rather than configurable gameplay policy. Structured rejection reasons replace TShock-specific kick text.
 - **Boundary check:** no Bouncer, `TSPlayer`, raw reader or TShock event type crossed into Vega. `TZ.Multiplicity` remains the wire model.
+
+### TerraZ TShock GetDataHandlers — post-1.4.5 team packet registration
+
+- **Evidence:** TerraZ TShock revision `9912073f7868b94bcdc7ab658193673647e210db`; fix commit `c8c6e4adcdbf92494eaeb461de12661d0840058f`, `TShockAPI/GetDataHandlers.cs`. The client-only `TeamChangeFromUI (157)` packet was added to the same handler as `PlayerTeam` so it could not bypass validation.
+- **Disposition:** `Port to Core` for sender identity and `Keep native` for packet selection. `NativePlayerPacketSecurityHooks` now selects packet 157, while `PlayerPacketOwnershipPolicy` reads its Multiplicity view and rejects a claimed player slot different from the connection.
+- **Validation:** the table-driven serialized-payload suite covers matching and forged packet-157 identities. Existing malformed-window tests cover rejection before policy execution.
+- **Remaining behavior:** team cooldowns, SSC suppression, PvP no-team mode and corrective synchronization are product policy/configuration work, not part of this identity invariant. `SyncItemsWithShimmer (145)` and `SyncItemCannotBeTakenByEnemies (148)` remain pending until item/world authority is modeled.
+- **Boundary check:** no TShock handler or player type entered Vega. The production hook selects a numeric packet identity and all payload access uses `TeamChangeFromUIView`.
 
 ### TPSChecker — replace plugin-local globals with Operations telemetry
 

@@ -144,6 +144,8 @@ The next StateGuard slice extends the existing player-slot ownership rule to typ
 
 The first full-TShock network slice ports the TerraZ Bouncer fix for `PlayerDeathV2 (118)`. Vega compares the signed wire field as an unsigned 16-bit value and rejects damage above `42000` before Terraria receives it; the same typed payload must also claim the sending connection's player slot. This is one closed invariant, not a claim that Bouncer or `GetDataHandlers` are fully migrated.
 
+The post-1.4.5 registration audit also routes client `TeamChangeFromUI (157)` through the native security hook and applies the same sender-slot ownership rule as legacy `PlayerTeam (45)`. The remaining newly registered item synchronization packets require item/world authority checks and stay open.
+
 ### Historical implementations to mine for behavior, not architecture
 
 - `popstarfreas/PvPController-1.3`
@@ -239,6 +241,7 @@ Move server-wide invariants into Core/runtime, not the historical plugin impleme
 
 - [ ] Extend the existing player-slot ownership policy one incident-backed invariant at a time: malformed payloads, item spawn sanity, projectile ownership/limits, repeated death abuse, chest resize, world-edge placement, configured ghost/spectator restrictions, leashed-entity anchors and the known coin-duplication path.
 - [x] Reject the known overflowed high-damage `PlayerDeathV2` exploit and forged death player identities through the typed Multiplicity boundary.
+- [x] Route post-1.4.5 `TeamChangeFromUI` through native validation and reject a forged player identity.
 - [ ] Decode through `TZ.Multiplicity`; never copy the old raw-reader/packet-writer implementations into Core.
 - [ ] Return typed `Allow`, `Reject`, `Correct` or `Violation` outcomes and keep the final Terraria mutation/correction in `Vega.Terraria` on the game thread.
 - [ ] Add narrowly scoped rate limits/deduplication only where a measured protocol abuse requires them.
