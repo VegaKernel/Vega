@@ -120,7 +120,8 @@ These are behavior/test inputs. Their indentation, static globals, `TSPlayer` fi
 | `PacketGuard`, `StateGuard`, `LeashedEntityGuard` | Typed deterministic packet/state rules plus separate telemetry | **Partial**, Phase 13 |
 | `NoCoinDupe` | Server-authoritative NPC coin-pickup policy | **Native**, Phase 9/13 |
 | `ClientPlatformDetector`, `SSCHealthFix`, `UuidGuardExtension` | Connection metadata, explicit login phases and structured external security signals | **Missing**, Phase 13 |
-| `TPSChecker`, `TimeSync` | World-aware tick telemetry and optional monotonic world clock | **Partial/Missing**, Phase 14 |
+| `TPSChecker` | Bounded tick-rate telemetry, percentiles, operations warning and `tps` command | **Native**, Phase 14 |
+| `TimeSync` | Optional monotonic world clock | **Missing**, Phase 14 |
 | `PluginLoader` | Deterministic module status and restart-required signal, not arbitrary hot reload | **Partial**, Phase 14 |
 | `FakeProvider` | Observer-scoped tile layers, entity visibility and symmetric inbound validation | **Missing**, Phase 16 |
 
@@ -170,6 +171,15 @@ WorldEdit remains the first complete Phase 16 consumer because it exercises the 
 - **Validation:** the existing table-driven ownership suite covers matching and forged spectate identities through `SpectatePlayerView`.
 - **Remaining behavior:** disabling spectate, ghost suppression, forced character difficulty, border mutation policy, bypass authorization, corrective synchronization and warning throttling remain unresolved. They require configuration and Terraria correction capabilities rather than more branches in this packet policy.
 - **Boundary check:** the rule uses `TZ.Multiplicity`; no StateGuard/TShock types or permission model entered Vega Core.
+
+### TPSChecker — replace plugin-local globals with Operations telemetry
+
+- **Evidence:** TerraZ `TPSChecker` revision `49c2824ca499119a62aae1097e329338d70c1573`, especially `TickRateMonitor.cs` and `Handlers/TShockCommandsHandler.cs`.
+- **Disposition:** `Replace`. `Vega.Terraria` samples the authoritative game-thread tick, resets the observation lifetime at `NetworkReady`, publishes current/rolling-minute/min/max rates with UTC timestamps, and computes bounded p50/p95/p99 tick durations. `Vega.Operations` propagates the immutable data and emits a critical dashboard warning below 15 TPS.
+- **User-facing replacement:** `tps` with alias `tpsstats` reports rates, extremes and percentiles through the normal command/localization/authorization boundary. The TUI server and performance windows consume the same snapshot.
+- **Intentional drops:** mutable process-global `/tpsalerts` is replaced by always-visible operations warnings; `/tpsreset` is dropped because erasing lifetime extrema destroys diagnostic evidence. A process restart begins a new observation lifetime.
+- **Validation/performance:** deterministic-time tests cover rolling retention, extrema, reset semantics and percentile calculation. The tick hot path uses fixed arrays and a bounded queue; percentile sorting reuses one scratch buffer and runs once per sampling interval.
+- **Boundary check:** no TShock hooks, players, commands or static plugin state were copied. Terraria owns sampling; Contracts owns the immutable model; Core owns presentation; Terminal UI only reads snapshots.
 
 ## Closure rules for Phases 9 and 10
 

@@ -118,7 +118,8 @@ public static class OperationsDashboardRenderer
 
         text.AppendLine($"SERVER  {server.ServerName} {server.Version}  {server.LifecycleStage}  uptime {FormatDuration(server.Uptime)}");
         text.AppendLine($"WORLD   {server.WorldName ?? "not loaded"}  ready={server.IsWorldReady}  network={server.IsNetworkReady}  port={server.ListenerPort}");
-        text.AppendLine($"PLAYERS {server.OnlinePlayers}/{server.MaximumPlayers}  TPS={server.TicksPerSecond:F1}");
+        text.AppendLine($"PLAYERS {server.OnlinePlayers}/{server.MaximumPlayers}  TPS={server.TickRate.Current:F1} avg1m={server.TickRate.AverageOneMinute:F1} min={server.TickRate.Minimum:F1} max={server.TickRate.Maximum:F1}");
+        text.AppendLine($"TICKMS  p50={server.TickRate.TickDurationP50Milliseconds:F1} p95={server.TickRate.TickDurationP95Milliseconds:F1} p99={server.TickRate.TickDurationP99Milliseconds:F1}");
         text.AppendLine($"MEMORY  working={FormatBytes(snapshot.Runtime.Host.WorkingSetBytes)} managed={FormatBytes(snapshot.Runtime.ManagedMemoryBytes)} heap={FormatBytes(snapshot.Runtime.GcHeapBytes)}");
         text.AppendLine($"GC      gen0={snapshot.Runtime.Gen0Collections} gen1={snapshot.Runtime.Gen1Collections} gen2={snapshot.Runtime.Gen2Collections} fragmented={FormatBytes(snapshot.Runtime.GcFragmentedBytes)}");
         text.AppendLine($"NETWORK in={snapshot.Network.InboundPackets:N0}/{FormatBytes(snapshot.Network.InboundBytes)} out={snapshot.Network.OutboundPackets:N0}/{FormatBytes(snapshot.Network.OutboundBytes)}");

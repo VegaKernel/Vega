@@ -260,6 +260,8 @@ These capabilities are shared runtime infrastructure, but their policies remain 
 - [ ] Keep module registration explicit and deterministic; do not claim arbitrary assembly hot reload or unload safety.
 - [ ] Surface world-clock, TPS and module-restart state through Operations/TUI snapshots without reading Terraria state from the UI thread.
 
+The TPSChecker migration is complete as a source disposition: one game-thread sampler now publishes current, rolling-minute, lifetime min/max with UTC timestamps and bounded tick-duration p50/p95/p99. `tps`/`tpsstats`, low-TPS Operations warnings and the TUI consume that single immutable source. Phase 14 remains open for structured transition events, per-world attribution, TimeSync and module restart detection.
+
 ## Phase 15 — administration primitives with first module consumers
 
 Each Core capability must land with the named first consumer in the same vertical slice. The user-facing behavior remains a `ServerPlugin` or Operations UI feature.

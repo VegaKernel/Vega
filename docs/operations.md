@@ -20,7 +20,7 @@ The Vega option is removed before arguments are passed to Terraria. TUI initiali
 The TUI uses separate high-contrast, movable and resizable windows instead of repainting one large text document. Its default desktop contains:
 
 - **Server / world**: lifecycle, uptime, world/readiness, listener port and player count;
-- **Performance**: bounded TPS and process CPU history;
+- **Performance**: bounded TPS and process CPU history; the server window also shows rolling-minute TPS, lifetime min/max and tick-duration p50/p95/p99;
 - **Memory**: bounded working-set and managed-heap history, plus current GC data;
 - **Network**: inbound/outbound rates and cumulative packet/byte counters;
 - **Players**: immutable `PlayerSnapshot` entries;
@@ -44,6 +44,8 @@ Drag a window title to move it and drag its border to resize it. The following l
 Layout is loaded from `config/tui.json`. `refreshIntervalMilliseconds` is clamped to 250–5000 ms, `historySamples` to 20–600, and unsafe window geometry is normalized. A missing or malformed file falls back to the built-in layout and produces a structured warning instead of preventing startup. The file is included in development and published server layouts.
 
 The current network window intentionally exposes only counters that exist in the operations contract. Packet-type, handler-latency and security-action breakdowns will be added with the packet observability work in Phase 13; the TUI does not fabricate them from unavailable data.
+
+The `tps` command (alias `tpsstats`, permission `tickrate.check`) reports the same immutable tick statistics outside the TUI. Below 15 TPS, the operations snapshot carries a critical warning. Tick statistics start at `NetworkReady`, so world-loading stalls do not corrupt the serving lifetime's extrema. Vega intentionally does not expose the legacy plugin's global reset/toggle switches because they could hide diagnostic history or alerts from other operations consumers.
 
 Structured operational events are written independently to the bounded in-memory store, stdout outside headless mode, and `logs/vega-operations.jsonl` when the file sink is available.
 

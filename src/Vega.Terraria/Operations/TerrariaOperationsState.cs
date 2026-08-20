@@ -1,4 +1,3 @@
-using System.Diagnostics;
 using Vega.Contracts.Operations;
 
 namespace Vega.Terraria.Operations;
@@ -8,6 +7,7 @@ namespace Vega.Terraria.Operations;
 /// </summary>
 public sealed class TerrariaOperationsState : IServerRuntimeStateReader, IDisposable
 {
+    private readonly TickRateMonitor tickRateMonitor;
     private ServerRuntimeStateSnapshot snapshot = new(
         null,
         0,
@@ -15,10 +15,17 @@ public sealed class TerrariaOperationsState : IServerRuntimeStateReader, IDispos
         false,
         0,
         DateTimeOffset.UtcNow);
-    private long tpsWindowStartedAt;
-    private int updatesInWindow;
-    private double ticksPerSecond;
     private bool attached;
+
+    public TerrariaOperationsState()
+        : this(new TickRateMonitor())
+    {
+    }
+
+    internal TerrariaOperationsState(TickRateMonitor tickRateMonitor)
+    {
+        this.tickRateMonitor = tickRateMonitor ?? throw new ArgumentNullException(nameof(tickRateMonitor));
+    }
 
     public void Attach()
     {
@@ -27,12 +34,14 @@ public sealed class TerrariaOperationsState : IServerRuntimeStateReader, IDispos
             return;
         }
 
-        tpsWindowStartedAt = Stopwatch.GetTimestamp();
+        tickRateMonitor.Reset();
         global::Terraria.Main.OnTickForThirdPartySoftwareOnly += OnTick;
         attached = true;
     }
 
     public ServerRuntimeStateSnapshot Read() => Volatile.Read(ref snapshot);
+
+    internal void ResetTickRateStatistics() => tickRateMonitor.Reset();
 
     public void Dispose()
     {
@@ -45,16 +54,7 @@ public sealed class TerrariaOperationsState : IServerRuntimeStateReader, IDispos
 
     private void OnTick()
     {
-        updatesInWindow++;
-
-        long now = Stopwatch.GetTimestamp();
-        TimeSpan elapsed = Stopwatch.GetElapsedTime(tpsWindowStartedAt, now);
-        if (elapsed >= TimeSpan.FromSeconds(1))
-        {
-            ticksPerSecond = updatesInWindow / elapsed.TotalSeconds;
-            updatesInWindow = 0;
-            tpsWindowStartedAt = now;
-        }
+        TickRateStatisticsSnapshot tickRate = tickRateMonitor.RecordTick();
 
         Volatile.Write(ref snapshot, new ServerRuntimeStateSnapshot(
             string.IsNullOrWhiteSpace(global::Terraria.Main.worldName)
@@ -63,7 +63,10 @@ public sealed class TerrariaOperationsState : IServerRuntimeStateReader, IDispos
             global::Terraria.Main.maxNetPlayers,
             global::Terraria.Netplay.ListenPort,
             !global::Terraria.Main.gameMenu,
-            ticksPerSecond,
-            DateTimeOffset.UtcNow));
+            tickRate.Current,
+            DateTimeOffset.UtcNow)
+        {
+            TickRate = tickRate
+        });
     }
 }

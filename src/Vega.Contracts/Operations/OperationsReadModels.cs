@@ -31,7 +31,32 @@ public sealed record ServerRuntimeStateSnapshot(
     int ListenerPort,
     bool IsWorldReady,
     double TicksPerSecond,
-    DateTimeOffset SampledAt);
+    DateTimeOffset SampledAt)
+{
+    public TickRateStatisticsSnapshot TickRate { get; init; } = TickRateStatisticsSnapshot.Empty;
+}
+
+public sealed record TickRateStatisticsSnapshot(
+    double Current,
+    double AverageOneMinute,
+    double Minimum,
+    DateTimeOffset? MinimumAt,
+    double Maximum,
+    DateTimeOffset? MaximumAt,
+    int SampleCount,
+    double TickDurationP50Milliseconds = 0,
+    double TickDurationP95Milliseconds = 0,
+    double TickDurationP99Milliseconds = 0)
+{
+    public static TickRateStatisticsSnapshot Empty { get; } = new(
+        0,
+        0,
+        0,
+        null,
+        0,
+        null,
+        0);
+}
 
 public interface IServerRuntimeStateReader
 {
@@ -62,7 +87,10 @@ public sealed record ServerDashboardSnapshot(
     int MaximumPlayers,
     int ListenerPort,
     double TicksPerSecond,
-    IReadOnlyList<string> Warnings);
+    IReadOnlyList<string> Warnings)
+{
+    public TickRateStatisticsSnapshot TickRate { get; init; } = TickRateStatisticsSnapshot.Empty;
+}
 
 public sealed record OperationsSnapshot(
     ServerDashboardSnapshot Server,

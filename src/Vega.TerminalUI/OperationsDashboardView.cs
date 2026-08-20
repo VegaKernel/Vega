@@ -263,7 +263,16 @@ internal sealed class OperationsDashboardView
             .Append("World: ").Append(server.WorldName ?? "not loaded")
             .Append("  ·  port ").Append(server.ListenerPort).AppendLine()
             .Append("Players: ").Append(server.OnlinePlayers).Append('/').Append(server.MaximumPlayers)
-            .Append("  ·  uptime ").Append(FormatDuration(server.Uptime));
+            .Append("  ·  uptime ").Append(FormatDuration(server.Uptime)).AppendLine()
+            .Append("TPS: ").Append(server.TickRate.Current.ToString("F1", CultureInfo.InvariantCulture))
+            .Append("  ·  avg ").Append(server.TickRate.AverageOneMinute.ToString("F1", CultureInfo.InvariantCulture))
+            .Append("  ·  min/max ")
+            .Append(server.TickRate.Minimum.ToString("F1", CultureInfo.InvariantCulture)).Append('/')
+            .Append(server.TickRate.Maximum.ToString("F1", CultureInfo.InvariantCulture)).AppendLine()
+            .Append("Tick ms p50/p95/p99: ")
+            .Append(server.TickRate.TickDurationP50Milliseconds.ToString("F1", CultureInfo.InvariantCulture)).Append('/')
+            .Append(server.TickRate.TickDurationP95Milliseconds.ToString("F1", CultureInfo.InvariantCulture)).Append('/')
+            .Append(server.TickRate.TickDurationP99Milliseconds.ToString("F1", CultureInfo.InvariantCulture));
 
         if (snapshot.WorldLoad is { } worldLoad)
         {

@@ -138,6 +138,7 @@ int Start()
     ICommandHandler[] commandHandlers =
     [
         new ServerInfoCommand(new ProcessHostMetricsReader()),
+        new TickRateCommand(operationsState),
         new CheckUpdatesCommand(updateChecker),
         new KickCommand(playerBoundary, playerBoundary, playerAuthorization),
         new PlayingCommand(playerBoundary)

@@ -48,7 +48,15 @@ public static class TerrariaServerHost
         ArgumentNullException.ThrowIfNull(commandDispatcher);
         ArgumentNullException.ThrowIfNull(playerAuthorization);
 
-        void Report(RuntimeLifecycleTransition transition) => ReportLifecycleTransition(transition, logger);
+        void Report(RuntimeLifecycleTransition transition)
+        {
+            if (transition.Stage == RuntimeLifecycleStage.NetworkReady)
+            {
+                operationsState.ResetTickRateStatistics();
+            }
+
+            ReportLifecycleTransition(transition, logger);
+        }
         void ReportUnhandled(object sender, UnhandledExceptionEventArgs eventArgs) =>
             logger.Log(
                 OperationsLogLevel.Critical,

@@ -193,6 +193,7 @@ public sealed class OperationsReadModelTests
             Assert.That(snapshot.Server.LifecycleStage, Is.EqualTo(RuntimeLifecycleStage.NetworkReady));
             Assert.That(snapshot.Server.WorldName, Is.EqualTo("Test World"));
             Assert.That(snapshot.Server.OnlinePlayers, Is.EqualTo(1));
+            Assert.That(snapshot.Server.TickRate.AverageOneMinute, Is.EqualTo(59));
             Assert.That(snapshot.Server.Warnings.Single(), Does.Contain("optional"));
             Assert.That(snapshot.Players.Single().Name, Is.EqualTo("VegaPlayer"));
             Assert.That(snapshot.Modules, Has.Count.EqualTo(2));
@@ -255,13 +256,30 @@ public sealed class OperationsReadModelTests
 
     private sealed class FixedServerState : IServerRuntimeStateReader
     {
-        public ServerRuntimeStateSnapshot Read() => new(
-            "Test World",
-            16,
-            7777,
-            true,
-            60,
-            DateTimeOffset.UtcNow);
+        public ServerRuntimeStateSnapshot Read()
+        {
+            DateTimeOffset now = DateTimeOffset.UtcNow;
+            return new ServerRuntimeStateSnapshot(
+                "Test World",
+                16,
+                7777,
+                true,
+                60,
+                now)
+            {
+                TickRate = new TickRateStatisticsSnapshot(
+                    60,
+                    59,
+                    50,
+                    now.AddSeconds(-30),
+                    60,
+                    now,
+                    60,
+                    16.5,
+                    18,
+                    20)
+            };
+        }
     }
 
     private sealed class FixedRuntimeMetrics : IRuntimeMetricsReader
@@ -283,6 +301,119 @@ public sealed class OperationsReadModelTests
     private sealed class FixedNetworkMetrics : INetworkMetricsReader
     {
         public NetworkMetricsSnapshot Read() => new(7, 70, 8, 80, DateTimeOffset.UtcNow);
+    }
+}
+
+[TestFixture]
+public sealed class TickRateMonitorTests
+{
+    [Test]
+    public void MonitorPublishesBoundedOneMinuteAverageAndLifetimeExtremes()
+    {
+        var time = new ManualTimeProvider();
+        var monitor = new TickRateMonitor(time);
+
+        TickRateStatisticsSnapshot first = Sample(monitor, time, 60);
+        TickRateStatisticsSnapshot second = Sample(monitor, time, 30);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(first.Current, Is.EqualTo(60).Within(0.001));
+            Assert.That(second.Current, Is.EqualTo(30).Within(0.001));
+            Assert.That(second.AverageOneMinute, Is.EqualTo(45).Within(0.001));
+            Assert.That(second.Minimum, Is.EqualTo(30).Within(0.001));
+            Assert.That(second.Maximum, Is.EqualTo(60).Within(0.001));
+            Assert.That(second.MinimumAt, Is.EqualTo(time.GetUtcNow()));
+            Assert.That(second.SampleCount, Is.EqualTo(2));
+        });
+
+        for (int index = 0; index < 65; index++)
+        {
+            Sample(monitor, time, 50);
+        }
+
+        TickRateStatisticsSnapshot bounded = Sample(monitor, time, 40);
+        Assert.Multiple(() =>
+        {
+            Assert.That(bounded.SampleCount, Is.EqualTo(TickRateMonitor.OneMinuteSampleCapacity));
+            Assert.That(bounded.AverageOneMinute, Is.EqualTo((59 * 50 + 40) / 60d).Within(0.001));
+            Assert.That(bounded.Minimum, Is.EqualTo(30).Within(0.001));
+            Assert.That(bounded.Maximum, Is.EqualTo(60).Within(0.001));
+        });
+    }
+
+    [Test]
+    public void ResetClearsHistoryAndRestartsTheSamplingWindow()
+    {
+        var time = new ManualTimeProvider();
+        var monitor = new TickRateMonitor(time);
+        Sample(monitor, time, 60);
+
+        monitor.Reset();
+        time.Advance(TimeSpan.FromSeconds(1));
+        TickRateStatisticsSnapshot snapshot = monitor.RecordTick();
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(snapshot.Current, Is.EqualTo(1).Within(0.001));
+            Assert.That(snapshot.Minimum, Is.EqualTo(1).Within(0.001));
+            Assert.That(snapshot.Maximum, Is.EqualTo(1).Within(0.001));
+            Assert.That(snapshot.SampleCount, Is.EqualTo(1));
+        });
+    }
+
+    [Test]
+    public void TickDurationPercentilesAreComputedFromBoundedIntervals()
+    {
+        var time = new ManualTimeProvider();
+        var monitor = new TickRateMonitor(time, TimeSpan.FromMilliseconds(5_050));
+
+        monitor.RecordTick();
+        for (int index = 1; index <= 100; index++)
+        {
+            time.Advance(TimeSpan.FromMilliseconds(index));
+            monitor.RecordTick();
+        }
+
+        TickRateStatisticsSnapshot snapshot = monitor.RecordTick();
+        Assert.Multiple(() =>
+        {
+            Assert.That(snapshot.TickDurationP50Milliseconds, Is.EqualTo(50).Within(0.001));
+            Assert.That(snapshot.TickDurationP95Milliseconds, Is.EqualTo(95).Within(0.001));
+            Assert.That(snapshot.TickDurationP99Milliseconds, Is.EqualTo(99).Within(0.001));
+        });
+    }
+
+    private static TickRateStatisticsSnapshot Sample(
+        TickRateMonitor monitor,
+        ManualTimeProvider time,
+        int ticks)
+    {
+        for (int index = 0; index < ticks - 1; index++)
+        {
+            monitor.RecordTick();
+        }
+
+        time.Advance(TimeSpan.FromSeconds(1));
+        return monitor.RecordTick();
+    }
+
+    private sealed class ManualTimeProvider : TimeProvider
+    {
+        private long timestamp;
+        private DateTimeOffset utcNow = new(2026, 8, 20, 12, 0, 0, TimeSpan.Zero);
+
+        public override long TimestampFrequency => TimeSpan.TicksPerSecond;
+
+        public override long GetTimestamp() => timestamp;
+
+        public override DateTimeOffset GetUtcNow() => utcNow;
+
+        public void Advance(TimeSpan duration)
+        {
+            timestamp += duration.Ticks;
+            utcNow += duration;
+        }
     }
 }
 

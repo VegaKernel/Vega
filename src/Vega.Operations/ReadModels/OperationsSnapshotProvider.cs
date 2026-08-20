@@ -31,6 +31,16 @@ public sealed class OperationsSnapshotProvider(
         string[] warnings = BuildWarnings(state, moduleSnapshots);
         RuntimeLifecycleStage stage = lifecycle.CurrentStage;
 
+        TickRateStatisticsSnapshot tickRate = state.TickRate.SampleCount > 0
+            ? state.TickRate
+            : new TickRateStatisticsSnapshot(
+                state.TicksPerSecond,
+                state.TicksPerSecond,
+                state.TicksPerSecond,
+                state.SampledAt,
+                state.TicksPerSecond,
+                state.SampledAt,
+                state.TicksPerSecond > 0 ? 1 : 0);
         var dashboard = new ServerDashboardSnapshot(
             serverName,
             version,
@@ -44,7 +54,10 @@ public sealed class OperationsSnapshotProvider(
             state.MaximumPlayers,
             state.ListenerPort,
             state.TicksPerSecond,
-            Array.AsReadOnly(warnings));
+            Array.AsReadOnly(warnings))
+        {
+            TickRate = tickRate
+        };
 
         return new OperationsSnapshot(
             dashboard,
@@ -66,6 +79,11 @@ public sealed class OperationsSnapshotProvider(
         if (DateTimeOffset.UtcNow - state.SampledAt > TimeSpan.FromSeconds(5))
         {
             warnings.Add("Terraria runtime snapshot is stale.");
+        }
+
+        if (state.TickRate.SampleCount > 0 && state.TickRate.Current < 15)
+        {
+            warnings.Add($"Critical tick rate: {state.TickRate.Current:F1} TPS.");
         }
 
         foreach (ModuleOperationsSnapshot module in modules)
