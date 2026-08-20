@@ -12,6 +12,30 @@ Vega — самостоятельный серверный runtime и framework 
 
 Vega не является форком TShock и не поддерживает бинарную или исходную совместимость с TShock/TSAPI-плагинами. Старые реализации используются только как источник проверенных сценариев, требований и регрессионных тестов.
 
+## Архитектура
+
+```mermaid
+flowchart TB
+    Terraria["Terraria"] --> OTAPI["OTAPI"]
+    OTAPI --> TerrariaAdapter["Vega.Terraria<br/>игровая интеграция"]
+
+    Runtime["Vega.Runtime<br/>host + composition root"] --> TerrariaAdapter
+    Runtime --> Core["Vega.Core<br/>серверная логика"]
+    Runtime --> Operations["Vega.Operations<br/>логи + метрики + read models"]
+    Runtime --> Cluster["Vega.Cluster<br/>опциональные межсерверные сценарии"]
+    Runtime -. "явная регистрация" .-> Modules["ServerPlugins<br/>Vega.Modules.*"]
+
+    TerrariaAdapter --> Contracts["Vega.Contracts<br/>контракты + snapshots"]
+    Core --> Contracts
+    Operations --> Contracts
+    Cluster --> Contracts
+    Modules --> Contracts
+
+    TerminalUI["Vega.TerminalUI"] --> Operations
+```
+
+`Vega.Core` не зависит от Terraria или OTAPI. Всё изменяемое игровое состояние остаётся за границей `Vega.Terraria`, а остальные компоненты работают через типизированные контракты и неизменяемые snapshots.
+
 ## Что уже есть
 
 - нативный host `Vega.Server` без TSAPI и TShockAPI;

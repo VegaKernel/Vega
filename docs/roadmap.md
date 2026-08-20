@@ -211,6 +211,91 @@ Schema 1 and its reproducible benchmark harness are complete. Measurements on th
 - [x] Clarify the proprietary license scope, project ownership, third-party boundaries, redistribution restrictions and warranty terms without changing Vega into an open-source project.
 - [ ] Keep both language versions synchronized whenever commands, packaging, supported runtime modes or public contracts change.
 
+## Phase 13 — TerraZ-derived security and connection invariants
+
+Move server-wide invariants into Core/runtime, not the historical plugin implementations. Every rule lands as one typed vertical with a production regression test and structured observability; do not build a generic security rules engine first.
+
+### Moderation identity from ExtendedBans
+
+- [ ] Replace the string-only `IBanService` boundary with typed ban subjects for account, UUID, exact IP and network/CIDR identities.
+- [ ] Normalize and validate IP/network subjects once, with explicit IPv4/IPv6 matching, expiration and reason metadata.
+- [ ] Provide one authoritative matching service reused by connection admission, administrative commands and cluster replication.
+- [ ] Keep persistence behind a narrow adapter and keep ban UI/command presentation outside the matching engine.
+- [ ] Add regression tests for overlapping CIDRs, IPv4/IPv6 normalization, expired bans, account/UUID matching and duplicate replicated revisions.
+
+### Packet and state validation from PacketGuard, StateGuard, LeashedEntityGuard and NoCoinDupe
+
+- [ ] Extend the existing player-slot ownership policy one incident-backed invariant at a time: malformed payloads, item spawn sanity, projectile ownership/limits, repeated death abuse, chest resize, world-edge placement, configured ghost/spectator restrictions, leashed-entity anchors and the known coin-duplication path.
+- [ ] Decode through `TZ.Multiplicity`; never copy the old raw-reader/packet-writer implementations into Core.
+- [ ] Return typed `Allow`, `Reject`, `Correct` or `Violation` outcomes and keep the final Terraria mutation/correction in `Vega.Terraria` on the game thread.
+- [ ] Add narrowly scoped rate limits/deduplication only where a measured protocol abuse requires them.
+- [ ] Expose per-rule counters and bounded diagnostics without treating anomaly scores as proof of cheating.
+
+### Connection metadata from ClientPlatformDetector, SSCHealthFix and UuidGuardExtension
+
+- [ ] Model transport endpoint, effective forwarded endpoint and forwarding provenance separately before adding Dimensions support.
+- [ ] Parse `PlayerPlatformInfo` through the typed packet pipeline, enforce sender-slot ownership and represent missing data as `Unknown`, never as assumed PC.
+- [ ] Expose platform and connection provenance through immutable player/operations snapshots with explicit authorization for sensitive fields.
+- [ ] Define connection/login phases before SSC exists so authoritative server character state can reject stale queued client state later.
+- [ ] Expose transport-neutral structured security signals for external firewall automation; shell, nftables and provider-specific enforcement remain outside Core.
+- [ ] Keep Dimensions disabled until ADR 0011 trust configuration and admission ordering are implemented and tested end to end.
+
+## Phase 14 — TerraZ-derived runtime and module operations
+
+These capabilities are shared runtime infrastructure, but their policies remain configurable or modular.
+
+- [ ] Complete TPS telemetry derived from TPSChecker with rolling windows, min/max timestamps, tick-duration p50/p95/p99 and structured low-TPS events.
+- [ ] Add an optional per-`WorldId` monotonic world-clock service derived from TimeSync; corrections run on the game thread and explicit time changes re-anchor the clock.
+- [ ] Add module-directory change detection and a visible `restart required` state derived from PluginLoader.
+- [ ] Keep module registration explicit and deterministic; do not claim arbitrary assembly hot reload or unload safety.
+- [ ] Surface world-clock, TPS and module-restart state through Operations/TUI snapshots without reading Terraria state from the UI thread.
+
+## Phase 15 — administration primitives with first module consumers
+
+Each Core capability must land with the named first consumer in the same vertical slice. The user-facing behavior remains a `ServerPlugin` or Operations UI feature.
+
+1. [ ] **TempGroup / ControlGroupOption**: implement expiring role leases, stale-expiry protection, delegated grant limits and audit records; keep temporary-group commands modular.
+2. [ ] **InvSee / TSExt_UICommand**: implement immutable inventory snapshots, game-thread mutation operations and centralized redaction/authorization for IP, UUID and other sensitive fields; keep inspection commands/UI optional.
+3. [ ] **Wipe**: implement validated world-transition/reset orchestration with registered persistence participants, cancellation and observable state; keep destructive command policy and confirmation in an admin module/UI.
+4. [ ] **AutoWorldCleaner**: implement world-scoped cancellable scheduling plus safe item/projectile snapshots and removal operations; keep cleanup thresholds and schedules in a module.
+5. [ ] **InfChests / ChestRegen**: implement stable chest identity, immutable versioned snapshots, game-thread transactional mutation and ACL/event hooks; keep refill, lock and regeneration policy in modules.
+6. [ ] **Mentions**: implement an ordered typed chat transformation pipeline separating content transformation, moderation and per-recipient rendering; keep mention behavior in a module.
+
+### Explicitly outside Core
+
+- [ ] Port `Homes`, `HouseRegions`, `TpaRequest`, `Clans`, `SealedDressers`, `Mentions`, `ChatAboveHeads`, `ChatGuard`, `InvSee`, `Wipe`, `Region-Vision`, `AutoWorldCleaner`, `InfChests` and `ChestRegen` only as `ServerPlugins` when their required Core capability exists.
+- [ ] Do not move plugin commands, configuration formats, database schemas, timers, static state or TShock class shapes into Core merely to speed up a port.
+
+## Phase 16 — provider and observer-scoped scene runtime
+
+FakeProvider is already a proven shared capability, not a single-plugin abstraction. The audited consumers include WorldEdit clipboard previews, FakeProviderClustering visibility layers, LobbyVisuals/TUI personal providers, hidden portals and animations, plus lobby/server compositions carrying the provider implementation. Vega should therefore own a stable provider/scene boundary while porting behavior rather than the Terraria/TSAPI-coupled API shapes.
+
+### Contracts and ownership
+
+- [ ] Audit the current `TZ.FakeProvider.Abstractions` consumers and freeze the required use cases: ordered global/personal tile layers, observer sets, provider movement/resizing, copying, drawing, lookup and deterministic removal.
+- [ ] Define Vega-native `WorldId`/scene/overlay/observer identities and immutable tile/area data without exposing `Terraria.ITile`, `MessageBuffer`, TSAPI event args or mutable player objects from Contracts/Core.
+- [ ] Keep provider composition and observer policy behind narrow Core contracts; keep tile storage, Terraria hooks, section serialization and game-thread mutation in `Vega.Terraria`.
+- [ ] Give every provider/overlay an explicit owner and lifetime token so module stop, player disconnect, world unload and failed startup clean up deterministically.
+- [ ] Preserve stable ordering/layer semantics and make conflicting overlays observable instead of relying on plugin registration order.
+
+### First consumer ports
+
+1. [ ] **WorldEdit**: port clipboard preview/mask providers, move/resize reuse and clear-on-session-end as the first complete consumer.
+2. [ ] **Region-Vision**: port personal region-border overlays and block interaction with phantom tiles through the shared observer scope.
+3. [ ] **LobbyVisuals/TUI**: port personal UI providers, hidden portals and animations without `dynamic` provider access.
+4. [ ] **FakeProviderClustering**: port player/NPC/projectile visibility layers and cluster transitions after the tile-overlay path is stable.
+5. [ ] **MiniLobby / SurvivalLobby compositions**: remove vendored FakeProvider copies after equivalent Vega capabilities and regression tests exist.
+
+### Network consistency and performance
+
+- [ ] Apply the same observer/layer decision to outbound tile/entity visibility and inbound interaction validation; a client must not interact with state it cannot observe.
+- [ ] Parse/filter through the typed Multiplicity packet boundary and keep rate limits plus malformed-packet handling shared with Phase 13.
+- [ ] Support bounded dirty-region invalidation and section updates instead of redrawing complete providers for every small change.
+- [ ] Benchmark provider lookup, composition, tile-section generation, memory per personal overlay and mass observer changes with representative WorldEdit/lobby workloads.
+- [ ] Expose active scenes/providers, owners, observer counts, dirty regions and degraded/failure state through Operations snapshots.
+- [ ] Do not replace `Main.tile` globally in the first slice. Evaluate a world-provider backend only after overlay consumers are migrated and Terraria/OTAPI ownership assumptions are measured.
+- [ ] Keep single-process multi-world virtualization and arbitrary lazy world storage separate from the provider API; they require their own evidence even though they may later reuse scene contracts.
+
 ## Architectural guardrails
 
 These apply across all phases:

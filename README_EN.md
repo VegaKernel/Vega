@@ -12,6 +12,30 @@ Vega is an independent Terraria server runtime and framework targeting .NET 10. 
 
 Vega is not a TShock fork and does not provide binary or source compatibility for TShock/TSAPI plugins. Historical implementations are used only as evidence for production behavior, requirements, and regression scenarios.
 
+## Architecture
+
+```mermaid
+flowchart TB
+    Terraria["Terraria"] --> OTAPI["OTAPI"]
+    OTAPI --> TerrariaAdapter["Vega.Terraria<br/>game integration"]
+
+    Runtime["Vega.Runtime<br/>host + composition root"] --> TerrariaAdapter
+    Runtime --> Core["Vega.Core<br/>server behavior"]
+    Runtime --> Operations["Vega.Operations<br/>logs + metrics + read models"]
+    Runtime --> Cluster["Vega.Cluster<br/>optional inter-server scenarios"]
+    Runtime -. "explicit registration" .-> Modules["ServerPlugins<br/>Vega.Modules.*"]
+
+    TerrariaAdapter --> Contracts["Vega.Contracts<br/>contracts + snapshots"]
+    Core --> Contracts
+    Operations --> Contracts
+    Cluster --> Contracts
+    Modules --> Contracts
+
+    TerminalUI["Vega.TerminalUI"] --> Operations
+```
+
+`Vega.Core` has no Terraria or OTAPI dependency. Mutable game state remains behind the `Vega.Terraria` boundary, while other components use typed contracts and immutable snapshots.
+
 ## Available today
 
 - native `Vega.Server` hosting without TSAPI or TShockAPI;
