@@ -71,6 +71,8 @@ public sealed class CommandDispatcherTests
 
         Assert.That(result.Status, Is.EqualTo(CommandExecutionStatus.Forbidden));
         Assert.That(result.ErrorCode, Is.EqualTo("command.permission_denied"));
+        Assert.That(result.Messages, Has.Count.EqualTo(1));
+        Assert.That(result.Messages![0].DefaultText, Is.EqualTo("You do not have permission to use this command."));
         Assert.That(handler.ExecutionCount, Is.Zero);
     }
 
@@ -85,6 +87,7 @@ public sealed class CommandDispatcherTests
 
         Assert.That(result.Status, Is.EqualTo(CommandExecutionStatus.Forbidden));
         Assert.That(result.ErrorCode, Is.EqualTo("command.server_not_allowed"));
+        Assert.That(result.Messages, Has.Count.EqualTo(1));
         Assert.That(handler.ExecutionCount, Is.Zero);
     }
 

@@ -1,6 +1,7 @@
 using Multiplicity.Packets.Views;
 using ReLogic.OS;
 using Terraria.ID;
+using TShockNG.Contracts.Authorization;
 using TShockNG.Contracts.Commands;
 using TShockNG.Contracts.Networking;
 using Vega.Contracts.Events;
@@ -24,7 +25,8 @@ public static class TerrariaServerHost
         OtapiGameThreadDispatcher gameThreadDispatcher,
         TerrariaPlayerBoundary playerBoundary,
         IPacketProcessor<PacketView> playerHpSecurity,
-        ICommandDispatcher commandDispatcher)
+        ICommandDispatcher commandDispatcher,
+        IPlayerAuthorizationService playerAuthorization)
     {
         ArgumentNullException.ThrowIfNull(args);
         ArgumentNullException.ThrowIfNull(hardmodeStarting);
@@ -32,6 +34,7 @@ public static class TerrariaServerHost
         ArgumentNullException.ThrowIfNull(playerBoundary);
         ArgumentNullException.ThrowIfNull(playerHpSecurity);
         ArgumentNullException.ThrowIfNull(commandDispatcher);
+        ArgumentNullException.ThrowIfNull(playerAuthorization);
 
         var lifecycle = new RuntimeLifecycleTracker(processStartedAt);
         lifecycle.Transitioned += ReportLifecycleTransition;
@@ -44,6 +47,11 @@ public static class TerrariaServerHost
         using var worldDecisionHooks = new NativeWorldDecisionHooks(hardmodeStarting);
         using var playerPacketSecurityHooks = new NativePlayerPacketSecurityHooks(playerHpSecurity);
         using var consoleCommandHooks = new NativeConsoleCommandHooks(commandDispatcher);
+        using var playerCommandHooks = new NativePlayerCommandHooks(
+            commandDispatcher,
+            playerAuthorization,
+            playerBoundary,
+            playerBoundary);
 
         try
         {
@@ -56,10 +64,11 @@ public static class TerrariaServerHost
             worldDecisionHooks.Attach();
             playerPacketSecurityHooks.Attach();
             consoleCommandHooks.Attach();
+            playerCommandHooks.Attach();
 
             // Temporary seam: legacy TShockAPI still receives its historical TSAPI events.
             // Vega readiness, game-thread scheduling, native decisions, migrated packet security and
-            // migrated console commands no longer depend on that layer.
+            // migrated console/player commands no longer depend on that hook layer.
             LegacyTsapiBridge.AttachHooks(args);
             legacyHooksAttached = true;
 

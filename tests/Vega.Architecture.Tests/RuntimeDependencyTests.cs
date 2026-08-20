@@ -95,6 +95,42 @@ public sealed class RuntimeDependencyTests
         });
     }
 
+    [Test]
+    public void Vega_native_player_commands_attach_before_legacy_TSAPI_hooks()
+    {
+        var repositoryRoot = FindRepositoryRoot();
+        var host = File.ReadAllText(Path.Combine(repositoryRoot, "src", "Vega.Terraria", "TerrariaServerHost.cs"));
+        var nativeAttach = host.IndexOf("playerCommandHooks.Attach();", StringComparison.Ordinal);
+        var legacyAttach = host.IndexOf("LegacyTsapiBridge.AttachHooks(args);", StringComparison.Ordinal);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(nativeAttach, Is.GreaterThanOrEqualTo(0));
+            Assert.That(legacyAttach, Is.GreaterThan(nativeAttach));
+        });
+    }
+
+    [Test]
+    public void Vega_native_player_commands_use_Multiplicity_and_modern_player_contracts()
+    {
+        var repositoryRoot = FindRepositoryRoot();
+        var source = File.ReadAllText(Path.Combine(
+            repositoryRoot,
+            "src",
+            "Vega.Terraria",
+            "Hooking",
+            "NativePlayerCommandHooks.cs"));
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(source, Does.Contain("PacketViewParser.TryParsePayloadBounded"));
+            Assert.That(source, Does.Contain("NetTextModuleView"));
+            Assert.That(source, Does.Contain("IPlayerMessenger"));
+            Assert.That(source, Does.Not.Contain("Commands.HandleCommand"));
+            Assert.That(source, Does.Not.Contain("TSPlayer"));
+        });
+    }
+
     private static string FindRepositoryRoot()
     {
         foreach (var start in new[] { Directory.GetCurrentDirectory(), AppContext.BaseDirectory })

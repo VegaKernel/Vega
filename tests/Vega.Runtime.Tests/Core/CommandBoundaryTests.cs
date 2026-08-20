@@ -1,0 +1,51 @@
+using NUnit.Framework;
+using TShockNG.Contracts.Commands;
+using TShockNG.Contracts.Messaging;
+
+namespace TShockLauncher.Tests.Core;
+
+[TestFixture]
+public sealed class CommandBoundaryTests
+{
+    [TestCase("serverinfo", "serverinfo", false)]
+    [TestCase("/serverinfo", "serverinfo", false)]
+    [TestCase(".serverinfo", "serverinfo", true)]
+    public void ParsesConsoleAndPlayerCommandForms(string input, string expectedName, bool expectedSilent)
+    {
+        bool parsed = CommandTextParser.TryParse(input, out ParsedCommandText command);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(parsed, Is.True);
+            Assert.That(command.Name, Is.EqualTo(expectedName));
+            Assert.That(command.Silent, Is.EqualTo(expectedSilent));
+        });
+    }
+
+    [Test]
+    public void SplitsSimpleArgumentsWithoutOwningLegacyCommandSyntax()
+    {
+        bool parsed = CommandTextParser.TryParse("/alpha one\ttwo three", out ParsedCommandText command);
+
+        Assert.That(parsed, Is.True);
+        Assert.That(command.Arguments, Is.EqualTo(new[] { "one", "two", "three" }));
+    }
+
+    [Test]
+    public void FormatsSourceFallbackText()
+    {
+        var message = MessageDescriptor.Info("command.example", 42)
+            .WithDefaultText("Value: {0}");
+
+        Assert.That(MessageFallbackFormatter.Format(message), Is.EqualTo("Value: 42"));
+    }
+
+    [Test]
+    public void BadFallbackTemplateDegradesToStableKey()
+    {
+        var message = MessageDescriptor.Info("command.example", 42)
+            .WithDefaultText("Value: {1}");
+
+        Assert.That(MessageFallbackFormatter.Format(message), Is.EqualTo("command.example: 42"));
+    }
+}
