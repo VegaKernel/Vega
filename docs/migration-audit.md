@@ -186,8 +186,17 @@ WorldEdit remains the first complete Phase 16 consumer because it exercises the 
 - **Evidence:** TerraZ TShock revision `9912073f7868b94bcdc7ab658193673647e210db`; fix commit `c8c6e4adcdbf92494eaeb461de12661d0840058f`, `TShockAPI/GetDataHandlers.cs`. The client-only `TeamChangeFromUI (157)` packet was added to the same handler as `PlayerTeam` so it could not bypass validation.
 - **Disposition:** `Port to Core` for sender identity and `Keep native` for packet selection. `NativePlayerPacketSecurityHooks` now selects packet 157, while `PlayerPacketOwnershipPolicy` reads its Multiplicity view and rejects a claimed player slot different from the connection.
 - **Validation:** the table-driven serialized-payload suite covers matching and forged packet-157 identities. Existing malformed-window tests cover rejection before policy execution.
-- **Remaining behavior:** team cooldowns, SSC suppression, PvP no-team mode and corrective synchronization are product policy/configuration work, not part of this identity invariant. `SyncItemsWithShimmer (145)` and `SyncItemCannotBeTakenByEnemies (148)` remain pending until item/world authority is modeled.
+- **Remaining behavior:** team cooldowns, SSC suppression, PvP no-team mode and corrective synchronization are product policy/configuration work, not part of this identity invariant.
 - **Boundary check:** no TShock handler or player type entered Vega. The production hook selects a numeric packet identity and all payload access uses `TeamChangeFromUIView`.
+
+### TerraZ PacketGuard/TShock Bouncer — post-1.4.5 world-item sync sanity
+
+- **Evidence:** TerraZ `PacketGuard` `ItemSyncSanityRule` routes `SyncItemsWithShimmer (145)` and `SyncItemCannotBeTakenByEnemies (148)` through a shared typed world-item rule and rejects legacy stacks outside `0..9999`. The pinned TShock `Bouncer.OnItemDrop` additionally records non-finite position/velocity crash attempts and relies on the fixed world-item slot range.
+- **Disposition:** `Port to Core` for universal protocol safety. `WorldItemSyncSanityPolicy` uses Multiplicity's shared `WorldItemSyncView` and rejects indices outside `0..400`, non-finite positions or velocities, and stacks outside `0..9999` before Terraria processes either packet.
+- **Owner:** `Vega.Core` owns the typed invariant; `Vega.Terraria` selects packets 145/148 and cancels rejected OTAPI input; `Vega.Runtime` composes the policy.
+- **Validation:** table-driven serialized payload tests cover both packet identities, inclusive slot/stack boundaries, negative and excessive values, every non-finite float class, outbound traffic, unrelated item packets and the real bounded Multiplicity adapter.
+- **Remaining behavior:** item type/prefix validation, per-item maximum stacks, proximity, active-slot mutation checks, permissions and corrective synchronization remain open until the Terraria item/world authority capability is modeled. This slice closes crash-safe packet sanity, not the complete item authority problem.
+- **Boundary check:** no PacketGuard/TShock rule, raw reader, player object or Terraria global entered Core.
 
 ### TPSChecker — replace plugin-local globals with Operations telemetry
 

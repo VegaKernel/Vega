@@ -149,6 +149,7 @@ int Start()
     var playerPacketPolicies = new PacketProcessorPipeline<PacketView>(
     [
         new NpcCoinPickupAuthorityPolicy(),
+        new WorldItemSyncSanityPolicy(),
         new PlayerDeathDamageAuthorityPolicy(),
         new PlayerPacketOwnershipPolicy(),
         pvpModule.PacketProcessor
