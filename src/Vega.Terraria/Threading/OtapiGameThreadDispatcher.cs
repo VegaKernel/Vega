@@ -8,7 +8,7 @@ namespace Vega.Terraria.Threading;
 /// <summary>
 /// Bounded, time-sliced game-thread scheduler driven directly by the Terraria update hook.
 /// </summary>
-internal sealed class OtapiGameThreadDispatcher : IGameThreadDispatcher, IDisposable
+public sealed class OtapiGameThreadDispatcher : IGameThreadDispatcher, IDisposable
 {
     private readonly record struct WorkItem(string Name, Func<bool> Step);
 

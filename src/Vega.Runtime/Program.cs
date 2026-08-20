@@ -5,6 +5,8 @@ using Vega.Contracts.Events;
 using Vega.Contracts.Worlds;
 using Vega.Core.Events;
 using Vega.Terraria;
+using Vega.Terraria.Players;
+using Vega.Terraria.Threading;
 
 var processStartedAt = Stopwatch.GetTimestamp();
 
@@ -71,5 +73,13 @@ async Task<int> StartAsync()
         Array.Empty<IEventHandler<WorldHardmodeStarting>>(),
         Array.Empty<IEventMonitor<WorldHardmodeStarting>>());
 
-    return TerrariaServerHost.Run(args, processStartedAt, hardmodeStarting);
+    using var gameThreadDispatcher = new OtapiGameThreadDispatcher();
+    using var playerBoundary = new TerrariaPlayerBoundary(gameThreadDispatcher);
+
+    return TerrariaServerHost.Run(
+        args,
+        processStartedAt,
+        hardmodeStarting,
+        gameThreadDispatcher,
+        playerBoundary);
 }

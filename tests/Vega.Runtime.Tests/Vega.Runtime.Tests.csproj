@@ -27,6 +27,7 @@
     <ProjectReference Include="..\..\src\TShockAPI\TShockAPI.csproj" />
     <ProjectReference Include="..\..\src\Vega.Runtime\Vega.Runtime.csproj" />
     <ProjectReference Include="..\..\src\Vega.Core\Vega.Core.csproj" />
+    <ProjectReference Include="..\..\src\Vega.Terraria\Vega.Terraria.csproj" />
   </ItemGroup>
 
   <ItemGroup>

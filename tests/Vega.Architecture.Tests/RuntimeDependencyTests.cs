@@ -42,6 +42,29 @@ public sealed class RuntimeDependencyTests
             $"TSAPI is transitional and must remain isolated to LegacyTsapiBridge. Offenders: {string.Join(", ", offenders)}");
     }
 
+    [Test]
+    public void VegaTerraria_player_boundary_does_not_reference_TShockAPI()
+    {
+        var repositoryRoot = FindRepositoryRoot();
+        var playerDirectory = Path.Combine(repositoryRoot, "src", "Vega.Terraria", "Players");
+
+        var offenders = Directory
+            .EnumerateFiles(playerDirectory, "*.cs", SearchOption.AllDirectories)
+            .Where(path =>
+            {
+                var source = File.ReadAllText(path);
+                return source.Contains("TShockAPI", StringComparison.Ordinal) ||
+                       source.Contains("TSPlayer", StringComparison.Ordinal);
+            })
+            .Select(path => Path.GetRelativePath(repositoryRoot, path))
+            .ToArray();
+
+        Assert.That(
+            offenders,
+            Is.Empty,
+            $"The Vega player boundary must stay Terraria-native. Offenders: {string.Join(", ", offenders)}");
+    }
+
     private static string FindRepositoryRoot()
     {
         foreach (var start in new[] { Directory.GetCurrentDirectory(), AppContext.BaseDirectory })
