@@ -195,6 +195,9 @@ Canonical persistence remains Terraria `.wld`. Vega `.vworld` is a disposable, v
 - [x] Fall back automatically to `.wld` when `.vworld` is absent, stale, incompatible or corrupt.
 - [x] Accept direct `-world path/to/world.vworld` selection while retaining the companion `.wld` as the canonical save and recovery path.
 - [x] Refresh `.vworld` after manual, automatic and shutdown saves through a coalesced atomic build queue, and flush the pending image during orderly shutdown.
+- [x] Capture an immutable runtime tile snapshot after a successful canonical save and bind it to that exact `.wld` SHA-256 before asynchronous publication.
+- [x] Persist and restore `Liquid` / `LiquidBuffer` queues and counters so a validated runtime snapshot can bypass repeated `QuickWater`, `WaterCheck` and startup liquid settling without losing pending liquid work.
+- [x] Guard the liquid fast path with schema flags, checksums, queue bounds and the expected two-`WaterCheck` sequence; fall back to `.wld` if any invariant changes.
 - [x] Log cache hit/miss, invalidation reason, source/cache size, validation/corruption errors and fallback behavior.
 - [x] Integrate `WldLoadDuration`, `WorldImageBuildDuration`, `WorldImageLoadDuration`, `PostLoadInitializationDuration` and `WorldReadyDuration` with startup telemetry.
 - [x] Benchmark cold/warm `.wld` against cold/warm `.vworld`, including peak memory, allocations, `WorldReady` and `NetworkReady`.
@@ -216,7 +219,7 @@ World-image invariant:
 
 See ADR 0020 for format ownership, validation, fallback and persistence constraints.
 
-Schema 1 and its reproducible benchmark harness are complete. Measurements on three real worlds showed no repeatable Vega 1.0 startup benefit and higher memory cost, so `.vworld` remains disabled by default and available only through `--vega-world-image=on`. No speculative runtime indexes or Level 3 lazy/memory-mapped backend were added. See [`docs/world-images.md`](world-images.md) and ADR 0020.
+Tile-only schema 1 and its reproducible benchmark harness showed no repeatable startup benefit. Schema 2 therefore captures prepared runtime tiles plus liquid queues after save. Live small/medium smoke runs reduced full load time by about 40%/26% and temporary allocations substantially, but `.vworld` remains disabled by default until repeated cold/warm and large-world results validate the new path. No speculative chest/sign/entity indexes or Level 3 lazy/memory-mapped backend were added. See [`docs/world-images.md`](world-images.md) and ADR 0020.
 
 ## Phase 12 — distribution and bilingual documentation
 

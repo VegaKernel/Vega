@@ -72,9 +72,49 @@ public sealed class VegaWorldImageTests
             Assert.That(validation.Manifest?.MaxTilesY, Is.EqualTo(5));
             Assert.That(validation.Manifest?.SourceWorld.Offset, Is.Zero);
             Assert.That(validation.Manifest?.TileRuns.Offset, Is.EqualTo(result.SourceBytes));
+            Assert.That(validation.Manifest?.TileRuns.Length, Is.EqualTo(80));
+            Assert.That(validation.Manifest?.LiquidState.Length, Is.Zero);
+            Assert.That(validation.Manifest?.SnapshotFlags, Is.EqualTo(WorldImageSnapshotFlags.None));
             Assert.That(result.ImageBytes, Is.GreaterThan(result.SourceBytes));
             Assert.That(File.ReadAllBytes(imagePath).AsSpan(0, (int)result.SourceBytes).ToArray(),
                 Is.EqualTo(File.ReadAllBytes(sourcePath)));
+        });
+    }
+
+    [Test]
+    public void RuntimeSnapshotPublishesLiquidStateBoundToCanonicalSource()
+    {
+        using var directory = new TemporaryDirectory();
+        string sourcePath = Path.Combine(directory.Path, "world.wld");
+        string imagePath = Path.Combine(directory.Path, "world.vworld");
+        File.WriteAllBytes(sourcePath, CreateWorld(maxTilesX: 4, maxTilesY: 5));
+        VegaWorldImageCompiler.Build(sourcePath, imagePath);
+        VegaWorldImageManifest fileManifest =
+            VegaWorldImageReader.Validate(sourcePath, imagePath).Manifest!;
+        byte[] imageBytes = File.ReadAllBytes(imagePath);
+        byte[] tileRuns = imageBytes.AsSpan(
+            checked((int)fileManifest.TileRuns.Offset),
+            checked((int)fileManifest.TileRuns.Length)).ToArray();
+        byte[] liquidState = CreateEmptyLiquidState();
+        var runtimeSnapshot = new WorldImageRuntimeSnapshot(
+            VegaWorldImageReader.HashFile(sourcePath),
+            4,
+            5,
+            tileRuns,
+            liquidState);
+
+        VegaWorldImageCompiler.Build(sourcePath, imagePath, runtimeSnapshot);
+        WorldImageValidationResult validation = VegaWorldImageReader.Validate(sourcePath, imagePath);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(validation.IsValid, Is.True, validation.Reason);
+            Assert.That(
+                validation.Manifest?.SnapshotFlags,
+                Is.EqualTo(
+                    WorldImageSnapshotFlags.RuntimeTiles |
+                    WorldImageSnapshotFlags.LiquidRuntimeState));
+            Assert.That(validation.Manifest?.LiquidState.Length, Is.EqualTo(liquidState.Length));
         });
     }
 
@@ -213,6 +253,30 @@ public sealed class VegaWorldImageTests
         writer.Write(tileStart);
         writer.Write(tileEnd);
         stream.Position = end;
+        writer.Flush();
+        return stream.ToArray();
+    }
+
+    private static byte[] CreateEmptyLiquidState()
+    {
+        using var stream = new MemoryStream();
+        using var writer = new BinaryWriter(stream, Encoding.UTF8, leaveOpen: true);
+        writer.Write(VegaWorldImageFormat.LiquidStateMagic);
+        writer.Write(VegaWorldImageFormat.LiquidStateVersion);
+        writer.Write(25000); // maxLiquid
+        writer.Write(0); // skipCount
+        writer.Write(0); // stuckCount
+        writer.Write(0); // stuckAmount
+        writer.Write(10); // cycles
+        writer.Write(25000); // curMaxLiquid
+        writer.Write(false); // stuck
+        writer.Write(false); // quickFall
+        writer.Write(0); // wetCounter
+        writer.Write(0); // panicCounter
+        writer.Write(false); // panicMode
+        writer.Write(0); // panicY
+        writer.Write(0); // liquidCount
+        writer.Write(0); // bufferCount
         writer.Flush();
         return stream.ToArray();
     }

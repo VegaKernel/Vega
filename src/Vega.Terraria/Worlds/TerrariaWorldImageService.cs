@@ -1,5 +1,7 @@
 using System.Diagnostics;
+using HookLiquid = HookEvents.Terraria.Liquid;
 using HookWorldFile = HookEvents.Terraria.IO.WorldFile;
+using HookWorldGen = HookEvents.Terraria.WorldGen;
 using Vega.Contracts.Operations;
 using Vega.Contracts.Runtime;
 
@@ -34,6 +36,7 @@ public sealed class TerrariaWorldImageService : IDisposable, IWorldLoadMetricsRe
     private int gen0Before;
     private int gen1Before;
     private int gen2Before;
+    private int waterCheckCount;
 
     public TerrariaWorldImageService(
         IOperationsLogger logger,
@@ -60,6 +63,8 @@ public sealed class TerrariaWorldImageService : IDisposable, IWorldLoadMetricsRe
         HookWorldFile.LoadNPCs += OnLoadNpcs;
         HookWorldFile.LoadTileEntities += OnLoadTileEntities;
         HookWorldFile.InternalSaveWorld += OnInternalSaveWorld;
+        HookLiquid.QuickWater += OnQuickWater;
+        HookWorldGen.WaterCheck += OnWaterCheck;
         global::HookEvents.Terraria.Main.get_worldPathName += OnGetWorldPathName;
         lifecycle.Transitioned += OnLifecycleTransition;
         attached = true;
@@ -85,6 +90,8 @@ public sealed class TerrariaWorldImageService : IDisposable, IWorldLoadMetricsRe
             HookWorldFile.LoadNPCs -= OnLoadNpcs;
             HookWorldFile.LoadTileEntities -= OnLoadTileEntities;
             HookWorldFile.InternalSaveWorld -= OnInternalSaveWorld;
+            HookLiquid.QuickWater -= OnQuickWater;
+            HookWorldGen.WaterCheck -= OnWaterCheck;
             global::HookEvents.Terraria.Main.get_worldPathName -= OnGetWorldPathName;
             lifecycle.Transitioned -= OnLifecycleTransition;
             attached = false;
@@ -109,6 +116,7 @@ public sealed class TerrariaWorldImageService : IDisposable, IWorldLoadMetricsRe
             File.Exists(sourcePath);
         string cacheReason = localSource ? "absent" : "unsupported-source";
         bool cacheHit = false;
+        bool runtimeSnapshotHit = false;
         long sourceBytes = localSource ? new FileInfo(sourcePath!).Length : 0;
         long imageBytes = 0;
         string? imagePath = localSource ? Path.ChangeExtension(sourcePath, ".vworld") : null;
@@ -126,6 +134,8 @@ public sealed class TerrariaWorldImageService : IDisposable, IWorldLoadMetricsRe
                 activeImage = new ActiveImage(imagePath!, validation.Manifest);
                 imageBytes = new FileInfo(imagePath!).Length;
                 cacheHit = true;
+                runtimeSnapshotHit = validation.Manifest.SnapshotFlags.HasFlag(
+                    WorldImageSnapshotFlags.LiquidRuntimeState);
             }
             else if (IsCorruptionReason(validation.Reason))
             {
@@ -144,6 +154,7 @@ public sealed class TerrariaWorldImageService : IDisposable, IWorldLoadMetricsRe
         try
         {
             args.OriginalMethod();
+            EnsureRuntimeLiquidStateWasRestored();
         }
         catch (Exception ex) when (cacheHit)
         {
@@ -154,6 +165,7 @@ public sealed class TerrariaWorldImageService : IDisposable, IWorldLoadMetricsRe
                 ex);
             activeImage = null;
             cacheHit = false;
+            runtimeSnapshotHit = false;
             cacheReason = "cache-load-exception";
             fellBack = true;
             Quarantine(imagePath!, cacheReason);
@@ -174,6 +186,7 @@ public sealed class TerrariaWorldImageService : IDisposable, IWorldLoadMetricsRe
                 "world_image cache=fallback reason=cache-load-failed; retrying canonical .wld");
             activeImage = null;
             cacheHit = false;
+            runtimeSnapshotHit = false;
             cacheReason = "cache-load-failed";
             fellBack = true;
             ResetMeasurements();
@@ -224,6 +237,7 @@ public sealed class TerrariaWorldImageService : IDisposable, IWorldLoadMetricsRe
             OperationsLogLevel.Information,
             "world-image",
             $"world_image cache={(cacheHit ? "hit" : "miss")} reason={cacheReason} " +
+            $"runtime_snapshot={runtimeSnapshotHit.ToString().ToLowerInvariant()} " +
             $"fallback={fellBack.ToString().ToLowerInvariant()} source_bytes={sourceBytes} image_bytes={imageBytes} " +
             $"file_read_ms={fileRead.TotalMilliseconds:F1} tile_decode_ms={next.TileDecodeDuration.TotalMilliseconds:F1} " +
             $"chests_ms={next.ChestCreationDuration.TotalMilliseconds:F1} signs_ms={next.SignCreationDuration.TotalMilliseconds:F1} " +
@@ -307,7 +321,67 @@ public sealed class TerrariaWorldImageService : IDisposable, IWorldLoadMetricsRe
             return;
         }
 
-        RebuildAfterSave(sourcePath);
+        try
+        {
+            long started = Stopwatch.GetTimestamp();
+            WorldImageRuntimeSnapshot runtimeSnapshot = WorldImageRuntimeSnapshot.Capture(sourcePath);
+            TimeSpan elapsed = Stopwatch.GetElapsedTime(started);
+            logger.Log(
+                OperationsLogLevel.Information,
+                "world-image",
+                $"world_image snapshot=captured tile_bytes={runtimeSnapshot.TileRuns.Length} " +
+                $"liquid_bytes={runtimeSnapshot.LiquidState.Length} duration_ms={elapsed.TotalMilliseconds:F1}");
+            ScheduleBuild(
+                sourcePath,
+                Path.ChangeExtension(sourcePath, ".vworld"),
+                runtimeSnapshot);
+        }
+        catch (Exception ex)
+        {
+            logger.Log(
+                OperationsLogLevel.Warning,
+                "world-image",
+                "world_image snapshot=failed; rebuilding a file-derived cache with stock liquid initialization",
+                ex);
+            RebuildAfterSave(sourcePath);
+        }
+    }
+
+    private void OnQuickWater(object? sender, HookLiquid.QuickWaterEventArgs args)
+    {
+        if (CanRestoreRuntimeLiquidState())
+        {
+            global::Terraria.Main.tileSolid[379] = true;
+            if (global::Terraria.WorldGen.noTrapsWorldGen)
+            {
+                global::Terraria.WorldGen.SetBoulderSolidity(solid: true);
+            }
+
+            args.ContinueExecution = false;
+        }
+    }
+
+    private void OnWaterCheck(object? sender, HookWorldGen.WaterCheckEventArgs args)
+    {
+        if (!CanRestoreRuntimeLiquidState())
+        {
+            return;
+        }
+
+        args.ContinueExecution = false;
+        waterCheckCount++;
+        if (waterCheckCount == 1)
+        {
+            global::Terraria.Liquid.numLiquid = 0;
+            global::Terraria.LiquidBuffer.numLiquidBuffer = 0;
+            return;
+        }
+
+        if (waterCheckCount == 2)
+        {
+            ActiveImage image = activeImage!;
+            WorldImageLiquidStateLoader.Load(image.Path, image.Manifest);
+        }
     }
 
     private void OnGetWorldPathName(
@@ -340,7 +414,10 @@ public sealed class TerrariaWorldImageService : IDisposable, IWorldLoadMetricsRe
         }
     }
 
-    private void ScheduleBuild(string sourcePath, string imagePath)
+    private void ScheduleBuild(
+        string sourcePath,
+        string imagePath,
+        WorldImageRuntimeSnapshot? runtimeSnapshot = null)
     {
         lock (buildSync)
         {
@@ -349,7 +426,7 @@ public sealed class TerrariaWorldImageService : IDisposable, IWorldLoadMetricsRe
                 return;
             }
 
-            pendingBuild = new BuildRequest(sourcePath, imagePath);
+            pendingBuild = new BuildRequest(sourcePath, imagePath, runtimeSnapshot);
             buildWorker ??= Task.Run(ProcessBuildQueue);
         }
     }
@@ -402,7 +479,8 @@ public sealed class TerrariaWorldImageService : IDisposable, IWorldLoadMetricsRe
             {
                 WorldImageBuildResult result = VegaWorldImageCompiler.Build(
                     request.SourcePath,
-                    request.ImagePath);
+                    request.ImagePath,
+                    request.RuntimeSnapshot);
                 lock (sync)
                 {
                     snapshot = snapshot with
@@ -460,6 +538,20 @@ public sealed class TerrariaWorldImageService : IDisposable, IWorldLoadMetricsRe
         signTicks = 0;
         npcTicks = 0;
         tileEntityTicks = 0;
+        waterCheckCount = 0;
+    }
+
+    private bool CanRestoreRuntimeLiquidState() =>
+        activeImage?.Manifest.SnapshotFlags.HasFlag(
+            WorldImageSnapshotFlags.LiquidRuntimeState) == true;
+
+    private void EnsureRuntimeLiquidStateWasRestored()
+    {
+        if (CanRestoreRuntimeLiquidState() && waterCheckCount != 2)
+        {
+            throw new InvalidDataException(
+                $"Terraria liquid initialization sequence changed; expected two WaterCheck calls, observed {waterCheckCount}.");
+        }
     }
 
     private static long Measure(Action action)
@@ -502,5 +594,8 @@ public sealed class TerrariaWorldImageService : IDisposable, IWorldLoadMetricsRe
 
     private sealed record ActiveImage(string Path, VegaWorldImageManifest Manifest);
 
-    private sealed record BuildRequest(string SourcePath, string ImagePath);
+    private sealed record BuildRequest(
+        string SourcePath,
+        string ImagePath,
+        WorldImageRuntimeSnapshot? RuntimeSnapshot);
 }

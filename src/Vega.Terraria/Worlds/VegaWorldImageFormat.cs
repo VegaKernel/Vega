@@ -6,20 +6,33 @@ namespace Vega.Terraria.Worlds;
 
 internal static class VegaWorldImageFormat
 {
-    public const int SchemaVersion = 1;
+    public const int SchemaVersion = 2;
     public const int TileChunkColumns = 64;
     public const int FooterSize = 52;
-    public const string CompilerParameters = "packed-tile-runs-v1;chunk-columns=64";
+    public const int LiquidStateVersion = 1;
+    public const string CompilerParameters =
+        "runtime-snapshot-v2;chunk-columns=64;tile-record-bytes=16;liquid-state=v1";
 
     public static ReadOnlySpan<byte> ManifestMagic => "VGWRLD01"u8;
 
     public static ReadOnlySpan<byte> FooterMagic => "VGFTR001"u8;
+
+    public static ReadOnlySpan<byte> LiquidStateMagic => "VGLIQ001"u8;
 }
 
 internal enum WorldImageSection : byte
 {
     SourceWorld = 1,
-    TileRuns = 2
+    TileRuns = 2,
+    LiquidState = 3
+}
+
+[Flags]
+internal enum WorldImageSnapshotFlags : byte
+{
+    None = 0,
+    RuntimeTiles = 1 << 0,
+    LiquidRuntimeState = 1 << 1
 }
 
 internal sealed record VegaWorldImageManifest(
@@ -30,9 +43,11 @@ internal sealed record VegaWorldImageManifest(
     int MaxTilesX,
     int MaxTilesY,
     long SourceTileEnd,
+    WorldImageSnapshotFlags SnapshotFlags,
     string CompilerParameters,
     WorldImageSectionEntry SourceWorld,
-    WorldImageSectionEntry TileRuns);
+    WorldImageSectionEntry TileRuns,
+    WorldImageSectionEntry LiquidState);
 
 internal sealed record WorldImageSectionEntry(
     WorldImageSection Id,
@@ -140,8 +155,12 @@ internal static class VegaWorldImageReader
 
             if (!IsSectionRangeValid(manifest.SourceWorld, image.Length) ||
                 !IsSectionRangeValid(manifest.TileRuns, image.Length) ||
+                !IsSectionRangeValid(manifest.LiquidState, image.Length) ||
                 manifest.SourceWorld.Offset != 0 ||
-                manifest.SourceWorld.Length != manifest.SourceLength)
+                manifest.SourceWorld.Length != manifest.SourceLength ||
+                manifest.TileRuns.Offset != manifest.SourceWorld.Length ||
+                manifest.LiquidState.Offset != manifest.TileRuns.Offset + manifest.TileRuns.Length ||
+                manifest.LiquidState.Offset + manifest.LiquidState.Length != manifestOffset)
             {
                 return WorldImageValidationResult.Invalid("section-range");
             }
@@ -160,6 +179,24 @@ internal static class VegaWorldImageReader
             if (!HashSection(image, manifest.TileRuns).AsSpan().SequenceEqual(manifest.TileRuns.Sha256))
             {
                 return WorldImageValidationResult.Invalid("tile-section-checksum");
+            }
+
+            if (!HashSection(image, manifest.LiquidState).AsSpan().SequenceEqual(manifest.LiquidState.Sha256))
+            {
+                return WorldImageValidationResult.Invalid("liquid-section-checksum");
+            }
+
+            bool hasRuntimeLiquidState =
+                manifest.SnapshotFlags.HasFlag(WorldImageSnapshotFlags.LiquidRuntimeState);
+            const WorldImageSnapshotFlags knownSnapshotFlags =
+                WorldImageSnapshotFlags.RuntimeTiles |
+                WorldImageSnapshotFlags.LiquidRuntimeState;
+            if ((manifest.SnapshotFlags & ~knownSnapshotFlags) != 0 ||
+                hasRuntimeLiquidState != (manifest.LiquidState.Length > 0) ||
+                hasRuntimeLiquidState &&
+                !manifest.SnapshotFlags.HasFlag(WorldImageSnapshotFlags.RuntimeTiles))
+            {
+                return WorldImageValidationResult.Invalid("snapshot-flags");
             }
 
             return WorldImageValidationResult.Valid(manifest);
@@ -240,23 +277,30 @@ internal static class VegaWorldImageReader
         int maxTilesX = reader.ReadInt32();
         int maxTilesY = reader.ReadInt32();
         long sourceTileEnd = reader.ReadInt64();
+        var snapshotFlags = (WorldImageSnapshotFlags)reader.ReadByte();
         string compilerParameters = reader.ReadString();
         int sectionCount = reader.ReadInt32();
-        if (sectionCount != 2)
+        if (sectionCount != 3)
         {
             throw new InvalidDataException("Unexpected Vega world-image section count.");
         }
 
         WorldImageSectionEntry first = ReadSection(reader);
         WorldImageSectionEntry second = ReadSection(reader);
+        WorldImageSectionEntry third = ReadSection(reader);
         if (stream.Position != stream.Length)
         {
             throw new InvalidDataException("Unexpected data after the Vega world-image manifest.");
         }
 
-        WorldImageSectionEntry source = first.Id == WorldImageSection.SourceWorld ? first : second;
-        WorldImageSectionEntry tiles = first.Id == WorldImageSection.TileRuns ? first : second;
-        if (source.Id != WorldImageSection.SourceWorld || tiles.Id != WorldImageSection.TileRuns)
+        WorldImageSectionEntry[] sections = [first, second, third];
+        WorldImageSectionEntry? source = sections.SingleOrDefault(
+            static section => section.Id == WorldImageSection.SourceWorld);
+        WorldImageSectionEntry? tiles = sections.SingleOrDefault(
+            static section => section.Id == WorldImageSection.TileRuns);
+        WorldImageSectionEntry? liquid = sections.SingleOrDefault(
+            static section => section.Id == WorldImageSection.LiquidState);
+        if (source is null || tiles is null || liquid is null)
         {
             throw new InvalidDataException("Required Vega world-image sections are missing.");
         }
@@ -269,9 +313,11 @@ internal static class VegaWorldImageReader
             maxTilesX,
             maxTilesY,
             sourceTileEnd,
+            snapshotFlags,
             compilerParameters,
             source,
-            tiles);
+            tiles,
+            liquid);
     }
 
     private static WorldImageSectionEntry ReadSection(BinaryReader reader)
@@ -303,7 +349,10 @@ internal static class VegaWorldImageCompiler
 {
     private const ushort NoTile = ushort.MaxValue;
 
-    public static WorldImageBuildResult Build(string sourcePath, string imagePath)
+    public static WorldImageBuildResult Build(
+        string sourcePath,
+        string imagePath,
+        WorldImageRuntimeSnapshot? runtimeSnapshot = null)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(sourcePath);
         ArgumentException.ThrowIfNullOrWhiteSpace(imagePath);
@@ -319,6 +368,19 @@ internal static class VegaWorldImageCompiler
         FileInfo sourceInfo = new(sourcePath);
         byte[] sourceHash = VegaWorldImageReader.HashFile(sourcePath);
         WorldSourceLayout layout = ReadSourceLayout(sourcePath);
+        if (runtimeSnapshot is not null)
+        {
+            if (!sourceHash.AsSpan().SequenceEqual(runtimeSnapshot.SourceSha256))
+            {
+                throw new InvalidDataException("The canonical world changed after its runtime snapshot was captured.");
+            }
+
+            if (runtimeSnapshot.MaxTilesX != layout.MaxTilesX ||
+                runtimeSnapshot.MaxTilesY != layout.MaxTilesY)
+            {
+                throw new InvalidDataException("Runtime snapshot dimensions do not match the canonical world.");
+            }
+        }
 
         try
         {
@@ -342,16 +404,21 @@ internal static class VegaWorldImageCompiler
                 }
 
                 long tileOffset = output.Position;
-                using (var source = new FileStream(
-                           sourcePath,
-                           FileMode.Open,
-                           FileAccess.Read,
-                           FileShare.Read,
-                           64 * 1024,
-                           FileOptions.SequentialScan))
-                using (var sourceReader = new BinaryReader(source, Encoding.UTF8, leaveOpen: true))
-                using (var writer = new BinaryWriter(output, Encoding.UTF8, leaveOpen: true))
+                if (runtimeSnapshot is not null)
                 {
+                    output.Write(runtimeSnapshot.TileRuns);
+                }
+                else
+                {
+                    using var source = new FileStream(
+                        sourcePath,
+                        FileMode.Open,
+                        FileAccess.Read,
+                        FileShare.Read,
+                        64 * 1024,
+                        FileOptions.SequentialScan);
+                    using var sourceReader = new BinaryReader(source, Encoding.UTF8, leaveOpen: true);
+                    using var writer = new BinaryWriter(output, Encoding.UTF8, leaveOpen: true);
                     WriteTileRuns(sourceReader, writer, layout);
                 }
 
@@ -368,6 +435,19 @@ internal static class VegaWorldImageCompiler
                     []);
                 byte[] tileHash = VegaWorldImageReader.HashSection(output, tileSectionWithoutHash);
                 var tileSection = tileSectionWithoutHash with { Sha256 = tileHash };
+                long liquidOffset = output.Position;
+                if (runtimeSnapshot is not null)
+                {
+                    output.Write(runtimeSnapshot.LiquidState);
+                }
+
+                var liquidSectionWithoutHash = new WorldImageSectionEntry(
+                    WorldImageSection.LiquidState,
+                    liquidOffset,
+                    output.Position - liquidOffset,
+                    []);
+                byte[] liquidHash = VegaWorldImageReader.HashSection(output, liquidSectionWithoutHash);
+                var liquidSection = liquidSectionWithoutHash with { Sha256 = liquidHash };
                 var manifest = new VegaWorldImageManifest(
                     VegaWorldImageFormat.SchemaVersion,
                     layout.TerrariaVersion,
@@ -376,9 +456,14 @@ internal static class VegaWorldImageCompiler
                     layout.MaxTilesX,
                     layout.MaxTilesY,
                     layout.TileEnd,
+                    runtimeSnapshot is null
+                        ? WorldImageSnapshotFlags.None
+                        : WorldImageSnapshotFlags.RuntimeTiles |
+                            WorldImageSnapshotFlags.LiquidRuntimeState,
                     VegaWorldImageFormat.CompilerParameters,
                     sourceSection,
-                    tileSection);
+                    tileSection,
+                    liquidSection);
 
                 byte[] manifestBytes = WriteManifest(manifest);
                 long manifestOffset = output.Position;
@@ -759,10 +844,12 @@ internal static class VegaWorldImageCompiler
         writer.Write(manifest.MaxTilesX);
         writer.Write(manifest.MaxTilesY);
         writer.Write(manifest.SourceTileEnd);
+        writer.Write((byte)manifest.SnapshotFlags);
         writer.Write(manifest.CompilerParameters);
-        writer.Write(2);
+        writer.Write(3);
         WriteSection(writer, manifest.SourceWorld);
         WriteSection(writer, manifest.TileRuns);
+        WriteSection(writer, manifest.LiquidState);
         writer.Flush();
         return stream.ToArray();
     }
