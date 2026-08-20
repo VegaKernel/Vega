@@ -48,7 +48,7 @@ public sealed class TickRateCommand(IServerRuntimeStateReader serverState) : ICo
                     tickRate.TickDurationP50Milliseconds,
                     tickRate.TickDurationP95Milliseconds,
                     tickRate.TickDurationP99Milliseconds)
-                .WithDefaultText("Tick duration: p50 {0:F2} ms, p95 {1:F2} ms, p99 {2:F2} ms.")));
+                .WithDefaultText("Tick interval: p50 {0:F2} ms, p95 {1:F2} ms, p99 {2:F2} ms.")));
     }
 
     private static string FormatTimestamp(DateTimeOffset? timestamp) =>
