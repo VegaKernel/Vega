@@ -1,5 +1,7 @@
+using Multiplicity.Packets.Views;
 using ReLogic.OS;
 using Terraria.ID;
+using TShockNG.Contracts.Networking;
 using Vega.Contracts.Events;
 using Vega.Contracts.Runtime;
 using Vega.Contracts.Worlds;
@@ -19,12 +21,14 @@ public static class TerrariaServerHost
         long processStartedAt,
         IEventPipeline<WorldHardmodeStarting> hardmodeStarting,
         OtapiGameThreadDispatcher gameThreadDispatcher,
-        TerrariaPlayerBoundary playerBoundary)
+        TerrariaPlayerBoundary playerBoundary,
+        IPacketProcessor<PacketView> playerHpSecurity)
     {
         ArgumentNullException.ThrowIfNull(args);
         ArgumentNullException.ThrowIfNull(hardmodeStarting);
         ArgumentNullException.ThrowIfNull(gameThreadDispatcher);
         ArgumentNullException.ThrowIfNull(playerBoundary);
+        ArgumentNullException.ThrowIfNull(playerHpSecurity);
 
         var lifecycle = new RuntimeLifecycleTracker(processStartedAt);
         lifecycle.Transitioned += ReportLifecycleTransition;
@@ -35,6 +39,7 @@ public static class TerrariaServerHost
 
         using var nativeLifecycleHooks = new NativeLifecycleHooks(lifecycle);
         using var worldDecisionHooks = new NativeWorldDecisionHooks(hardmodeStarting);
+        using var playerPacketSecurityHooks = new NativePlayerPacketSecurityHooks(playerHpSecurity);
 
         try
         {
@@ -45,9 +50,10 @@ public static class TerrariaServerHost
             gameThreadDispatcher.Attach();
             playerBoundary.Attach();
             worldDecisionHooks.Attach();
+            playerPacketSecurityHooks.Attach();
 
             // Temporary seam: legacy TShockAPI still receives its historical TSAPI events.
-            // Vega readiness, game-thread scheduling and native decision hooks no longer depend on that layer.
+            // Vega readiness, game-thread scheduling, native decisions and migrated packet security no longer depend on that layer.
             LegacyTsapiBridge.AttachHooks(args);
             legacyHooksAttached = true;
 
