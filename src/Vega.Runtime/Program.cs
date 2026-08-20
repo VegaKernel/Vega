@@ -44,11 +44,17 @@ if (File.Exists("TerrariaServer.exe"))
 }
 
 var assemblyCache = new Dictionary<string, Assembly>(StringComparer.OrdinalIgnoreCase);
-System.Runtime.Loader.AssemblyLoadContext.Default.Resolving += ResolveFromBin;
+string[] assemblyDirectories =
+[
+    Path.Combine(AppContext.BaseDirectory, "libs"),
+    Path.Combine(AppContext.BaseDirectory, "ServerPlugins")
+];
+string[] assemblyExtensions = [".dll", ".exe"];
+System.Runtime.Loader.AssemblyLoadContext.Default.Resolving += ResolveFromRuntimeDirectories;
 
 return Start();
 
-Assembly? ResolveFromBin(System.Runtime.Loader.AssemblyLoadContext context, AssemblyName assemblyName)
+Assembly? ResolveFromRuntimeDirectories(System.Runtime.Loader.AssemblyLoadContext context, AssemblyName assemblyName)
 {
     if (assemblyName.Name is null)
     {
@@ -60,28 +66,23 @@ Assembly? ResolveFromBin(System.Runtime.Loader.AssemblyLoadContext context, Asse
         return cached;
     }
 
-    var path = Path.Combine(AppContext.BaseDirectory, "bin", assemblyName.Name + ".dll");
-    Assembly? assembly = null;
-
-    if (File.Exists(path))
+    foreach (string directory in assemblyDirectories)
     {
-        assembly = context.LoadFromAssemblyPath(path);
-    }
-    else
-    {
-        path = Path.ChangeExtension(path, ".exe");
-        if (File.Exists(path))
+        foreach (string extension in assemblyExtensions)
         {
-            assembly = context.LoadFromAssemblyPath(path);
+            string path = Path.Combine(directory, assemblyName.Name + extension);
+            if (!File.Exists(path))
+            {
+                continue;
+            }
+
+            Assembly assembly = context.LoadFromAssemblyPath(path);
+            assemblyCache[assemblyName.Name] = assembly;
+            return assembly;
         }
     }
 
-    if (assembly is not null)
-    {
-        assemblyCache[assemblyName.Name] = assembly;
-    }
-
-    return assembly;
+    return null;
 }
 
 int Start()

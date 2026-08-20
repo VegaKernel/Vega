@@ -2,73 +2,78 @@
 
 <p align="center">
   <a href="README.md">Русский</a>
-  &nbsp;·&nbsp;
-  <a href="README_EN.md"><strong>English</strong></a>
-  &nbsp;·&nbsp;
-  <a href="docs/architecture.md">Architecture</a>
-  &nbsp;·&nbsp;
-  <a href="docs/roadmap.md">Roadmap</a>
-  &nbsp;·&nbsp;
-  <a href="docs/decisions/">ADRs</a>
+  · <strong>English</strong>
+  · <a href="docs/en/project-guide.md">Documentation</a>
+  · <a href="docs/roadmap.md">Roadmap</a>
+  · <a href="docs/decisions/">ADRs</a>
 </p>
 
-Vega is an independent modern server framework/runtime for Terraria. Historical TShock and TerraZ implementations remain behavioral evidence, not Vega's architectural foundation or copied runtime source.
+Vega is an independent Terraria server runtime and framework targeting .NET 10. It hosts Terraria through OTAPI, separates game integration from server behavior, and exposes typed contracts for commands, events, players, packets, modules, operations, and cluster scenarios.
 
-## Architecture
+Vega is not a TShock fork and does not provide binary or source compatibility for TShock/TSAPI plugins. Historical implementations are used only as evidence for production behavior, requirements, and regression scenarios.
 
-```mermaid
-flowchart TB
-    Terraria["Terraria / OTAPI"] --> TerrariaAdapter["Vega.Terraria<br/>Terraria integration boundary"]
+## Available today
 
-    Runtime["Vega.Runtime<br/>process host + composition root"] --> TerrariaAdapter
-    Runtime --> Core["Vega.Core<br/>server behavior"]
-    Runtime --> Contracts["Vega.Contracts<br/>contracts + DTOs"]
+- native `Vega.Server` hosting without TSAPI or TShockAPI;
+- strict `Vega.Contracts` / `Vega.Core` / `Vega.Terraria` / `Vega.Runtime` boundaries;
+- typed events, commands, and a `TZ.Multiplicity` packet pipeline;
+- immutable player snapshots and game-thread-dispatched operations;
+- built-in PvP and Custom Items modules;
+- Terminal UI, plain-console, and headless modes;
+- structured logs plus runtime, GC, network, TPS, and readiness telemetry;
+- optional typed cluster contracts with a reference transport;
+- an experimental `.vworld` cache with safe `.wld` fallback.
 
-    TerrariaAdapter --> Contracts
-    Core --> Contracts
+## Requirements
 
-    Modules["Vega modules"] --> Contracts
-    Runtime -. "explicit registration" .-> Modules
+- .NET 10 SDK for builds;
+- NuGet access for the initial restore;
+- a compatible Terraria/OTAPI server runtime environment.
 
-```
+## Build and test
 
-- `Vega.Contracts` contains implementation-independent contracts and DTOs.
-- `Vega.Core` owns server behavior and must not reference Terraria or OTAPI.
-- `Vega.Terraria` is the target home for Terraria/OTAPI-specific integration.
-- `Vega.Runtime` is the process host and composition root.
-TShockAPI and TSAPI have been removed from the runtime, solution and source tree. The Core dependency boundary is enforced by architecture tests.
-
-## Build
-
-```bash
+```powershell
 dotnet restore Vega.sln
-dotnet build Vega.sln
-dotnet test Vega.sln
+dotnet build Vega.sln --configuration Release --no-restore
+dotnet test Vega.sln --configuration Release --no-build --no-restore
 ```
 
-The main executable project is `src/Vega.Runtime/Vega.Runtime.csproj`, producing `Vega.Server`.
+Publish a ready-to-run server directory:
 
-## Operations UI
+```powershell
+dotnet publish src/Vega.Runtime/Vega.Runtime.csproj `
+  --configuration Release `
+  --output artifacts/server
+```
 
-Use `--vega-ui=auto|tui|plain|headless` to select the optional Terminal.Gui dashboard, traditional console mode, or non-interactive service mode. See [`docs/operations.md`](docs/operations.md) for dashboard views, structured logging and command-palette behavior.
+The launcher stays at the publish root, shared dependencies live in `libs/`, and bundled server modules live in `ServerPlugins/`.
 
-## Server readiness
+## Run
 
-`NetworkReady` is the primary user-facing readiness point. Optional warmup work runs only after the server is open. Terraria world loading is measured separately from Vega startup overhead.
+```powershell
+artifacts/server/Vega.Server.exe --vega-ui=plain
+```
 
-See [`ADR 0017`](docs/decisions/0017-startup-lifecycle-readiness-and-performance-budgets.md).
+Supported modes are `auto`, `tui`, `plain`, and `headless`. Enable the world-image cache explicitly with `--vega-world-image=on`; it remains off by default because Vega 1.0 measurements showed no repeatable startup benefit.
 
 ## Documentation
 
-- [`docs/architecture.md`](docs/architecture.md)
-- [`docs/roadmap.md`](docs/roadmap.md)
-- [`docs/operations.md`](docs/operations.md)
-- [`docs/world-images.md`](docs/world-images.md)
-- [`ADR 0016`](docs/decisions/0016-vega-independent-runtime-architecture.md)
-- [`ADR 0017`](docs/decisions/0017-startup-lifecycle-readiness-and-performance-budgets.md)
+- [Complete English project guide](docs/en/project-guide.md)
+- [Полное руководство на русском](docs/ru/project-guide.md)
+- [Architecture](docs/architecture.md)
+- [Operations API and Terminal UI](docs/operations.md)
+- [Cluster messaging](docs/cluster.md)
+- [World images](docs/world-images.md)
+- [Release procedure](docs/releasing.md)
+- [Roadmap](docs/roadmap.md)
+- [Architecture Decision Records](docs/decisions/)
+
+## Status
+
+The roadmap through Phase 12 establishes the Vega 1.0 foundation; it does not mean that every future-facing ADR requirement is complete. Per-player localization, Dimensions, sandbox backends, and several advanced Core primitives remain future work.
 
 ## License
 
-Original Vega code is proprietary and governed by [`LICENSE`](LICENSE). All rights not expressly granted by the project owner are reserved.
+Original Vega code is distributed under the proprietary [Vega Proprietary License](LICENSE). Public access to the repository or a NuGet package does not make Vega open source and grants no use, modification, or redistribution rights beyond an express authorization.
 
-Third-party packages retain the licenses published by their copyright holders; see [`licenses/README.md`](licenses/README.md).
+Third-party dependencies retain their respective licenses; see [licenses/README.md](licenses/README.md).

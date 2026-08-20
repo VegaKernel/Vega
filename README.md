@@ -1,72 +1,79 @@
 # Vega
 
 <p align="center">
-  <a href="README.md"><strong>Русский</strong></a>
-  &nbsp;·&nbsp;
-  <a href="README_EN.md">English</a>
-  &nbsp;·&nbsp;
-  <a href="docs/architecture.md">Архитектура</a>
-  &nbsp;·&nbsp;
-  <a href="docs/roadmap.md">Roadmap</a>
-  &nbsp;·&nbsp;
-  <a href="docs/decisions/">ADR</a>
+  <strong>Русский</strong>
+  · <a href="README_EN.md">English</a>
+  · <a href="docs/ru/project-guide.md">Документация</a>
+  · <a href="docs/roadmap.md">Roadmap</a>
+  · <a href="docs/decisions/">ADR</a>
 </p>
 
-Vega — самостоятельный современный server framework/runtime для Terraria.
+Vega — самостоятельный серверный runtime и framework для Terraria на .NET 10. Он запускает Terraria через OTAPI, отделяет игровую интеграцию от серверной логики и предоставляет типизированные контракты для команд, событий, игроков, пакетов, модулей, операций и кластерных сценариев.
 
-Проект вырос из production-опыта TShock, но не рассматривается как TShock с модернизированной внутренней архитектурой. Старый код остаётся источником поведения, edge cases и regression-сценариев, а не архитектурным фундаментом.
+Vega не является форком TShock и не поддерживает бинарную или исходную совместимость с TShock/TSAPI-плагинами. Старые реализации используются только как источник проверенных сценариев, требований и регрессионных тестов.
 
-## Архитектура
+## Что уже есть
 
-```mermaid
-flowchart TB
-    Terraria["Terraria / OTAPI"] --> TerrariaAdapter["Vega.Terraria<br/>Terraria integration boundary"]
+- нативный host `Vega.Server` без TSAPI и TShockAPI;
+- строгая граница `Vega.Contracts` / `Vega.Core` / `Vega.Terraria` / `Vega.Runtime`;
+- типизированные события, команды и packet pipeline на базе `TZ.Multiplicity`;
+- безопасные player snapshots и операции через game-thread dispatcher;
+- встроенные модули PvP и Custom Items;
+- режимы Terminal UI, plain console и headless;
+- структурные логи, runtime/GC/network/TPS-метрики и readiness telemetry;
+- опциональные типизированные cluster-контракты и reference transport;
+- экспериментальный `.vworld` cache с безопасным fallback на `.wld`.
 
-    Runtime["Vega.Runtime<br/>process host + composition root"] --> TerrariaAdapter
-    Runtime --> Core["Vega.Core<br/>server behavior"]
-    Runtime --> Contracts["Vega.Contracts<br/>contracts + DTOs"]
+## Требования
 
-    TerrariaAdapter --> Contracts
-    Core --> Contracts
+- .NET 10 SDK для сборки;
+- доступ к NuGet при первом восстановлении пакетов;
+- совместимая Terraria/OTAPI server runtime-среда.
 
-    Modules["Vega modules"] --> Contracts
-    Runtime -. "explicit registration" .-> Modules
+## Сборка и тесты
 
-```
-
-- `Vega.Contracts` — независимые контракты и DTO.
-- `Vega.Core` — серверное поведение без Terraria и OTAPI.
-- `Vega.Terraria` — единственное целевое место для Terraria/OTAPI-specific integration.
-- `Vega.Runtime` — process host и composition root.
-`Vega.Core` защищён architecture test: появление ссылки на Terraria/OTAPI ломает тесты. TShockAPI и TSAPI полностью удалены из runtime, solution и дерева исходников.
-
-## Сборка
-
-```bash
+```powershell
 dotnet restore Vega.sln
-dotnet build Vega.sln
-dotnet test Vega.sln
+dotnet build Vega.sln --configuration Release --no-restore
+dotnet test Vega.sln --configuration Release --no-build --no-restore
 ```
 
-Основной executable: `src/Vega.Runtime/Vega.Runtime.csproj`, assembly `Vega.Server`.
+Публикация готового сервера:
 
-## Готовность сервера
+```powershell
+dotnet publish src/Vega.Runtime/Vega.Runtime.csproj `
+  --configuration Release `
+  --output artifacts/server
+```
 
-`NetworkReady` является основной пользовательской точкой готовности. Необязательный warmup выполняется после открытия сервера. Terraria world loading измеряется отдельно от Vega startup overhead.
+После публикации launcher остаётся в корне, общие зависимости находятся в `libs/`, а встроенные серверные модули — в `ServerPlugins/`.
 
-Подробнее: [`ADR 0017`](docs/decisions/0017-startup-lifecycle-readiness-and-performance-budgets.md).
+## Запуск
+
+```powershell
+artifacts/server/Vega.Server.exe --vega-ui=plain
+```
+
+Доступные режимы: `auto`, `tui`, `plain`, `headless`. Для world-image cache используйте явный параметр `--vega-world-image=on`; по умолчанию он выключен, потому что измерения Vega 1.0 не показали стабильного выигрыша.
 
 ## Документация
 
-- [`docs/architecture.md`](docs/architecture.md)
-- [`docs/roadmap.md`](docs/roadmap.md)
-- [`docs/operations.md`](docs/operations.md)
-- [`docs/world-images.md`](docs/world-images.md)
-- [`ADR 0016`](docs/decisions/0016-vega-independent-runtime-architecture.md)
-- [`ADR 0017`](docs/decisions/0017-startup-lifecycle-readiness-and-performance-budgets.md)
+- [Полное руководство на русском](docs/ru/project-guide.md)
+- [English project guide](docs/en/project-guide.md)
+- [Архитектура](docs/architecture.md)
+- [Operations API и Terminal UI](docs/operations.md)
+- [Cluster messaging](docs/cluster.md)
+- [World image](docs/world-images.md)
+- [Публикация релизов](docs/releasing.md)
+- [Roadmap](docs/roadmap.md)
+- [Архитектурные решения](docs/decisions/)
+
+## Статус
+
+Roadmap до Phase 12 закрывает основу Vega 1.0, но не означает реализацию каждого будущего требования из ADR. Per-player localization, Dimensions, sandbox backends и часть расширенных Core-примитивов остаются дальнейшей работой.
 
 ## Лицензия
 
-Оригинальный код Vega является закрытым и распространяется на условиях [`LICENSE`](LICENSE). Все права, прямо не предоставленные владельцем проекта, сохраняются за правообладателем.
+Оригинальный код Vega распространяется по проприетарной лицензии [Vega Proprietary License](LICENSE). Публичная доступность репозитория или NuGet-пакета не делает проект open source и не предоставляет права использования, модификации или распространения сверх явно выданного разрешения.
 
-Сторонние пакеты сохраняют лицензии своих правообладателей; подробности находятся в [`licenses/README.md`](licenses/README.md).
+Сторонние зависимости сохраняют лицензии своих правообладателей; см. [licenses/README.md](licenses/README.md).

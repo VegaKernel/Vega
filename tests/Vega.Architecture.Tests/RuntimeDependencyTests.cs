@@ -127,6 +127,24 @@ public sealed class RuntimeDependencyTests
     }
 
     [Test]
+    public void PublishedRuntimeSeparatesLibrariesFromServerPlugins()
+    {
+        var repositoryRoot = FindRepositoryRoot();
+        string project = File.ReadAllText(Path.Combine(repositoryRoot, "src", "Vega.Runtime", "Vega.Runtime.csproj"));
+        string program = File.ReadAllText(Path.Combine(repositoryRoot, "src", "Vega.Runtime", "Program.cs"));
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(project, Does.Contain("$(PublishDir)libs"));
+            Assert.That(project, Does.Contain("$(PublishDir)ServerPlugins"));
+            Assert.That(project, Does.Contain("$(PublishDir)Vega.Modules.*"));
+            Assert.That(program, Does.Contain("Path.Combine(AppContext.BaseDirectory, \"libs\")"));
+            Assert.That(program, Does.Contain("Path.Combine(AppContext.BaseDirectory, \"ServerPlugins\")"));
+            Assert.That(program, Does.Not.Contain("Path.Combine(AppContext.BaseDirectory, \"bin\")"));
+        });
+    }
+
+    [Test]
     public void Vega_native_packet_security_owns_migrated_player_identity_packets()
     {
         var repositoryRoot = FindRepositoryRoot();

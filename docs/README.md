@@ -1,15 +1,24 @@
 # Vega documentation
 
-This directory records Vega's target architecture, roadmap and Architecture Decision Records.
+[English project guide](en/project-guide.md) · [Руководство на русском](ru/project-guide.md)
 
-## Documents
+This directory contains Vega's project documentation, implementation notes, roadmap, and Architecture Decision Records.
 
+## Start here
+
+- `en/project-guide.md` — complete English guide to architecture, build, startup, modules, packaging, and releases.
+- `ru/project-guide.md` — полное русское руководство по архитектуре, сборке, запуску, модулям, упаковке и релизам.
 - `architecture.md` — target architecture and subsystem boundaries.
-- `roadmap.md` — staged implementation plan.
-- `releasing.md` — versioning and automated NuGet/GitHub release procedure.
-- `events.md`, `extension-state.md`, `cluster.md`, and `operations.md` — implemented subsystem contracts.
-- `decisions/` — Architecture Decision Records (ADRs).
+- `roadmap.md` — staged implementation plan and completed validation.
+- `releasing.md` — versioning and manual NuGet/GitHub Release procedure.
 
-World-image operation and benchmark evidence are recorded in [`world-images.md`](world-images.md).
+## Subsystems
 
-Documentation changes are part of architecture changes. Any change that alters a subsystem boundary, threading rule, or ownership decision must update the corresponding document or ADR in the same logical slice.
+- `events.md` — typed event processing.
+- `extension-state.md` — scoped typed session state.
+- `operations.md` — operations API and Terminal UI.
+- `cluster.md` — optional typed cluster messaging.
+- `world-images.md` — `.vworld` format, fallback rules, and benchmark evidence.
+- `decisions/` — Architecture Decision Records.
+
+Documentation changes are architecture changes when they alter ownership, threading, public contracts, lifecycle semantics, or runtime packaging. Update both project-guide languages and the affected subsystem document or ADR in the same logical change.

@@ -1,35 +1,59 @@
-Vega Proprietary License Notice
+Vega Proprietary License
+Version 1.0 — August 20, 2026
 
-Copyright (c) 2026 VegaKernel contributors. All rights reserved.
+Copyright (c) 2026 VegaKernel. All rights reserved.
 
 1. Scope
 
-Except where a source file, directory, submodule, dependency, or accompanying notice states otherwise, the original Vega code in this repository is proprietary software.
+This license applies to the original source code, binaries, documentation, and other materials authored for the Vega project (the "Software"), except for components identified as third-party material or governed by a more specific license notice.
 
-2. Restrictions
+2. Ownership and reservation of rights
 
-No permission is granted to copy, modify, publish, distribute, sublicense, sell, host, provide as a service, or otherwise use the proprietary portions of Vega outside environments expressly authorized by the project owner, unless prior written permission has been obtained from the project owner.
+The Software is proprietary to VegaKernel. All rights are reserved. No patent, copyright, trademark, trade-secret, or other intellectual-property license is granted except through an express written authorization from VegaKernel.
 
-Access to the source code, repository, binaries, documentation, or development infrastructure does not by itself grant any license or redistribution right.
+Access to the source repository, release artifacts, container images, documentation, CI infrastructure, or public package feeds does not by itself grant a right to use, copy, modify, publish, distribute, sublicense, sell, host, or provide the Software as a service. Public availability must not be interpreted as an open-source license.
 
-3. Internal and authorized use
+3. Authorized use
 
-The project owner may authorize specific people or organizations to access, modify, build, test, deploy, or operate Vega. Such authorization is limited to the scope expressly granted and does not transfer ownership or grant redistribution rights.
+VegaKernel may authorize a person or organization to access, evaluate, modify, build, test, deploy, or operate the Software. Any such authorization is limited to its expressly stated purpose, recipients, environments, duration, and other conditions. It does not transfer ownership and does not include a redistribution or sublicensing right unless that right is granted explicitly in writing.
 
-4. Third-party and legacy code
+4. Restrictions
 
-This repository contains legacy and migration code derived from TShock as well as other third-party components. Those files and components remain governed by their respective licenses and copyright notices. This proprietary notice does not replace, revoke, narrow, or supersede any third-party license.
+Except where VegaKernel has provided prior written authorization, you may not:
 
-In particular, files derived from TShock that carry GNU General Public License notices remain subject to the applicable GPL terms. A copy of GNU GPL version 3 is provided in `licenses/TShock-GPL-3.0.txt`.
+- use or execute the Software;
+- copy, modify, translate, adapt, or create derivative works from the Software;
+- publish, distribute, sublicense, sell, lease, or otherwise transfer the Software;
+- make the Software available to third parties, including as a hosted or managed service;
+- remove or alter copyright, ownership, license, or attribution notices;
+- represent the Software as open source or as licensed under terms not issued by VegaKernel.
 
-5. Distribution
+5. Distribution and package feeds
 
-If a build, source package, binary, container image, or other deliverable includes third-party or legacy material, any distribution of that deliverable must comply with all licenses applicable to that material. The proprietary status of original Vega code does not remove those obligations.
+Publication of a Vega source archive, binary release, container image, or NuGet package does not grant downstream redistribution rights. An authorized distributor must reproduce this license and all applicable third-party notices and must comply with every license that applies to material included in the deliverable.
 
-6. No warranty
+6. Third-party material
 
-THE PROPRIETARY PORTIONS OF VEGA ARE PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE, TITLE, AND NON-INFRINGEMENT.
+Dependencies, tools, generated artifacts, and other third-party material are not relicensed by this document. They remain subject to the licenses and notices issued by their respective copyright holders. Where a third-party notice conflicts with this license for that third-party material, the third-party notice controls for that material only.
 
-7. Reservation of rights
+Available repository notices are indexed in `licenses/README.md`. Package consumers must also review dependency metadata and the notices shipped by those dependencies.
 
-All rights not expressly granted in writing are reserved by the project owner and the respective third-party copyright holders.
+7. No trademark license
+
+This license grants no right to use the Vega or VegaKernel names, logos, service marks, or other brand identifiers except as necessary for accurate, non-misleading identification of the Software.
+
+8. No warranty
+
+THE SOFTWARE IS PROVIDED "AS IS" AND "AS AVAILABLE", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE, TITLE, NON-INFRINGEMENT, SECURITY, ACCURACY, OR AVAILABILITY.
+
+9. Limitation of liability
+
+TO THE MAXIMUM EXTENT PERMITTED BY APPLICABLE LAW, VEGAKERNEL AND ITS AUTHORIZED CONTRIBUTORS WILL NOT BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, CONSEQUENTIAL, OR OTHER DAMAGES, OR FOR ANY LOSS OF DATA, PROFITS, REVENUE, BUSINESS, OR GOODWILL, ARISING FROM OR RELATED TO THE SOFTWARE OR THIS LICENSE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGES.
+
+10. Termination
+
+Any authorization granted under this license terminates automatically when its conditions are violated. On termination, the recipient must stop the unauthorized use and destroy copies under its control unless applicable law or a separate written agreement requires otherwise.
+
+11. Entire terms
+
+This document does not replace a separate written agreement signed or otherwise expressly issued by VegaKernel. If such an agreement conflicts with this license, the separate agreement controls for the recipients and scope it covers.

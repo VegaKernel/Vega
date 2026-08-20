@@ -58,17 +58,23 @@
 		</None>
 	</ItemGroup>
 
-	<Target Name="MoveDevBin" AfterTargets="PostBuildEvent">
+	<Target Name="ArrangeDevRuntime" AfterTargets="PostBuildEvent">
 		<ItemGroup>
-			<MoveBinaries Include="$(OutDir)*" Exclude="$(OutDir)\Vega.Server*" />
+			<DevServerPlugins Include="$(OutDir)Vega.Modules.*" />
+			<DevLibraries Include="$(OutDir)*" Exclude="$(OutDir)Vega.Server*;$(OutDir)Vega.Modules.*" />
 		</ItemGroup>
-		<Move SourceFiles="@(MoveBinaries)" DestinationFolder="$(OutDir)bin" ContinueOnError="true" />
+		<MakeDir Directories="$(OutDir)libs;$(OutDir)ServerPlugins" />
+		<Move SourceFiles="@(DevServerPlugins)" DestinationFolder="$(OutDir)ServerPlugins" />
+		<Move SourceFiles="@(DevLibraries)" DestinationFolder="$(OutDir)libs" />
 	</Target>
 
-	<Target Name="MovePublishBin" AfterTargets="Publish">
+	<Target Name="ArrangePublishedRuntime" AfterTargets="Publish">
 		<ItemGroup>
-			<MoveBinaries Include="$(PublishDir)*" Exclude="$(PublishDir)\Vega.Server*" />
+			<PublishedServerPlugins Include="$(PublishDir)Vega.Modules.*" />
+			<PublishedLibraries Include="$(PublishDir)*" Exclude="$(PublishDir)Vega.Server*;$(PublishDir)Vega.Modules.*" />
 		</ItemGroup>
-		<Move SourceFiles="@(MoveBinaries)" DestinationFolder="$(PublishDir)bin" ContinueOnError="true" />
+		<MakeDir Directories="$(PublishDir)libs;$(PublishDir)ServerPlugins" />
+		<Move SourceFiles="@(PublishedServerPlugins)" DestinationFolder="$(PublishDir)ServerPlugins" />
+		<Move SourceFiles="@(PublishedLibraries)" DestinationFolder="$(PublishDir)libs" />
 	</Target>
 </Project>

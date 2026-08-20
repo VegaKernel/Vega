@@ -1,25 +1,38 @@
 name: Release
 
 on:
-  push:
-    tags:
-      - "v*"
+  workflow_dispatch:
 
 permissions:
   contents: write
 
 concurrency:
-  group: release-${{ github.ref }}
+  group: manual-release-latest-tag
   cancel-in-progress: false
 
 jobs:
   release:
-    name: NuGet and GitHub release
+    name: Publish latest tag
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v6
         with:
           fetch-depth: 0
+
+      - name: Resolve and check out latest release tag
+        id: tag
+        shell: pwsh
+        run: |
+          $tag = git tag --list --sort=-version:refname |
+            Where-Object { $_ -match '^v[0-9]+\.[0-9]+\.[0-9]+$' } |
+            Select-Object -First 1
+          if ([string]::IsNullOrWhiteSpace($tag)) {
+            throw "No vMAJOR.MINOR.PATCH release tag exists."
+          }
+
+          git checkout --detach $tag
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          "tag=$tag" >> $env:GITHUB_OUTPUT
 
       - name: Setup .NET
         uses: actions/setup-dotnet@v5
@@ -29,9 +42,11 @@ jobs:
       - name: Validate tag and project version
         id: version
         shell: pwsh
+        env:
+          RELEASE_TAG: ${{ steps.tag.outputs.tag }}
         run: |
-          if ($env:GITHUB_REF_NAME -notmatch '^v(?<version>[0-9]+\.[0-9]+\.[0-9]+)$') {
-            throw "Release tags must use vMAJOR.MINOR.PATCH; received '$env:GITHUB_REF_NAME'."
+          if ($env:RELEASE_TAG -notmatch '^v(?<version>[0-9]+\.[0-9]+\.[0-9]+)$') {
+            throw "Release tags must use vMAJOR.MINOR.PATCH; received '$env:RELEASE_TAG'."
           }
           $tagVersion = $Matches.version
 
@@ -128,9 +143,18 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           RELEASE_VERSION: ${{ steps.version.outputs.version }}
+          RELEASE_TAG: ${{ steps.tag.outputs.tag }}
         run: |
-          gh release create $env:GITHUB_REF_NAME artifacts/release/* `
-            --repo $env:GITHUB_REPOSITORY `
-            --verify-tag `
-            --title "Vega $env:RELEASE_VERSION" `
-            --generate-notes
+          gh release view $env:RELEASE_TAG --repo $env:GITHUB_REPOSITORY *> $null
+          if ($LASTEXITCODE -eq 0) {
+            gh release upload $env:RELEASE_TAG artifacts/release/* `
+              --repo $env:GITHUB_REPOSITORY --clobber
+          }
+          else {
+            gh release create $env:RELEASE_TAG artifacts/release/* `
+              --repo $env:GITHUB_REPOSITORY `
+              --verify-tag `
+              --title "Vega $env:RELEASE_VERSION" `
+              --generate-notes
+          }
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }

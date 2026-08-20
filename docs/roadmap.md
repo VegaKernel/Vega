@@ -202,6 +202,15 @@ See ADR 0020 for format ownership, validation, fallback and persistence constrai
 
 Schema 1 and its reproducible benchmark harness are complete. Measurements on three real worlds showed no repeatable Vega 1.0 startup benefit and higher memory cost, so `.vworld` remains disabled by default and available only through `--vega-world-image=on`. No speculative runtime indexes or Level 3 lazy/memory-mapped backend were added. See [`docs/world-images.md`](world-images.md) and ADR 0020.
 
+## Phase 12 — distribution and bilingual documentation
+
+- [x] Polish the Russian and English repository README files around the current Vega 1.0 runtime rather than historical migration state.
+- [x] Publish matching English and Russian project guides covering architecture, project layout, build, test, publish, startup, modules, operations and known limitations.
+- [x] Document the release archive layout with runtime libraries under `libs/` and first-party modules under `ServerPlugins/`.
+- [x] Document the manual latest-tag NuGet and GitHub Release process.
+- [x] Clarify the proprietary license scope, project ownership, third-party boundaries, redistribution restrictions and warranty terms without changing Vega into an open-source project.
+- [ ] Keep both language versions synchronized whenever commands, packaging, supported runtime modes or public contracts change.
+
 ## Architectural guardrails
 
 These apply across all phases:
