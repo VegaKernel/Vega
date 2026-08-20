@@ -1,3 +1,4 @@
+using OTAPI;
 using Vega.Contracts.Operations;
 
 namespace Vega.Terraria.Operations;
@@ -35,7 +36,7 @@ public sealed class TerrariaOperationsState : IServerRuntimeStateReader, IDispos
         }
 
         tickRateMonitor.Reset();
-        global::Terraria.Main.OnTickForThirdPartySoftwareOnly += OnTick;
+        HookEvents.Terraria.Main.Update += OnGameUpdate;
         attached = true;
     }
 
@@ -47,12 +48,12 @@ public sealed class TerrariaOperationsState : IServerRuntimeStateReader, IDispos
     {
         if (attached)
         {
-            global::Terraria.Main.OnTickForThirdPartySoftwareOnly -= OnTick;
+            HookEvents.Terraria.Main.Update -= OnGameUpdate;
             attached = false;
         }
     }
 
-    private void OnTick()
+    private void OnGameUpdate<TSender, TArgs>(TSender sender, TArgs args)
     {
         TickRateStatisticsSnapshot tickRate = tickRateMonitor.RecordTick();
 
