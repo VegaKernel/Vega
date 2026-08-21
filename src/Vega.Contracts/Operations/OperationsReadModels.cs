@@ -50,6 +50,35 @@ public interface IModuleDirectoryStatusReader
     ModuleDirectoryStatusSnapshot Read();
 }
 
+public enum WorldContextKind
+{
+    Primary,
+    Sandbox
+}
+
+public enum WorldContextSimulationState
+{
+    Stopped,
+    Running
+}
+
+public sealed record WorldContextSnapshot(
+    WorldId Id,
+    string DisplayName,
+    WorldContextKind Kind,
+    WorldContextSimulationState SimulationState,
+    IReadOnlyList<PlayerId> PlayerIds,
+    int WorldEpoch,
+    string Ruleset,
+    TimeSpan TimeToLiveRemaining);
+
+public interface IWorldContextOperationsCatalog
+{
+    bool CanMovePlayers { get; }
+
+    IReadOnlyList<WorldContextSnapshot> SnapshotContexts();
+}
+
 public sealed record ServerRuntimeStateSnapshot(
     string? WorldName,
     int MaximumPlayers,
