@@ -150,6 +150,7 @@ int Start()
     [
         new NpcCoinPickupAuthorityPolicy(),
         new WorldItemSyncSanityPolicy(),
+        new ProjectileSpawnSanityPolicy(),
         new PlayerDeathDamageAuthorityPolicy(),
         new PlayerPacketOwnershipPolicy(),
         pvpModule.PacketProcessor
@@ -323,7 +324,7 @@ IReadOnlyList<ModuleOperationsSnapshot> CreateModuleSnapshots(VegaModuleHost mod
     Module("Vega.Cluster", typeof(UnavailableClusterClient).Assembly, ["Vega.Contracts"]),
     Module("Vega.Operations", typeof(OperationsSnapshotProvider).Assembly, ["Vega.Contracts"]),
     Module("Vega.Persistence", typeof(IVegaDatabase).Assembly, ["Vega.Contracts", "System.Data.Common"]),
-    Module("Vega.Terraria", typeof(TerrariaServerHost).Assembly, ["Vega.Contracts", "OTAPI", "TZ.Multiplicity"]),
+    Module("Vega.Terraria", typeof(TerrariaServerHost).Assembly, ["Vega.Contracts", "OTAPI", "Multiplicity"]),
     Module("Vega.TerminalUI", typeof(TerminalUiHost).Assembly, ["Vega.Contracts", "Terminal.Gui"]),
     .. moduleHost.SnapshotModules()
 ];
