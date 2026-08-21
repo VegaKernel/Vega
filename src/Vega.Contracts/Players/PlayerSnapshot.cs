@@ -1,3 +1,5 @@
+using Vega.Contracts.Worlds;
+
 namespace Vega.Contracts.Players;
 
 /// <summary>
@@ -23,4 +25,9 @@ public sealed record PlayerSnapshot(
     public string? RemoteEndpoint { get; init; }
 
     public string? Platform { get; init; }
+
+    /// <summary>
+    /// World context currently owning the player. The legacy single-world runtime is always primary.
+    /// </summary>
+    public WorldId WorldId { get; init; } = WorldId.Primary;
 }
