@@ -54,7 +54,8 @@ internal static class WorldImageLiquidStateLoader
         int panicY = reader.ReadInt32();
         int liquidCount = reader.ReadInt32();
         int bufferCount = reader.ReadInt32();
-        if (maxLiquid <= 0 || maxLiquid > global::Terraria.Main.liquid.Length ||
+        if (maxLiquid != global::Terraria.Liquid.maxLiquid ||
+            maxLiquid > global::Terraria.Main.liquid.Length ||
             skipCount < 0 || stuckCount < 0 || stuckAmount < 0 ||
             cycles <= 0 || curMaxLiquid < 0 || curMaxLiquid > maxLiquid ||
             wetCounter < 0 || wetCounter > cycles || panicCounter < 0 ||
@@ -75,6 +76,7 @@ internal static class WorldImageLiquidStateLoader
             liquid.y = y;
             liquid.kill = reader.ReadInt32();
             liquid.delay = reader.ReadInt32();
+            global::Terraria.Main.liquid[index] = liquid;
         }
 
         for (int index = 0; index < bufferCount; index++)
@@ -85,6 +87,7 @@ internal static class WorldImageLiquidStateLoader
             global::Terraria.LiquidBuffer liquid = global::Terraria.Main.liquidBuffer[index];
             liquid.x = x;
             liquid.y = y;
+            global::Terraria.Main.liquidBuffer[index] = liquid;
         }
 
         if (stream.Position != stream.Length)
@@ -92,7 +95,6 @@ internal static class WorldImageLiquidStateLoader
             throw new InvalidDataException("The Vega world-image liquid state length is invalid.");
         }
 
-        global::Terraria.Liquid.maxLiquid = maxLiquid;
         global::Terraria.Liquid.skipCount = skipCount;
         global::Terraria.Liquid.stuckCount = stuckCount;
         global::Terraria.Liquid.stuckAmount = stuckAmount;
