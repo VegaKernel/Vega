@@ -10,6 +10,7 @@ using Terminal.Gui.ViewBase;
 using Terminal.Gui.Views;
 using Vega.Contracts.Operations;
 using Vega.Contracts.Players;
+using Vega.Contracts.Worlds;
 using TuiAttribute = Terminal.Gui.Drawing.Attribute;
 using TuiColor = Terminal.Gui.Drawing.Color;
 
@@ -36,12 +37,14 @@ internal sealed class OperationsDashboardView : IDisposable
     private readonly PathAnnotation workingSetPath = new() { LineColor = new TuiAttribute(TuiColor.BrightYellow, TuiColor.Black) };
     private readonly PathAnnotation gcHeapPath = new() { LineColor = new TuiAttribute(TuiColor.BrightMagenta, TuiColor.Black) };
     private readonly OperationsMetricHistory history;
-    private IReadOnlyList<PlayerSnapshot> players = Array.Empty<PlayerSnapshot>();
+    private IReadOnlyList<PlayerListRow> playerListRows = Array.Empty<PlayerListRow>();
     private IReadOnlyList<ModuleOperationsSnapshot> modules = Array.Empty<ModuleOperationsSnapshot>();
     private string[] playerRows = Array.Empty<string>();
     private string[] moduleRows = Array.Empty<string>();
     private PopoverMenu? playerMenu;
     private PopoverMenu? moduleMenu;
+    private PlayerId? draggedPlayerId;
+    private bool canMovePlayersBetweenWorlds;
     private string lastLogText = string.Empty;
     private string pendingLogText = string.Empty;
     private string lastChatText = string.Empty;
@@ -61,13 +64,14 @@ internal sealed class OperationsDashboardView : IDisposable
 
         AddTextWindow(TerminalUiLayoutOptions.Overview, "Server", overviewText);
         AddGraphWindow(TerminalUiLayoutOptions.Performance, performanceGraph);
-        AddListWindow(TerminalUiLayoutOptions.Players, "Players", playersList, ConfigurePlayerContextMenu);
+        AddListWindow(TerminalUiLayoutOptions.Players, "Players / Worlds", playersList, ConfigurePlayerContextMenu);
         AddGraphWindow(TerminalUiLayoutOptions.Memory, memoryGraph);
         AddTextWindow(TerminalUiLayoutOptions.Network, "Network", networkText);
         AddListWindow(TerminalUiLayoutOptions.Modules, "Modules", modulesList, ConfigureModuleContextMenu);
         AddLogsWindow();
         AddTextWindow(TerminalUiLayoutOptions.Chat, "Chat", chatText);
 
+        ConfigurePlayerDragAndDrop();
         ConfigurePerformanceGraph();
         ConfigureMemoryGraph();
     }
@@ -80,11 +84,13 @@ internal sealed class OperationsDashboardView : IDisposable
 
     public event Action<string>? CommandRequested;
 
+    public event Action<PlayerId, WorldId>? PlayerMoveRequested;
+
     public void Update(OperationsSnapshot snapshot, bool isFollowing, OperationsLogFilter filter)
     {
         OperationsMetricSample sample = history.Add(snapshot);
-        players = snapshot.Players;
         modules = snapshot.Modules;
+        canMovePlayersBetweenWorlds = snapshot.CanMovePlayersBetweenWorlds;
         SetText(overviewText, RenderOverview(snapshot));
         SetText(networkText, RenderNetwork(snapshot, sample));
         UpdatePlayerList(snapshot);
@@ -264,7 +270,11 @@ internal sealed class OperationsDashboardView : IDisposable
         RegisterWindow(TerminalUiLayoutOptions.Logs, frame);
     }
 
-    private void AddGraphWindow(string name, GraphView graph) => RegisterWindow(name, graph);
+    private void AddGraphWindow(string name, GraphView graph)
+    {
+        AttachDoubleClickMaximize(name, graph);
+        RegisterWindow(name, graph);
+    }
 
     private FrameView CreateFrame(string name, string title)
     {
@@ -283,6 +293,7 @@ internal sealed class OperationsDashboardView : IDisposable
     {
         windows.Add(name, view);
         Apply(view, layout.GetWindow(name));
+        AttachSnapping(name, view);
         desktop.Add(view);
     }
 
@@ -306,6 +317,42 @@ internal sealed class OperationsDashboardView : IDisposable
                 }
             };
         };
+    }
+
+    private void AttachSnapping(string name, View view)
+    {
+        view.MouseEvent += (_, args) =>
+        {
+            if (!args.Flags.HasFlag(MouseFlags.LeftButtonReleased) || restoreLayouts.ContainsKey(name))
+            {
+                return;
+            }
+
+            SnapWindow(name, view);
+        };
+    }
+
+    private void SnapWindow(string name, View view)
+    {
+        if (desktop.Viewport.Width <= 1 || desktop.Viewport.Height <= 1)
+        {
+            return;
+        }
+
+        Rectangle frame = view.Frame;
+        Point snapped = TerminalUiSnapping.SnapPosition(
+            frame,
+            new Size(desktop.Viewport.Width, desktop.Viewport.Height),
+            windows
+                .Where(pair => !string.Equals(pair.Key, name, StringComparison.OrdinalIgnoreCase) && pair.Value.Visible)
+                .Select(static pair => pair.Value.Frame));
+        if (snapped == frame.Location)
+        {
+            return;
+        }
+
+        view.X = Pos.Percent(ToPercent(snapped.X, desktop.Viewport.Width));
+        view.Y = Pos.Percent(ToPercent(snapped.Y, desktop.Viewport.Height));
     }
 
     private void ToggleMaximize(string name)
@@ -341,26 +388,61 @@ internal sealed class OperationsDashboardView : IDisposable
             }
 
             int index = mouse.Position?.Y + playersList.Viewport.Y ?? -1;
-            if ((uint)index >= (uint)players.Count)
+            if ((uint)index >= (uint)playerListRows.Count || playerListRows[index].Player is not PlayerSnapshot player)
             {
                 return;
             }
 
             playersList.SelectedItem = index;
-            PlayerSnapshot player = players[index];
             DisposePopover(playersList, ref playerMenu);
             playerMenu = new PopoverMenu([
                 new MenuItem("_Kick", action: () => CommandRequested?.Invoke($"kick tsi:{player.Id.Slot} Operator action")),
-                new MenuItem("_Ban", action: () => { })
-                {
-                    Enabled = false,
-                    HelpText = "Ban application capability is not implemented yet."
-                },
+                new MenuItem("_Ban", action: () => CommandRequested?.Invoke($"ban tsi:{player.Id.Slot} Operator action")),
                 new Line(),
                 new MenuItem("_Details", action: () => ShowPlayerDetails(player))
             ]);
             playersList.App?.Popovers?.Register(playerMenu);
             playerMenu.MakeVisible(mouse.ScreenPosition);
+            args.Handled = true;
+        };
+    }
+
+    private void ConfigurePlayerDragAndDrop()
+    {
+        playersList.MouseEvent += (_, args) =>
+        {
+            int index = args.Position?.Y + playersList.Viewport.Y ?? -1;
+            if (args.Flags.HasFlag(MouseFlags.LeftButtonPressed))
+            {
+                draggedPlayerId = (uint)index < (uint)playerListRows.Count
+                    ? playerListRows[index].Player?.Id
+                    : null;
+                return;
+            }
+
+            if (!args.Flags.HasFlag(MouseFlags.LeftButtonReleased))
+            {
+                return;
+            }
+
+            PlayerId? dragged = draggedPlayerId;
+            draggedPlayerId = null;
+            if (dragged is null || !canMovePlayersBetweenWorlds || (uint)index >= (uint)playerListRows.Count)
+            {
+                return;
+            }
+
+            PlayerListRow targetRow = playerListRows[index];
+            WorldId? targetWorldId = targetRow.Context?.Id ?? targetRow.Player?.WorldId;
+            PlayerSnapshot? sourcePlayer = playerListRows
+                .Select(static row => row.Player)
+                .FirstOrDefault(player => player?.Id == dragged.Value);
+            if (sourcePlayer is null || targetWorldId is null || sourcePlayer.WorldId == targetWorldId.Value)
+            {
+                return;
+            }
+
+            PlayerMoveRequested?.Invoke(dragged.Value, targetWorldId.Value);
             args.Handled = true;
         };
     }
@@ -409,7 +491,7 @@ internal sealed class OperationsDashboardView : IDisposable
         MessageBox.Query(
             playersList.App!,
             player.Name,
-            $"Slot: {player.Id.Slot}\nIP/endpoint: {player.RemoteEndpoint ?? "unknown"}\nPlatform: {player.Platform ?? "unknown"}\nSession: {connected}\nHP: {player.Life}/{player.MaxLife}\nMP: {player.Mana}/{player.MaxMana}",
+            $"Slot: {player.Id.Slot}\nWorld: {player.WorldId}\nIP/endpoint: {player.RemoteEndpoint ?? "unknown"}\nPlatform: {player.Platform ?? "unknown"}\nSession: {connected}\nHP: {player.Life}/{player.MaxLife}\nMP: {player.Mana}/{player.MaxMana}",
             "OK");
     }
 
@@ -494,19 +576,69 @@ internal sealed class OperationsDashboardView : IDisposable
 
     private void UpdatePlayerList(OperationsSnapshot snapshot)
     {
-        string[] rows = snapshot.Players.Select(RenderPlayer).ToArray();
-        if (playerRows.SequenceEqual(rows, StringComparer.Ordinal))
+        PlayerListRow[] rows = BuildPlayerRows(snapshot);
+        string[] rendered = rows.Select(static row => row.Text).ToArray();
+        if (playerRows.SequenceEqual(rendered, StringComparer.Ordinal))
         {
+            playerListRows = rows;
             return;
         }
 
-        int? selected = playersList.SelectedItem;
-        playerRows = rows;
-        playersList.SetSource(new ObservableCollection<string>(rows));
-        if (selected is int index && index >= 0 && index < rows.Length)
+        PlayerId? selectedPlayer = playersList.SelectedItem is int selectedIndex &&
+            (uint)selectedIndex < (uint)playerListRows.Count
+            ? playerListRows[selectedIndex].Player?.Id
+            : null;
+        playerListRows = rows;
+        playerRows = rendered;
+        playersList.SetSource(new ObservableCollection<string>(rendered));
+        if (selectedPlayer is PlayerId playerId)
         {
-            playersList.SelectedItem = index;
+            int index = Array.FindIndex(rows, row => row.Player?.Id == playerId);
+            if (index >= 0)
+            {
+                playersList.SelectedItem = index;
+            }
         }
+    }
+
+    private static PlayerListRow[] BuildPlayerRows(OperationsSnapshot snapshot)
+    {
+        var rows = new List<PlayerListRow>();
+        var knownWorlds = new HashSet<WorldId>();
+        IEnumerable<WorldContextSnapshot> contexts = snapshot.WorldContexts
+            .OrderBy(static context => context.Kind == WorldContextKind.Primary ? 0 : 1)
+            .ThenBy(static context => context.DisplayName, StringComparer.OrdinalIgnoreCase);
+
+        foreach (WorldContextSnapshot context in contexts)
+        {
+            knownWorlds.Add(context.Id);
+            PlayerSnapshot[] members = snapshot.Players
+                .Where(player => player.WorldId == context.Id)
+                .OrderBy(static player => player.Name, StringComparer.OrdinalIgnoreCase)
+                .ToArray();
+            rows.Add(new PlayerListRow(RenderWorldHeader(context, members.Length), null, context));
+            rows.AddRange(members.Select(player => new PlayerListRow($"  {RenderPlayer(player)}", player, null)));
+        }
+
+        foreach (IGrouping<WorldId, PlayerSnapshot> unknown in snapshot.Players
+                     .Where(player => !knownWorlds.Contains(player.WorldId))
+                     .GroupBy(static player => player.WorldId))
+        {
+            PlayerSnapshot[] members = unknown.OrderBy(static player => player.Name, StringComparer.OrdinalIgnoreCase).ToArray();
+            rows.Add(new PlayerListRow($"◆ {unknown.Key} [UNKNOWN] · {members.Length}p", null, null));
+            rows.AddRange(members.Select(player => new PlayerListRow($"  {RenderPlayer(player)}", player, null)));
+        }
+
+        return rows.ToArray();
+    }
+
+    private static string RenderWorldHeader(WorldContextSnapshot context, int playerCount)
+    {
+        string kind = context.Kind == WorldContextKind.Primary ? "PRIMARY" : "SANDBOX";
+        string ttl = context.Kind == WorldContextKind.Sandbox && context.TimeToLiveRemaining > TimeSpan.Zero
+            ? $" · ttl {FormatDuration(context.TimeToLiveRemaining)}"
+            : string.Empty;
+        return $"◆ {context.DisplayName} [{kind}] · {playerCount}p · {context.SimulationState}{ttl}";
     }
 
     private void UpdateModuleList(OperationsSnapshot snapshot)
@@ -734,4 +866,9 @@ internal sealed class OperationsDashboardView : IDisposable
         double nice = normalized <= 1 ? 1 : normalized <= 2 ? 2 : normalized <= 5 ? 5 : 10;
         return (float)(nice * power);
     }
+
+    private sealed record PlayerListRow(
+        string Text,
+        PlayerSnapshot? Player,
+        WorldContextSnapshot? Context);
 }
