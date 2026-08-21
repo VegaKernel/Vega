@@ -30,7 +30,7 @@ public sealed class PlayerPacketOwnershipPolicy : IPacketProcessor<PacketView>
 
         return claimedSlot is not null && claimedSlot != context.ConnectionId.Slot
             ? new PacketProcessingDecision(
-                PacketDecisionKind.Reject,
+                PacketDecisionKind.Violation,
                 "packet.player_identity_mismatch")
             : new PacketProcessingDecision(PacketDecisionKind.Continue);
     }
