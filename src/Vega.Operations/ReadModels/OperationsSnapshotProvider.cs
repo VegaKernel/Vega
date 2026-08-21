@@ -19,7 +19,7 @@ public sealed class OperationsSnapshotProvider(
     IWorldLoadMetricsReader? worldLoadMetrics = null,
     IModuleDirectoryStatusReader? moduleDirectory = null,
     IWorldClockReader? worldClocks = null,
-    IWorldContextOrchestrator? worldContexts = null) : IOperationsSnapshotProvider
+    IWorldContextOperationsCatalog? worldContexts = null) : IOperationsSnapshotProvider
 {
     public OperationsSnapshot Capture(OperationsLogFilter? logFilter = null)
     {
@@ -93,7 +93,7 @@ public sealed class OperationsSnapshotProvider(
                 .Where(static record => string.Equals(record.Source, "chat", StringComparison.OrdinalIgnoreCase))
                 .ToArray()),
             WorldContexts = Array.AsReadOnly(contexts),
-            CanMovePlayersBetweenWorlds = worldContexts is not null
+            CanMovePlayersBetweenWorlds = worldContexts?.CanMovePlayers == true
         };
     }
 
