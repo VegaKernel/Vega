@@ -1,3 +1,4 @@
+using System.Collections.ObjectModel;
 using System.Drawing;
 using System.Globalization;
 using System.Text;
@@ -386,12 +387,12 @@ internal sealed class OperationsDashboardView : IDisposable
             var reload = new MenuItem("_Reload", action: () => CommandRequested?.Invoke($"plugin reload {QuoteArgument(module.Name)}"))
             {
                 Enabled = module.IsHotReloadable,
-                HelpText = module.IsHotReloadable ? null : "Built-in modules are not hot-reloadable."
+                HelpText = module.IsHotReloadable ? string.Empty : "Built-in modules are not hot-reloadable."
             };
             var unload = new MenuItem("_Unload", action: () => CommandRequested?.Invoke($"plugin unload {QuoteArgument(module.Name)}"))
             {
                 Enabled = module.IsHotReloadable,
-                HelpText = module.IsHotReloadable ? null : "Built-in modules are not hot-reloadable."
+                HelpText = module.IsHotReloadable ? string.Empty : "Built-in modules are not hot-reloadable."
             };
             moduleMenu = new PopoverMenu([reload, unload]);
             modulesList.App?.Popovers?.Register(moduleMenu);
@@ -501,7 +502,7 @@ internal sealed class OperationsDashboardView : IDisposable
 
         int? selected = playersList.SelectedItem;
         playerRows = rows;
-        playersList.SetSource(rows);
+        playersList.SetSource(new ObservableCollection<string>(rows));
         if (selected is int index && index >= 0 && index < rows.Length)
         {
             playersList.SelectedItem = index;
@@ -519,7 +520,7 @@ internal sealed class OperationsDashboardView : IDisposable
 
         int? selected = modulesList.SelectedItem;
         moduleRows = rows;
-        modulesList.SetSource(rows);
+        modulesList.SetSource(new ObservableCollection<string>(rows));
         if (selected is int index && index >= 0 && index < rows.Length)
         {
             modulesList.SelectedItem = index;
@@ -634,7 +635,7 @@ internal sealed class OperationsDashboardView : IDisposable
 
         string next = pendingText;
         pendingText = string.Empty;
-        TextDocument document = editor.Document;
+        TextDocument document = editor.Document ?? throw new InvalidOperationException("Log editor document is not initialized.");
         if (appliedText.Length > 0 && next.StartsWith(appliedText, StringComparison.Ordinal))
         {
             document.Insert(document.TextLength, next[appliedText.Length..]);
