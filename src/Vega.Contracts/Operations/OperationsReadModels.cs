@@ -8,6 +8,7 @@ public enum ModuleLoadState
 {
     Registered,
     Loaded,
+    Unloading,
     Degraded,
     Failed,
     Disabled
