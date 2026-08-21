@@ -10,8 +10,8 @@ namespace Vega.Runtime.Tests;
 [TestFixture]
 public sealed class WorldItemSyncSanityPolicyTests
 {
-    [TestCase(PacketTypes.SyncItemsWithShimmer)]
-    [TestCase(PacketTypes.SyncItemCannotBeTakenByEnemies)]
+    [TestCase(PacketTypes.ItemDrop)]
+    [TestCase(PacketTypes.UpdateItemDrop)]
     public void ValidBoundaryPayloadIsAllowed(PacketTypes packetType)
     {
         PacketProcessingDecision decision = Process(
@@ -22,8 +22,8 @@ public sealed class WorldItemSyncSanityPolicyTests
         Assert.That(decision.Kind, Is.EqualTo(PacketDecisionKind.Continue));
     }
 
-    [TestCase(PacketTypes.SyncItemsWithShimmer, -1)]
-    [TestCase(PacketTypes.SyncItemCannotBeTakenByEnemies, 401)]
+    [TestCase(PacketTypes.ItemDrop, -1)]
+    [TestCase(PacketTypes.UpdateItemDrop, 401)]
     public void InvalidItemIndexIsRejected(PacketTypes packetType, short itemIndex)
     {
         PacketProcessingDecision decision = Process(
@@ -44,9 +44,9 @@ public sealed class WorldItemSyncSanityPolicyTests
     public void NonFiniteTransformIsRejected(float coordinate)
     {
         PacketProcessingDecision decision = Process(
-            PacketTypes.SyncItemsWithShimmer,
+            PacketTypes.ItemDrop,
             PacketDirection.Inbound,
-            CreatePayload(PacketTypes.SyncItemsWithShimmer, positionX: coordinate));
+            CreatePayload(PacketTypes.ItemDrop, positionX: coordinate));
 
         Assert.Multiple(() =>
         {
@@ -57,12 +57,12 @@ public sealed class WorldItemSyncSanityPolicyTests
 
     [TestCase(-1)]
     [TestCase(10_000)]
-    public void LegacyStackOutsideAcceptedRangeIsRejected(short stack)
+    public void StackOutsideAcceptedRangeIsRejected(short stack)
     {
         PacketProcessingDecision decision = Process(
-            PacketTypes.SyncItemCannotBeTakenByEnemies,
+            PacketTypes.UpdateItemDrop,
             PacketDirection.Inbound,
-            CreatePayload(PacketTypes.SyncItemCannotBeTakenByEnemies, stack: stack));
+            CreatePayload(PacketTypes.UpdateItemDrop, stack: stack));
 
         Assert.Multiple(() =>
         {
@@ -75,20 +75,20 @@ public sealed class WorldItemSyncSanityPolicyTests
     public void OutboundPayloadIsNotRestricted()
     {
         PacketProcessingDecision decision = Process(
-            PacketTypes.SyncItemsWithShimmer,
+            PacketTypes.ItemDrop,
             PacketDirection.Outbound,
-            CreatePayload(PacketTypes.SyncItemsWithShimmer, itemIndex: -1));
+            CreatePayload(PacketTypes.ItemDrop, itemIndex: -1));
 
         Assert.That(decision.Kind, Is.EqualTo(PacketDecisionKind.Continue));
     }
 
     [Test]
-    public void UnrelatedWorldItemPacketIsNotClaimed()
+    public void UnrelatedPacketIsNotClaimed()
     {
         PacketProcessingDecision decision = Process(
-            PacketTypes.ItemDrop,
+            PacketTypes.ItemOwner,
             PacketDirection.Inbound,
-            CreatePayload(PacketTypes.ItemDrop, itemIndex: -1));
+            []);
 
         Assert.That(decision.Kind, Is.EqualTo(PacketDecisionKind.Continue));
     }
@@ -97,11 +97,11 @@ public sealed class WorldItemSyncSanityPolicyTests
     public void MultiplicityBoundaryRejectsSerializedExploitPayload()
     {
         byte[] payload = CreatePayload(
-            PacketTypes.SyncItemsWithShimmer,
+            PacketTypes.ItemDrop,
             velocityY: float.PositiveInfinity);
 
         PacketProcessingDecision decision = MultiplicityPacketProcessing.ProcessInboundPayload(
-            (byte)PacketTypes.SyncItemsWithShimmer,
+            (byte)PacketTypes.ItemDrop,
             payload,
             0,
             payload.Length,
@@ -142,8 +142,7 @@ public sealed class WorldItemSyncSanityPolicyTests
         WorldItemSyncPacketBase packet = packetType switch
         {
             PacketTypes.ItemDrop => new ItemDrop(),
-            PacketTypes.SyncItemsWithShimmer => new SyncItemsWithShimmer(),
-            PacketTypes.SyncItemCannotBeTakenByEnemies => new SyncItemCannotBeTakenByEnemies(),
+            PacketTypes.UpdateItemDrop => new UpdateItemDrop(),
             _ => throw new ArgumentOutOfRangeException(nameof(packetType))
         };
 

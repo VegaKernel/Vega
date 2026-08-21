@@ -76,8 +76,8 @@ internal sealed class NativePlayerPacketSecurityHooks : IDisposable
             (byte)PacketTypes.TogglePvp or
             (byte)PacketTypes.SpectatePlayer or
             (byte)PacketTypes.SyncExtraValue or
-            (byte)PacketTypes.SyncItemsWithShimmer or
-            (byte)PacketTypes.SyncItemCannotBeTakenByEnemies or
+            (byte)PacketTypes.ItemDrop or
+            (byte)PacketTypes.UpdateItemDrop or
             (byte)PacketTypes.ProjectileNew or
             (byte)PacketTypes.PlayerHurtV2 or
             (byte)PacketTypes.PlayerDeathV2;

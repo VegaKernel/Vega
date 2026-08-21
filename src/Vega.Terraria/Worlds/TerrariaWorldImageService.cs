@@ -1,5 +1,4 @@
 using System.Diagnostics;
-using HookLiquid = HookEvents.Terraria.Liquid;
 using HookWorldFile = HookEvents.Terraria.IO.WorldFile;
 using HookWorldGen = HookEvents.Terraria.WorldGen;
 using Vega.Contracts.Operations;
@@ -13,6 +12,10 @@ namespace Vega.Terraria.Worlds;
 /// </summary>
 public sealed class TerrariaWorldImageService : IDisposable, IWorldLoadMetricsReader
 {
+    // OTAPI 3.3.12 no longer generates Terraria.Liquid hooks because Liquid became a value type in 1.4.5.7.
+    // Keep the cache correct by using Terraria's stock liquid initialization until upstream exposes an equivalent hook.
+    private const bool SupportsLiquidRuntimeFastRestore = false;
+
     private readonly object sync = new();
     private readonly object buildSync = new();
     private readonly IOperationsLogger logger;
@@ -63,7 +66,6 @@ public sealed class TerrariaWorldImageService : IDisposable, IWorldLoadMetricsRe
         HookWorldFile.LoadNPCs += OnLoadNpcs;
         HookWorldFile.LoadTileEntities += OnLoadTileEntities;
         HookWorldFile.InternalSaveWorld += OnInternalSaveWorld;
-        HookLiquid.QuickWater += OnQuickWater;
         HookWorldGen.WaterCheck += OnWaterCheck;
         global::HookEvents.Terraria.Main.get_worldPathName += OnGetWorldPathName;
         lifecycle.Transitioned += OnLifecycleTransition;
@@ -90,7 +92,6 @@ public sealed class TerrariaWorldImageService : IDisposable, IWorldLoadMetricsRe
             HookWorldFile.LoadNPCs -= OnLoadNpcs;
             HookWorldFile.LoadTileEntities -= OnLoadTileEntities;
             HookWorldFile.InternalSaveWorld -= OnInternalSaveWorld;
-            HookLiquid.QuickWater -= OnQuickWater;
             HookWorldGen.WaterCheck -= OnWaterCheck;
             global::HookEvents.Terraria.Main.get_worldPathName -= OnGetWorldPathName;
             lifecycle.Transitioned -= OnLifecycleTransition;
@@ -134,8 +135,9 @@ public sealed class TerrariaWorldImageService : IDisposable, IWorldLoadMetricsRe
                 activeImage = new ActiveImage(imagePath!, validation.Manifest);
                 imageBytes = new FileInfo(imagePath!).Length;
                 cacheHit = true;
-                runtimeSnapshotHit = validation.Manifest.SnapshotFlags.HasFlag(
-                    WorldImageSnapshotFlags.LiquidRuntimeState);
+                runtimeSnapshotHit = SupportsLiquidRuntimeFastRestore &&
+                    validation.Manifest.SnapshotFlags.HasFlag(
+                        WorldImageSnapshotFlags.LiquidRuntimeState);
             }
             else if (IsCorruptionReason(validation.Reason))
             {
@@ -347,20 +349,6 @@ public sealed class TerrariaWorldImageService : IDisposable, IWorldLoadMetricsRe
         }
     }
 
-    private void OnQuickWater(object? sender, HookLiquid.QuickWaterEventArgs args)
-    {
-        if (CanRestoreRuntimeLiquidState())
-        {
-            global::Terraria.Main.tileSolid[379] = true;
-            if (global::Terraria.WorldGen.noTrapsWorldGen)
-            {
-                global::Terraria.WorldGen.SetBoulderSolidity(solid: true);
-            }
-
-            args.ContinueExecution = false;
-        }
-    }
-
     private void OnWaterCheck(object? sender, HookWorldGen.WaterCheckEventArgs args)
     {
         if (!CanRestoreRuntimeLiquidState())
@@ -542,6 +530,7 @@ public sealed class TerrariaWorldImageService : IDisposable, IWorldLoadMetricsRe
     }
 
     private bool CanRestoreRuntimeLiquidState() =>
+        SupportsLiquidRuntimeFastRestore &&
         activeImage?.Manifest.SnapshotFlags.HasFlag(
             WorldImageSnapshotFlags.LiquidRuntimeState) == true;
 

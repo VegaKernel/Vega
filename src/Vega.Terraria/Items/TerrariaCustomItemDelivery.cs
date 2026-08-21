@@ -52,7 +52,7 @@ public sealed class TerrariaCustomItemDelivery(IGameThreadDispatcher dispatcher)
 				return PlayerOperationResult.Failed("custom_item.no_free_slot");
 
 			global::Terraria.WorldItem worldItem = global::Terraria.Main.item[itemIndex];
-			worldItem.SetDefaults(definition.ItemType);
+			worldItem.inner.SetDefaults(definition.ItemType);
 			ApplyOverride(worldItem.inner, definition.Override);
 			worldItem.position = player.position;
 

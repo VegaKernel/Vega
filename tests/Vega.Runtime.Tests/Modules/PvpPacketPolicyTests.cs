@@ -1,4 +1,5 @@
 using Multiplicity.Packets;
+using Multiplicity.Packets.Models;
 using Multiplicity.Packets.Views;
 using NUnit.Framework;
 using Vega.Contracts.Networking;
@@ -29,8 +30,7 @@ public sealed class PvpPacketPolicyTests
 		using TestPolicy test = CreatePolicy(heldItemType: 39);
 		PacketProcessingDecision projectile = test.Process(new ProjectileNew
 		{
-			Identity = 42,
-			Owner = 7,
+			Key = new ProjectileKey(7, 42, 0),
 			Type = 1
 		});
 		PacketProcessingDecision damage = test.Process(new PlayerHurtV2
@@ -58,7 +58,7 @@ public sealed class PvpPacketPolicyTests
 		test.Process(new PlayerDeathV2 { PlayerId = 7, Damage = 100 });
 
 		PacketProcessingDecision decision = test.Process(
-			new ProjectileNew { Identity = 5, Owner = 7, Type = 1 },
+			new ProjectileNew { Key = new ProjectileKey(7, 5, 0), Type = 1 },
 			TimeSpan.FromSeconds(1));
 
 		Assert.That(decision, Is.EqualTo(

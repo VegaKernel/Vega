@@ -11,8 +11,8 @@
 
   <ItemGroup>
     <ProjectReference Include="..\Vega.Contracts\Vega.Contracts.csproj" />
-    <PackageReference Include="OTAPI.Upcoming" Version="3.3.11" />
-    <PackageReference Include="TZ.Multiplicity" Version="2.6.0" />
+    <PackageReference Include="OTAPI.Upcoming" Version="3.3.12" />
+    <PackageReference Include="Multiplicity" Version="2.6.1" />
   </ItemGroup>
 
   <ItemGroup>

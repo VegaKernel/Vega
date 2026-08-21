@@ -16,9 +16,7 @@ public sealed class WorldItemSyncSanityPolicy : IPacketProcessor<PacketView>
     public PacketProcessingDecision Process(scoped in PacketProcessingContext<PacketView> context)
     {
         if (context.Direction != PacketDirection.Inbound ||
-            context.Packet.PacketType is not (
-                PacketTypes.SyncItemsWithShimmer or
-                PacketTypes.SyncItemCannotBeTakenByEnemies))
+            !WorldItemSyncView.IsSupported(context.Packet.PacketType))
         {
             return new PacketProcessingDecision(PacketDecisionKind.Continue);
         }

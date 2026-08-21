@@ -79,7 +79,8 @@ public sealed class TerrariaWorldMaintenanceService : IDisposable
         if (options.Cleanup.Enabled && now >= nextCleanup)
         {
             nextCleanup = Add(now, TimeSpan.FromMinutes(options.Cleanup.IntervalMinutes));
-            if (!options.Cleanup.OnlyWhenPlayersOnline || global::Terraria.Netplay.HasClients)
+            if (!options.Cleanup.OnlyWhenPlayersOnline ||
+                global::Terraria.Main.player.Any(static player => player?.active is true))
             {
                 RunCleanup();
             }
@@ -222,19 +223,18 @@ public sealed class TerrariaWorldMaintenanceService : IDisposable
                 continue;
             }
 
-            int identity = projectile.identity;
-            int owner = projectile.owner;
+            int key = projectile.key;
+            float positionX = projectile.position.X;
+            float positionY = projectile.position.Y;
             projectile.active = false;
             projectile.timeLeft = 0;
             projectile.type = 0;
-            if (owner >= 0 && owner < global::Terraria.Main.projectileIdentity.GetLength(0) &&
-                identity >= 0 && identity < global::Terraria.Main.projectileIdentity.GetLength(1) &&
-                global::Terraria.Main.projectileIdentity[owner, identity] == index)
-            {
-                global::Terraria.Main.projectileIdentity[owner, identity] = -1;
-            }
 
-            global::Terraria.NetMessage.SendData(29, number: identity, number2: owner);
+            global::Terraria.NetMessage.SendData(
+                29,
+                number: key,
+                number2: positionX,
+                number3: positionY);
             removed++;
         }
 
