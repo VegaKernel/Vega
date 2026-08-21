@@ -1,5 +1,6 @@
 using Multiplicity.Packets;
 using NUnit.Framework;
+using Vega.Contracts.Networking;
 using Vega.Terraria.Hooking;
 using Vega.Terraria.Networking;
 
@@ -23,6 +24,17 @@ public sealed class NativePlayerPacketSecurityHooksTests
             NativePlayerPacketSecurityHooks.ShouldApplySecurity(
                 (TerrariaConnectionState)connectionState,
                 (byte)packetType),
+            Is.EqualTo(expected));
+    }
+
+    [TestCase(PacketDecisionKind.Continue, false)]
+    [TestCase(PacketDecisionKind.Handled, true)]
+    [TestCase(PacketDecisionKind.Reject, true)]
+    [TestCase(PacketDecisionKind.Violation, true)]
+    public void SecurityDecisionControlsVanillaProcessing(PacketDecisionKind kind, bool expected)
+    {
+        Assert.That(
+            NativePlayerPacketSecurityHooks.ShouldCancelVanillaProcessing(kind),
             Is.EqualTo(expected));
     }
 }
