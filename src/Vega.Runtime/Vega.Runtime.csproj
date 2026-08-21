@@ -98,6 +98,7 @@
 			<PublishedLibraries Include="$(PublishDir)*" Exclude="$(PublishDir)Vega.Server*;$(PublishDir)Vega.Modules.*" />
 		</ItemGroup>
 		<MakeDir Directories="$(PublishDir)libs;$(PublishDir)ServerPlugins" />
-		<Move SourceFiles="@(PublishedServerPlugins)" DestinationFolder="$(PublishDir)libs" />
+		<Move SourceFiles="@(PublishedServerPlugins)" DestinationFolder="$(PublishDir)ServerPlugins" />
+		<Move SourceFiles="@(PublishedLibraries)" DestinationFolder="$(PublishDir)libs" />
 	</Target>
 </Project>
