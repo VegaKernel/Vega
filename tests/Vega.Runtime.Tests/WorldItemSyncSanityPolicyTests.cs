@@ -10,8 +10,8 @@ namespace Vega.Runtime.Tests;
 [TestFixture]
 public sealed class WorldItemSyncSanityPolicyTests
 {
-    [TestCase(PacketTypes.SyncItemsWithShimmer)]
-    [TestCase(PacketTypes.SyncItemCannotBeTakenByEnemies)]
+    [TestCase(PacketTypes.SyncItemsWithShimmerDeprecated)]
+    [TestCase(PacketTypes.SyncItemCannotBeTakenByEnemiesDeprecated)]
     public void ValidBoundaryPayloadIsAllowed(PacketTypes packetType)
     {
         PacketProcessingDecision decision = Process(
@@ -22,8 +22,8 @@ public sealed class WorldItemSyncSanityPolicyTests
         Assert.That(decision.Kind, Is.EqualTo(PacketDecisionKind.Continue));
     }
 
-    [TestCase(PacketTypes.SyncItemsWithShimmer, -1)]
-    [TestCase(PacketTypes.SyncItemCannotBeTakenByEnemies, 401)]
+    [TestCase(PacketTypes.SyncItemsWithShimmerDeprecated, -1)]
+    [TestCase(PacketTypes.SyncItemCannotBeTakenByEnemiesDeprecated, 401)]
     public void InvalidItemIndexIsRejected(PacketTypes packetType, short itemIndex)
     {
         PacketProcessingDecision decision = Process(
@@ -44,9 +44,9 @@ public sealed class WorldItemSyncSanityPolicyTests
     public void NonFiniteTransformIsRejected(float coordinate)
     {
         PacketProcessingDecision decision = Process(
-            PacketTypes.SyncItemsWithShimmer,
+            PacketTypes.SyncItemsWithShimmerDeprecated,
             PacketDirection.Inbound,
-            CreatePayload(PacketTypes.SyncItemsWithShimmer, positionX: coordinate));
+            CreatePayload(PacketTypes.SyncItemsWithShimmerDeprecated, positionX: coordinate));
 
         Assert.Multiple(() =>
         {
@@ -60,9 +60,9 @@ public sealed class WorldItemSyncSanityPolicyTests
     public void LegacyStackOutsideAcceptedRangeIsRejected(short stack)
     {
         PacketProcessingDecision decision = Process(
-            PacketTypes.SyncItemCannotBeTakenByEnemies,
+            PacketTypes.SyncItemCannotBeTakenByEnemiesDeprecated,
             PacketDirection.Inbound,
-            CreatePayload(PacketTypes.SyncItemCannotBeTakenByEnemies, stack: stack));
+            CreatePayload(PacketTypes.SyncItemCannotBeTakenByEnemiesDeprecated, stack: stack));
 
         Assert.Multiple(() =>
         {
@@ -75,9 +75,9 @@ public sealed class WorldItemSyncSanityPolicyTests
     public void OutboundPayloadIsNotRestricted()
     {
         PacketProcessingDecision decision = Process(
-            PacketTypes.SyncItemsWithShimmer,
+            PacketTypes.SyncItemsWithShimmerDeprecated,
             PacketDirection.Outbound,
-            CreatePayload(PacketTypes.SyncItemsWithShimmer, itemIndex: -1));
+            CreatePayload(PacketTypes.SyncItemsWithShimmerDeprecated, itemIndex: -1));
 
         Assert.That(decision.Kind, Is.EqualTo(PacketDecisionKind.Continue));
     }
@@ -97,11 +97,11 @@ public sealed class WorldItemSyncSanityPolicyTests
     public void MultiplicityBoundaryRejectsSerializedExploitPayload()
     {
         byte[] payload = CreatePayload(
-            PacketTypes.SyncItemsWithShimmer,
+            PacketTypes.SyncItemsWithShimmerDeprecated,
             velocityY: float.PositiveInfinity);
 
         PacketProcessingDecision decision = MultiplicityPacketProcessing.ProcessInboundPayload(
-            (byte)PacketTypes.SyncItemsWithShimmer,
+            (byte)PacketTypes.SyncItemsWithShimmerDeprecated,
             payload,
             0,
             payload.Length,
@@ -142,8 +142,8 @@ public sealed class WorldItemSyncSanityPolicyTests
         WorldItemSyncPacketBase packet = packetType switch
         {
             PacketTypes.ItemDrop => new ItemDrop(),
-            PacketTypes.SyncItemsWithShimmer => new SyncItemsWithShimmer(),
-            PacketTypes.SyncItemCannotBeTakenByEnemies => new SyncItemCannotBeTakenByEnemies(),
+            PacketTypes.SyncItemsWithShimmerDeprecated => new SyncItemsWithShimmer(),
+            PacketTypes.SyncItemCannotBeTakenByEnemiesDeprecated => new SyncItemCannotBeTakenByEnemies(),
             _ => throw new ArgumentOutOfRangeException(nameof(packetType))
         };
 
