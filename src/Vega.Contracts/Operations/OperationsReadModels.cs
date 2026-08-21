@@ -135,6 +135,11 @@ public sealed record OperationsSnapshot(
 
     public IReadOnlyList<OperationsLogRecord> Chat { get; init; } =
         Array.Empty<OperationsLogRecord>();
+
+    public IReadOnlyList<WorldContextSnapshot> WorldContexts { get; init; } =
+        Array.Empty<WorldContextSnapshot>();
+
+    public bool CanMovePlayersBetweenWorlds { get; init; }
 }
 
 public interface IOperationsSnapshotProvider
