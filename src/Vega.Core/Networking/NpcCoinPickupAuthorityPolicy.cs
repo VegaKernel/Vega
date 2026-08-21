@@ -13,7 +13,7 @@ public sealed class NpcCoinPickupAuthorityPolicy : IPacketProcessor<PacketView>
         context.Direction == PacketDirection.Inbound &&
         context.Packet.PacketType == PacketTypes.SyncExtraValue
             ? new PacketProcessingDecision(
-                PacketDecisionKind.Reject,
+                PacketDecisionKind.Violation,
                 "packet.npc_coin_pickup_server_authoritative")
             : new PacketProcessingDecision(PacketDecisionKind.Continue);
 }
