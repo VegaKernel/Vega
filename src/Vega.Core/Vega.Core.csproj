@@ -12,7 +12,7 @@
 
   <ItemGroup>
     <PackageReference Include="MaxMind.GeoIP2" Version="6.1.0" />
-    <PackageReference Include="TZ.Multiplicity" Version="2.6.0" />
+    <PackageReference Include="Multiplicity" Version="2.6.1" />
   </ItemGroup>
 
   <ItemGroup>
