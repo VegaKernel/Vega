@@ -8,19 +8,21 @@ namespace Vega.Runtime.Tests;
 [TestFixture]
 public sealed class NativePlayerPacketSecurityHooksTests
 {
-    [TestCase(TerrariaConnectionState.AwaitingHello, PacketTypes.PlayerHp, false)]
-    [TestCase((TerrariaConnectionState)9, PacketTypes.PlayerMana, false)]
-    [TestCase(TerrariaConnectionState.FullyConnected, PacketTypes.PlayerHp, true)]
-    [TestCase(TerrariaConnectionState.FullyConnected, PacketTypes.ItemDrop, true)]
-    [TestCase((TerrariaConnectionState)11, PacketTypes.ProjectileNew, true)]
-    [TestCase(TerrariaConnectionState.FullyConnected, PacketTypes.PlayerSpawn, false)]
+    [TestCase((int)TerrariaConnectionState.AwaitingHello, PacketTypes.PlayerHp, false)]
+    [TestCase((int)TerrariaConnectionState.FullyConnected - 1, PacketTypes.PlayerMana, false)]
+    [TestCase((int)TerrariaConnectionState.FullyConnected, PacketTypes.PlayerHp, true)]
+    [TestCase((int)TerrariaConnectionState.FullyConnected, PacketTypes.ItemDrop, true)]
+    [TestCase((int)TerrariaConnectionState.FullyConnected + 1, PacketTypes.ProjectileNew, true)]
+    [TestCase((int)TerrariaConnectionState.FullyConnected, PacketTypes.PlayerSpawn, false)]
     public void GameplaySecurityStartsOnlyAfterVanillaConnectionCompletes(
-        TerrariaConnectionState connectionState,
+        int connectionState,
         PacketTypes packetType,
         bool expected)
     {
         Assert.That(
-            NativePlayerPacketSecurityHooks.ShouldApplySecurity(connectionState, (byte)packetType),
+            NativePlayerPacketSecurityHooks.ShouldApplySecurity(
+                (TerrariaConnectionState)connectionState,
+                (byte)packetType),
             Is.EqualTo(expected));
     }
 }
