@@ -190,6 +190,14 @@ int Start()
             return 1;
         }
 
+        using IDisposable banCommandRegistration = commandDispatcher.Register(
+            new BanCommand(playerBoundary, playerBoundary, database.GlobalBans));
+        using var banEnforcer = new PersistentBanEnforcer(
+            database.GlobalBans,
+            playerBoundary,
+            playerBoundary,
+            playerBoundary,
+            logger);
         using var worldImages = new TerrariaWorldImageService(logger, lifecycle, worldImageOptions.Enabled);
         WorldMaintenanceOptions worldMaintenanceOptions = WorldMaintenanceOptionsStore.Load(
             Path.Combine(AppContext.BaseDirectory, "config", "world-maintenance.json"),
