@@ -1,4 +1,6 @@
 using Vega.Contracts.Commands;
+using Vega.Contracts.Players;
+using Vega.Contracts.Worlds;
 
 namespace Vega.Contracts.Operations;
 
@@ -21,5 +23,13 @@ public interface IUnhandledOperationsCommandSink
 {
     ValueTask SubmitAsync(
         string commandText,
+        CancellationToken cancellationToken = default);
+}
+
+public interface IOperationsWorldService
+{
+    ValueTask<OperationsActionResult> MovePlayerAsync(
+        PlayerId playerId,
+        WorldId targetWorldId,
         CancellationToken cancellationToken = default);
 }

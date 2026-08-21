@@ -18,7 +18,8 @@ public sealed class OperationsSnapshotProvider(
     INetworkMetricsReader networkMetrics,
     IWorldLoadMetricsReader? worldLoadMetrics = null,
     IModuleDirectoryStatusReader? moduleDirectory = null,
-    IWorldClockReader? worldClocks = null) : IOperationsSnapshotProvider
+    IWorldClockReader? worldClocks = null,
+    IWorldContextOperationsCatalog? worldContexts = null) : IOperationsSnapshotProvider
 {
     public OperationsSnapshot Capture(OperationsLogFilter? logFilter = null)
     {
@@ -35,6 +36,18 @@ public sealed class OperationsSnapshotProvider(
             moduleDirectory?.Read() ?? ModuleDirectoryStatusSnapshot.Unmonitored;
         string[] warnings = BuildWarnings(state, moduleSnapshots, moduleDirectoryStatus);
         RuntimeLifecycleStage stage = lifecycle.CurrentStage;
+        WorldContextSnapshot[] contexts = worldContexts?.SnapshotContexts().ToArray() ??
+        [
+            new WorldContextSnapshot(
+                WorldId.Primary,
+                state.WorldName ?? "Primary world",
+                WorldContextKind.Primary,
+                state.IsWorldReady ? WorldContextSimulationState.Running : WorldContextSimulationState.Stopped,
+                Array.AsReadOnly(playerSnapshots.Select(static player => player.Id).ToArray()),
+                0,
+                "primary",
+                TimeSpan.Zero)
+        ];
 
         TickRateStatisticsSnapshot tickRate = state.TickRate.SampleCount > 0
             ? state.TickRate
@@ -78,7 +91,9 @@ public sealed class OperationsSnapshotProvider(
             Chat = Array.AsReadOnly(logs
                 .Query(new OperationsLogFilter(Source: "chat", Limit: 200))
                 .Where(static record => string.Equals(record.Source, "chat", StringComparison.OrdinalIgnoreCase))
-                .ToArray())
+                .ToArray()),
+            WorldContexts = Array.AsReadOnly(contexts),
+            CanMovePlayersBetweenWorlds = worldContexts?.CanMovePlayers == true
         };
     }
 
