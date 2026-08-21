@@ -69,7 +69,7 @@ public sealed record TerminalUiLayoutOptions(
                 source.Visible,
                 Math.Clamp(source.XPercent, 0, 95),
                 Math.Clamp(source.YPercent, 0, 95),
-                Math.Clamp(source.WidthPercent, 12, 100),
+                Math.Clamp(source.WidthPercent, 15, 100),
                 Math.Clamp(source.HeightPercent, 10, 100));
         }
 
