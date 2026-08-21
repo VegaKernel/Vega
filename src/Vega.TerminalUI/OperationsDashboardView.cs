@@ -4,26 +4,30 @@ using System.Text;
 using Terminal.Gui.Drawing;
 using Terminal.Gui.Editor;
 using Terminal.Gui.Editor.Document;
+using Terminal.Gui.Input;
 using Terminal.Gui.ViewBase;
 using Terminal.Gui.Views;
 using Vega.Contracts.Operations;
+using Vega.Contracts.Players;
 using TuiAttribute = Terminal.Gui.Drawing.Attribute;
 using TuiColor = Terminal.Gui.Drawing.Color;
 
 namespace Vega.TerminalUI;
 
-internal sealed class OperationsDashboardView
+internal sealed class OperationsDashboardView : IDisposable
 {
     private const string SchemeName = "VegaDark";
     private const double TargetTicksPerSecond = 60d;
     private readonly View desktop;
     private readonly Dictionary<string, View> windows = new(StringComparer.OrdinalIgnoreCase);
+    private readonly Dictionary<string, TerminalUiPanelLayout> restoreLayouts = new(StringComparer.OrdinalIgnoreCase);
     private readonly Label overviewText = CreateLabel();
     private readonly Label networkText = CreateLabel();
-    private readonly Label playersText = CreateLabel();
-    private readonly Label modulesText = CreateLabel();
+    private readonly ListView playersList = new();
+    private readonly ListView modulesList = new();
     private readonly Editor logsText = CreateLogEditor();
-    private readonly GraphView performanceGraph = CreateGraph("TPS + CPU");
+    private readonly Editor chatText = CreateLogEditor();
+    private readonly GraphView performanceGraph = CreateGraph("TPS / CPU");
     private readonly GraphView memoryGraph = CreateGraph("Memory");
     private readonly PathAnnotation tpsTargetPath = new() { LineColor = new TuiAttribute(TuiColor.Gray, TuiColor.Black) };
     private readonly PathAnnotation tpsPath = new() { LineColor = new TuiAttribute(TuiColor.BrightGreen, TuiColor.Black) };
@@ -31,6 +35,16 @@ internal sealed class OperationsDashboardView
     private readonly PathAnnotation workingSetPath = new() { LineColor = new TuiAttribute(TuiColor.BrightYellow, TuiColor.Black) };
     private readonly PathAnnotation gcHeapPath = new() { LineColor = new TuiAttribute(TuiColor.BrightMagenta, TuiColor.Black) };
     private readonly OperationsMetricHistory history;
+    private IReadOnlyList<PlayerSnapshot> players = Array.Empty<PlayerSnapshot>();
+    private IReadOnlyList<ModuleOperationsSnapshot> modules = Array.Empty<ModuleOperationsSnapshot>();
+    private string[] playerRows = Array.Empty<string>();
+    private string[] moduleRows = Array.Empty<string>();
+    private PopoverMenu? playerMenu;
+    private PopoverMenu? moduleMenu;
+    private string lastLogText = string.Empty;
+    private string pendingLogText = string.Empty;
+    private string lastChatText = string.Empty;
+    private string pendingChatText = string.Empty;
     private TerminalUiLayoutOptions layout;
 
     public OperationsDashboardView(View desktop, TerminalUiLayoutOptions layout)
@@ -39,26 +53,48 @@ internal sealed class OperationsDashboardView
         this.layout = TerminalUiLayoutOptions.Normalize(layout);
         history = new OperationsMetricHistory(this.layout.HistorySamples);
 
-        AddTextWindow(TerminalUiLayoutOptions.Overview, "Server / world", overviewText);
+        playersList.SchemeName = SchemeName;
+        playersList.ViewportSettings = ViewportSettingsFlags.HasVerticalScrollBar | ViewportSettingsFlags.HasHorizontalScrollBar;
+        modulesList.SchemeName = SchemeName;
+        modulesList.ViewportSettings = ViewportSettingsFlags.HasVerticalScrollBar | ViewportSettingsFlags.HasHorizontalScrollBar;
+
+        AddTextWindow(TerminalUiLayoutOptions.Overview, "Server", overviewText);
         AddGraphWindow(TerminalUiLayoutOptions.Performance, performanceGraph);
-        AddTextWindow(TerminalUiLayoutOptions.Players, "Players", playersText);
+        AddListWindow(TerminalUiLayoutOptions.Players, "Players", playersList, ConfigurePlayerContextMenu);
         AddGraphWindow(TerminalUiLayoutOptions.Memory, memoryGraph);
         AddTextWindow(TerminalUiLayoutOptions.Network, "Network", networkText);
-        AddTextWindow(TerminalUiLayoutOptions.Modules, "Modules", modulesText);
-        AddTextWindow(TerminalUiLayoutOptions.Logs, "Logs", logsText);
+        AddListWindow(TerminalUiLayoutOptions.Modules, "Modules", modulesList, ConfigureModuleContextMenu);
+        AddLogsWindow();
+        AddTextWindow(TerminalUiLayoutOptions.Chat, "Chat", chatText);
 
         ConfigurePerformanceGraph();
         ConfigureMemoryGraph();
     }
 
+    public event Action? LogFilterRequested;
+
+    public event Action? LogFollowToggleRequested;
+
+    public event Action? LogFiltersClearRequested;
+
+    public event Action<string>? CommandRequested;
+
     public void Update(OperationsSnapshot snapshot, bool isFollowing, OperationsLogFilter filter)
     {
         OperationsMetricSample sample = history.Add(snapshot);
+        players = snapshot.Players;
+        modules = snapshot.Modules;
         SetText(overviewText, RenderOverview(snapshot));
         SetText(networkText, RenderNetwork(snapshot, sample));
-        SetText(playersText, RenderPlayers(snapshot));
-        SetText(modulesText, RenderModules(snapshot));
-        SetLogText(RenderLogs(snapshot, isFollowing, filter));
+        UpdatePlayerList(snapshot);
+        UpdateModuleList(snapshot);
+        SetLogText(RenderLogs(snapshot, filter), logsText, ref lastLogText, ref pendingLogText);
+        SetLogText(RenderChat(snapshot), chatText, ref lastChatText, ref pendingChatText);
+        if (windows[TerminalUiLayoutOptions.Logs] is FrameView logsFrame)
+        {
+            logsFrame.Title = RenderLogTitle(isFollowing, filter);
+        }
+
         UpdateGraphs(sample);
     }
 
@@ -90,7 +126,11 @@ internal sealed class OperationsDashboardView
         return true;
     }
 
-    public void ResetLayout() => ApplyLayout(TerminalUiLayoutOptions.Default);
+    public void ResetLayout()
+    {
+        restoreLayouts.Clear();
+        ApplyLayout(TerminalUiLayoutOptions.Default);
+    }
 
     public bool TryExecuteLayoutCommand(string input, out string message, out bool saveRequested)
     {
@@ -158,16 +198,218 @@ internal sealed class OperationsDashboardView
 
         foreach ((string name, View view) in windows)
         {
-            Rectangle frame = view.Frame;
-            captured[name] = new TerminalUiPanelLayout(
-                view.Visible,
-                ToPercent(frame.X, desktopWidth),
-                ToPercent(frame.Y, desktopHeight),
-                ToPercent(frame.Width, desktopWidth),
-                ToPercent(frame.Height, desktopHeight));
+            if (restoreLayouts.TryGetValue(name, out TerminalUiPanelLayout? restore))
+            {
+                captured[name] = restore with { Visible = view.Visible };
+                continue;
+            }
+
+            captured[name] = CapturePanel(view, desktopWidth, desktopHeight);
         }
 
         return TerminalUiLayoutOptions.Normalize(layout with { Windows = captured });
+    }
+
+    public void Dispose()
+    {
+        DisposePopover(playersList, ref playerMenu);
+        DisposePopover(modulesList, ref moduleMenu);
+    }
+
+    private void AddTextWindow(string name, string title, View text)
+    {
+        FrameView frame = CreateFrame(name, title);
+        text.X = 0;
+        text.Y = 0;
+        text.Width = Dim.Fill();
+        text.Height = Dim.Fill();
+        frame.Add(text);
+        RegisterWindow(name, frame);
+    }
+
+    private void AddListWindow(string name, string title, ListView list, Action configureContextMenu)
+    {
+        FrameView frame = CreateFrame(name, title);
+        list.X = 0;
+        list.Y = 0;
+        list.Width = Dim.Fill();
+        list.Height = Dim.Fill();
+        frame.Add(list);
+        RegisterWindow(name, frame);
+        list.Initialized += (_, _) => configureContextMenu();
+    }
+
+    private void AddLogsWindow()
+    {
+        FrameView frame = CreateFrame(TerminalUiLayoutOptions.Logs, "Logs");
+        var localMenu = new MenuBar([
+            new MenuBarItem("_Logs", [
+                new MenuItem("_Filter...", action: () => LogFilterRequested?.Invoke()),
+                new MenuItem("Follow / _pause", action: () => LogFollowToggleRequested?.Invoke()),
+                new MenuItem("_Clear filters", action: () => LogFiltersClearRequested?.Invoke())
+            ])
+        ])
+        {
+            X = 0,
+            Y = 0,
+            Width = Dim.Fill(),
+            SchemeName = SchemeName
+        };
+        logsText.X = 0;
+        logsText.Y = 1;
+        logsText.Width = Dim.Fill();
+        logsText.Height = Dim.Fill();
+        frame.Add(localMenu, logsText);
+        RegisterWindow(TerminalUiLayoutOptions.Logs, frame);
+    }
+
+    private void AddGraphWindow(string name, GraphView graph) => RegisterWindow(name, graph);
+
+    private FrameView CreateFrame(string name, string title)
+    {
+        var frame = new FrameView
+        {
+            Title = title,
+            BorderStyle = LineStyle.Single,
+            SchemeName = SchemeName,
+            Arrangement = ViewArrangement.Movable | ViewArrangement.Resizable | ViewArrangement.Overlapped
+        };
+        AttachDoubleClickMaximize(name, frame);
+        return frame;
+    }
+
+    private void RegisterWindow(string name, View view)
+    {
+        windows.Add(name, view);
+        Apply(view, layout.GetWindow(name));
+        desktop.Add(view);
+    }
+
+    private void AttachDoubleClickMaximize(string name, View view)
+    {
+        view.Initialized += (_, _) =>
+        {
+            if (view.Border.View is not View borderView)
+            {
+                return;
+            }
+
+            borderView.MouseBindings.Add(MouseFlags.LeftButtonDoubleClicked, Command.Accept);
+            borderView.Accepting += (_, args) =>
+            {
+                if (args.Context?.Binding is MouseBinding { MouseEvent: { Position: { } position } } &&
+                    position.Y == 0)
+                {
+                    ToggleMaximize(name);
+                    args.Handled = true;
+                }
+            };
+        };
+    }
+
+    private void ToggleMaximize(string name)
+    {
+        if (!windows.TryGetValue(name, out View? view) || desktop.Viewport.Width <= 1 || desktop.Viewport.Height <= 1)
+        {
+            return;
+        }
+
+        if (restoreLayouts.Remove(name, out TerminalUiPanelLayout? restore))
+        {
+            Apply(view, restore with { Visible = true });
+            return;
+        }
+
+        restoreLayouts[name] = CapturePanel(view, desktop.Viewport.Width, desktop.Viewport.Height);
+        view.X = 0;
+        view.Y = 0;
+        view.Width = Dim.Fill();
+        view.Height = Dim.Fill();
+        view.Visible = true;
+        view.SetFocus();
+    }
+
+    private void ConfigurePlayerContextMenu()
+    {
+        playersList.MouseBindings.Add(MouseFlags.RightButtonClicked, Command.Context);
+        playersList.CommandNotBound += (_, args) =>
+        {
+            if (args.Context?.Binding is not MouseBinding { MouseEvent: { } mouse })
+            {
+                return;
+            }
+
+            int index = mouse.Position?.Y + playersList.Viewport.Y ?? -1;
+            if ((uint)index >= (uint)players.Count)
+            {
+                return;
+            }
+
+            playersList.SelectedItem = index;
+            PlayerSnapshot player = players[index];
+            DisposePopover(playersList, ref playerMenu);
+            playerMenu = new PopoverMenu([
+                new MenuItem("_Kick", action: () => CommandRequested?.Invoke($"kick tsi:{player.Id.Slot} Operator action")),
+                new MenuItem("_Ban", action: () => { })
+                {
+                    Enabled = false,
+                    HelpText = "Ban application capability is not implemented yet."
+                },
+                new Line(),
+                new MenuItem("_Details", action: () => ShowPlayerDetails(player))
+            ]);
+            playersList.App?.Popovers?.Register(playerMenu);
+            playerMenu.MakeVisible(mouse.ScreenPosition);
+            args.Handled = true;
+        };
+    }
+
+    private void ConfigureModuleContextMenu()
+    {
+        modulesList.MouseBindings.Add(MouseFlags.RightButtonClicked, Command.Context);
+        modulesList.CommandNotBound += (_, args) =>
+        {
+            if (args.Context?.Binding is not MouseBinding { MouseEvent: { } mouse })
+            {
+                return;
+            }
+
+            int index = mouse.Position?.Y + modulesList.Viewport.Y ?? -1;
+            if ((uint)index >= (uint)modules.Count)
+            {
+                return;
+            }
+
+            modulesList.SelectedItem = index;
+            ModuleOperationsSnapshot module = modules[index];
+            DisposePopover(modulesList, ref moduleMenu);
+            var reload = new MenuItem("_Reload", action: () => CommandRequested?.Invoke($"plugin reload {QuoteArgument(module.Name)}"))
+            {
+                Enabled = module.IsHotReloadable,
+                HelpText = module.IsHotReloadable ? null : "Built-in modules are not hot-reloadable."
+            };
+            var unload = new MenuItem("_Unload", action: () => CommandRequested?.Invoke($"plugin unload {QuoteArgument(module.Name)}"))
+            {
+                Enabled = module.IsHotReloadable,
+                HelpText = module.IsHotReloadable ? null : "Built-in modules are not hot-reloadable."
+            };
+            moduleMenu = new PopoverMenu([reload, unload]);
+            modulesList.App?.Popovers?.Register(moduleMenu);
+            moduleMenu.MakeVisible(mouse.ScreenPosition);
+            args.Handled = true;
+        };
+    }
+
+    private void ShowPlayerDetails(PlayerSnapshot player)
+    {
+        string connected = player.ConnectedAt is DateTimeOffset connectedAt
+            ? FormatDuration(DateTimeOffset.UtcNow - connectedAt)
+            : "unknown";
+        MessageBox.Query(
+            playersList.App!,
+            player.Name,
+            $"Slot: {player.Id.Slot}\nIP/endpoint: {player.RemoteEndpoint ?? "unknown"}\nPlatform: {player.Platform ?? "unknown"}\nSession: {connected}\nHP: {player.Life}/{player.MaxLife}\nMP: {player.Mana}/{player.MaxMana}",
+            "OK");
     }
 
     private void ApplyLayout(TerminalUiLayoutOptions value)
@@ -177,32 +419,6 @@ internal sealed class OperationsDashboardView
         {
             Apply(view, layout.GetWindow(name));
         }
-    }
-
-    private void AddTextWindow(string name, string title, View text)
-    {
-        var frame = new FrameView
-        {
-            Title = title,
-            BorderStyle = LineStyle.Single,
-            SchemeName = SchemeName,
-            Arrangement = ViewArrangement.Movable | ViewArrangement.Resizable | ViewArrangement.Overlapped
-        };
-        text.X = 0;
-        text.Y = 0;
-        text.Width = Dim.Fill();
-        text.Height = Dim.Fill();
-        frame.Add(text);
-        windows.Add(name, frame);
-        Apply(frame, layout.GetWindow(name));
-        desktop.Add(frame);
-    }
-
-    private void AddGraphWindow(string name, GraphView graph)
-    {
-        windows.Add(name, graph);
-        Apply(graph, layout.GetWindow(name));
-        desktop.Add(graph);
     }
 
     private static void Apply(View view, TerminalUiPanelLayout panel)
@@ -246,7 +462,7 @@ internal sealed class OperationsDashboardView
         tpsTargetPath.Points = samples.Select((_, index) => new PointF(index, (float)TargetTicksPerSecond)).ToList();
         tpsPath.Points = Points(samples, static sample => (float)sample.TicksPerSecond);
         cpuPath.Points = Points(samples, static sample => (float)sample.CpuPercent);
-        performanceGraph.Title = $"TPS green {current.TicksPerSecond:F1}/{TargetTicksPerSecond:F0} · target gray · CPU cyan {current.CpuPercent:F1}%";
+        performanceGraph.Title = $"TPS {current.TicksPerSecond:F1}/{TargetTicksPerSecond:F0} · CPU {current.CpuPercent:F1}%";
         FitGraph(performanceGraph, samples.Count, 100);
 
         workingSetPath.Points = Points(samples, static sample => (float)sample.WorkingSetMiB);
@@ -255,12 +471,17 @@ internal sealed class OperationsDashboardView
             64,
             samples.Max(static sample => Math.Max(sample.WorkingSetMiB, sample.GcHeapMiB)) * 1.15);
         memoryGraph.AxisY.Increment = NiceIncrement(memoryMaximum / 3);
-        memoryGraph.Title = $"Working yellow {current.WorkingSetMiB:F0} MiB · GC magenta {current.GcHeapMiB:F0} MiB";
+        memoryGraph.Title = $"Working {current.WorkingSetMiB:F0} MiB · GC {current.GcHeapMiB:F0} MiB";
         FitGraph(memoryGraph, samples.Count, memoryMaximum);
     }
 
     private static void FitGraph(GraphView graph, int sampleCount, float yMaximum)
     {
+        if (graph.Viewport.Width <= graph.MarginLeft || graph.Viewport.Height <= graph.MarginBottom)
+        {
+            return;
+        }
+
         int width = Math.Max(1, graph.Viewport.Width - (int)graph.MarginLeft);
         int height = Math.Max(1, graph.Viewport.Height - (int)graph.MarginBottom);
         graph.CellSize = new PointF(
@@ -270,121 +491,101 @@ internal sealed class OperationsDashboardView
         graph.SetNeedsDraw();
     }
 
-    private static List<PointF> Points(
-        IReadOnlyList<OperationsMetricSample> samples,
-        Func<OperationsMetricSample, float> selector) =>
-        samples.Select((sample, index) => new PointF(index, selector(sample))).ToList();
-
-    private static float NiceIncrement(float value)
+    private void UpdatePlayerList(OperationsSnapshot snapshot)
     {
-        if (value <= 1)
+        string[] rows = snapshot.Players.Select(RenderPlayer).ToArray();
+        if (playerRows.SequenceEqual(rows, StringComparer.Ordinal))
         {
-            return 1;
+            return;
         }
 
-        double power = Math.Pow(10, Math.Floor(Math.Log10(value)));
-        double normalized = value / power;
-        double nice = normalized <= 1 ? 1 : normalized <= 2 ? 2 : normalized <= 5 ? 5 : 10;
-        return (float)(nice * power);
+        int? selected = playersList.SelectedItem;
+        playerRows = rows;
+        playersList.SetSource(rows);
+        if (selected is int index && index >= 0 && index < rows.Length)
+        {
+            playersList.SelectedItem = index;
+        }
+    }
+
+    private void UpdateModuleList(OperationsSnapshot snapshot)
+    {
+        string[] rows = snapshot.Modules.Select(module =>
+            $"{StateGlyph(module.State)} {module.Name} {module.Version} {module.StartupDuration.TotalMilliseconds:F0}ms{FormatFailure(module.Failure)}").ToArray();
+        if (moduleRows.SequenceEqual(rows, StringComparer.Ordinal))
+        {
+            return;
+        }
+
+        int? selected = modulesList.SelectedItem;
+        moduleRows = rows;
+        modulesList.SetSource(rows);
+        if (selected is int index && index >= 0 && index < rows.Length)
+        {
+            modulesList.SelectedItem = index;
+        }
     }
 
     private static string RenderOverview(OperationsSnapshot snapshot)
     {
         ServerDashboardSnapshot server = snapshot.Server;
+        string tps = server.OnlinePlayers == 0 && server.TickRate.Current <= 0
+            ? "IDLE"
+            : server.TickRate.Current.ToString("F1", CultureInfo.InvariantCulture);
         var text = new StringBuilder()
-            .Append(server.ServerName).Append(' ').Append(server.Version)
-            .Append("  ·  ").Append(server.LifecycleStage).AppendLine()
-            .Append("World: ").Append(server.WorldName ?? "not loaded")
-            .Append("  ·  port ").Append(server.ListenerPort).AppendLine()
-            .Append("Players: ").Append(server.OnlinePlayers).Append('/').Append(server.MaximumPlayers)
-            .Append("  ·  uptime ").Append(FormatDuration(server.Uptime)).AppendLine()
-            .Append("TPS: ").Append(server.TickRate.Current.ToString("F1", CultureInfo.InvariantCulture))
-            .Append("  ·  avg ").Append(server.TickRate.AverageOneMinute.ToString("F1", CultureInfo.InvariantCulture))
-            .Append("  ·  min/max ")
-            .Append(server.TickRate.Minimum.ToString("F1", CultureInfo.InvariantCulture)).Append('/')
-            .Append(server.TickRate.Maximum.ToString("F1", CultureInfo.InvariantCulture)).AppendLine()
-            .Append("Tick ms p50/p95/p99: ")
+            .Append(server.ServerName).Append(' ').Append(server.Version).AppendLine()
+            .Append(server.WorldName ?? "not loaded").Append(" · :").Append(server.ListenerPort).AppendLine()
+            .Append("P ").Append(server.OnlinePlayers).Append('/').Append(server.MaximumPlayers)
+            .Append(" · up ").Append(FormatDuration(server.Uptime)).AppendLine()
+            .Append("TPS ").Append(tps)
+            .Append(" · avg ").Append(server.TickRate.AverageOneMinute.ToString("F1", CultureInfo.InvariantCulture)).AppendLine()
+            .Append("Interval p50/95/99 ")
             .Append(server.TickRate.TickDurationP50Milliseconds.ToString("F1", CultureInfo.InvariantCulture)).Append('/')
             .Append(server.TickRate.TickDurationP95Milliseconds.ToString("F1", CultureInfo.InvariantCulture)).Append('/')
-            .Append(server.TickRate.TickDurationP99Milliseconds.ToString("F1", CultureInfo.InvariantCulture));
-
-        if (snapshot.WorldLoad is { } worldLoad)
-        {
-            text.AppendLine()
-                .Append("World image: ").Append(worldLoad.CacheHit ? "cache hit" : worldLoad.CacheReason)
-                .Append("  ·  ready ").Append(worldLoad.WorldReadyDuration.TotalSeconds.ToString("F1", CultureInfo.InvariantCulture)).Append('s');
-        }
-
-        if (snapshot.WorldClocks.FirstOrDefault() is { } clock)
-        {
-            text.AppendLine()
-                .Append("World clock: ").Append(clock.Predicted.IsDaytime ? "day " : "night ")
-                .Append((clock.Predicted.TimeTicks / 60d).ToString("F1", CultureInfo.InvariantCulture)).Append('s')
-                .Append("  ·  drift ").Append((clock.DriftTicks / 60d).ToString("+0.00;-0.00;0.00", CultureInfo.InvariantCulture)).Append('s')
-                .Append("  ·  corrections ").Append(clock.CorrectionCount)
-                .Append("  ·  reanchors ").Append(clock.ReanchorCount);
-        }
+            .Append(server.TickRate.TickDurationP99Milliseconds.ToString("F1", CultureInfo.InvariantCulture)).Append(" ms");
 
         if (server.Warnings.Count > 0)
         {
-            text.AppendLine().Append("⚠ ").Append(string.Join(" | ", server.Warnings));
+            text.AppendLine().Append("! ").Append(string.Join(" | ", server.Warnings));
         }
 
         return text.ToString();
     }
 
     private static string RenderNetwork(OperationsSnapshot snapshot, OperationsMetricSample sample) =>
-        $"IN   {sample.InboundKiBPerSecond,8:F1} KiB/s   {snapshot.Network.InboundPackets,12:N0} packets\n" +
-        $"OUT  {sample.OutboundKiBPerSecond,8:F1} KiB/s   {snapshot.Network.OutboundPackets,12:N0} packets\n\n" +
-        $"Totals: ↓ {FormatBytes(snapshot.Network.InboundBytes)}  ↑ {FormatBytes(snapshot.Network.OutboundBytes)}\n" +
-        "Packet/security breakdown appears here when Phase 13 counters exist.";
+        $"IN  {sample.InboundKiBPerSecond,7:F1} KiB/s\n" +
+        $"OUT {sample.OutboundKiBPerSecond,7:F1} KiB/s\n" +
+        $"Pkts {snapshot.Network.InboundPackets:N0}/{snapshot.Network.OutboundPackets:N0}\n" +
+        $"Total {FormatBytes(snapshot.Network.InboundBytes)} / {FormatBytes(snapshot.Network.OutboundBytes)}";
 
-    private static string RenderPlayers(OperationsSnapshot snapshot)
+    private static string RenderPlayer(PlayerSnapshot player)
     {
-        if (snapshot.Players.Count == 0)
-        {
-            return "No connected players.";
-        }
+        string session = player.ConnectedAt is DateTimeOffset connectedAt
+            ? FormatDuration(DateTimeOffset.UtcNow - connectedAt)
+            : "--";
+        return $"[{player.Id.Slot,3}] {player.Name,-14} {player.Life,3}/{player.MaxLife,-3} {session,8}";
+    }
 
+    private static string RenderLogs(OperationsSnapshot snapshot, OperationsLogFilter filter)
+    {
+        bool explicitlyRequestsChat = filter.Source?.Contains("chat", StringComparison.OrdinalIgnoreCase) == true;
+        IEnumerable<OperationsLogRecord> records = explicitlyRequestsChat
+            ? snapshot.Logs
+            : snapshot.Logs.Where(static record => !string.Equals(record.Source, "chat", StringComparison.OrdinalIgnoreCase));
         return string.Join(
             Environment.NewLine,
-            snapshot.Players.Select(player =>
-                $"[{player.Id.Slot,3}] {player.Name,-18} HP {player.Life,4}/{player.MaxLife,-4} MP {player.Mana,3}/{player.MaxMana,-3} T{player.Team} {(player.IsHostile ? "PvP" : string.Empty)}"));
-    }
-
-    private static string RenderModules(OperationsSnapshot snapshot)
-    {
-        string modules = $"Hot reload: {(snapshot.ModuleDirectory.IsHotReloadEnabled ? "enabled" : "disabled")}" +
-            Environment.NewLine + string.Join(
-            Environment.NewLine,
-            snapshot.Modules.Select(module =>
-                $"{StateGlyph(module.State)} {module.Name} {module.Version}\n   {module.StartupDuration.TotalMilliseconds:F1} ms{FormatFailure(module.Failure)}"));
-        if (!snapshot.ModuleDirectory.IsRestartRequired)
-        {
-            return modules;
-        }
-
-        return "⚠ RESTART REQUIRED\n" +
-            string.Join(", ", snapshot.ModuleDirectory.ChangedFiles) +
-            Environment.NewLine + modules;
-    }
-
-    private static string RenderLogs(
-        OperationsSnapshot snapshot,
-        bool isFollowing,
-        OperationsLogFilter filter)
-    {
-        string header = $"{(isFollowing ? "FOLLOW" : "PAUSED")} · level {filter.MinimumLevel?.ToString() ?? "all"} · source {filter.Source ?? "all"} · text {filter.Text ?? "all"}";
-        return header + Environment.NewLine + string.Join(
-            Environment.NewLine,
-            snapshot.Logs.Select(record =>
+            records.Select(record =>
                 $"{record.Timestamp:HH:mm:ss} {LevelGlyph(record.Level)} {record.Source,-14} {record.Text}"));
     }
 
-    private static Label CreateLabel() => new()
-    {
-        SchemeName = SchemeName
-    };
+    private static string RenderChat(OperationsSnapshot snapshot) => string.Join(
+        Environment.NewLine,
+        snapshot.Chat.Select(record => $"{record.Timestamp:HH:mm:ss} {record.Text}"));
+
+    private static string RenderLogTitle(bool following, OperationsLogFilter filter) =>
+        $"Logs [{(following ? "FOLLOW" : "PAUSED")} · {filter.MinimumLevel?.ToString() ?? "all"} · {filter.Source ?? "all"}]";
+
+    private static Label CreateLabel() => new() { SchemeName = SchemeName };
 
     private static Editor CreateLogEditor() => new()
     {
@@ -413,21 +614,68 @@ internal sealed class OperationsDashboardView
         }
     }
 
-    private string lastLogText = string.Empty;
-
-    private void SetLogText(string text)
+    private static void SetLogText(
+        string text,
+        Editor editor,
+        ref string appliedText,
+        ref string pendingText)
     {
-        if (string.Equals(lastLogText, text, StringComparison.Ordinal))
+        if (string.Equals(appliedText, text, StringComparison.Ordinal))
+        {
+            pendingText = string.Empty;
+            return;
+        }
+
+        pendingText = text;
+        if (editor.Selection is not null)
         {
             return;
         }
 
-        lastLogText = text;
-        logsText.Document = new TextDocument(text);
+        string next = pendingText;
+        pendingText = string.Empty;
+        TextDocument document = editor.Document;
+        if (appliedText.Length > 0 && next.StartsWith(appliedText, StringComparison.Ordinal))
+        {
+            document.Insert(document.TextLength, next[appliedText.Length..]);
+        }
+        else
+        {
+            document.Text = next;
+        }
+
+        appliedText = next;
+        editor.SetNeedsDraw();
+    }
+
+    private static TerminalUiPanelLayout CapturePanel(View view, int width, int height)
+    {
+        Rectangle frame = view.Frame;
+        return new TerminalUiPanelLayout(
+            view.Visible,
+            ToPercent(frame.X, width),
+            ToPercent(frame.Y, height),
+            ToPercent(frame.Width, width),
+            ToPercent(frame.Height, height));
     }
 
     private static int ToPercent(int value, int total) =>
         Math.Clamp((int)Math.Round(value * 100d / total), 0, 100);
+
+    private static void DisposePopover(View owner, ref PopoverMenu? menu)
+    {
+        if (menu is null)
+        {
+            return;
+        }
+
+        owner.App?.Popovers?.DeRegister(menu);
+        menu.Dispose();
+        menu = null;
+    }
+
+    private static string QuoteArgument(string value) =>
+        value.Any(char.IsWhiteSpace) ? $"\"{value.Replace("\"", "\\\"")}\"" : value;
 
     private static string StateGlyph(ModuleLoadState state) => state switch
     {
@@ -460,11 +708,29 @@ internal sealed class OperationsDashboardView
         return string.Create(CultureInfo.InvariantCulture, $"{value:F1} {units[unit]}");
     }
 
-    private static string FormatDuration(TimeSpan duration) =>
-        duration.TotalDays >= 1
-            ? string.Create(CultureInfo.InvariantCulture, $"{duration.TotalDays:F1}d")
-            : duration.ToString(@"hh\:mm\:ss", CultureInfo.InvariantCulture);
+    private static string FormatDuration(TimeSpan value) =>
+        value.TotalDays >= 1
+            ? $"{(int)value.TotalDays}d {value:hh\\:mm\\:ss}"
+            : value.ToString("hh\\:mm\\:ss", CultureInfo.InvariantCulture);
 
     private static string FormatFailure(string? failure) =>
         string.IsNullOrWhiteSpace(failure) ? string.Empty : $" · {failure}";
+
+    private static List<PointF> Points(
+        IReadOnlyList<OperationsMetricSample> samples,
+        Func<OperationsMetricSample, float> selector) =>
+        samples.Select((sample, index) => new PointF(index, selector(sample))).ToList();
+
+    private static float NiceIncrement(float value)
+    {
+        if (value <= 1)
+        {
+            return 1;
+        }
+
+        double power = Math.Pow(10, Math.Floor(Math.Log10(value)));
+        double normalized = value / power;
+        double nice = normalized <= 1 ? 1 : normalized <= 2 ? 2 : normalized <= 5 ? 5 : 10;
+        return (float)(nice * power);
+    }
 }

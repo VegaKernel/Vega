@@ -3,7 +3,7 @@ using Vega.Contracts.Messaging;
 
 namespace Vega.Core.Commands;
 
-public sealed class CommandDispatcher : ICommandDispatcher, ICommandRegistry
+public sealed class CommandDispatcher : ICommandDispatcher, ICommandRegistry, ICommandCatalog
 {
     private readonly object sync = new();
     private IReadOnlyDictionary<string, ICommandHandler> handlers;
@@ -25,6 +25,14 @@ public sealed class CommandDispatcher : ICommandDispatcher, ICommandRegistry
 
     public bool CanDispatch(string name) =>
         !string.IsNullOrWhiteSpace(name) && Volatile.Read(ref handlers).ContainsKey(name);
+
+    public IReadOnlyList<CommandDescriptor> SnapshotCommands() => Array.AsReadOnly(
+        Volatile.Read(ref handlers)
+            .Values
+            .Select(static handler => handler.Descriptor)
+            .DistinctBy(static descriptor => descriptor.Name, StringComparer.OrdinalIgnoreCase)
+            .OrderBy(static descriptor => descriptor.Name, StringComparer.OrdinalIgnoreCase)
+            .ToArray());
 
     public IDisposable Register(ICommandHandler handler)
     {

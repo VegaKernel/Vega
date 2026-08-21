@@ -101,6 +101,27 @@ public sealed class CommandDispatcherTests
     }
 
     [Test]
+    public void CommandCatalogTracksDynamicRegistrationsWithoutAliasDuplicates()
+    {
+        var dispatcher = new CommandDispatcher([
+            new FakeHandler(new CommandDescriptor("alpha", ["a"], []))
+        ]);
+
+        Assert.That(dispatcher.SnapshotCommands().Select(static descriptor => descriptor.Name),
+            Is.EqualTo(new[] { "alpha" }));
+
+        using IDisposable registration = dispatcher.Register(
+            new FakeHandler(new CommandDescriptor("beta", ["b", "bee"], [])));
+
+        Assert.That(dispatcher.SnapshotCommands().Select(static descriptor => descriptor.Name),
+            Is.EqualTo(new[] { "alpha", "beta" }));
+
+        registration.Dispose();
+        Assert.That(dispatcher.SnapshotCommands().Select(static descriptor => descriptor.Name),
+            Is.EqualTo(new[] { "alpha" }));
+    }
+
+    [Test]
     public async Task DynamicRegistrationIsRemovedWithItsLease()
     {
         var dispatcher = new CommandDispatcher([]);

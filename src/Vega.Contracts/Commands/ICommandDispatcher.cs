@@ -3,6 +3,15 @@ namespace Vega.Contracts.Commands;
 /// <summary>
 /// Dispatches commands through the modern command pipeline.
 /// </summary>
+public interface ICommandCatalog
+{
+    /// <summary>
+    /// Returns a stable snapshot of the commands currently registered in the dispatcher.
+    /// Dynamic module registrations are reflected by the next snapshot.
+    /// </summary>
+    IReadOnlyList<CommandDescriptor> SnapshotCommands();
+}
+
 public interface ICommandDispatcher
 {
     /// <summary>

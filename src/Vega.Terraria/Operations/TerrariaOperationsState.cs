@@ -55,19 +55,27 @@ public sealed class TerrariaOperationsState : IServerRuntimeStateReader, IDispos
 
     private void OnGameUpdate<TSender, TArgs>(TSender sender, TArgs args)
     {
-        TickRateStatisticsSnapshot tickRate = tickRateMonitor.RecordTick();
-
-        Volatile.Write(ref snapshot, new ServerRuntimeStateSnapshot(
-            string.IsNullOrWhiteSpace(global::Terraria.Main.worldName)
-                ? null
-                : global::Terraria.Main.worldName,
-            global::Terraria.Main.maxNetPlayers,
-            global::Terraria.Netplay.ListenPort,
-            !global::Terraria.Main.gameMenu,
-            tickRate.Current,
-            DateTimeOffset.UtcNow)
+        try
         {
-            TickRate = tickRate
-        });
+            TickRateStatisticsSnapshot tickRate = tickRateMonitor.RecordTick();
+
+            Volatile.Write(ref snapshot, new ServerRuntimeStateSnapshot(
+                string.IsNullOrWhiteSpace(global::Terraria.Main.worldName)
+                    ? null
+                    : global::Terraria.Main.worldName,
+                global::Terraria.Main.maxNetPlayers,
+                global::Terraria.Netplay.ListenPort,
+                !global::Terraria.Main.gameMenu,
+                tickRate.Current,
+                DateTimeOffset.UtcNow)
+            {
+                TickRate = tickRate
+            });
+        }
+        catch (Exception ex)
+        {
+            // Telemetry is never allowed to tear down Terraria's update loop.
+            Console.Error.WriteLine($"Vega operations sampling failed: {ex}");
+        }
     }
 }

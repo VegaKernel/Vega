@@ -24,6 +24,7 @@ public sealed class TerrariaPlayerBoundary :
 		new Dictionary<PlayerId, PlayerCombatSnapshot>();
 	private PlayerSessionId?[] sessionIds = [];
 	private string?[] sessionNames = [];
+	private DateTimeOffset?[] sessionStartedAt = [];
 	private bool attached;
 
 	public TerrariaPlayerBoundary(IGameThreadDispatcher dispatcher)
@@ -226,12 +227,22 @@ public sealed class TerrariaPlayerBoundary :
 			new Dictionary<PlayerId, PlayerCombatSnapshot>());
 		sessionIds = [];
 		sessionNames = [];
+		sessionStartedAt = [];
 	}
 
 	private void OnUpdate(global::Terraria.Main instance, HookEvents.Terraria.Main.UpdateEventArgs args)
 	{
-		dispatcher.AssertGameThread();
-		RefreshSnapshots();
+		try
+		{
+			dispatcher.AssertGameThread();
+			RefreshSnapshots();
+		}
+		catch (Exception ex)
+		{
+			// Player read-model projection is observability/supporting infrastructure.
+			// A bad snapshot must never tear down the Terraria update loop.
+			Console.Error.WriteLine($"Vega player snapshot refresh failed: {ex}");
+		}
 	}
 
 	private void RefreshSnapshots()
@@ -282,7 +293,10 @@ public sealed class TerrariaPlayerBoundary :
 				player.hostile,
 				player.team)
 			{
-				SessionId = sessionIds[slot]
+				SessionId = sessionIds[slot],
+				ConnectedAt = sessionStartedAt[slot],
+				RemoteEndpoint = TryGetRemoteEndpoint(slot),
+				Platform = null
 			};
 
 			global::Terraria.Item heldItem = player.HeldItem;
@@ -303,6 +317,7 @@ public sealed class TerrariaPlayerBoundary :
 		{
 			sessionIds = new PlayerSessionId?[players.Length];
 			sessionNames = new string?[players.Length];
+			sessionStartedAt = new DateTimeOffset?[players.Length];
 		}
 
 		var timestamp = DateTimeOffset.UtcNow;
@@ -314,6 +329,7 @@ public sealed class TerrariaPlayerBoundary :
 				PlayerSessionId sessionId = PlayerSessionId.New();
 				sessionIds[slot] = sessionId;
 				sessionNames[slot] = player.name;
+				sessionStartedAt[slot] = timestamp;
 				Opened?.Invoke(new PlayerSessionOpened(
 					sessionId,
 					new PlayerId(slot),
@@ -329,7 +345,22 @@ public sealed class TerrariaPlayerBoundary :
 					timestamp));
 				sessionIds[slot] = null;
 				sessionNames[slot] = null;
+				sessionStartedAt[slot] = null;
 			}
+		}
+	}
+
+	private static string? TryGetRemoteEndpoint(int slot)
+	{
+		try
+		{
+			return global::Terraria.Netplay.Clients[slot]?.Socket?
+				.GetRemoteAddress()
+				.GetIdentifier();
+		}
+		catch (Exception)
+		{
+			return null;
 		}
 	}
 

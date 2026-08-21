@@ -22,6 +22,7 @@ public sealed record TerminalUiLayoutOptions(
     public const string Players = "players";
     public const string Modules = "modules";
     public const string Logs = "logs";
+    public const string Chat = "chat";
 
     public static IReadOnlyList<string> WindowNames { get; } =
     [
@@ -31,7 +32,8 @@ public sealed record TerminalUiLayoutOptions(
         Network,
         Players,
         Modules,
-        Logs
+        Logs,
+        Chat
     ];
 
     public static TerminalUiLayoutOptions Default { get; } = new(
@@ -39,13 +41,15 @@ public sealed record TerminalUiLayoutOptions(
         120,
         new Dictionary<string, TerminalUiPanelLayout>(StringComparer.OrdinalIgnoreCase)
         {
-            [Overview] = new(true, 0, 0, 34, 30),
-            [Performance] = new(true, 34, 0, 40, 30),
-            [Players] = new(true, 74, 0, 26, 30),
-            [Memory] = new(true, 0, 30, 34, 30),
-            [Network] = new(true, 34, 30, 40, 30),
-            [Modules] = new(true, 74, 30, 26, 30),
-            [Logs] = new(true, 0, 60, 100, 40)
+            // Logs are the primary work surface. The right side is a dense operational stack.
+            [Logs] = new(true, 0, 0, 56, 100),
+            [Overview] = new(true, 56, 0, 22, 24),
+            [Players] = new(true, 78, 0, 22, 24),
+            [Performance] = new(true, 56, 24, 44, 22),
+            [Memory] = new(true, 56, 46, 44, 18),
+            [Network] = new(true, 56, 64, 22, 18),
+            [Modules] = new(true, 78, 64, 22, 18),
+            [Chat] = new(true, 56, 82, 44, 18)
         });
 
     public TerminalUiPanelLayout GetWindow(string name) => Windows[name];
@@ -65,8 +69,8 @@ public sealed record TerminalUiLayoutOptions(
                 source.Visible,
                 Math.Clamp(source.XPercent, 0, 95),
                 Math.Clamp(source.YPercent, 0, 95),
-                Math.Clamp(source.WidthPercent, 15, 100),
-                Math.Clamp(source.HeightPercent, 15, 100));
+                Math.Clamp(source.WidthPercent, 12, 100),
+                Math.Clamp(source.HeightPercent, 10, 100));
         }
 
         return new TerminalUiLayoutOptions(refresh, history, windows);
