@@ -50,7 +50,7 @@
 
 	<ItemGroup>
 		<PackageReference Include="ModFramework" Version="1.1.15" GeneratePathProperty="true" />
-		<PackageReference Include="OTAPI.Upcoming" Version="3.3.11" ExcludeAssets="all" GeneratePathProperty="true" />
+		<PackageReference Include="OTAPI.Upcoming" Version="3.3.12" ExcludeAssets="all" GeneratePathProperty="true" />
 
 		<None Include="$(PkgOTAPI_Upcoming)\lib\$(TargetFramework)\OTAPI.dll" Condition="Exists('$(PkgOTAPI_Upcoming)\lib\$(TargetFramework)\OTAPI.dll')">
 			<CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
@@ -98,7 +98,6 @@
 			<PublishedLibraries Include="$(PublishDir)*" Exclude="$(PublishDir)Vega.Server*;$(PublishDir)Vega.Modules.*" />
 		</ItemGroup>
 		<MakeDir Directories="$(PublishDir)libs;$(PublishDir)ServerPlugins" />
-		<Move SourceFiles="@(PublishedServerPlugins)" DestinationFolder="$(PublishDir)ServerPlugins" />
-		<Move SourceFiles="@(PublishedLibraries)" DestinationFolder="$(PublishDir)libs" />
+		<Move SourceFiles="@(PublishedServerPlugins)" DestinationFolder="$(PublishDir)libs" />
 	</Target>
 </Project>
