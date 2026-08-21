@@ -24,7 +24,7 @@ public sealed class WorldItemSyncSanityPolicy : IPacketProcessor<PacketView>
         WorldItemSyncView item = context.Packet.AsWorldItemSyncView();
         if (item.ItemIndex is < 0 or > MaximumItemIndex)
         {
-            return Reject("packet.world_item.index_out_of_range");
+            return Violation("packet.world_item.index_out_of_range");
         }
 
         if (!float.IsFinite(item.PositionX) ||
@@ -32,14 +32,14 @@ public sealed class WorldItemSyncSanityPolicy : IPacketProcessor<PacketView>
             !float.IsFinite(item.VelocityX) ||
             !float.IsFinite(item.VelocityY))
         {
-            return Reject("packet.world_item.non_finite_transform");
+            return Violation("packet.world_item.non_finite_transform");
         }
 
         return item.Stack is < 0 or > MaximumStack
-            ? Reject("packet.world_item.stack_out_of_range")
+            ? Violation("packet.world_item.stack_out_of_range")
             : new PacketProcessingDecision(PacketDecisionKind.Continue);
     }
 
-    private static PacketProcessingDecision Reject(string reason) =>
-        new(PacketDecisionKind.Reject, reason);
+    private static PacketProcessingDecision Violation(string reason) =>
+        new(PacketDecisionKind.Violation, reason);
 }

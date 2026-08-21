@@ -4,7 +4,8 @@ public enum PacketDecisionKind
 {
     Continue,
     Handled,
-    Reject
+    Reject,
+    Violation
 }
 
 public sealed record PacketProcessingDecision(PacketDecisionKind Kind, string? Reason = null);

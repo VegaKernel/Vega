@@ -38,7 +38,7 @@ public sealed class ProjectileSpawnSanityPolicyTests
         });
 
         Assert.That(decision, Is.EqualTo(
-            new PacketProcessingDecision(PacketDecisionKind.Reject, "packet.projectile.owner_mismatch")));
+            new PacketProcessingDecision(PacketDecisionKind.Violation, "packet.projectile.owner_mismatch")));
     }
 
     [Test]
@@ -52,7 +52,7 @@ public sealed class ProjectileSpawnSanityPolicyTests
         });
 
         Assert.That(decision, Is.EqualTo(
-            new PacketProcessingDecision(PacketDecisionKind.Reject, "packet.projectile.index_out_of_range")));
+            new PacketProcessingDecision(PacketDecisionKind.Violation, "packet.projectile.index_out_of_range")));
     }
 
     [TestCase(float.NaN)]
@@ -68,7 +68,7 @@ public sealed class ProjectileSpawnSanityPolicyTests
         });
 
         Assert.That(decision, Is.EqualTo(
-            new PacketProcessingDecision(PacketDecisionKind.Reject, "packet.projectile.non_finite_position")));
+            new PacketProcessingDecision(PacketDecisionKind.Violation, "packet.projectile.non_finite_position")));
     }
 
     [TestCase(float.NaN)]
@@ -84,7 +84,7 @@ public sealed class ProjectileSpawnSanityPolicyTests
         });
 
         Assert.That(decision, Is.EqualTo(
-            new PacketProcessingDecision(PacketDecisionKind.Reject, "packet.projectile.non_finite_velocity")));
+            new PacketProcessingDecision(PacketDecisionKind.Violation, "packet.projectile.non_finite_velocity")));
     }
 
     [Test]
@@ -117,7 +117,7 @@ public sealed class ProjectileSpawnSanityPolicyTests
             DateTimeOffset.UtcNow);
 
         Assert.That(decision, Is.EqualTo(
-            new PacketProcessingDecision(PacketDecisionKind.Reject, "packet.projectile.owner_mismatch")));
+            new PacketProcessingDecision(PacketDecisionKind.Violation, "packet.projectile.owner_mismatch")));
     }
 
     private static PacketProcessingDecision Process(

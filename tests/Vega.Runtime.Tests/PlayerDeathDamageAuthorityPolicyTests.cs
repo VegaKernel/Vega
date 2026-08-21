@@ -11,8 +11,8 @@ namespace Vega.Runtime.Tests;
 public sealed class PlayerDeathDamageAuthorityPolicyTests
 {
     [TestCase(42_000, PacketDecisionKind.Continue)]
-    [TestCase(42_001, PacketDecisionKind.Reject)]
-    [TestCase(65_535, PacketDecisionKind.Reject)]
+    [TestCase(42_001, PacketDecisionKind.Violation)]
+    [TestCase(65_535, PacketDecisionKind.Violation)]
     public void InboundDamageIsComparedAsUnsigned(
         int unsignedDamage,
         PacketDecisionKind expected)
@@ -22,7 +22,7 @@ public sealed class PlayerDeathDamageAuthorityPolicyTests
             CreatePlayerDeathPayload(unsignedDamage));
 
         Assert.That(decision.Kind, Is.EqualTo(expected));
-        if (expected == PacketDecisionKind.Reject)
+        if (expected == PacketDecisionKind.Violation)
         {
             Assert.That(
                 decision.Reason,
@@ -66,7 +66,7 @@ public sealed class PlayerDeathDamageAuthorityPolicyTests
             new PlayerDeathDamageAuthorityPolicy(),
             DateTimeOffset.UtcNow);
 
-        Assert.That(decision.Kind, Is.EqualTo(PacketDecisionKind.Reject));
+        Assert.That(decision.Kind, Is.EqualTo(PacketDecisionKind.Violation));
     }
 
     private static PacketProcessingDecision Process(

@@ -33,7 +33,7 @@ public sealed class WorldItemSyncSanityPolicyTests
 
         Assert.Multiple(() =>
         {
-            Assert.That(decision.Kind, Is.EqualTo(PacketDecisionKind.Reject));
+            Assert.That(decision.Kind, Is.EqualTo(PacketDecisionKind.Violation));
             Assert.That(decision.Reason, Is.EqualTo("packet.world_item.index_out_of_range"));
         });
     }
@@ -50,7 +50,7 @@ public sealed class WorldItemSyncSanityPolicyTests
 
         Assert.Multiple(() =>
         {
-            Assert.That(decision.Kind, Is.EqualTo(PacketDecisionKind.Reject));
+            Assert.That(decision.Kind, Is.EqualTo(PacketDecisionKind.Violation));
             Assert.That(decision.Reason, Is.EqualTo("packet.world_item.non_finite_transform"));
         });
     }
@@ -66,7 +66,7 @@ public sealed class WorldItemSyncSanityPolicyTests
 
         Assert.Multiple(() =>
         {
-            Assert.That(decision.Kind, Is.EqualTo(PacketDecisionKind.Reject));
+            Assert.That(decision.Kind, Is.EqualTo(PacketDecisionKind.Violation));
             Assert.That(decision.Reason, Is.EqualTo("packet.world_item.stack_out_of_range"));
         });
     }
@@ -110,7 +110,7 @@ public sealed class WorldItemSyncSanityPolicyTests
             new WorldItemSyncSanityPolicy(),
             DateTimeOffset.UtcNow);
 
-        Assert.That(decision.Kind, Is.EqualTo(PacketDecisionKind.Reject));
+        Assert.That(decision.Kind, Is.EqualTo(PacketDecisionKind.Violation));
     }
 
     private static PacketProcessingDecision Process(

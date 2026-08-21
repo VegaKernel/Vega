@@ -74,7 +74,7 @@ internal sealed class NativePlayerPacketSecurityHooks : IDisposable
                 packetProcessor,
                 DateTimeOffset.UtcNow);
 
-            if (decision.Kind is PacketDecisionKind.Handled or PacketDecisionKind.Reject)
+            if (ShouldCancelVanillaProcessing(decision.Kind))
             {
                 args.Result = HookResult.Cancel;
             }
@@ -93,6 +93,9 @@ internal sealed class NativePlayerPacketSecurityHooks : IDisposable
 
     internal static bool ShouldApplySecurity(TerrariaConnectionState connectionState, byte packetId) =>
         connectionState >= TerrariaConnectionState.FullyConnected && IsProcessedPacket(packetId);
+
+    internal static bool ShouldCancelVanillaProcessing(PacketDecisionKind kind) =>
+        kind is PacketDecisionKind.Handled or PacketDecisionKind.Reject or PacketDecisionKind.Violation;
 
     private static TerrariaConnectionState GetConnectionState(int slot)
     {

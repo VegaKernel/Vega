@@ -20,7 +20,7 @@ public sealed class NpcCoinPickupAuthorityPolicyTests
 
         Assert.Multiple(() =>
         {
-            Assert.That(decision.Kind, Is.EqualTo(PacketDecisionKind.Reject));
+            Assert.That(decision.Kind, Is.EqualTo(PacketDecisionKind.Violation));
             Assert.That(
                 decision.Reason,
                 Is.EqualTo("packet.npc_coin_pickup_server_authoritative"));
@@ -64,7 +64,7 @@ public sealed class NpcCoinPickupAuthorityPolicyTests
             new NpcCoinPickupAuthorityPolicy(),
             DateTimeOffset.UtcNow);
 
-        Assert.That(decision.Kind, Is.EqualTo(PacketDecisionKind.Reject));
+        Assert.That(decision.Kind, Is.EqualTo(PacketDecisionKind.Violation));
     }
 
     private static PacketProcessingDecision Process(
