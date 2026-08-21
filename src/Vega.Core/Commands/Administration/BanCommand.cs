@@ -52,7 +52,7 @@ public sealed class BanCommand(
         {
             new(GlobalBanSubjectKind.PlayerName, target.Name)
         };
-        if (TryGetIpAddress(target.RemoteEndpoint, out string? ipAddress))
+        if (TryGetIpAddress(target.RemoteEndpoint, out string? ipAddress) && ipAddress is not null)
         {
             subjects.Add(new GlobalBanSubject(GlobalBanSubjectKind.IpAddress, ipAddress));
         }
