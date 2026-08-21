@@ -5,6 +5,7 @@ using Vega.Contracts.Authorization;
 using Vega.Contracts.Commands;
 using Vega.Contracts.Messaging;
 using Vega.Contracts.Players;
+using Vega.Contracts.Operations;
 
 namespace Vega.Terraria.Hooking;
 
@@ -18,18 +19,21 @@ internal sealed class NativePlayerCommandHooks : IDisposable
     private readonly IPlayerAuthorizationService authorization;
     private readonly IPlayerDirectory players;
     private readonly IPlayerMessenger messenger;
+    private readonly IOperationsLogger logger;
     private bool attached;
 
     public NativePlayerCommandHooks(
         ICommandDispatcher dispatcher,
         IPlayerAuthorizationService authorization,
         IPlayerDirectory players,
-        IPlayerMessenger messenger)
+        IPlayerMessenger messenger,
+        IOperationsLogger logger)
     {
         this.dispatcher = dispatcher ?? throw new ArgumentNullException(nameof(dispatcher));
         this.authorization = authorization ?? throw new ArgumentNullException(nameof(authorization));
         this.players = players ?? throw new ArgumentNullException(nameof(players));
         this.messenger = messenger ?? throw new ArgumentNullException(nameof(messenger));
+        this.logger = logger ?? throw new ArgumentNullException(nameof(logger));
     }
 
     public void Attach()
@@ -61,15 +65,7 @@ internal sealed class NativePlayerCommandHooks : IDisposable
             return;
         }
 
-        if (!TryGetPlayerCommand(args, out string commandText) ||
-            commandText.Length < 2 ||
-            (commandText[0] != '/' && commandText[0] != '.'))
-        {
-            return;
-        }
-
-        if (!CommandTextParser.TryParse(commandText, out ParsedCommandText command) ||
-            !dispatcher.CanDispatch(command.Name))
+        if (!TryGetPlayerCommand(args, out string messageText) || messageText.Length == 0)
         {
             return;
         }
@@ -80,10 +76,24 @@ internal sealed class NativePlayerCommandHooks : IDisposable
             return;
         }
 
-        // This synchronous OTAPI hook only claims commands already owned by Vega.
-        // Execution and game-thread message delivery continue asynchronously without blocking packet processing.
-        args.Result = HookResult.Cancel;
-        _ = ExecuteAsync(playerId, player.Name, command);
+        bool looksLikeCommand = messageText.Length >= 2 &&
+            (messageText[0] == '/' || messageText[0] == '.');
+        if (looksLikeCommand &&
+            CommandTextParser.TryParse(messageText, out ParsedCommandText command) &&
+            dispatcher.CanDispatch(command.Name))
+        {
+            // This synchronous OTAPI hook only claims commands already owned by Vega.
+            // Execution and game-thread message delivery continue asynchronously without blocking packet processing.
+            args.Result = HookResult.Cancel;
+            _ = ExecuteAsync(playerId, player.Name, command);
+            return;
+        }
+
+        logger.Log(
+            OperationsLogLevel.Information,
+            "chat",
+            $"{player.Name}: {messageText}",
+            correlationId: player.SessionId?.ToString());
     }
 
     private static bool TryGetPlayerCommand(

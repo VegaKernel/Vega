@@ -215,7 +215,9 @@ int Start()
         serverPlugins.Start();
         using IDisposable pluginCommandRegistration = commandDispatcher.Register(
             new ServerPluginCommand(serverPlugins));
-        var modules = new CompositeModuleOperationsCatalog(staticModules, serverPlugins);
+        var modules = new CompositeModuleOperationsCatalog(
+            staticModules,
+            new HotReloadableModuleOperationsCatalog(serverPlugins));
         var snapshots = new OperationsSnapshotProvider(
             "Vega",
             Assembly.GetExecutingAssembly().GetName().Version?.ToString() ?? "unknown",
@@ -237,7 +239,8 @@ int Start()
             operationsCommands,
             logger,
             startupProgress,
-            startupProgress);
+            startupProgress,
+            commandCatalog: commandDispatcher);
         startupProgress.Attach(() => terminalUi.IsRunning);
         terminalUi.Started += startupProgress.AcquireConsoleOwnership;
         terminalUi.Stopped += startupProgress.ReleaseConsoleOwnership;
@@ -324,3 +327,11 @@ ModuleOperationsSnapshot Module(string name, Assembly assembly, IReadOnlyList<st
         ModuleLoadState.Loaded,
         dependencies,
         TimeSpan.Zero);
+
+sealed class HotReloadableModuleOperationsCatalog(IModuleOperationsCatalog inner) : IModuleOperationsCatalog
+{
+    public IReadOnlyList<ModuleOperationsSnapshot> SnapshotModules() => Array.AsReadOnly(inner
+        .SnapshotModules()
+        .Select(static module => module with { IsHotReloadable = true })
+        .ToArray());
+}

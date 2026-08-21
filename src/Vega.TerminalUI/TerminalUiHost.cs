@@ -6,6 +6,7 @@ using Terminal.Gui.Drawing;
 using Terminal.Gui.Input;
 using Terminal.Gui.ViewBase;
 using Terminal.Gui.Views;
+using Vega.Contracts.Commands;
 using Vega.Contracts.Operations;
 using TuiAttribute = Terminal.Gui.Drawing.Attribute;
 
@@ -17,6 +18,7 @@ public sealed class TerminalUiHost : IDisposable
     private const double TargetTicksPerSecond = 60d;
     private const double MinimumHealthyTicksPerSecond = TargetTicksPerSecond * 0.95d;
     private readonly OperationsDashboardViewModel viewModel;
+    private readonly ICommandCatalog? commandCatalog;
     private readonly IOperationsLogger logger;
     private readonly IStartupProgressReader startupProgress;
     private readonly TerminalUiLayoutStore layoutStore;
@@ -32,9 +34,11 @@ public sealed class TerminalUiHost : IDisposable
         IOperationsLogger logger,
         IStartupProgressReader? startupProgress = null,
         IUnhandledOperationsCommandSink? unhandledCommands = null,
+        ICommandCatalog? commandCatalog = null,
         string? layoutPath = null)
     {
         viewModel = new OperationsDashboardViewModel(snapshots, commands, unhandledCommands);
+        this.commandCatalog = commandCatalog;
         this.logger = logger ?? throw new ArgumentNullException(nameof(logger));
         this.startupProgress = startupProgress ?? WaitingStartupProgressReader.Instance;
         layoutStore = new TerminalUiLayoutStore(
@@ -159,7 +163,16 @@ public sealed class TerminalUiHost : IDisposable
                 SchemeName = VegaSchemeName,
                 Visible = false
             };
+            var results = new ConcurrentQueue<string>();
             dashboard = new OperationsDashboardView(desktop, layout);
+            var terminalSizeWarning = new Label
+            {
+                Text = "Terminal too small for dashboard. Resize to at least 72x22.",
+                X = Pos.Center(),
+                Y = Pos.Center(),
+                Visible = false,
+                SchemeName = VegaSchemeName
+            };
 
             var commandBar = new FrameView
             {
@@ -184,6 +197,41 @@ public sealed class TerminalUiHost : IDisposable
                 Width = Dim.Percent(48),
                 Text = string.Empty
             };
+            var commandSuggestions = new SingleWordSuggestionGenerator();
+            if (command.Autocomplete is { } autocomplete)
+            {
+                autocomplete.SuggestionGenerator = commandSuggestions;
+                autocomplete.SelectionKey = Key.Tab;
+                autocomplete.MaxWidth = 48;
+                autocomplete.MaxHeight = 8;
+            }
+
+            string[] lastCommandSuggestions = Array.Empty<string>();
+
+            void RefreshCommandSuggestions()
+            {
+                if (commandCatalog is null)
+                {
+                    return;
+                }
+
+                string[] suggestions = commandCatalog
+                    .SnapshotCommands()
+                    .SelectMany(static descriptor => descriptor.Aliases.Prepend(descriptor.Name))
+                    .Where(static name => !string.IsNullOrWhiteSpace(name))
+                    .Distinct(StringComparer.OrdinalIgnoreCase)
+                    .OrderBy(static name => name, StringComparer.OrdinalIgnoreCase)
+                    .ToArray();
+                if (lastCommandSuggestions.SequenceEqual(suggestions, StringComparer.OrdinalIgnoreCase))
+                {
+                    return;
+                }
+
+                lastCommandSuggestions = suggestions;
+                commandSuggestions.AllSuggestions = suggestions.ToList();
+            }
+
+            RefreshCommandSuggestions();
             var result = new Label
             {
                 X = Pos.Right(command) + 2,
@@ -191,7 +239,6 @@ public sealed class TerminalUiHost : IDisposable
                 Width = Dim.Fill(1),
                 Text = "Ready. F1 shows keyboard help."
             };
-            var results = new ConcurrentQueue<string>();
             bool dashboardVisible = false;
 
             void FocusCommandPalette()
@@ -261,7 +308,7 @@ public sealed class TerminalUiHost : IDisposable
                 MessageBox.Query(
                     app,
                     "Vega keyboard",
-                    "F1 Help\nF2 Focus logs\nF3 Log filter\nF5 Follow / pause logs\nCtrl+P Command palette\nTab / Shift+Tab Move focus\nF10 Main menu\n\nLogs pause never freezes TPS, players, network or graphs.",
+                    "F1 Help\nF2 Focus logs\nF3 Log filter\nF5 Follow / pause logs\nCtrl+P Command palette\nTab Accept command suggestion / move focus\nCtrl+F5 Arrange focused window\nDouble-click title Maximize / restore\nRight-click Players / Modules Actions\nF10 Main menu\n\nLogs pause never freezes TPS, players, network or graphs.",
                     "OK");
             }
 
@@ -272,6 +319,11 @@ public sealed class TerminalUiHost : IDisposable
                     ShowLogFilterDialog(app);
                 }
             }
+
+            dashboard.LogFilterRequested += ShowLogFilter;
+            dashboard.LogFollowToggleRequested += ToggleFollowing;
+            dashboard.LogFiltersClearRequested += ClearFilters;
+            dashboard.CommandRequested += input => _ = ExecuteAsync(input, results, dashboard);
 
             command.Accepting += (_, eventArgs) =>
             {
@@ -286,10 +338,6 @@ public sealed class TerminalUiHost : IDisposable
             var menuBar = CreateMenuBar(
                 dashboard,
                 FocusCommandPalette,
-                FocusLogs,
-                ShowLogFilter,
-                ToggleFollowing,
-                ClearFilters,
                 SaveLayout,
                 ResetLayout,
                 ShowHelp,
@@ -317,7 +365,8 @@ public sealed class TerminalUiHost : IDisposable
                 Visible = false
             };
 
-            window.Add(menuBar, startup, desktop, commandBar, statusBar);
+            window.Add(menuBar, startup, desktop, terminalSizeWarning, commandBar, statusBar);
+            DateTimeOffset lastRefreshFailureLoggedAt = DateTimeOffset.MinValue;
             app.AddTimeout(TimeSpan.FromMilliseconds(layout.RefreshIntervalMilliseconds), () =>
             {
                 if (shutdown.IsCancellationRequested)
@@ -326,45 +375,75 @@ public sealed class TerminalUiHost : IDisposable
                     return false;
                 }
 
-                OperationsSnapshot snapshot = viewModel.Refresh();
-                if (!snapshot.Server.IsNetworkReady)
+                try
                 {
-                    StartupProgressSnapshot current = startupProgress.Read();
-                    startupStage.Text = current.Activity;
-                    startupDetails.Text = $"{snapshot.Server.LifecycleStage} · elapsed {snapshot.Server.Uptime:mm\\:ss\\.f}";
-                    if (current.Fraction is double fraction)
+                    OperationsSnapshot snapshot = viewModel.Refresh();
+                    RefreshCommandSuggestions();
+                    if (!snapshot.Server.IsNetworkReady)
                     {
-                        progress.ProgressBarStyle = ProgressBarStyle.Blocks;
-                        progress.ProgressBarFormat = ProgressBarFormat.SimplePlusPercentage;
-                        progress.Fraction = (float)fraction;
+                        StartupProgressSnapshot current = startupProgress.Read();
+                        startupStage.Text = current.Activity;
+                        startupDetails.Text = $"{snapshot.Server.LifecycleStage} · elapsed {snapshot.Server.Uptime:mm\\:ss\\.f}";
+                        if (current.Fraction is double fraction)
+                        {
+                            progress.ProgressBarStyle = ProgressBarStyle.Blocks;
+                            progress.ProgressBarFormat = ProgressBarFormat.SimplePlusPercentage;
+                            progress.Fraction = (float)fraction;
+                        }
+                        else
+                        {
+                            progress.ProgressBarStyle = ProgressBarStyle.MarqueeContinuous;
+                            progress.ProgressBarFormat = ProgressBarFormat.Simple;
+                            progress.Pulse();
+                        }
                     }
                     else
                     {
-                        progress.ProgressBarStyle = ProgressBarStyle.MarqueeContinuous;
-                        progress.ProgressBarFormat = ProgressBarFormat.Simple;
-                        progress.Pulse();
+                        if (!dashboardVisible)
+                        {
+                            dashboardVisible = true;
+                            startup.Visible = false;
+                            menuBar.Visible = true;
+                            statusBar.Visible = true;
+                        }
+
+                        bool usableSize = IsTerminalSizeUsable(window.Viewport.Width, window.Viewport.Height);
+                        terminalSizeWarning.Visible = !usableSize;
+                        desktop.Visible = usableSize;
+                        commandBar.Visible = usableSize;
+                        if (usableSize)
+                        {
+                            dashboard.Update(snapshot, viewModel.IsFollowing, viewModel.LogFilter);
+                            statusInfo.Title = BuildStatus(snapshot, viewModel.IsFollowing, viewModel.LogFilter);
+                            if (!command.HasFocus && window.Focused is null)
+                            {
+                                command.SetFocus();
+                            }
+                        }
+                        else
+                        {
+                            statusInfo.Title = $"Terminal {window.Viewport.Width}x{window.Viewport.Height} · resize to >=72x22";
+                        }
                     }
-                }
-                else
-                {
-                    if (!dashboardVisible)
+
+                    while (results.TryDequeue(out string? message))
                     {
-                        dashboardVisible = true;
-                        startup.Visible = false;
-                        desktop.Visible = true;
-                        commandBar.Visible = true;
-                        menuBar.Visible = true;
-                        statusBar.Visible = true;
-                        command.SetFocus();
+                        result.Text = message;
                     }
-
-                    dashboard.Update(snapshot, viewModel.IsFollowing, viewModel.LogFilter);
-                    statusInfo.Title = BuildStatus(snapshot, viewModel.IsFollowing, viewModel.LogFilter);
                 }
-
-                while (results.TryDequeue(out string? message))
+                catch (Exception ex)
                 {
-                    result.Text = message;
+                    results.Enqueue($"UI refresh recovered: {ex.Message}");
+                    DateTimeOffset now = DateTimeOffset.UtcNow;
+                    if (now - lastRefreshFailureLoggedAt >= TimeSpan.FromSeconds(5))
+                    {
+                        lastRefreshFailureLoggedAt = now;
+                        logger.Log(
+                            OperationsLogLevel.Warning,
+                            "terminal-ui",
+                            "Terminal UI refresh failed and was recovered; the server and UI loop remain running.",
+                            ex);
+                    }
                 }
 
                 return true;
@@ -384,6 +463,7 @@ public sealed class TerminalUiHost : IDisposable
             if (dashboard is not null)
             {
                 layoutStore.TrySave(dashboard.CaptureLayout());
+                dashboard.Dispose();
             }
 
             Volatile.Write(ref running, 0);
@@ -476,10 +556,6 @@ public sealed class TerminalUiHost : IDisposable
     private static MenuBar CreateMenuBar(
         OperationsDashboardView dashboard,
         Action focusCommandPalette,
-        Action focusLogs,
-        Action showLogFilter,
-        Action toggleFollowing,
-        Action clearFilters,
         Action saveLayout,
         Action resetLayout,
         Action showHelp,
@@ -496,15 +572,10 @@ public sealed class TerminalUiHost : IDisposable
                 new MenuItem("P_layers", action: () => { dashboard.ToggleWindowVisibility(TerminalUiLayoutOptions.Players); }),
                 new MenuItem("M_odules", action: () => { dashboard.ToggleWindowVisibility(TerminalUiLayoutOptions.Modules); }),
                 new MenuItem("Lo_gs", action: () => { dashboard.ToggleWindowVisibility(TerminalUiLayoutOptions.Logs); }),
+                new MenuItem("_Chat", action: () => { dashboard.ToggleWindowVisibility(TerminalUiLayoutOptions.Chat); }),
                 new Line(),
                 new MenuItem("_Save layout", action: saveLayout),
                 new MenuItem("_Reset layout", action: resetLayout)
-            ]),
-            new MenuBarItem("_Logs", [
-                new MenuItem("_Focus logs", action: focusLogs),
-                new MenuItem("_Filter...", action: showLogFilter),
-                new MenuItem("Follow / _pause", action: toggleFollowing),
-                new MenuItem("_Clear filters", action: clearFilters)
             ]),
             new MenuBarItem("_Help", [
                 new MenuItem("_Keyboard", action: showHelp),
@@ -523,15 +594,21 @@ public sealed class TerminalUiHost : IDisposable
         BindKeyToApplication = true
     };
 
+    internal static bool IsTerminalSizeUsable(int width, int height) => width >= 72 && height >= 22;
+
     private static string BuildStatus(
         OperationsSnapshot snapshot,
         bool isFollowing,
         OperationsLogFilter filter)
     {
         double current = snapshot.Server.TickRate.Current;
-        string health = current > 0 && current < MinimumHealthyTicksPerSecond ? "LOW " : string.Empty;
+        string tps = snapshot.Server.OnlinePlayers == 0 && current <= 0
+            ? "IDLE"
+            : current > 0 && current < MinimumHealthyTicksPerSecond
+                ? $"LOW {current:F1}/{TargetTicksPerSecond:F0}"
+                : $"{current:F1}/{TargetTicksPerSecond:F0}";
         string level = filter.MinimumLevel?.ToString() ?? "all";
-        return $"TPS {health}{current:F1}/{TargetTicksPerSecond:F0} · avg {snapshot.Server.TickRate.AverageOneMinute:F1} · P {snapshot.Server.OnlinePlayers}/{snapshot.Server.MaximumPlayers} · {(isFollowing ? "FOLLOW" : "PAUSED")} {level}";
+        return $"TPS {tps} · avg {snapshot.Server.TickRate.AverageOneMinute:F1} · P {snapshot.Server.OnlinePlayers}/{snapshot.Server.MaximumPlayers} · {(isFollowing ? "FOLLOW" : "PAUSED")} {level}";
     }
 
     private static LogLevelSelection ToSelection(OperationsLogLevel? level) => level switch

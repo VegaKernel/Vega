@@ -19,7 +19,10 @@ public sealed record ModuleOperationsSnapshot(
     ModuleLoadState State,
     IReadOnlyList<string> Dependencies,
     TimeSpan StartupDuration,
-    string? Failure = null);
+    string? Failure = null)
+{
+    public bool IsHotReloadable { get; init; }
+}
 
 public interface IModuleOperationsCatalog
 {
@@ -129,6 +132,9 @@ public sealed record OperationsSnapshot(
 
     public IReadOnlyList<WorldClockSnapshot> WorldClocks { get; init; } =
         Array.Empty<WorldClockSnapshot>();
+
+    public IReadOnlyList<OperationsLogRecord> Chat { get; init; } =
+        Array.Empty<OperationsLogRecord>();
 }
 
 public interface IOperationsSnapshotProvider

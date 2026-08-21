@@ -19,6 +19,7 @@ public sealed class OtapiGameThreadDispatcher : IGameThreadDispatcher, IDisposab
     private int pendingCount;
     private int droppedCount;
     private int gameThreadId;
+    private int threadMismatchReported;
     private bool attached;
 
     public OtapiGameThreadDispatcher(
@@ -129,20 +130,30 @@ public sealed class OtapiGameThreadDispatcher : IGameThreadDispatcher, IDisposab
 
     private void OnUpdate(global::Terraria.Main instance, HookEvents.Terraria.Main.UpdateEventArgs args)
     {
-        CaptureGameThread();
+        if (!TryCaptureGameThread())
+        {
+            return;
+        }
+
         Drain();
     }
 
-    private void CaptureGameThread()
+    private bool TryCaptureGameThread()
     {
-        var current = Environment.CurrentManagedThreadId;
-        var captured = Interlocked.CompareExchange(ref gameThreadId, current, 0);
-
-        if (captured != 0 && captured != current)
+        int current = Environment.CurrentManagedThreadId;
+        int captured = Interlocked.CompareExchange(ref gameThreadId, current, 0);
+        if (captured == 0 || captured == current)
         {
-            throw new InvalidOperationException(
-                $"Terraria game-thread identity changed from {captured} to {current}.");
+            return true;
         }
+
+        if (Interlocked.Exchange(ref threadMismatchReported, 1) == 0)
+        {
+            Console.Error.WriteLine(
+                $"Vega ignored a Terraria update on unexpected thread {current}; game thread is {captured}.");
+        }
+
+        return false;
     }
 
     private void Drain()

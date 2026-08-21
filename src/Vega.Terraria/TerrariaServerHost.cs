@@ -83,7 +83,8 @@ public static class TerrariaServerHost
             commandDispatcher,
             playerAuthorization,
             playerBoundary,
-            playerBoundary);
+            playerBoundary,
+            logger);
         using var worldClockSynchronizer = new TerrariaWorldClockSynchronizer(worldClock, logger);
 
         try

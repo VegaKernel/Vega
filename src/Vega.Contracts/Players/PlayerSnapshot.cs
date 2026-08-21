@@ -17,4 +17,10 @@ public sealed record PlayerSnapshot(
     int Team)
 {
     public PlayerSessionId? SessionId { get; init; }
+
+    public DateTimeOffset? ConnectedAt { get; init; }
+
+    public string? RemoteEndpoint { get; init; }
+
+    public string? Platform { get; init; }
 }

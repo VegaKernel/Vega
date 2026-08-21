@@ -74,7 +74,11 @@ public sealed class OperationsSnapshotProvider(
         {
             WorldLoad = worldLoadMetrics?.Read(),
             ModuleDirectory = moduleDirectoryStatus,
-            WorldClocks = Array.AsReadOnly(worldClocks?.SnapshotWorldClocks().ToArray() ?? [])
+            WorldClocks = Array.AsReadOnly(worldClocks?.SnapshotWorldClocks().ToArray() ?? []),
+            Chat = Array.AsReadOnly(logs
+                .Query(new OperationsLogFilter(Source: "chat", Limit: 200))
+                .Where(static record => string.Equals(record.Source, "chat", StringComparison.OrdinalIgnoreCase))
+                .ToArray())
         };
     }
 

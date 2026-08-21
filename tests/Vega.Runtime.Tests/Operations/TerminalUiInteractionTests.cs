@@ -29,6 +29,15 @@ public sealed class TerminalUiInteractionTests
         });
     }
 
+    [TestCase(71, 22, false)]
+    [TestCase(72, 21, false)]
+    [TestCase(72, 22, true)]
+    [TestCase(160, 50, true)]
+    public void DashboardRequiresUsableTerminalSize(int width, int height, bool expected)
+    {
+        Assert.That(TerminalUiHost.IsTerminalSizeUsable(width, height), Is.EqualTo(expected));
+    }
+
     [Test]
     public void DirectLogControlsReuseTheViewModelFilterState()
     {
