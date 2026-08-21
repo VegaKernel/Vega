@@ -12,8 +12,6 @@ public sealed class NpcCoinPickupAuthorityPolicy : IPacketProcessor<PacketView>
     public PacketProcessingDecision Process(scoped in PacketProcessingContext<PacketView> context) =>
         context.Direction == PacketDirection.Inbound &&
         context.Packet.PacketType == PacketTypes.SyncExtraValue
-            ? new PacketProcessingDecision(
-                PacketDecisionKind.Violation,
-                "packet.npc_coin_pickup_server_authoritative")
-            : new PacketProcessingDecision(PacketDecisionKind.Continue);
+            ? PacketProcessingDecision.Violation("packet.npc_coin_pickup_server_authoritative")
+            : PacketProcessingDecision.Allow;
 }

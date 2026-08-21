@@ -1,3 +1,5 @@
+using Vega.Contracts.Networking;
+
 namespace Vega.Contracts.Operations;
 
 public sealed record RuntimeMetricsSnapshot(
@@ -23,7 +25,15 @@ public sealed record NetworkMetricsSnapshot(
     long InboundBytes,
     long OutboundPackets,
     long OutboundBytes,
-    DateTimeOffset SampledAt);
+    DateTimeOffset SampledAt)
+{
+    public long RejectedInboundPackets { get; init; }
+
+    public long SecurityViolations { get; init; }
+
+    public IReadOnlyDictionary<string, long> SecurityRuleCounts { get; init; } =
+        new Dictionary<string, long>();
+}
 
 public interface INetworkMetricsReader
 {
@@ -35,6 +45,8 @@ public interface INetworkMetricsRecorder
     void RecordInbound(int byteCount);
 
     void RecordOutbound(int byteCount);
+
+    void RecordSecurityDecision(PacketProcessingDecision decision);
 }
 
 public sealed record WorldLoadMetricsSnapshot(

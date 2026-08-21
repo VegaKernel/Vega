@@ -29,6 +29,7 @@ using Vega.Persistence;
 using Vega.TerminalUI;
 using Vega.Terraria;
 using Vega.Terraria.Items;
+using Vega.Terraria.Networking;
 using Vega.Terraria.Players;
 using Vega.Terraria.Operations;
 using Vega.Terraria.Threading;
@@ -146,13 +147,31 @@ int Start()
         new PlayingCommand(playerBoundary)
     ];
     var commandDispatcher = new CommandDispatcher(commandHandlers);
+    using IDisposable helpCommandRegistration = commandDispatcher.Register(new HelpCommand(commandDispatcher));
+    using IDisposable aliasesCommandRegistration = commandDispatcher.Register(new AliasesCommand(commandDispatcher));
     var playerPacketPolicies = new PacketProcessorPipeline<PacketView>(
     [
         new NpcCoinPickupAuthorityPolicy(),
-        new WorldItemSyncSanityPolicy(),
-        new ProjectileSpawnSanityPolicy(),
-        new ProjectileDestroySanityPolicy(),
+        new WorldItemSyncSanityPolicy(
+            TerrariaPacketSecurityLimits.ItemTypeCount,
+            TerrariaPacketSecurityLimits.PrefixCount),
+        new ProjectileSpawnSanityPolicy(
+            TerrariaPacketSecurityLimits.ProjectileCount,
+            TerrariaPacketSecurityLimits.ProjectileTypeCount),
         new PlayerDeathDamageAuthorityPolicy(),
+        new PlayerStateSanityPolicy(
+            static () => TerrariaPacketSecurityLimits.WorldWidth,
+            static () => TerrariaPacketSecurityLimits.WorldHeight,
+            static () => TerrariaPacketSecurityLimits.InventorySlotCount),
+        new WorldMutationSanityPolicy(
+            static () => TerrariaPacketSecurityLimits.WorldWidth,
+            static () => TerrariaPacketSecurityLimits.WorldHeight,
+            static () => TerrariaPacketSecurityLimits.ChestCount,
+            static () => TerrariaPacketSecurityLimits.InventorySlotCount,
+            TerrariaPacketSecurityLimits.TileTypeCount,
+            TerrariaPacketSecurityLimits.WallTypeCount,
+            TerrariaPacketSecurityLimits.ItemTypeCount,
+            TerrariaPacketSecurityLimits.PrefixCount),
         new PlayerPacketOwnershipPolicy(),
         pvpModule.PacketProcessor
     ]);

@@ -15,15 +15,18 @@ internal sealed class NativePlayerPacketSecurityHooks : IDisposable
 {
     private readonly IPacketProcessor<PacketView> packetProcessor;
     private readonly IOperationsLogger logger;
+    private readonly INetworkMetricsRecorder metrics;
     private bool attached;
 
     public NativePlayerPacketSecurityHooks(
         IPacketProcessor<PacketView> packetProcessor,
-        IOperationsLogger logger)
+        IOperationsLogger logger,
+        INetworkMetricsRecorder metrics)
     {
         this.packetProcessor = packetProcessor ??
             throw new ArgumentNullException(nameof(packetProcessor));
         this.logger = logger ?? throw new ArgumentNullException(nameof(logger));
+        this.metrics = metrics ?? throw new ArgumentNullException(nameof(metrics));
     }
 
     public void Attach()
@@ -74,8 +77,15 @@ internal sealed class NativePlayerPacketSecurityHooks : IDisposable
                 packetProcessor,
                 DateTimeOffset.UtcNow);
 
-            if (ShouldCancelVanillaProcessing(decision.Kind))
+            metrics.RecordSecurityDecision(decision);
+            if (decision.Kind != PacketDecisionKind.Allow)
             {
+                logger.Log(
+                    decision.Kind == PacketDecisionKind.Violation
+                        ? OperationsLogLevel.Warning
+                        : OperationsLogLevel.Debug,
+                    "packet-security",
+                    $"Inbound packet {args.PacketId} from slot {slot}: {decision.Kind} ({decision.Reason ?? "no-reason"}).");
                 args.Result = HookResult.Cancel;
             }
         }
@@ -94,9 +104,6 @@ internal sealed class NativePlayerPacketSecurityHooks : IDisposable
     internal static bool ShouldApplySecurity(TerrariaConnectionState connectionState, byte packetId) =>
         connectionState >= TerrariaConnectionState.FullyConnected && IsProcessedPacket(packetId);
 
-    internal static bool ShouldCancelVanillaProcessing(PacketDecisionKind kind) =>
-        kind is PacketDecisionKind.Handled or PacketDecisionKind.Reject or PacketDecisionKind.Violation;
-
     private static TerrariaConnectionState GetConnectionState(int slot)
     {
         if ((uint)slot >= (uint)global::Terraria.Netplay.Clients.Length)
@@ -111,17 +118,47 @@ internal sealed class NativePlayerPacketSecurityHooks : IDisposable
 
     private static bool IsProcessedPacket(byte packetId) =>
         packetId is
+            (byte)PacketTypes.PlayerUpdate or
             (byte)PacketTypes.PlayerHp or
             (byte)PacketTypes.PlayerMana or
             (byte)PacketTypes.PlayerTeam or
             (byte)PacketTypes.TeamChangeFromUI or
             (byte)PacketTypes.TogglePvp or
             (byte)PacketTypes.SpectatePlayer or
+            (byte)PacketTypes.PlayerTeleportPortal or
             (byte)PacketTypes.SyncExtraValue or
             (byte)PacketTypes.ItemDrop or
             (byte)PacketTypes.UpdateItemDrop or
+            (byte)PacketTypes.SyncItemsWithShimmerDeprecated or
+            (byte)PacketTypes.SyncItemCannotBeTakenByEnemiesDeprecated or
+            (byte)PacketTypes.SyncItemDespawn or
+            (byte)PacketTypes.SyncItemPosition or
             (byte)PacketTypes.ProjectileNew or
             (byte)PacketTypes.ProjectileDestroy or
+            (byte)PacketTypes.SyncProjectileTrackers or
             (byte)PacketTypes.PlayerHurtV2 or
-            (byte)PacketTypes.PlayerDeathV2;
+            (byte)PacketTypes.PlayerDeathV2 or
+            (byte)PacketTypes.Tile or
+            (byte)PacketTypes.PlaceObject or
+            (byte)PacketTypes.PlaceItemFrame or
+            (byte)PacketTypes.ChestGetContents or
+            (byte)PacketTypes.ChestItem or
+            (byte)PacketTypes.ChestOpen or
+            (byte)PacketTypes.PlaceChest or
+            (byte)PacketTypes.SyncChestSize or
+            (byte)PacketTypes.ChestName or
+            (byte)PacketTypes.ChestUnlock or
+            (byte)PacketTypes.SyncPlayerChestIndex or
+            (byte)PacketTypes.ForceItemIntoNearestChest or
+            (byte)PacketTypes.LiquidSet or
+            (byte)PacketTypes.PlaceTileEntity or
+            (byte)PacketTypes.GemLockToggle or
+            (byte)PacketTypes.MassWireOperation or
+            (byte)PacketTypes.FoodPlatterTryPlacing or
+            (byte)PacketTypes.TEDeadCellsDisplayJar or
+            (byte)PacketTypes.TileEntityDisplayDollItemSync or
+            (byte)PacketTypes.RequestTileEntityInteraction or
+            (byte)PacketTypes.TileEntityHatRackItemSync or
+            (byte)PacketTypes.SyncTilePicking or
+            (byte)PacketTypes.TELeashedEntityAnchorPlaceItem;
 }

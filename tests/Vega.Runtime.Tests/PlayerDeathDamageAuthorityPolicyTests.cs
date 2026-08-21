@@ -10,7 +10,7 @@ namespace Vega.Runtime.Tests;
 [TestFixture]
 public sealed class PlayerDeathDamageAuthorityPolicyTests
 {
-    [TestCase(42_000, PacketDecisionKind.Continue)]
+    [TestCase(42_000, PacketDecisionKind.Allow)]
     [TestCase(42_001, PacketDecisionKind.Violation)]
     [TestCase(65_535, PacketDecisionKind.Violation)]
     public void InboundDamageIsComparedAsUnsigned(
@@ -37,7 +37,7 @@ public sealed class PlayerDeathDamageAuthorityPolicyTests
             PacketDirection.Outbound,
             CreatePlayerDeathPayload(65_535));
 
-        Assert.That(decision.Kind, Is.EqualTo(PacketDecisionKind.Continue));
+        Assert.That(decision.Kind, Is.EqualTo(PacketDecisionKind.Allow));
     }
 
     [Test]
@@ -48,7 +48,7 @@ public sealed class PlayerDeathDamageAuthorityPolicyTests
             packetType: PacketTypes.PlayerActive,
             payload: [7, 1]);
 
-        Assert.That(decision.Kind, Is.EqualTo(PacketDecisionKind.Continue));
+        Assert.That(decision.Kind, Is.EqualTo(PacketDecisionKind.Allow));
     }
 
     [Test]

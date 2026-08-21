@@ -1,6 +1,5 @@
 using Multiplicity.Packets;
 using NUnit.Framework;
-using Vega.Contracts.Networking;
 using Vega.Terraria.Hooking;
 using Vega.Terraria.Networking;
 
@@ -13,8 +12,19 @@ public sealed class NativePlayerPacketSecurityHooksTests
     [TestCase((int)TerrariaConnectionState.FullyConnected - 1, PacketTypes.PlayerMana, false)]
     [TestCase((int)TerrariaConnectionState.FullyConnected, PacketTypes.PlayerHp, true)]
     [TestCase((int)TerrariaConnectionState.FullyConnected, PacketTypes.ItemDrop, true)]
-    [TestCase((int)TerrariaConnectionState.FullyConnected + 1, PacketTypes.ProjectileNew, true)]
+    [TestCase((int)TerrariaConnectionState.FullyConnected, PacketTypes.SyncItemsWithShimmerDeprecated, true)]
+    [TestCase((int)TerrariaConnectionState.FullyConnected, PacketTypes.SyncItemPosition, true)]
     [TestCase((int)TerrariaConnectionState.FullyConnected, PacketTypes.ProjectileDestroy, true)]
+    [TestCase((int)TerrariaConnectionState.FullyConnected, PacketTypes.Tile, true)]
+    [TestCase((int)TerrariaConnectionState.FullyConnected, PacketTypes.SyncChestSize, true)]
+    [TestCase((int)TerrariaConnectionState.FullyConnected, PacketTypes.TELeashedEntityAnchorPlaceItem, true)]
+    [TestCase((int)TerrariaConnectionState.FullyConnected, PacketTypes.PlayerTeleportPortal, true)]
+    [TestCase((int)TerrariaConnectionState.FullyConnected, PacketTypes.LiquidSet, true)]
+    [TestCase((int)TerrariaConnectionState.FullyConnected, PacketTypes.PlaceTileEntity, true)]
+    [TestCase((int)TerrariaConnectionState.FullyConnected, PacketTypes.MassWireOperation, true)]
+    [TestCase((int)TerrariaConnectionState.FullyConnected, PacketTypes.FoodPlatterTryPlacing, true)]
+    [TestCase((int)TerrariaConnectionState.FullyConnected, PacketTypes.TEDeadCellsDisplayJar, true)]
+    [TestCase((int)TerrariaConnectionState.FullyConnected + 1, PacketTypes.ProjectileNew, true)]
     [TestCase((int)TerrariaConnectionState.FullyConnected, PacketTypes.PlayerSpawn, false)]
     public void GameplaySecurityStartsOnlyAfterVanillaConnectionCompletes(
         int connectionState,
@@ -25,17 +35,6 @@ public sealed class NativePlayerPacketSecurityHooksTests
             NativePlayerPacketSecurityHooks.ShouldApplySecurity(
                 (TerrariaConnectionState)connectionState,
                 (byte)packetType),
-            Is.EqualTo(expected));
-    }
-
-    [TestCase(PacketDecisionKind.Continue, false)]
-    [TestCase(PacketDecisionKind.Handled, true)]
-    [TestCase(PacketDecisionKind.Reject, true)]
-    [TestCase(PacketDecisionKind.Violation, true)]
-    public void SecurityDecisionControlsVanillaProcessing(PacketDecisionKind kind, bool expected)
-    {
-        Assert.That(
-            NativePlayerPacketSecurityHooks.ShouldCancelVanillaProcessing(kind),
             Is.EqualTo(expected));
     }
 }

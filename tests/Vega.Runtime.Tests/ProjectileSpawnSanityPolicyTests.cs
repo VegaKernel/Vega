@@ -25,66 +25,83 @@ public sealed class ProjectileSpawnSanityPolicyTests
             Type = 1
         });
 
-        Assert.That(decision.Kind, Is.EqualTo(PacketDecisionKind.Continue));
+        Assert.That(decision.Kind, Is.EqualTo(PacketDecisionKind.Allow));
     }
 
     [Test]
-    public void ForgedProjectileSpawnerIsRejected()
+    public void ForgedProjectileSpawnerIsViolation()
     {
-        PacketProcessingDecision decision = Process(new ProjectileNew
+        Assert.That(Process(new ProjectileNew
         {
             Key = new ProjectileKey(8, 42, 0),
             Type = 1
-        });
-
-        Assert.That(decision, Is.EqualTo(
-            new PacketProcessingDecision(PacketDecisionKind.Violation, "packet.projectile.owner_mismatch")));
+        }), Is.EqualTo(PacketProcessingDecision.Violation("packet.projectile.owner_mismatch")));
     }
 
     [Test]
-    public void PackedProjectileIndexAboveProtocolLimitIsRejected()
+    public void PackedProjectileIndexAboveRuntimeLimitIsViolation()
     {
         var invalidKey = ProjectileKey.FromPacked((uint)(7 | (1001 << 8)));
-        PacketProcessingDecision decision = Process(new ProjectileNew
+        Assert.That(Process(new ProjectileNew
         {
             Key = invalidKey,
             Type = 1
-        });
+        }), Is.EqualTo(PacketProcessingDecision.Violation("packet.projectile.index_out_of_range")));
+    }
 
-        Assert.That(decision, Is.EqualTo(
-            new PacketProcessingDecision(PacketDecisionKind.Violation, "packet.projectile.index_out_of_range")));
+    [Test]
+    public void ProjectileTypeOutsideRegistryIsViolation()
+    {
+        Assert.That(Process(new ProjectileNew
+        {
+            Key = new ProjectileKey(7, 42, 0),
+            Type = 2000
+        }), Is.EqualTo(PacketProcessingDecision.Violation("packet.projectile.type_out_of_range")));
     }
 
     [TestCase(float.NaN)]
     [TestCase(float.PositiveInfinity)]
     [TestCase(float.NegativeInfinity)]
-    public void NonFinitePositionIsRejected(float value)
+    public void NonFinitePositionIsViolation(float value)
     {
-        PacketProcessingDecision decision = Process(new ProjectileNew
+        Assert.That(Process(new ProjectileNew
         {
             Key = new ProjectileKey(7, 42, 0),
             PositionX = value,
             Type = 1
-        });
-
-        Assert.That(decision, Is.EqualTo(
-            new PacketProcessingDecision(PacketDecisionKind.Violation, "packet.projectile.non_finite_position")));
+        }), Is.EqualTo(PacketProcessingDecision.Violation("packet.projectile.non_finite_position")));
     }
 
     [TestCase(float.NaN)]
     [TestCase(float.PositiveInfinity)]
     [TestCase(float.NegativeInfinity)]
-    public void NonFiniteVelocityIsRejected(float value)
+    public void NonFiniteVelocityIsViolation(float value)
     {
-        PacketProcessingDecision decision = Process(new ProjectileNew
+        Assert.That(Process(new ProjectileNew
         {
             Key = new ProjectileKey(7, 42, 0),
             VelocityY = value,
             Type = 1
-        });
+        }), Is.EqualTo(PacketProcessingDecision.Violation("packet.projectile.non_finite_velocity")));
+    }
 
-        Assert.That(decision, Is.EqualTo(
-            new PacketProcessingDecision(PacketDecisionKind.Violation, "packet.projectile.non_finite_velocity")));
+    [Test]
+    public void DestroyValidatesOwnerIndexAndPosition()
+    {
+        Assert.Multiple(() =>
+        {
+            Assert.That(Process(new ProjectileDestroy
+            {
+                Key = new ProjectileKey(8, 42, 0)
+            }, PacketTypes.ProjectileDestroy),
+                Is.EqualTo(PacketProcessingDecision.Violation("packet.projectile.owner_mismatch")));
+            Assert.That(Process(new ProjectileDestroy
+            {
+                Key = new ProjectileKey(7, 42, 0),
+                PositionX = float.NaN
+            }, PacketTypes.ProjectileDestroy),
+                Is.EqualTo(PacketProcessingDecision.Violation("packet.projectile.non_finite_position")));
+        });
     }
 
     [Test]
@@ -92,9 +109,10 @@ public sealed class ProjectileSpawnSanityPolicyTests
     {
         PacketProcessingDecision decision = Process(
             new ProjectileNew { Key = new ProjectileKey(8, 42, 0), Type = 1 },
+            PacketTypes.ProjectileNew,
             PacketDirection.Outbound);
 
-        Assert.That(decision.Kind, Is.EqualTo(PacketDecisionKind.Continue));
+        Assert.That(decision.Kind, Is.EqualTo(PacketDecisionKind.Allow));
     }
 
     [Test]
@@ -113,19 +131,19 @@ public sealed class ProjectileSpawnSanityPolicyTests
             payload.Length,
             new ConnectionId(7),
             new PlayerId(7),
-            new ProjectileSpawnSanityPolicy(),
+            new ProjectileSpawnSanityPolicy(projectileCount: 1001, projectileTypeCount: 2000),
             DateTimeOffset.UtcNow);
 
-        Assert.That(decision, Is.EqualTo(
-            new PacketProcessingDecision(PacketDecisionKind.Violation, "packet.projectile.owner_mismatch")));
+        Assert.That(decision, Is.EqualTo(PacketProcessingDecision.Violation("packet.projectile.owner_mismatch")));
     }
 
     private static PacketProcessingDecision Process(
-        ProjectileNew value,
+        TerrariaPacket value,
+        PacketTypes packetType = PacketTypes.ProjectileNew,
         PacketDirection direction = PacketDirection.Inbound)
     {
         byte[] payload = Serialize(value);
-        PacketView packet = PacketView.FromPayload(PacketTypes.ProjectileNew, payload);
+        PacketView packet = PacketView.FromPayload(packetType, payload);
         var context = new PacketProcessingContext<PacketView>(
             packet,
             direction,
@@ -133,10 +151,10 @@ public sealed class ProjectileSpawnSanityPolicyTests
             new PlayerId(7),
             DateTimeOffset.UtcNow);
 
-        return new ProjectileSpawnSanityPolicy().Process(in context);
+        return new ProjectileSpawnSanityPolicy(projectileCount: 1001, projectileTypeCount: 2000).Process(in context);
     }
 
-    private static byte[] Serialize(ProjectileNew value)
+    private static byte[] Serialize(TerrariaPacket value)
     {
         using var stream = new MemoryStream();
         value.ToStream(stream, includeHeader: false);

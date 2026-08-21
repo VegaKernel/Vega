@@ -77,7 +77,7 @@ public static class TerrariaServerHost
         using var nativeLifecycleHooks = new NativeLifecycleHooks(lifecycle);
         using var networkMetricsHooks = new NativeNetworkMetricsHooks(networkMetrics);
         using var worldDecisionHooks = new NativeWorldDecisionHooks(hardmodeStarting);
-        using var playerPacketSecurityHooks = new NativePlayerPacketSecurityHooks(playerOwnershipSecurity, logger);
+        using var playerPacketSecurityHooks = new NativePlayerPacketSecurityHooks(playerOwnershipSecurity, logger, networkMetrics);
         using var consoleCommandHooks = new NativeConsoleCommandHooks(commandDispatcher);
         using var playerCommandHooks = new NativePlayerCommandHooks(
             commandDispatcher,

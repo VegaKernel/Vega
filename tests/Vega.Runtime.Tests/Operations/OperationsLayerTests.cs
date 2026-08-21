@@ -1,6 +1,7 @@
 using NUnit.Framework;
 using Vega.Contracts.Commands;
 using Vega.Contracts.Messaging;
+using Vega.Contracts.Networking;
 using Vega.Contracts.Operations;
 using Vega.Contracts.Players;
 using Vega.Core.Commands;
@@ -210,6 +211,9 @@ public sealed class OperationsReadModelTests
         metrics.RecordInbound(10);
         metrics.RecordInbound(20);
         metrics.RecordOutbound(30);
+        metrics.RecordSecurityDecision(PacketProcessingDecision.Reject("packet.invalid_payload"));
+        metrics.RecordSecurityDecision(PacketProcessingDecision.Violation("packet.player_identity_mismatch"));
+        metrics.RecordSecurityDecision(PacketProcessingDecision.Violation("packet.player_identity_mismatch"));
 
         NetworkMetricsSnapshot snapshot = metrics.Read();
 
@@ -219,6 +223,27 @@ public sealed class OperationsReadModelTests
             Assert.That(snapshot.InboundBytes, Is.EqualTo(30));
             Assert.That(snapshot.OutboundPackets, Is.EqualTo(1));
             Assert.That(snapshot.OutboundBytes, Is.EqualTo(30));
+            Assert.That(snapshot.RejectedInboundPackets, Is.EqualTo(1));
+            Assert.That(snapshot.SecurityViolations, Is.EqualTo(2));
+            Assert.That(snapshot.SecurityRuleCounts["packet.player_identity_mismatch"], Is.EqualTo(2));
+        });
+    }
+
+    [Test]
+    public void SecurityRuleCountersStayBounded()
+    {
+        var metrics = new NetworkMetricsCounter();
+        for (int index = 0; index < 70; index++)
+        {
+            metrics.RecordSecurityDecision(PacketProcessingDecision.Violation($"packet.rule.{index}"));
+        }
+
+        NetworkMetricsSnapshot snapshot = metrics.Read();
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(snapshot.SecurityRuleCounts, Has.Count.EqualTo(64));
+            Assert.That(snapshot.SecurityRuleCounts["other"], Is.EqualTo(7));
         });
     }
 

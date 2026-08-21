@@ -6,7 +6,15 @@ public sealed record CommandDescriptor(
     string Name,
     IReadOnlyList<string> Aliases,
     IReadOnlyList<string> Permissions,
-    bool AllowServer = true);
+    bool AllowServer = true)
+{
+    public bool IsAvailableTo(ICommandPrincipal principal)
+    {
+         ArgumentNullException.ThrowIfNull(principal);
+        return (AllowServer || !principal.IsServer) &&
+            (Permissions.Count == 0 || Permissions.Any(principal.HasPermission));
+    }
+}
 
 public enum CommandExecutionStatus
 {

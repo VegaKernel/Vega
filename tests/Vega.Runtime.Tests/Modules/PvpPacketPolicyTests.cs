@@ -45,7 +45,7 @@ public sealed class PvpPacketPolicyTests
 
 		Assert.Multiple(() =>
 		{
-			Assert.That(projectile.Kind, Is.EqualTo(PacketDecisionKind.Continue));
+			Assert.That(projectile.Kind, Is.EqualTo(PacketDecisionKind.Allow));
 			Assert.That(damage, Is.EqualTo(
 				new PacketProcessingDecision(PacketDecisionKind.Reject, "pvp.damage_weapon_mismatch")));
 		});

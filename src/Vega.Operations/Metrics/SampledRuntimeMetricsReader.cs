@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using Vega.Contracts.Networking;
 using Vega.Contracts.Operations;
 
 namespace Vega.Operations.Metrics;
@@ -28,10 +29,15 @@ public sealed class SampledRuntimeMetricsReader(IHostMetricsReader hostMetrics) 
 
 public sealed class NetworkMetricsCounter : INetworkMetricsReader, INetworkMetricsRecorder
 {
+    private const int MaximumSecurityRules = 64;
+    private readonly object securitySync = new();
+    private readonly Dictionary<string, long> securityRuleCounts = new(StringComparer.Ordinal);
     private long inboundPackets;
     private long inboundBytes;
     private long outboundPackets;
     private long outboundBytes;
+    private long rejectedInboundPackets;
+    private long securityViolations;
 
     public void RecordInbound(int byteCount)
     {
@@ -55,10 +61,58 @@ public sealed class NetworkMetricsCounter : INetworkMetricsReader, INetworkMetri
         Interlocked.Add(ref outboundBytes, byteCount);
     }
 
-    public NetworkMetricsSnapshot Read() => new(
-        Interlocked.Read(ref inboundPackets),
-        Interlocked.Read(ref inboundBytes),
-        Interlocked.Read(ref outboundPackets),
-        Interlocked.Read(ref outboundBytes),
-        DateTimeOffset.UtcNow);
+    public void RecordSecurityDecision(PacketProcessingDecision decision)
+    {
+        ArgumentNullException.ThrowIfNull(decision);
+
+        switch (decision.Kind)
+        {
+            case PacketDecisionKind.Allow:
+                return;
+            case PacketDecisionKind.Reject:
+                Interlocked.Increment(ref rejectedInboundPackets);
+                break;
+            case PacketDecisionKind.Violation:
+                Interlocked.Increment(ref securityViolations);
+                break;
+        }
+
+        if (string.IsNullOrWhiteSpace(decision.Reason))
+        {
+            return;
+        }
+
+        lock (securitySync)
+        {
+            string rule = decision.Reason;
+            if (!securityRuleCounts.ContainsKey(rule) && securityRuleCounts.Count >= MaximumSecurityRules - 1)
+            {
+                rule = "other";
+            }
+
+            securityRuleCounts.TryGetValue(rule, out long count);
+            securityRuleCounts[rule] = count + 1;
+        }
+    }
+
+    public NetworkMetricsSnapshot Read()
+    {
+        Dictionary<string, long> rules;
+        lock (securitySync)
+        {
+            rules = new Dictionary<string, long>(securityRuleCounts, StringComparer.Ordinal);
+        }
+
+        return new NetworkMetricsSnapshot(
+            Interlocked.Read(ref inboundPackets),
+            Interlocked.Read(ref inboundBytes),
+            Interlocked.Read(ref outboundPackets),
+            Interlocked.Read(ref outboundBytes),
+            DateTimeOffset.UtcNow)
+        {
+            RejectedInboundPackets = Interlocked.Read(ref rejectedInboundPackets),
+            SecurityViolations = Interlocked.Read(ref securityViolations),
+            SecurityRuleCounts = rules
+        };
+    }
 }
