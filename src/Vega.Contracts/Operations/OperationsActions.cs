@@ -1,31 +1,34 @@
+using Vega.Contracts.Commands;
 using Vega.Contracts.Players;
 using Vega.Contracts.Worlds;
 
 namespace Vega.Contracts.Operations;
 
-public enum OperationsCommandExitCode
+public sealed record OperationsActionResult(
+    CommandExecutionStatus Status,
+    string? ErrorCode,
+    IReadOnlyList<string> Messages)
 {
-    Success,
-    ValidationError,
-    Forbidden,
-    Failed
+    public bool IsSuccess => Status == CommandExecutionStatus.Success;
 }
-
-public sealed record OperationsCommandResult(
-    OperationsCommandExitCode ExitCode,
-    string Message,
-    string? ErrorCode = null);
 
 public interface IOperationsCommandService
 {
-    ValueTask<OperationsCommandResult> ExecuteAsync(
-        string commandLine,
+    ValueTask<OperationsActionResult> ExecuteAsync(
+        string commandText,
+        CancellationToken cancellationToken = default);
+}
+
+public interface IUnhandledOperationsCommandSink
+{
+    ValueTask SubmitAsync(
+        string commandText,
         CancellationToken cancellationToken = default);
 }
 
 public interface IOperationsWorldService
 {
-    ValueTask<OperationsCommandResult> MovePlayerAsync(
+    ValueTask<OperationsActionResult> MovePlayerAsync(
         PlayerId playerId,
         WorldId targetWorldId,
         CancellationToken cancellationToken = default);
