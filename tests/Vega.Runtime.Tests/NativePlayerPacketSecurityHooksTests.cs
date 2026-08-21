@@ -1,20 +1,21 @@
 using Multiplicity.Packets;
 using NUnit.Framework;
 using Vega.Terraria.Hooking;
+using Vega.Terraria.Networking;
 
 namespace Vega.Runtime.Tests;
 
 [TestFixture]
 public sealed class NativePlayerPacketSecurityHooksTests
 {
-    [TestCase(3, PacketTypes.PlayerHp, false)]
-    [TestCase(9, PacketTypes.PlayerMana, false)]
-    [TestCase(10, PacketTypes.PlayerHp, true)]
-    [TestCase(10, PacketTypes.ItemDrop, true)]
-    [TestCase(11, PacketTypes.ProjectileNew, true)]
-    [TestCase(10, PacketTypes.PlayerSpawn, false)]
+    [TestCase(TerrariaConnectionState.AwaitingHello, PacketTypes.PlayerHp, false)]
+    [TestCase((TerrariaConnectionState)9, PacketTypes.PlayerMana, false)]
+    [TestCase(TerrariaConnectionState.FullyConnected, PacketTypes.PlayerHp, true)]
+    [TestCase(TerrariaConnectionState.FullyConnected, PacketTypes.ItemDrop, true)]
+    [TestCase((TerrariaConnectionState)11, PacketTypes.ProjectileNew, true)]
+    [TestCase(TerrariaConnectionState.FullyConnected, PacketTypes.PlayerSpawn, false)]
     public void GameplaySecurityStartsOnlyAfterVanillaConnectionCompletes(
-        int connectionState,
+        TerrariaConnectionState connectionState,
         PacketTypes packetType,
         bool expected)
     {
