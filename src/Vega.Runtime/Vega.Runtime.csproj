@@ -17,6 +17,7 @@
 	<ItemGroup>
 		<ProjectReference Include="..\Vega.Core\Vega.Core.csproj" />
 		<ProjectReference Include="..\Vega.Cluster\Vega.Cluster.csproj" />
+		<ProjectReference Include="..\Vega.Modules.AutoWorldCleaner\Vega.Modules.AutoWorldCleaner.csproj" />
 		<ProjectReference Include="..\Vega.Modules.CustomItems\Vega.Modules.CustomItems.csproj" />
 		<ProjectReference Include="..\Vega.Modules.Pvp\Vega.Modules.Pvp.csproj" />
 		<ProjectReference Include="..\Vega.Operations\Vega.Operations.csproj" />
@@ -39,6 +40,10 @@
 			<CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
 		</Content>
 		<Content Include="..\..\config\world-clock.json" Link="config\world-clock.json">
+			<CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+			<CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
+		</Content>
+		<Content Include="..\..\config\auto-world-cleaner.json" Link="config\auto-world-cleaner.json">
 			<CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
 			<CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
 		</Content>

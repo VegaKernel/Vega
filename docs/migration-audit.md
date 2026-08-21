@@ -132,7 +132,7 @@ These are behavior/test inputs. Their indentation, static globals, `TSPlayer` fi
 | `TempGroup`, `ControlGroupOption` | Expiring role leases, delegated grants and audit | Administration `ServerPlugin`/UI |
 | `InvSee`, `TSExt_UICommand` | Inventory snapshots/mutation and sensitive-field redaction | Administration `ServerPlugin`/UI |
 | `Wipe` | Validated world transition/reset and persistence participants | Destructive admin `ServerPlugin`/UI |
-| `AutoWorldCleaner` | World scheduler and safe entity snapshot/removal | Maintenance `ServerPlugin` |
+| `AutoWorldCleaner` | **Native** world-scoped immutable entity snapshots, guarded game-thread removal and cancellable scheduler | `Vega.Modules.AutoWorldCleaner` with `config/auto-world-cleaner.json` |
 | `InfChests`, `ChestRegen` | Stable chest identity, versioned snapshots, transactional mutation and ACL hooks | Chest-policy `ServerPlugins` |
 | `Mentions` | Ordered typed chat transformation pipeline | Community `ServerPlugin` |
 | `Region-Vision` | Private overlays with matching inbound interaction filtering | Region visualization `ServerPlugin` |

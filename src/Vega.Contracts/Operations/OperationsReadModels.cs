@@ -50,6 +50,42 @@ public interface IModuleDirectoryStatusReader
     ModuleDirectoryStatusSnapshot Read();
 }
 
+
+public enum WorldCleanupRunState
+{
+    Disabled,
+    Idle,
+    Running,
+    Succeeded,
+    Skipped,
+    Failed
+}
+
+public sealed record WorldCleanupStatusSnapshot(
+    WorldId WorldId,
+    bool Enabled,
+    WorldCleanupRunState State,
+    DateTimeOffset? LastStartedAt,
+    DateTimeOffset? LastCompletedAt,
+    int LastRemovedItems,
+    int LastRemovedProjectiles,
+    string? Detail = null)
+{
+    public static WorldCleanupStatusSnapshot Disabled { get; } = new(
+        WorldId.Primary,
+        false,
+        WorldCleanupRunState.Disabled,
+        null,
+        null,
+        0,
+        0);
+}
+
+public interface IWorldCleanupStatusReader
+{
+    WorldCleanupStatusSnapshot Read();
+}
+
 public enum WorldContextKind
 {
     Primary,
@@ -167,6 +203,9 @@ public sealed record OperationsSnapshot(
 
     public IReadOnlyList<WorldContextSnapshot> WorldContexts { get; init; } =
         Array.Empty<WorldContextSnapshot>();
+
+    public WorldCleanupStatusSnapshot WorldCleanup { get; init; } =
+        WorldCleanupStatusSnapshot.Disabled;
 
     public bool CanMovePlayersBetweenWorlds { get; init; }
 }

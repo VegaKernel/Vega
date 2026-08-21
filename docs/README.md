@@ -21,7 +21,8 @@ This directory contains Vega's project documentation, implementation notes, road
 - `cluster.md` — optional typed cluster messaging.
 - `persistence.md` / `ru/persistence.md` — SQLite, PostgreSQL and MySQL configuration, migrations, backup and recovery.
 - `world-images.md` — `.vworld` format, fallback rules, and benchmark evidence.
-- `world-maintenance.md` / `ru/world-maintenance.md` — autosave, cache refresh, and opt-in item/projectile cleanup.
+- `world-maintenance.md` / `ru/world-maintenance.md` — autosave and world-image refresh.
+- `auto-world-cleaner.md` / `ru/auto-world-cleaner.md` — configurable item/projectile cleanup module.
 - `decisions/` — Architecture Decision Records.
 
 Documentation changes are architecture changes when they alter ownership, threading, public contracts, lifecycle semantics, or runtime packaging. Update both project-guide languages and the affected subsystem document or ADR in the same logical change.

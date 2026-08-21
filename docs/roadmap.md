@@ -288,15 +288,15 @@ Each Core capability must land with the named first consumer in the same vertica
 1. [ ] **TempGroup / ControlGroupOption**: implement expiring role leases, stale-expiry protection, delegated grant limits and audit records; keep temporary-group commands modular.
 2. [ ] **InvSee / TSExt_UICommand**: implement immutable inventory snapshots, game-thread mutation operations and centralized redaction/authorization for IP, UUID and other sensitive fields; keep inspection commands/UI optional.
 3. [ ] **Wipe**: implement validated world-transition/reset orchestration with registered persistence participants, cancellation and observable state; keep destructive command policy and confirmation in an admin module/UI.
-4. [ ] **AutoWorldCleaner**: implement world-scoped cancellable scheduling plus safe item/projectile snapshots and removal operations; keep cleanup thresholds and schedules in a module.
+4. [x] **AutoWorldCleaner**: implement world-scoped cancellable scheduling plus safe item/projectile snapshots and removal operations; keep cleanup thresholds and schedules in a module.
 5. [ ] **InfChests / ChestRegen**: implement stable chest identity, immutable versioned snapshots, game-thread transactional mutation and ACL/event hooks; keep refill, lock and regeneration policy in modules.
 6. [ ] **Mentions**: implement an ordered typed chat transformation pipeline separating content transformation, moderation and per-recipient rendering; keep mention behavior in a module.
 
-The deployable runtime now has an opt-in `config/world-maintenance.json` baseline for item/projectile cleanup: recurring decisions and mutations run on the Terraria game thread, item age/count and projectile count are bounded, and minions/sentries are excluded by default. This does not close item 4 yet. The remaining architectural work is to expose the safe snapshot/removal capability through Contracts/Core and move cleanup schedule/threshold policy out of `Vega.Terraria` into the AutoWorldCleaner module boundary.
+`Vega.Modules.AutoWorldCleaner` now owns cleanup scheduling and policy behind its own opt-in `config/auto-world-cleaner.json`. Contracts expose immutable world-scoped item/projectile snapshots plus guarded removal handles, while `Vega.Terraria` is only the game-thread adapter that reads and mutates Terraria arrays. Each run performs snapshot, selection and removal in one dispatched game-thread action; item age and projectile identity are revalidated before mutation to reject stale handles. The module supports cancellable scheduling, online-player gating, non-overlapping runs, `worldclean`/`cleanworld` administration and bounded Operations status/warnings. The current Terraria adapter owns `WorldId.Primary`; future world backends can implement the same contract independently.
 
 ### Explicitly outside Core
 
-- [ ] Port `Homes`, `HouseRegions`, `TpaRequest`, `Clans`, `SealedDressers`, `Mentions`, `ChatAboveHeads`, `ChatGuard`, `InvSee`, `Wipe`, `Region-Vision`, `AutoWorldCleaner`, `InfChests` and `ChestRegen` only as `ServerPlugins` when their required Core capability exists.
+- [ ] Port `Homes`, `HouseRegions`, `TpaRequest`, `Clans`, `SealedDressers`, `Mentions`, `ChatAboveHeads`, `ChatGuard`, `InvSee`, `Wipe`, `Region-Vision`, `InfChests` and `ChestRegen` only as `ServerPlugins` when their required Core capability exists.
 - [ ] Do not move plugin commands, configuration formats, database schemas, timers, static state or TShock class shapes into Core merely to speed up a port.
 
 ## Phase 16 — provider and observer-scoped scene runtime

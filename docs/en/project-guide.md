@@ -100,7 +100,7 @@ artifacts/server/
 ├── Vega.Server.runtimeconfig.json
 ├── libs/                  shared Vega and third-party runtime libraries
 ├── ServerPlugins/         bundled Vega.Modules.* assemblies
-├── config/                database, TUI, world-clock, world-maintenance, and module settings
+├── config/                database, TUI, world-clock, autosave, cleaner, and module settings
 ├── runtimes/              platform-specific package assets when present
 └── <culture>/             satellite resources when present
 ```
@@ -140,7 +140,7 @@ Use `Vega.Server.exe --vega-world-image=on -world path/to/world.wld`, or directl
 
 ### World autosave and cleanup
 
-`config/world-maintenance.json` configures autosave enablement/interval and opt-in item/projectile cleanup. Autosave defaults to 10 minutes. Cleanup defaults off; it has a separate interval, online-player requirement, item count/age thresholds, projectile count threshold, and minion/sentry exclusions. Decisions and entity removal run only on the Terraria game thread. See [the world-maintenance guide](../world-maintenance.md).
+`config/world-maintenance.json` configures only the autosave enablement/interval; autosave defaults to 10 minutes. Optional item/projectile cleanup belongs to the bundled `Vega.Modules.AutoWorldCleaner` module and is configured independently in `config/auto-world-cleaner.json`. It defaults off and owns its interval, online-player requirement, item count/age thresholds, projectile threshold and minion/sentry exclusions. Snapshot, decision and guarded removal run atomically on the Terraria game thread. See [the world-maintenance guide](../world-maintenance.md) and [AutoWorldCleaner guide](../auto-world-cleaner.md).
 
 ### World-clock mode
 

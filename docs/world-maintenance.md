@@ -1,42 +1,27 @@
-# World autosave and cleanup
+# World autosave
 
-`config/world-maintenance.json` controls the server autosave schedule and optional
-world-entity cleanup. Vega replaces Terraria's fixed dedicated-server timer so there is
-only one autosave schedule. The default remains compatible: autosave is enabled every
-10 minutes. When world images are enabled, every successful manual or automatic save
-also refreshes the `.vworld` cache.
+`config/world-maintenance.json` controls Vega's dedicated-server autosave schedule. Vega
+replaces Terraria's fixed timer so only one autosave schedule is active. The default
+remains compatible: autosave is enabled every 10 minutes.
 
 ```json
 {
   "autoSave": {
     "enabled": true,
     "intervalMinutes": 10
-  },
-  "cleanup": {
-    "enabled": false,
-    "intervalMinutes": 30,
-    "onlyWhenPlayersOnline": true,
-    "items": {
-      "enabled": true,
-      "minimumActiveCount": 200,
-      "minimumAgeSeconds": 300
-    },
-    "projectiles": {
-      "enabled": true,
-      "minimumActiveCount": 700,
-      "excludeMinions": true,
-      "excludeSentries": true
-    }
   }
 }
 ```
 
-Intervals are clamped to 1–1440 minutes. Item cleanup runs only when the total active
-item count reaches its threshold, and then removes only items at least the configured
-age. Projectile cleanup runs only at its threshold. Minions and sentries are excluded
-by default. Cleanup is disabled by default because removal policy is server-specific.
+The interval is clamped to 1–1440 minutes. Mutable Terraria world state is prepared on
+the game thread before filesystem work moves to a worker. When world images are enabled,
+every successful manual or automatic save also refreshes the `.vworld` cache through the
+coalesced atomic image pipeline.
 
-The recurring decision and all entity-array mutations run on Terraria's game thread.
-Filesystem writing for autosave and `.vworld` compilation runs off-thread using stable
-save snapshots and atomic image replacement. Errors are recorded under the structured
-`world-maintenance` or `world-image` log categories.
+Item/projectile cleanup is deliberately not part of world maintenance configuration.
+Its policy and scheduler belong to the optional `Vega.Modules.AutoWorldCleaner` module;
+see [the AutoWorldCleaner guide](auto-world-cleaner.md) and
+`config/auto-world-cleaner.json`.
+
+Autosave errors use the structured `world-maintenance` log source. World-image
+publication uses `world-image`.
