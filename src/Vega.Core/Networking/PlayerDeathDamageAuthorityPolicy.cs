@@ -22,7 +22,7 @@ public sealed class PlayerDeathDamageAuthorityPolicy : IPacketProcessor<PacketVi
         ushort damage = unchecked((ushort)context.Packet.AsPlayerDeathV2View().Damage);
         return damage > MaximumAcceptedDamage
             ? new PacketProcessingDecision(
-                PacketDecisionKind.Reject,
+                PacketDecisionKind.Violation,
                 "packet.player_death.damage_out_of_range")
             : new PacketProcessingDecision(PacketDecisionKind.Continue);
     }
