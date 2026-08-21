@@ -19,6 +19,7 @@ public sealed class OperationsSnapshotProvider(
     IWorldLoadMetricsReader? worldLoadMetrics = null,
     IModuleDirectoryStatusReader? moduleDirectory = null,
     IWorldClockReader? worldClocks = null,
+    IWorldCleanupStatusReader? worldCleanup = null,
     IWorldContextOperationsCatalog? worldContexts = null) : IOperationsSnapshotProvider
 {
     public OperationsSnapshot Capture(OperationsLogFilter? logFilter = null)
@@ -34,7 +35,13 @@ public sealed class OperationsSnapshotProvider(
             .ToArray();
         ModuleDirectoryStatusSnapshot moduleDirectoryStatus =
             moduleDirectory?.Read() ?? ModuleDirectoryStatusSnapshot.Unmonitored;
-        string[] warnings = BuildWarnings(state, moduleSnapshots, moduleDirectoryStatus);
+        WorldCleanupStatusSnapshot worldCleanupStatus =
+            worldCleanup?.Read() ?? WorldCleanupStatusSnapshot.Disabled;
+        string[] warnings = BuildWarnings(
+            state,
+            moduleSnapshots,
+            moduleDirectoryStatus,
+            worldCleanupStatus);
         RuntimeLifecycleStage stage = lifecycle.CurrentStage;
         WorldContextSnapshot[] contexts = worldContexts?.SnapshotContexts().ToArray() ??
         [
@@ -88,6 +95,7 @@ public sealed class OperationsSnapshotProvider(
             WorldLoad = worldLoadMetrics?.Read(),
             ModuleDirectory = moduleDirectoryStatus,
             WorldClocks = Array.AsReadOnly(worldClocks?.SnapshotWorldClocks().ToArray() ?? []),
+            WorldCleanup = worldCleanupStatus,
             Chat = Array.AsReadOnly(logs
                 .Query(new OperationsLogFilter(Source: "chat", Limit: 200))
                 .Where(static record => string.Equals(record.Source, "chat", StringComparison.OrdinalIgnoreCase))
@@ -100,7 +108,8 @@ public sealed class OperationsSnapshotProvider(
     private static string[] BuildWarnings(
         ServerRuntimeStateSnapshot state,
         IReadOnlyList<ModuleOperationsSnapshot> modules,
-        ModuleDirectoryStatusSnapshot moduleDirectory)
+        ModuleDirectoryStatusSnapshot moduleDirectory,
+        WorldCleanupStatusSnapshot worldCleanup)
     {
         var warnings = new List<string>();
         if (DateTimeOffset.UtcNow - state.SampledAt > TimeSpan.FromSeconds(5))
@@ -121,6 +130,11 @@ public sealed class OperationsSnapshotProvider(
         if (moduleDirectory.Failure is not null)
         {
             warnings.Add($"ServerPlugins hot-reload issue: {moduleDirectory.Failure}");
+        }
+
+        if (worldCleanup.State == WorldCleanupRunState.Failed)
+        {
+            warnings.Add($"AutoWorldCleaner failed: {worldCleanup.Detail ?? "unknown"}.");
         }
 
         foreach (ModuleOperationsSnapshot module in modules)

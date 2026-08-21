@@ -298,6 +298,17 @@ public sealed class RuntimeDependencyTests
             "src",
             "Vega.Modules.Pvp",
             "PvpPacketPolicy.cs"));
+        string cleanerProject = File.ReadAllText(Path.Combine(
+            repositoryRoot,
+            "src",
+            "Vega.Modules.AutoWorldCleaner",
+            "Vega.Modules.AutoWorldCleaner.csproj"));
+        string cleanerSource = string.Join('\n', Directory
+            .EnumerateFiles(
+                Path.Combine(repositoryRoot, "src", "Vega.Modules.AutoWorldCleaner"),
+                "*.cs",
+                SearchOption.AllDirectories)
+            .Select(File.ReadAllText));
 
         Assert.Multiple(() =>
         {
@@ -307,6 +318,12 @@ public sealed class RuntimeDependencyTests
             Assert.That(pvp, Does.Contain("IPacketProcessor<PacketView>"));
             Assert.That(pvp, Does.Contain("IPlayerCombatDirectory"));
             Assert.That(pvp, Does.Not.Contain("TSPlayer"));
+            Assert.That(cleanerProject, Does.Contain("Vega.Contracts"));
+            Assert.That(cleanerProject, Does.Not.Contain("Vega.Terraria"));
+            Assert.That(cleanerProject, Does.Not.Contain("Vega.Core"));
+            Assert.That(cleanerSource, Does.Contain("IWorldEntityMaintenance"));
+            Assert.That(cleanerSource, Does.Not.Contain("Terraria.Main"));
+            Assert.That(cleanerSource, Does.Not.Contain("Terraria.Projectile"));
         });
     }
 

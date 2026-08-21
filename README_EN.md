@@ -83,7 +83,7 @@ Hot replacement for external unload-safe `IHotReloadableVegaModule` plugins in `
 artifacts/server/Vega.Server.exe --vega-ui=plain
 ```
 
-Supported modes are `auto`, `tui`, `plain`, and `headless`. Enable the world-image cache with `--vega-world-image=on` or directly select it with `-world path/to/world.vworld`. Manual and automatic saves refresh the image. Autosave and opt-in item/projectile cleanup are configured in `config/world-maintenance.json`.
+Supported modes are `auto`, `tui`, `plain`, and `headless`. Enable the world-image cache with `--vega-world-image=on` or directly select it with `-world path/to/world.vworld`. Manual and automatic saves refresh the image. Autosave is configured in `config/world-maintenance.json`; the optional AutoWorldCleaner item/projectile policy is configured in `config/auto-world-cleaner.json`.
 
 ## Documentation
 

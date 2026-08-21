@@ -6,6 +6,7 @@ using Vega.Contracts.Operations;
 using Vega.Contracts.Players;
 using Vega.Core.Commands;
 using Vega.Contracts.Runtime;
+using Vega.Contracts.Worlds;
 using Vega.Operations.Actions;
 using Vega.Operations.Logging;
 using Vega.Operations.Metrics;
@@ -205,6 +206,34 @@ public sealed class OperationsReadModelTests
     }
 
     [Test]
+    public void WorldCleanupStatusIsSurfacedAndFailuresBecomeWarnings()
+    {
+        var lifecycle = new FakeLifecycle(RuntimeLifecycleStage.NetworkReady, TimeSpan.Zero);
+        var provider = new OperationsSnapshotProvider(
+            "Vega",
+            "6.0",
+            DateTimeOffset.UtcNow,
+            lifecycle,
+            new MutablePlayerDirectory([]),
+            new FixedServerState(),
+            new StaticModuleOperationsCatalog([]),
+            new BoundedOperationsLogStore(5),
+            new FixedRuntimeMetrics(),
+            new FixedNetworkMetrics(),
+            worldCleanup: new FixedWorldCleanupStatus());
+
+        OperationsSnapshot snapshot = provider.Capture();
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(snapshot.WorldCleanup.Enabled, Is.True);
+            Assert.That(snapshot.WorldCleanup.State, Is.EqualTo(WorldCleanupRunState.Failed));
+            Assert.That(snapshot.WorldCleanup.Detail, Is.EqualTo("auto_world_cleaner.failed"));
+            Assert.That(snapshot.Server.Warnings, Has.Some.Contains("AutoWorldCleaner failed"));
+        });
+    }
+
+    [Test]
     public void NetworkCountersAreAtomicSnapshots()
     {
         var metrics = new NetworkMetricsCounter();
@@ -326,6 +355,19 @@ public sealed class OperationsReadModelTests
     private sealed class FixedNetworkMetrics : INetworkMetricsReader
     {
         public NetworkMetricsSnapshot Read() => new(7, 70, 8, 80, DateTimeOffset.UtcNow);
+    }
+
+    private sealed class FixedWorldCleanupStatus : IWorldCleanupStatusReader
+    {
+        public WorldCleanupStatusSnapshot Read() => new(
+            WorldId.Primary,
+            true,
+            WorldCleanupRunState.Failed,
+            DateTimeOffset.UtcNow.AddSeconds(-1),
+            DateTimeOffset.UtcNow,
+            0,
+            0,
+            "auto_world_cleaner.failed");
     }
 }
 

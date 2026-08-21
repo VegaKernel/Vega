@@ -18,6 +18,7 @@ using Vega.Cluster.Transport;
 using Vega.Core.Events;
 using Vega.Core.Extensions;
 using Vega.Core.Networking;
+using Vega.Modules.AutoWorldCleaner;
 using Vega.Modules.CustomItems;
 using Vega.Modules.Pvp;
 using Vega.Operations;
@@ -127,17 +128,6 @@ int Start()
     using var operationsState = new TerrariaOperationsState();
     var pvpModule = new PvpModule(extensionState, playerBoundary, playerBoundary, playerBoundary);
     var customItemsModule = new CustomItemsModule(new TerrariaCustomItemDelivery(gameThreadDispatcher));
-    using var moduleHost = new VegaModuleHost([pvpModule, customItemsModule]);
-    try
-    {
-        moduleHost.Start();
-    }
-    catch (Exception ex)
-    {
-        Console.Error.WriteLine($"Vega module startup failed: {ex}");
-        return 1;
-    }
-
     ICommandHandler[] commandHandlers =
     [
         new ServerInfoCommand(new ProcessHostMetricsReader()),
@@ -149,32 +139,6 @@ int Start()
     var commandDispatcher = new CommandDispatcher(commandHandlers);
     using IDisposable helpCommandRegistration = commandDispatcher.Register(new HelpCommand(commandDispatcher));
     using IDisposable aliasesCommandRegistration = commandDispatcher.Register(new AliasesCommand(commandDispatcher));
-    var playerPacketPolicies = new PacketProcessorPipeline<PacketView>(
-    [
-        new NpcCoinPickupAuthorityPolicy(),
-        new WorldItemSyncSanityPolicy(
-            TerrariaPacketSecurityLimits.ItemTypeCount,
-            TerrariaPacketSecurityLimits.PrefixCount),
-        new ProjectileSpawnSanityPolicy(
-            TerrariaPacketSecurityLimits.ProjectileCount,
-            TerrariaPacketSecurityLimits.ProjectileTypeCount),
-        new PlayerDeathDamageAuthorityPolicy(),
-        new PlayerStateSanityPolicy(
-            static () => TerrariaPacketSecurityLimits.WorldWidth,
-            static () => TerrariaPacketSecurityLimits.WorldHeight,
-            static () => TerrariaPacketSecurityLimits.InventorySlotCount),
-        new WorldMutationSanityPolicy(
-            static () => TerrariaPacketSecurityLimits.WorldWidth,
-            static () => TerrariaPacketSecurityLimits.WorldHeight,
-            static () => TerrariaPacketSecurityLimits.ChestCount,
-            static () => TerrariaPacketSecurityLimits.InventorySlotCount,
-            TerrariaPacketSecurityLimits.TileTypeCount,
-            TerrariaPacketSecurityLimits.WallTypeCount,
-            TerrariaPacketSecurityLimits.ItemTypeCount,
-            TerrariaPacketSecurityLimits.PrefixCount),
-        new PlayerPacketOwnershipPolicy(),
-        pvpModule.PacketProcessor
-    ]);
     var lifecycle = new RuntimeLifecycleTracker(processStartedAt);
     var networkMetrics = new NetworkMetricsCounter();
     var logStore = new BoundedOperationsLogStore();
@@ -194,6 +158,56 @@ int Start()
     using (fileSink)
     {
         var logger = new StructuredOperationsLogger(sinks);
+        AutoWorldCleanerOptions cleanerOptions = AutoWorldCleanerOptionsStore.Load(
+            Path.Combine(AppContext.BaseDirectory, "config", "auto-world-cleaner.json"),
+            logger);
+        var worldEntities = new TerrariaWorldEntityMaintenance(gameThreadDispatcher);
+        var autoWorldCleaner = new AutoWorldCleanerModule(
+            cleanerOptions,
+            worldEntities,
+            lifecycle,
+            gameThreadDispatcher,
+            playerBoundary,
+            logger);
+        using var moduleHost = new VegaModuleHost([pvpModule, customItemsModule, autoWorldCleaner]);
+        try
+        {
+            moduleHost.Start();
+        }
+        catch (Exception ex)
+        {
+            logger.Log(OperationsLogLevel.Critical, "modules", "Vega module startup failed.", ex);
+            return 1;
+        }
+
+        var playerPacketPolicies = new PacketProcessorPipeline<PacketView>(
+        [
+            new NpcCoinPickupAuthorityPolicy(),
+            new WorldItemSyncSanityPolicy(
+                TerrariaPacketSecurityLimits.ItemTypeCount,
+                TerrariaPacketSecurityLimits.PrefixCount),
+            new ProjectileSpawnSanityPolicy(
+                TerrariaPacketSecurityLimits.ProjectileCount,
+                TerrariaPacketSecurityLimits.ProjectileTypeCount),
+            new PlayerDeathDamageAuthorityPolicy(),
+            new PlayerStateSanityPolicy(
+                static () => TerrariaPacketSecurityLimits.WorldWidth,
+                static () => TerrariaPacketSecurityLimits.WorldHeight,
+                static () => TerrariaPacketSecurityLimits.InventorySlotCount),
+            new WorldMutationSanityPolicy(
+                static () => TerrariaPacketSecurityLimits.WorldWidth,
+                static () => TerrariaPacketSecurityLimits.WorldHeight,
+                static () => TerrariaPacketSecurityLimits.ChestCount,
+                static () => TerrariaPacketSecurityLimits.InventorySlotCount,
+                TerrariaPacketSecurityLimits.TileTypeCount,
+                TerrariaPacketSecurityLimits.WallTypeCount,
+                TerrariaPacketSecurityLimits.ItemTypeCount,
+                TerrariaPacketSecurityLimits.PrefixCount),
+            new PlayerPacketOwnershipPolicy(),
+            pvpModule.PacketProcessor
+        ]);
+        using IDisposable worldCleanCommandRegistration = commandDispatcher.Register(
+            new AutoWorldCleanerCommand(autoWorldCleaner));
         IVegaDatabase database;
         try
         {
@@ -260,7 +274,8 @@ int Start()
             networkMetrics,
             worldImages,
             serverPlugins,
-            worldClock);
+            worldClock,
+            autoWorldCleaner);
         var operationsCommands = new OperationsCommandService(commandDispatcher);
         using var startupProgress = new TerrariaStartupProgress();
         using var terminalUi = new TerminalUiHost(
@@ -298,9 +313,14 @@ int Start()
             OperationsLogLevel.Information,
             "world-maintenance",
             $"Autosave: {(worldMaintenanceOptions.AutoSave.Enabled ? "on" : "off")} " +
-            $"every {worldMaintenanceOptions.AutoSave.IntervalMinutes} min; " +
-            $"cleanup: {(worldMaintenanceOptions.Cleanup.Enabled ? "on" : "off")} " +
-            $"every {worldMaintenanceOptions.Cleanup.IntervalMinutes} min.");
+            $"every {worldMaintenanceOptions.AutoSave.IntervalMinutes} min.");
+        logger.Log(
+            OperationsLogLevel.Information,
+            "auto-world-cleaner",
+            $"AutoWorldCleaner: {(cleanerOptions.Enabled ? "on" : "off")} " +
+            $"every {cleanerOptions.IntervalMinutes} min; " +
+            $"items={cleanerOptions.Items.Enabled.ToString().ToLowerInvariant()}, " +
+            $"projectiles={cleanerOptions.Projectiles.Enabled.ToString().ToLowerInvariant()}.");
 
         return TerrariaServerHost.Run(
             serverArgs,
@@ -339,7 +359,7 @@ IReadOnlyList<ModuleOperationsSnapshot> CreateModuleSnapshots(VegaModuleHost mod
     Module(
         "Vega.Runtime",
         Assembly.GetExecutingAssembly(),
-        ["Vega.Cluster", "Vega.Core", "Vega.Modules.Pvp", "Vega.Operations", "Vega.Persistence", "Vega.Terraria", "Vega.TerminalUI"]),
+        ["Vega.Cluster", "Vega.Core", "Vega.Modules.AutoWorldCleaner", "Vega.Modules.Pvp", "Vega.Operations", "Vega.Persistence", "Vega.Terraria", "Vega.TerminalUI"]),
     Module("Vega.Core", typeof(CommandDispatcher).Assembly, ["Vega.Contracts"]),
     Module("Vega.Cluster", typeof(UnavailableClusterClient).Assembly, ["Vega.Contracts"]),
     Module("Vega.Operations", typeof(OperationsSnapshotProvider).Assembly, ["Vega.Contracts"]),

@@ -5,8 +5,8 @@ using Vega.Contracts.Operations;
 namespace Vega.Terraria.Worlds;
 
 /// <summary>
-/// Replaces Terraria's fixed ten-minute dedicated-server autosave timer and performs
-/// optional bounded entity cleanup on the game thread.
+/// Replaces Terraria's fixed ten-minute dedicated-server autosave timer.
+/// Entity cleanup policy belongs to Vega.Modules.AutoWorldCleaner.
 /// </summary>
 public sealed class TerrariaWorldMaintenanceService : IDisposable
 {
@@ -15,7 +15,6 @@ public sealed class TerrariaWorldMaintenanceService : IDisposable
     private readonly IOperationsLogger logger;
     private Task? saveTask;
     private long nextAutoSave;
-    private long nextCleanup;
     private bool attached;
     private bool disposed;
 
@@ -36,7 +35,6 @@ public sealed class TerrariaWorldMaintenanceService : IDisposable
 
         long now = Stopwatch.GetTimestamp();
         nextAutoSave = Add(now, TimeSpan.FromMinutes(options.AutoSave.IntervalMinutes));
-        nextCleanup = Add(now, TimeSpan.FromMinutes(options.Cleanup.IntervalMinutes));
         HookMain.DoUpdate_AutoSave += OnUpdate;
         attached = true;
     }
@@ -61,8 +59,8 @@ public sealed class TerrariaWorldMaintenanceService : IDisposable
 
     private void OnUpdate(object? sender, HookMain.DoUpdate_AutoSaveEventArgs args)
     {
-        // The Vega configuration is the single source of truth. Calling Terraria's
-        // original method would retain its hard-coded ten-minute timer as a second schedule.
+        // Vega owns the one autosave schedule. Calling Terraria's original method would
+        // retain its hard-coded ten-minute timer as a second schedule.
         args.ContinueExecution = false;
         if (global::Terraria.Main.gameMenu || global::Terraria.Main.netMode != 2)
         {
@@ -74,16 +72,6 @@ public sealed class TerrariaWorldMaintenanceService : IDisposable
         {
             nextAutoSave = Add(now, TimeSpan.FromMinutes(options.AutoSave.IntervalMinutes));
             QueueAutoSave();
-        }
-
-        if (options.Cleanup.Enabled && now >= nextCleanup)
-        {
-            nextCleanup = Add(now, TimeSpan.FromMinutes(options.Cleanup.IntervalMinutes));
-            if (!options.Cleanup.OnlyWhenPlayersOnline ||
-                global::Terraria.Main.player.Any(static player => player?.active is true))
-            {
-                RunCleanup();
-            }
         }
     }
 
@@ -137,108 +125,6 @@ public sealed class TerrariaWorldMaintenanceService : IDisposable
                 "Automatic world save failed.",
                 ex);
         }
-    }
-
-    private void RunCleanup()
-    {
-        try
-        {
-            int removedItems = CleanItems(options.Cleanup.Items);
-            int removedProjectiles = CleanProjectiles(options.Cleanup.Projectiles);
-            logger.Log(
-                OperationsLogLevel.Information,
-                "world-maintenance",
-                $"World cleanup completed: items={removedItems}, projectiles={removedProjectiles}.");
-        }
-        catch (Exception ex)
-        {
-            logger.Log(
-                OperationsLogLevel.Error,
-                "world-maintenance",
-                "World cleanup failed.",
-                ex);
-        }
-    }
-
-    internal static int CleanItems(WorldItemCleanupOptions options)
-    {
-        if (!options.Enabled)
-        {
-            return 0;
-        }
-
-        int activeCount = global::Terraria.Main.item.Count(static item => item?.active is true);
-        if (activeCount < options.MinimumActiveCount)
-        {
-            return 0;
-        }
-
-        int minimumAgeTicks = checked(options.MinimumAgeSeconds * 60);
-        int removed = 0;
-        for (int index = 0;
-             index < global::Terraria.Main.maxItems && index < global::Terraria.Main.item.Length;
-             index++)
-        {
-            global::Terraria.WorldItem? item = global::Terraria.Main.item[index];
-            if (item is null || !item.active || item.timeSinceItemSpawned < minimumAgeTicks)
-            {
-                continue;
-            }
-
-            item.TurnToAir();
-            global::Terraria.NetMessage.SendData(21, number: index);
-            removed++;
-        }
-
-        return removed;
-    }
-
-    internal static int CleanProjectiles(WorldProjectileCleanupOptions options)
-    {
-        if (!options.Enabled)
-        {
-            return 0;
-        }
-
-        int activeCount = global::Terraria.Main.projectile.Count(projectile =>
-            projectile?.active is true &&
-            (!options.ExcludeMinions || !projectile.minion) &&
-            (!options.ExcludeSentries || !projectile.sentry));
-        if (activeCount < options.MinimumActiveCount)
-        {
-            return 0;
-        }
-
-        int removed = 0;
-        for (int index = 0;
-             index < global::Terraria.Main.maxProjectiles &&
-             index < global::Terraria.Main.projectile.Length;
-             index++)
-        {
-            global::Terraria.Projectile? projectile = global::Terraria.Main.projectile[index];
-            if (projectile is null || !projectile.active ||
-                (options.ExcludeMinions && projectile.minion) ||
-                (options.ExcludeSentries && projectile.sentry))
-            {
-                continue;
-            }
-
-            int key = projectile.key;
-            float positionX = projectile.position.X;
-            float positionY = projectile.position.Y;
-            projectile.active = false;
-            projectile.timeLeft = 0;
-            projectile.type = 0;
-
-            global::Terraria.NetMessage.SendData(
-                29,
-                number: key,
-                number2: positionX,
-                number3: positionY);
-            removed++;
-        }
-
-        return removed;
     }
 
     private static long Add(long timestamp, TimeSpan interval) =>
