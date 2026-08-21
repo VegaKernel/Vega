@@ -36,7 +36,7 @@ public sealed class PlayerPacketOwnershipPolicyTests
 
         Assert.Multiple(() =>
         {
-            Assert.That(decision.Kind, Is.EqualTo(PacketDecisionKind.Reject));
+            Assert.That(decision.Kind, Is.EqualTo(PacketDecisionKind.Violation));
             Assert.That(decision.Reason, Is.EqualTo("packet.player_identity_mismatch"));
         });
     }
