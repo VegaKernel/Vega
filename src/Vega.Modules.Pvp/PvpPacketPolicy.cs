@@ -42,7 +42,7 @@ public sealed class PvpPacketPolicy(
 		DateTimeOffset timestamp)
 	{
 		var projectile = new ProjectileNewView(packet);
-		if (projectile.Owner != sender.Slot)
+		if (projectile.Key.Spawner != sender.Slot)
 		{
 			return Reject("pvp.projectile_owner_mismatch");
 		}
