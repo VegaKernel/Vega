@@ -42,11 +42,6 @@ public sealed class PvpPacketPolicy(
 		DateTimeOffset timestamp)
 	{
 		var projectile = new ProjectileNewView(packet);
-		if (projectile.Key.Spawner != sender.Slot)
-		{
-			return Reject("pvp.projectile_owner_mismatch");
-		}
-
 		if (!players.TryGet(sender, out PlayerSnapshot? player) || player is null)
 		{
 			return Reject("pvp.player_not_found");

@@ -101,7 +101,7 @@ public sealed class ServerPluginHotReloadHostTests
     }
 
     [Test]
-    public async Task FileWatcherAutomaticallyLoadsAndUnloadsContractPlugin()
+    public async Task WatcherTracksPluginLifecycle()
     {
         var dispatcher = new CommandDispatcher([]);
         using var host = new ServerPluginHotReloadHost(
@@ -116,11 +116,12 @@ public sealed class ServerPluginHotReloadHostTests
         await WaitUntilAsync(() => dispatcher.CanDispatch("hotprobe"));
 
         File.Delete(deployedPath);
-        await WaitUntilAsync(() => !dispatcher.CanDispatch("hotprobe"));
+        await WaitUntilAsync(() =>
+            host.SnapshotModules().SingleOrDefault()?.State == ModuleLoadState.Disabled);
 
         Assert.Multiple(() =>
         {
-            Assert.That(host.SnapshotModules().Single().State, Is.EqualTo(ModuleLoadState.Disabled));
+            Assert.That(dispatcher.CanDispatch("hotprobe"), Is.False);
             Assert.That(host.Read().ChangedFiles, Does.Contain("Watched.Plugin.dll"));
             Assert.That(host.Read().IsRestartRequired, Is.False);
         });

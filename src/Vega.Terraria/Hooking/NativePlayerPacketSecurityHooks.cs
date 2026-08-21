@@ -13,8 +13,6 @@ namespace Vega.Terraria.Hooking;
 /// </summary>
 internal sealed class NativePlayerPacketSecurityHooks : IDisposable
 {
-    private const int CompleteConnectionState = 10;
-
     private readonly IPacketProcessor<PacketView> packetProcessor;
     private readonly IOperationsLogger logger;
     private bool attached;
@@ -58,7 +56,7 @@ internal sealed class NativePlayerPacketSecurityHooks : IDisposable
         }
 
         int slot = args.Instance.whoAmI;
-        int connectionState = GetConnectionState(slot);
+        TerrariaConnectionState connectionState = GetConnectionState(slot);
         if (!ShouldApplySecurity(connectionState, args.PacketId))
         {
             return;
@@ -93,17 +91,19 @@ internal sealed class NativePlayerPacketSecurityHooks : IDisposable
         }
     }
 
-    internal static bool ShouldApplySecurity(int connectionState, byte packetId) =>
-        connectionState >= CompleteConnectionState && IsProcessedPacket(packetId);
+    internal static bool ShouldApplySecurity(TerrariaConnectionState connectionState, byte packetId) =>
+        connectionState >= TerrariaConnectionState.FullyConnected && IsProcessedPacket(packetId);
 
-    private static int GetConnectionState(int slot)
+    private static TerrariaConnectionState GetConnectionState(int slot)
     {
         if ((uint)slot >= (uint)global::Terraria.Netplay.Clients.Length)
         {
-            return -1;
+            return TerrariaConnectionState.PasswordChallenge;
         }
 
-        return global::Terraria.Netplay.Clients[slot]?.State ?? -1;
+        int state = global::Terraria.Netplay.Clients[slot]?.State ??
+            (int)TerrariaConnectionState.PasswordChallenge;
+        return (TerrariaConnectionState)state;
     }
 
     private static bool IsProcessedPacket(byte packetId) =>
