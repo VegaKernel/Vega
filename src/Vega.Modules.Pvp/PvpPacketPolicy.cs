@@ -101,7 +101,7 @@ public sealed class PvpPacketPolicy(
 	}
 
 	private static PacketProcessingDecision Continue() =>
-		new(PacketDecisionKind.Continue);
+		PacketProcessingDecision.Allow;
 
 	private static PacketProcessingDecision Reject(string reason) =>
 		new(PacketDecisionKind.Reject, reason);

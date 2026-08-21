@@ -35,7 +35,7 @@ public sealed class NpcCoinPickupAuthorityPolicyTests
             PacketDirection.Outbound,
             CreateSyncExtraValuePayload());
 
-        Assert.That(decision.Kind, Is.EqualTo(PacketDecisionKind.Continue));
+        Assert.That(decision.Kind, Is.EqualTo(PacketDecisionKind.Allow));
     }
 
     [Test]
@@ -46,7 +46,7 @@ public sealed class NpcCoinPickupAuthorityPolicyTests
             PacketDirection.Inbound,
             [7, 1]);
 
-        Assert.That(decision.Kind, Is.EqualTo(PacketDecisionKind.Continue));
+        Assert.That(decision.Kind, Is.EqualTo(PacketDecisionKind.Allow));
     }
 
     [Test]

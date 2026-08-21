@@ -37,7 +37,7 @@ public sealed class MultiplicityPacketProcessingTests
 
         Assert.Multiple(() =>
         {
-            Assert.That(decision.Kind, Is.EqualTo(PacketDecisionKind.Continue));
+            Assert.That(decision.Kind, Is.EqualTo(PacketDecisionKind.Allow));
             Assert.That(processor.Called, Is.True);
             Assert.That(processor.PacketType, Is.EqualTo(PacketTypes.PlayerHp));
             Assert.That(processor.PayloadLength, Is.EqualTo(5));
@@ -101,7 +101,7 @@ public sealed class MultiplicityPacketProcessingTests
             PlayerId = context.PlayerId;
             Timestamp = context.Timestamp;
             CancellationToken = context.CancellationToken;
-            return new PacketProcessingDecision(PacketDecisionKind.Continue);
+            return new PacketProcessingDecision(PacketDecisionKind.Allow);
         }
     }
 }

@@ -336,7 +336,7 @@ public sealed class RuntimeDependencyTests
             Assert.That(playerSnapshot, Does.Not.Contain("ExtensionState"));
             Assert.That(pvpProject, Does.Not.Contain("Vega.Core"));
             Assert.That(consumers.Count(path => path.Contains("Vega.Modules.Pvp", StringComparison.Ordinal)), Is.EqualTo(2));
-            Assert.That(consumers.Any(path => path.Contains("Vega.Core\\Extensions", StringComparison.Ordinal)), Is.True);
+            Assert.That(consumers.Any(path => path.Replace('\\', '/').Contains("Vega.Core/Extensions", StringComparison.Ordinal)), Is.True);
         });
     }
 

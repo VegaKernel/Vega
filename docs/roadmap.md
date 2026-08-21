@@ -64,7 +64,7 @@ The first end-to-end packet slice validates inbound `PlayerHp` ownership. `Vega.
 - [x] Promote true server invariants/security primitives into Core/runtime services.
 - [x] Keep gameplay/community policy as optional modules.
 
-`serverinfo` was the first native command path. The pipeline also owns `kick`, `playing`/`online`/`who` and `checkupdates`. Server-console input is intercepted through OTAPI command processing; player input is recognized from typed `LoadNetModule`/`NetTextModule` payloads. Effective player permissions live in Vega session state behind `IPlayerAuthorizationService`, and update discovery uses the Vega GitHub release endpoint.
+`serverinfo` was the first native command path. The base surface now also owns `tps`/`tpsstats`, `kick`, `playing`/`online`/`who`, `checkupdates`, `ban`, `plugin`/`plugins`, `help`/`commands` and `aliases`. Discovery reads the live command catalog, including hot-loaded registrations, and applies the same server/permission visibility rules as dispatch instead of maintaining a second command list. Server-console input is intercepted through OTAPI command processing; player input is recognized from typed `LoadNetModule`/`NetTextModule` payloads. Effective player permissions live in Vega session state behind `IPlayerAuthorizationService`, and update discovery uses the Vega GitHub release endpoint.
 
 Lifecycle, world decisions, console commands, player commands and packet security have Vega-owned OTAPI entrypoints. Core owns command behavior and the player packet ownership invariant; optional gameplay policy remains in modules. Unknown commands and non-command chat remain available to Terraria's normal paths.
 
@@ -144,7 +144,7 @@ The next StateGuard slice extends the existing player-slot ownership rule to typ
 
 The first full-TShock network slice ports the TerraZ Bouncer fix for `PlayerDeathV2 (118)`. Vega compares the signed wire field as an unsigned 16-bit value and rejects damage above `42000` before Terraria receives it; the same typed payload must also claim the sending connection's player slot. This is one closed invariant, not a claim that Bouncer or `GetDataHandlers` are fully migrated.
 
-The post-1.4.5 registration audit also routes client `TeamChangeFromUI (157)` through the native security hook and applies the same sender-slot ownership rule as legacy `PlayerTeam (45)`. `SyncItemsWithShimmer (145)` and `SyncItemCannotBeTakenByEnemies (148)` now share a typed pre-Terraria sanity policy for fixed item-slot bounds, finite transforms and the TerraZ legacy stack boundary. Their deeper type/prefix/proximity/active-slot rules remain open until the item/world authority capability exists.
+The post-1.4.5 registration audit also routes client `TeamChangeFromUI (157)` through the native security hook and applies the same sender-slot ownership rule as legacy `PlayerTeam (45)`. Protocol 325 marks historical item packets `145/148` as deprecated, so Vega rejects those packet identities instead of pretending they remain writable item-sync formats. Supported client-authored item state (`21/90/151/160`) is validated for fixed slot bounds, finite positions/velocities, stack, item type and prefix before Terraria sees it.
 
 ### Historical implementations to mine for behavior, not architecture
 
@@ -244,14 +244,15 @@ Move server-wide invariants into Core/runtime, not the historical plugin impleme
 
 ### Packet and state validation from PacketGuard, StateGuard, LeashedEntityGuard and NoCoinDupe
 
-- [ ] Extend the existing player-slot ownership policy one incident-backed invariant at a time: malformed payloads, item spawn sanity, projectile ownership/limits, repeated death abuse, chest resize, world-edge placement, configured ghost/spectator restrictions, leashed-entity anchors and the known coin-duplication path.
+- [x] Close the universal packet-safety slice: bounded/malformed payload rejection, supported item-sync indices/transforms/stack/type/prefix, projectile create/destroy ownership/index/type/finite transforms, player movement/world/inventory and portal bounds, tile/object/item-frame/chest bounds, chest resize/quick-stack indices, liquids, tile entities, gem locks, mass wiring, food/display placement, tile picking, leashed-entity anchors and the known coin-duplication path.
+- [ ] Keep configurable gameplay enforcement separate: repeated-death abuse policy, ghost/spectator restrictions, permission bypasses, proximity checks and corrective state synchronization require actual configuration/authority consumers rather than more universal packet guards.
 - [x] Reject the known overflowed high-damage `PlayerDeathV2` exploit and forged death player identities through the typed Multiplicity boundary.
 - [x] Route post-1.4.5 `TeamChangeFromUI` through native validation and reject a forged player identity.
-- [x] Reject unsafe post-1.4.5 world-item synchronization indices, non-finite transforms and legacy stack overflow before Terraria handles packets 145/148.
-- [ ] Decode through `TZ.Multiplicity`; never copy the old raw-reader/packet-writer implementations into Core.
-- [ ] Return typed `Allow`, `Reject`, `Correct` or `Violation` outcomes and keep the final Terraria mutation/correction in `Vega.Terraria` on the game thread.
+- [x] Reject protocol-325 deprecated item packets `145/148`; validate supported item packets `21/90/151/160` before Terraria indexes or applies their state.
+- [x] Decode through `TZ.Multiplicity`; no old raw-reader/packet-writer implementation enters Core.
+- [x] Use typed `Allow`, `Reject` and `Violation` outcomes end to end; add `Correct` only with the first real Terraria-side correction consumer instead of shipping an unused outcome.
 - [ ] Add narrowly scoped rate limits/deduplication only where a measured protocol abuse requires them.
-- [ ] Expose per-rule counters and bounded diagnostics without treating anomaly scores as proof of cheating.
+- [x] Expose bounded per-reason security counters plus rejected/violation totals through the existing network metrics path; anomaly counts remain observability, not proof of cheating.
 
 ### Connection metadata from ClientPlatformDetector, SSCHealthFix and UuidGuardExtension
 

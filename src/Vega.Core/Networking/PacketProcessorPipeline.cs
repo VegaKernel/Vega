@@ -18,12 +18,12 @@ public sealed class PacketProcessorPipeline<TPacket> : IPacketProcessor<TPacket>
 		foreach (IPacketProcessor<TPacket> processor in processors)
 		{
 			PacketProcessingDecision decision = processor.Process(in context);
-			if (decision.Kind != PacketDecisionKind.Continue)
+			if (decision.Kind != PacketDecisionKind.Allow)
 			{
 				return decision;
 			}
 		}
 
-		return new PacketProcessingDecision(PacketDecisionKind.Continue);
+		return PacketProcessingDecision.Allow;
 	}
 }

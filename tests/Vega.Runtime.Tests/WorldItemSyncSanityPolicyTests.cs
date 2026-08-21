@@ -17,58 +17,87 @@ public sealed class WorldItemSyncSanityPolicyTests
         PacketProcessingDecision decision = Process(
             packetType,
             PacketDirection.Inbound,
-            CreatePayload(packetType, itemIndex: 400, stack: 9_999));
+            CreateWorldItemPayload(packetType, itemIndex: 400, stack: 9_999));
 
-        Assert.That(decision.Kind, Is.EqualTo(PacketDecisionKind.Continue));
+        Assert.That(decision.Kind, Is.EqualTo(PacketDecisionKind.Allow));
     }
 
     [TestCase(PacketTypes.ItemDrop, -1)]
     [TestCase(PacketTypes.UpdateItemDrop, 401)]
-    public void InvalidItemIndexIsRejected(PacketTypes packetType, short itemIndex)
+    public void InvalidItemIndexIsViolation(PacketTypes packetType, short itemIndex)
     {
-        PacketProcessingDecision decision = Process(
+        AssertViolation(
             packetType,
-            PacketDirection.Inbound,
-            CreatePayload(packetType, itemIndex: itemIndex));
-
-        Assert.Multiple(() =>
-        {
-            Assert.That(decision.Kind, Is.EqualTo(PacketDecisionKind.Violation));
-            Assert.That(decision.Reason, Is.EqualTo("packet.world_item.index_out_of_range"));
-        });
+            CreateWorldItemPayload(packetType, itemIndex: itemIndex),
+            "packet.world_item.index_out_of_range");
     }
 
     [TestCase(float.NaN)]
     [TestCase(float.PositiveInfinity)]
     [TestCase(float.NegativeInfinity)]
-    public void NonFiniteTransformIsRejected(float coordinate)
+    public void NonFiniteTransformIsViolation(float coordinate)
     {
-        PacketProcessingDecision decision = Process(
+        AssertViolation(
             PacketTypes.ItemDrop,
-            PacketDirection.Inbound,
-            CreatePayload(PacketTypes.ItemDrop, positionX: coordinate));
-
-        Assert.Multiple(() =>
-        {
-            Assert.That(decision.Kind, Is.EqualTo(PacketDecisionKind.Violation));
-            Assert.That(decision.Reason, Is.EqualTo("packet.world_item.non_finite_transform"));
-        });
+            CreateWorldItemPayload(PacketTypes.ItemDrop, positionX: coordinate),
+            "packet.world_item.non_finite_transform");
     }
 
     [TestCase(-1)]
     [TestCase(10_000)]
-    public void StackOutsideAcceptedRangeIsRejected(short stack)
+    public void StackOutsideAcceptedRangeIsViolation(short stack)
     {
-        PacketProcessingDecision decision = Process(
+        AssertViolation(
             PacketTypes.UpdateItemDrop,
-            PacketDirection.Inbound,
-            CreatePayload(PacketTypes.UpdateItemDrop, stack: stack));
+            CreateWorldItemPayload(PacketTypes.UpdateItemDrop, stack: stack),
+            "packet.world_item.stack_out_of_range");
+    }
 
-        Assert.Multiple(() =>
-        {
-            Assert.That(decision.Kind, Is.EqualTo(PacketDecisionKind.Violation));
-            Assert.That(decision.Reason, Is.EqualTo("packet.world_item.stack_out_of_range"));
-        });
+    [TestCase(PacketTypes.SyncItemsWithShimmerDeprecated)]
+    [TestCase(PacketTypes.SyncItemCannotBeTakenByEnemiesDeprecated)]
+    public void Protocol325DeprecatedItemPacketsAreViolation(PacketTypes packetType)
+    {
+        AssertViolation(
+            packetType,
+            CreateWorldItemPayload(PacketTypes.ItemDrop),
+            "packet.world_item.deprecated_packet");
+    }
+
+    [TestCase(-49)]
+    [TestCase(7000)]
+    public void ItemTypeOutsideRegistryIsViolation(short itemNetId)
+    {
+        AssertViolation(
+            PacketTypes.ItemDrop,
+            CreateWorldItemPayload(PacketTypes.ItemDrop, itemNetId: itemNetId),
+            "packet.world_item.type_out_of_range");
+    }
+
+    [Test]
+    public void PrefixOutsideRegistryIsViolation()
+    {
+        AssertViolation(
+            PacketTypes.ItemDrop,
+            CreateWorldItemPayload(PacketTypes.ItemDrop, prefix: 100),
+            "packet.world_item.prefix_out_of_range");
+    }
+
+    [Test]
+    public void DespawnIndexIsValidated()
+    {
+        AssertViolation(
+            PacketTypes.SyncItemDespawn,
+            Serialize(new SyncItemDespawn { ItemId = 401 }),
+            "packet.world_item.index_out_of_range");
+    }
+
+    [Test]
+    public void PositionSyncRequiresFiniteCoordinates()
+    {
+        AssertViolation(
+            PacketTypes.SyncItemPosition,
+            Serialize(new SyncItemPosition { ItemId = 10, PositionX = float.NaN, PositionY = 10 }),
+            "packet.world_item.non_finite_position");
     }
 
     [Test]
@@ -77,28 +106,22 @@ public sealed class WorldItemSyncSanityPolicyTests
         PacketProcessingDecision decision = Process(
             PacketTypes.ItemDrop,
             PacketDirection.Outbound,
-            CreatePayload(PacketTypes.ItemDrop, itemIndex: -1));
+            CreateWorldItemPayload(PacketTypes.ItemDrop, itemIndex: -1));
 
-        Assert.That(decision.Kind, Is.EqualTo(PacketDecisionKind.Continue));
+        Assert.That(decision.Kind, Is.EqualTo(PacketDecisionKind.Allow));
     }
 
     [Test]
     public void UnrelatedPacketIsNotClaimed()
     {
-        PacketProcessingDecision decision = Process(
-            PacketTypes.ItemOwner,
-            PacketDirection.Inbound,
-            []);
-
-        Assert.That(decision.Kind, Is.EqualTo(PacketDecisionKind.Continue));
+        PacketProcessingDecision decision = Process(PacketTypes.ItemOwner, PacketDirection.Inbound, []);
+        Assert.That(decision.Kind, Is.EqualTo(PacketDecisionKind.Allow));
     }
 
     [Test]
     public void MultiplicityBoundaryRejectsSerializedExploitPayload()
     {
-        byte[] payload = CreatePayload(
-            PacketTypes.ItemDrop,
-            velocityY: float.PositiveInfinity);
+        byte[] payload = CreateWorldItemPayload(PacketTypes.ItemDrop, velocityY: float.PositiveInfinity);
 
         PacketProcessingDecision decision = MultiplicityPacketProcessing.ProcessInboundPayload(
             (byte)PacketTypes.ItemDrop,
@@ -107,10 +130,16 @@ public sealed class WorldItemSyncSanityPolicyTests
             payload.Length,
             new ConnectionId(7),
             null,
-            new WorldItemSyncSanityPolicy(),
+            new WorldItemSyncSanityPolicy(itemTypeCount: 7000, prefixCount: 100),
             DateTimeOffset.UtcNow);
 
         Assert.That(decision.Kind, Is.EqualTo(PacketDecisionKind.Violation));
+    }
+
+    private static void AssertViolation(PacketTypes packetType, byte[] payload, string reason)
+    {
+        PacketProcessingDecision decision = Process(packetType, PacketDirection.Inbound, payload);
+        Assert.That(decision, Is.EqualTo(PacketProcessingDecision.Violation(reason)));
     }
 
     private static PacketProcessingDecision Process(
@@ -125,19 +154,21 @@ public sealed class WorldItemSyncSanityPolicyTests
             new ConnectionId(7),
             null,
             DateTimeOffset.UtcNow);
-        var policy = new WorldItemSyncSanityPolicy();
+        var policy = new WorldItemSyncSanityPolicy(itemTypeCount: 7000, prefixCount: 100);
 
         return policy.Process(in context);
     }
 
-    private static byte[] CreatePayload(
+    private static byte[] CreateWorldItemPayload(
         PacketTypes packetType,
         short itemIndex = 10,
         float positionX = 160,
         float positionY = 320,
         float velocityX = 1,
         float velocityY = -1,
-        short stack = 1)
+        short stack = 1,
+        byte prefix = 0,
+        short itemNetId = 1)
     {
         WorldItemSyncPacketBase packet = packetType switch
         {
@@ -152,8 +183,13 @@ public sealed class WorldItemSyncSanityPolicyTests
         packet.VelocityX = velocityX;
         packet.VelocityY = velocityY;
         packet.Stack = stack;
-        packet.ItemNetId = 1;
+        packet.Prefix = prefix;
+        packet.ItemNetId = itemNetId;
+        return Serialize(packet);
+    }
 
+    private static byte[] Serialize(TerrariaPacket packet)
+    {
         using var stream = new MemoryStream();
         packet.ToStream(stream, includeHeader: false);
         return stream.ToArray();

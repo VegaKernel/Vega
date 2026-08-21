@@ -1,4 +1,5 @@
 using Multiplicity.Packets;
+using Multiplicity.Packets.Models;
 using Multiplicity.Packets.Views;
 using NUnit.Framework;
 using Vega.Contracts.Networking;
@@ -9,55 +10,54 @@ namespace Vega.Runtime.Tests;
 [TestFixture]
 public sealed class PlayerPacketOwnershipPolicyTests
 {
-    [TestCase(PacketTypes.PlayerHp)]
-    [TestCase(PacketTypes.PlayerMana)]
-    [TestCase(PacketTypes.PlayerTeam)]
-    [TestCase(PacketTypes.TeamChangeFromUI)]
-    [TestCase(PacketTypes.TogglePvp)]
-    [TestCase(PacketTypes.SpectatePlayer)]
-    [TestCase(PacketTypes.PlayerDeathV2)]
+    private static readonly PacketTypes[] OwnedPacketTypes =
+    [
+        PacketTypes.PlayerUpdate,
+        PacketTypes.PlayerHp,
+        PacketTypes.PlayerMana,
+        PacketTypes.PlayerTeam,
+        PacketTypes.TeamChangeFromUI,
+        PacketTypes.TogglePvp,
+        PacketTypes.SpectatePlayer,
+        PacketTypes.PlayerTeleportPortal,
+        PacketTypes.PlayerDeathV2,
+        PacketTypes.SyncPlayerChestIndex,
+        PacketTypes.TileEntityDisplayDollItemSync,
+        PacketTypes.RequestTileEntityInteraction,
+        PacketTypes.TileEntityHatRackItemSync,
+        PacketTypes.SyncTilePicking,
+        PacketTypes.SyncProjectileTrackers
+    ];
+
+    [TestCaseSource(nameof(OwnedPacketTypes))]
     public void MatchingConnectionSlotIsAllowed(PacketTypes packetType)
     {
         PacketProcessingDecision decision = Process(packetType, connectionSlot: 7, claimedSlot: 7);
-
-        Assert.That(decision.Kind, Is.EqualTo(PacketDecisionKind.Continue));
+        Assert.That(decision.Kind, Is.EqualTo(PacketDecisionKind.Allow));
     }
 
-    [TestCase(PacketTypes.PlayerHp)]
-    [TestCase(PacketTypes.PlayerMana)]
-    [TestCase(PacketTypes.PlayerTeam)]
-    [TestCase(PacketTypes.TeamChangeFromUI)]
-    [TestCase(PacketTypes.TogglePvp)]
-    [TestCase(PacketTypes.SpectatePlayer)]
-    [TestCase(PacketTypes.PlayerDeathV2)]
-    public void ForeignPlayerSlotIsRejected(PacketTypes packetType)
+    [TestCaseSource(nameof(OwnedPacketTypes))]
+    public void ForeignPlayerSlotIsViolation(PacketTypes packetType)
     {
         PacketProcessingDecision decision = Process(packetType, connectionSlot: 7, claimedSlot: 8);
-
-        Assert.Multiple(() =>
-        {
-            Assert.That(decision.Kind, Is.EqualTo(PacketDecisionKind.Violation));
-            Assert.That(decision.Reason, Is.EqualTo("packet.player_identity_mismatch"));
-        });
+        Assert.That(decision, Is.EqualTo(PacketProcessingDecision.Violation("packet.player_identity_mismatch")));
     }
 
     [Test]
-    public void OutboundPlayerStateIsNotTreatedAsAClientForgery()
+    public void OutboundPlayerStateIsNotTreatedAsClientForgery()
     {
-        var packet = PacketView.FromPayload(
+        PacketView packet = PacketView.FromPayload(
             PacketTypes.PlayerDeathV2,
-            CreatePlayerDeathPayload(claimedSlot: 8));
+            Serialize(CreateOwnedPacket(PacketTypes.PlayerDeathV2, 8)));
         var context = new PacketProcessingContext<PacketView>(
             packet,
             PacketDirection.Outbound,
             new ConnectionId(7),
             null,
             DateTimeOffset.UtcNow);
-        var policy = new PlayerPacketOwnershipPolicy();
 
-        PacketProcessingDecision decision = policy.Process(in context);
-
-        Assert.That(decision.Kind, Is.EqualTo(PacketDecisionKind.Continue));
+        PacketProcessingDecision decision = new PlayerPacketOwnershipPolicy().Process(in context);
+        Assert.That(decision.Kind, Is.EqualTo(PacketDecisionKind.Allow));
     }
 
     [Test]
@@ -65,49 +65,59 @@ public sealed class PlayerPacketOwnershipPolicyTests
     {
         var packet = PacketView.FromPayload(PacketTypes.PlayerActive, new byte[] { 8, 1 });
         var context = Context(packet, connectionSlot: 7);
-        var policy = new PlayerPacketOwnershipPolicy();
 
-        PacketProcessingDecision decision = policy.Process(in context);
-
-        Assert.That(decision.Kind, Is.EqualTo(PacketDecisionKind.Continue));
+        PacketProcessingDecision decision = new PlayerPacketOwnershipPolicy().Process(in context);
+        Assert.That(decision.Kind, Is.EqualTo(PacketDecisionKind.Allow));
     }
 
-    private static PacketProcessingDecision Process(
-        PacketTypes packetType,
-        int connectionSlot,
-        byte claimedSlot)
+    private static PacketProcessingDecision Process(PacketTypes packetType, int connectionSlot, byte claimedSlot)
     {
-        byte[] payload = packetType switch
-        {
-            PacketTypes.PlayerHp or PacketTypes.PlayerMana => [claimedSlot, 100, 0, 120, 0],
-            PacketTypes.PlayerTeam or PacketTypes.TeamChangeFromUI => [claimedSlot, 1],
-            PacketTypes.TogglePvp => [claimedSlot, 1],
-            PacketTypes.SpectatePlayer => [claimedSlot, 2, 0],
-            PacketTypes.PlayerDeathV2 => CreatePlayerDeathPayload(claimedSlot),
-            _ => throw new ArgumentOutOfRangeException(nameof(packetType))
-        };
-        var packet = PacketView.FromPayload(packetType, payload);
+        PacketView packet = PacketView.FromPayload(packetType, Serialize(CreateOwnedPacket(packetType, claimedSlot)));
         var context = Context(packet, connectionSlot);
-        var policy = new PlayerPacketOwnershipPolicy();
-
-        return policy.Process(in context);
+        return new PlayerPacketOwnershipPolicy().Process(in context);
     }
 
-    private static byte[] CreatePlayerDeathPayload(byte claimedSlot)
+    private static TerrariaPacket CreateOwnedPacket(PacketTypes packetType, byte playerId) => packetType switch
     {
-        var packet = new PlayerDeathV2
+        PacketTypes.PlayerUpdate => new PlayerUpdate { PlayerId = playerId },
+        PacketTypes.PlayerHp => new PlayerHp { PlayerId = playerId, Hp = 100, MaxHp = 100 },
+        PacketTypes.PlayerMana => new PlayerMana { PlayerId = playerId, Mana = 20, MaxMana = 20 },
+        PacketTypes.PlayerTeam => new PlayerTeam { PlayerId = playerId, Team = 1 },
+        PacketTypes.TeamChangeFromUI => new TeamChangeFromUI { PlayerId = playerId, Team = 1 },
+        PacketTypes.TogglePvp => new TogglePvp { PlayerId = playerId, PvpEnabled = true },
+        PacketTypes.SpectatePlayer => new SpectatePlayer { PlayerId = playerId, TargetPlayerId = 2 },
+        PacketTypes.PlayerTeleportPortal => new PlayerTeleportPortal { PlayerId = playerId },
+        PacketTypes.PlayerDeathV2 => new PlayerDeathV2 { PlayerId = playerId, Damage = 100 },
+        PacketTypes.SyncPlayerChestIndex => new SyncPlayerChestIndex { Player = playerId, Chest = -1 },
+        PacketTypes.TileEntityDisplayDollItemSync => new TileEntityDisplayDollItemSync
         {
-            PlayerId = claimedSlot,
-            Damage = 100
-        };
+            PlayerId = playerId,
+            ItemData = new ItemSyncData()
+        },
+        PacketTypes.RequestTileEntityInteraction => new RequestTileEntityInteraction { PlayerId = playerId },
+        PacketTypes.TileEntityHatRackItemSync => new TileEntityHatRackItemSync
+        {
+            PlayerId = playerId,
+            ItemData = new ItemSyncData()
+        },
+        PacketTypes.SyncTilePicking => new SyncTilePicking { PlayerId = playerId, TileX = 1, TileY = 1 },
+        PacketTypes.SyncProjectileTrackers => new SyncProjectileTrackers
+        {
+            PlayerId = playerId,
+            PiggyBankProjectile = new TrackedProjectileReferenceData(),
+            VoidLensChestProjectile = new TrackedProjectileReferenceData()
+        },
+        _ => throw new ArgumentOutOfRangeException(nameof(packetType))
+    };
+
+    private static byte[] Serialize(TerrariaPacket packet)
+    {
         using var stream = new MemoryStream();
         packet.ToStream(stream, includeHeader: false);
         return stream.ToArray();
     }
 
-    private static PacketProcessingContext<PacketView> Context(
-        PacketView packet,
-        int connectionSlot) =>
+    private static PacketProcessingContext<PacketView> Context(PacketView packet, int connectionSlot) =>
         new(
             packet,
             PacketDirection.Inbound,

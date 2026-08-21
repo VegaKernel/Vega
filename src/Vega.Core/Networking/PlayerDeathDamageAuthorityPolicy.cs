@@ -16,14 +16,12 @@ public sealed class PlayerDeathDamageAuthorityPolicy : IPacketProcessor<PacketVi
         if (context.Direction != PacketDirection.Inbound ||
             context.Packet.PacketType != PacketTypes.PlayerDeathV2)
         {
-            return new PacketProcessingDecision(PacketDecisionKind.Continue);
+            return PacketProcessingDecision.Allow;
         }
 
         ushort damage = unchecked((ushort)context.Packet.AsPlayerDeathV2View().Damage);
         return damage > MaximumAcceptedDamage
-            ? new PacketProcessingDecision(
-                PacketDecisionKind.Violation,
-                "packet.player_death.damage_out_of_range")
-            : new PacketProcessingDecision(PacketDecisionKind.Continue);
+            ? PacketProcessingDecision.Violation("packet.player_death.damage_out_of_range")
+            : PacketProcessingDecision.Allow;
     }
 }
