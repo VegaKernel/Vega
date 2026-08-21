@@ -121,6 +121,7 @@ internal sealed class NativePlayerPacketSecurityHooks : IDisposable
             (byte)PacketTypes.ItemDrop or
             (byte)PacketTypes.UpdateItemDrop or
             (byte)PacketTypes.ProjectileNew or
+            (byte)PacketTypes.ProjectileDestroy or
             (byte)PacketTypes.PlayerHurtV2 or
             (byte)PacketTypes.PlayerDeathV2;
 }

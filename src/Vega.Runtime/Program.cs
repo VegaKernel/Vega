@@ -151,6 +151,7 @@ int Start()
         new NpcCoinPickupAuthorityPolicy(),
         new WorldItemSyncSanityPolicy(),
         new ProjectileSpawnSanityPolicy(),
+        new ProjectileDestroySanityPolicy(),
         new PlayerDeathDamageAuthorityPolicy(),
         new PlayerPacketOwnershipPolicy(),
         pvpModule.PacketProcessor

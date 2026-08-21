@@ -14,6 +14,7 @@ public sealed class NativePlayerPacketSecurityHooksTests
     [TestCase((int)TerrariaConnectionState.FullyConnected, PacketTypes.PlayerHp, true)]
     [TestCase((int)TerrariaConnectionState.FullyConnected, PacketTypes.ItemDrop, true)]
     [TestCase((int)TerrariaConnectionState.FullyConnected + 1, PacketTypes.ProjectileNew, true)]
+    [TestCase((int)TerrariaConnectionState.FullyConnected, PacketTypes.ProjectileDestroy, true)]
     [TestCase((int)TerrariaConnectionState.FullyConnected, PacketTypes.PlayerSpawn, false)]
     public void GameplaySecurityStartsOnlyAfterVanillaConnectionCompletes(
         int connectionState,
