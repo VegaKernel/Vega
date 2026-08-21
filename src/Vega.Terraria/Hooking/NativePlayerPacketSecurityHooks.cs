@@ -78,10 +78,6 @@ internal sealed class NativePlayerPacketSecurityHooks : IDisposable
 
             if (decision.Kind is PacketDecisionKind.Handled or PacketDecisionKind.Reject)
             {
-                logger.Log(
-                    OperationsLogLevel.Warning,
-                    "packet-security",
-                    $"Inbound packet {args.PacketId} from slot {slot} rejected: {decision.Reason ?? decision.Kind.ToString()}.");
                 args.Result = HookResult.Cancel;
             }
         }
