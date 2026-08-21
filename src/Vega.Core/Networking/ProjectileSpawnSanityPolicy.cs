@@ -22,24 +22,24 @@ public sealed class ProjectileSpawnSanityPolicy : IPacketProcessor<PacketView>
         var projectile = new ProjectileNewView(context.Packet);
         if (projectile.Key.Spawner != context.ConnectionId.Slot)
         {
-            return Reject("packet.projectile.owner_mismatch");
+            return Violation("packet.projectile.owner_mismatch");
         }
 
         if (projectile.Key.Index > MaximumProjectileIndex)
         {
-            return Reject("packet.projectile.index_out_of_range");
+            return Violation("packet.projectile.index_out_of_range");
         }
 
         if (!float.IsFinite(projectile.PositionX) ||
             !float.IsFinite(projectile.PositionY))
         {
-            return Reject("packet.projectile.non_finite_position");
+            return Violation("packet.projectile.non_finite_position");
         }
 
         if (!float.IsFinite(projectile.VelocityX) ||
             !float.IsFinite(projectile.VelocityY))
         {
-            return Reject("packet.projectile.non_finite_velocity");
+            return Violation("packet.projectile.non_finite_velocity");
         }
 
         return Continue();
@@ -48,6 +48,6 @@ public sealed class ProjectileSpawnSanityPolicy : IPacketProcessor<PacketView>
     private static PacketProcessingDecision Continue() =>
         new(PacketDecisionKind.Continue);
 
-    private static PacketProcessingDecision Reject(string reason) =>
-        new(PacketDecisionKind.Reject, reason);
+    private static PacketProcessingDecision Violation(string reason) =>
+        new(PacketDecisionKind.Violation, reason);
 }
