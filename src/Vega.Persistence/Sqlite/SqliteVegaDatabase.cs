@@ -1,5 +1,8 @@
 using Vega.Contracts.Cluster.Events;
 using Vega.Contracts.Runtime;
+using Vega.Contracts.Accounts;
+using Vega.Contracts.Authorization;
+using Vega.Persistence.Relational;
 
 namespace Vega.Persistence.Sqlite;
 
@@ -20,6 +23,12 @@ public sealed class SqliteVegaDatabase : IVegaDatabase
             throw new InvalidOperationException(
                 $"Cannot determine the database directory for '{options.DatabasePath}'.");
         GlobalBans = new SqliteGlobalBanReplica(connections, EnsureReady);
+        var identities = new RelationalIdentityService(
+            connections.Open,
+            async cancellationToken => await connections.OpenAsync(cancellationToken).ConfigureAwait(false),
+            EnsureReady);
+        Accounts = identities;
+        Authorization = identities;
     }
 
     public string Name => "SQLite persistence";
@@ -33,6 +42,10 @@ public sealed class SqliteVegaDatabase : IVegaDatabase
     public bool IsReady => SchemaVersion > 0;
 
     public IGlobalBanReplica GlobalBans { get; }
+
+    public IAccountService Accounts { get; }
+
+    public IAuthorizationService Authorization { get; }
 
     public static SqliteVegaDatabase Create(SqliteVegaDatabaseOptions options)
     {

@@ -11,6 +11,7 @@ public sealed class MySqlVegaDatabase : ExternalVegaDatabase
             connections,
             RelationalProvider.MySql,
             SchemaSql,
+            IdentitySchemaSql,
             GlobalBanSql)
     {
     }
@@ -39,6 +40,71 @@ public sealed class MySqlVegaDatabase : ExternalVegaDatabase
             ),
             INDEX ix_global_bans_active_expiry (revoked, expires_at_utc)
         ) ENGINE=InnoDB;
+        """;
+
+    private const string IdentitySchemaSql =
+        """
+        CREATE TABLE IF NOT EXISTS vega_groups (
+            name VARCHAR(255) NOT NULL PRIMARY KEY,
+            parent_name VARCHAR(255) NULL,
+            revision BIGINT NOT NULL CHECK (revision > 0),
+            CONSTRAINT fk_vega_groups_parent FOREIGN KEY (parent_name)
+                REFERENCES vega_groups(name) ON DELETE RESTRICT
+        ) ENGINE=InnoDB;
+
+        CREATE TABLE IF NOT EXISTS vega_group_permissions (
+            group_name VARCHAR(255) NOT NULL,
+            permission VARCHAR(255) NOT NULL,
+            effect SMALLINT NOT NULL CHECK (effect IN (-1, 1)),
+            PRIMARY KEY (group_name, permission),
+            CONSTRAINT fk_vega_permissions_group FOREIGN KEY (group_name)
+                REFERENCES vega_groups(name) ON DELETE CASCADE
+        ) ENGINE=InnoDB;
+
+        CREATE TABLE IF NOT EXISTS vega_accounts (
+            id INT NOT NULL PRIMARY KEY,
+            name VARCHAR(255) NOT NULL UNIQUE,
+            password_hash VARCHAR(512) NOT NULL,
+            group_name VARCHAR(255) NOT NULL,
+            culture VARCHAR(64) NULL,
+            last_seen_utc VARCHAR(40) NULL,
+            revision BIGINT NOT NULL CHECK (revision > 0),
+            CONSTRAINT fk_vega_accounts_group FOREIGN KEY (group_name)
+                REFERENCES vega_groups(name) ON DELETE RESTRICT
+        ) ENGINE=InnoDB;
+
+        CREATE TABLE IF NOT EXISTS vega_role_leases (
+            id CHAR(36) CHARACTER SET ascii COLLATE ascii_bin NOT NULL PRIMARY KEY,
+            account_id INT NOT NULL,
+            group_name VARCHAR(255) NOT NULL,
+            issued_by VARCHAR(255) NOT NULL,
+            issued_at_utc VARCHAR(40) NOT NULL,
+            expires_at_utc VARCHAR(40) NOT NULL,
+            revision BIGINT NOT NULL CHECK (revision > 0),
+            revoked BOOLEAN NOT NULL DEFAULT FALSE,
+            INDEX ix_role_leases_account_expiry (account_id, revoked, expires_at_utc),
+            CONSTRAINT fk_vega_leases_account FOREIGN KEY (account_id)
+                REFERENCES vega_accounts(id) ON DELETE CASCADE,
+            CONSTRAINT fk_vega_leases_group FOREIGN KEY (group_name)
+                REFERENCES vega_groups(name) ON DELETE RESTRICT
+        ) ENGINE=InnoDB;
+
+        CREATE TABLE IF NOT EXISTS vega_administration_audit (
+            id CHAR(36) CHARACTER SET ascii COLLATE ascii_bin NOT NULL PRIMARY KEY,
+            occurred_at_utc VARCHAR(40) NOT NULL,
+            actor VARCHAR(255) NOT NULL,
+            operation VARCHAR(255) NOT NULL,
+            target VARCHAR(255) NOT NULL,
+            before_revision BIGINT NOT NULL,
+            after_revision BIGINT NOT NULL,
+            outcome VARCHAR(64) NOT NULL
+        ) ENGINE=InnoDB;
+
+        INSERT IGNORE INTO vega_groups (name, parent_name, revision) VALUES ('guest', NULL, 1);
+        INSERT IGNORE INTO vega_groups (name, parent_name, revision) VALUES ('default', 'guest', 1);
+        INSERT IGNORE INTO vega_groups (name, parent_name, revision) VALUES ('administrator', 'default', 1);
+        INSERT IGNORE INTO vega_group_permissions (group_name, permission, effect)
+            VALUES ('administrator', '*', 1);
         """;
 
     private static RelationalGlobalBanSql GlobalBanSql { get; } = new(

@@ -438,11 +438,13 @@ Vega 1.0 currently has the modern command/authorization boundaries and several r
 
 ### Accounts, groups and permissions
 
-- [ ] Implement persistent account, group, inheritance and permission stores with stable identifiers, optimistic revisions and schema migrations; the current in-memory session authorization cache is not the source of truth.
+- [x] Implement persistent account, group, inheritance and permission stores with stable identifiers, optimistic revisions and schema migrations; the current in-memory session authorization cache is not the source of truth.
 - [ ] Resolve effective permissions deterministically from account assignment, group inheritance, explicit grants/denials and active temporary role leases, with cycle detection and bounded caching.
 - [ ] Add authorized commands for account lifecycle, group create/delete/list/show, parent assignment, permission grant/revoke, player group assignment and temporary group assignment.
-- [ ] Enforce delegated-administration limits from ADR 0014 so an operator cannot grant a role or permission above their own authority.
-- [ ] Persist every account/group/permission mutation and emit a structured audit record containing actor, target, before/after revision, reason and outcome.
+- [x] Enforce delegated-administration limits from ADR 0014 so an operator cannot grant a role or permission above their own authority.
+- [x] Persist every account/group/permission mutation and emit a structured audit record containing actor, target, before/after revision, reason and outcome.
+
+Schema 2 provides the same account/group tables through SQLite, PostgreSQL and MySQL, including case-normalized stable account identifiers, PBKDF2-SHA256 password verification, optimistic revisions, explicit grant/deny rows, cycle-bounded inheritance and an atomic administration audit row for every applied mutation. `account` and `group` commands use these services; the console can bootstrap the first administrator, while non-console delegation is bounded by the permissions the caller actually holds. Expiring role leases and connection-login projection remain open in the next two items.
 
 ### Regions and world authorization
 
@@ -477,7 +479,7 @@ The native `lang` command and session-scoped guest preference are live for `en-U
 - [ ] Add clean-archive tests proving that an operator can extract the release, edit documented configuration, create the first administrator, start a world and manage groups/regions/bans without repository files.
 - [ ] Update English/Russian guides and the deployable archive only after command examples, generated configuration and persistence paths match the running server.
 
-ADR 0022 establishes the persistence boundary without reproducing TShock's generic database helpers. Domain contracts never expose SQL or `DbConnection`. SQLite and PostgreSQL use transactional schema upgrades; MySQL uses a database-scoped migration lock plus idempotent retryable DDL because its engine implicitly commits DDL. Schema 1 and its clean/reopen/future-version/revision/tombstone/expiry tests are complete. The phase remains open for account, group, region, SSC and moderation product stores and for real disposable PostgreSQL/MySQL contract tests in CI.
+ADR 0022 establishes the persistence boundary without reproducing TShock's generic database helpers. Domain contracts never expose SQL or `DbConnection`. SQLite and PostgreSQL use transactional schema upgrades; MySQL uses a database-scoped migration lock plus idempotent retryable DDL because its engine implicitly commits DDL. Schema 1 ban persistence and the schema 1-to-2 identity upgrade have clean/reopen/future-version/revision tests. The phase remains open for region, SSC and moderation product stores, backup/recovery guidance and real disposable PostgreSQL/MySQL contract tests in CI.
 
 ## Architectural guardrails
 

@@ -133,6 +133,8 @@ Moderation uses one persistent typed-ban service for commands, connection admiss
 
 Players can use `/lang`, `/lang list`, `/lang en-US`, `/lang ru-RU` and `/lang reset`. Selection is applied to that recipient immediately and never changes process-global culture; guest selection lasts for the current connection. Module catalogs use their module namespace and are removed safely on unload. Registered-account preference persistence is still tracked as unfinished in Phase 19.
 
+Account and group administration is persistent in schema 2 for SQLite, PostgreSQL and MySQL. From the server console, bootstrap an administrator with `account create <name> <password> administrator`. Use `account list`, `account show <name>`, `account group <name> <group>` and `account delete <name>` for lifecycle operations. Groups support `group list`, `group show <name>`, `group create <name> [parent]`, `group parent <name> <parent|none>`, `group grant|deny|revoke <name> <permission>` and `group delete <name>`. Applied changes use optimistic revisions and write an atomic audit row; passwords are stored only as salted PBKDF2-SHA256 hashes. Non-console operators cannot delegate permissions they do not themselves hold.
+
 Server-wide optional gameplay rules live separately in `config/security.json`. They are disabled by default; when enabled they cover living-ghost/spectate restrictions, repeated-death timing and interaction proximity with the `vega.security.gameplay.bypass` permission. Database, module hot reload, TUI layout, autosave, cleaner and world-clock settings remain in their domain-specific files.
 
 ### Operations modes

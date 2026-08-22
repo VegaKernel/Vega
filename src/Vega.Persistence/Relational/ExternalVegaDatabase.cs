@@ -1,4 +1,6 @@
 using Vega.Contracts.Cluster.Events;
+using Vega.Contracts.Accounts;
+using Vega.Contracts.Authorization;
 
 namespace Vega.Persistence.Relational;
 
@@ -14,12 +16,23 @@ public abstract class ExternalVegaDatabase : IVegaDatabase
         IRelationalConnectionFactory connections,
         RelationalProvider relationalProvider,
         string schemaSql,
+        string identitySchemaSql,
         RelationalGlobalBanSql globalBanSql)
     {
         Provider = provider;
         Name = name;
-        migrator = new ExternalSchemaMigrator(connections, relationalProvider, schemaSql);
+        migrator = new ExternalSchemaMigrator(
+            connections,
+            relationalProvider,
+            schemaSql,
+            identitySchemaSql);
         GlobalBans = new RelationalGlobalBanReplica(connections, globalBanSql, EnsureReady);
+        var identities = new RelationalIdentityService(
+            connections.Open,
+            connections.OpenAsync,
+            EnsureReady);
+        Accounts = identities;
+        Authorization = identities;
     }
 
     public string Provider { get; }
@@ -31,6 +44,10 @@ public abstract class ExternalVegaDatabase : IVegaDatabase
     public bool IsReady => SchemaVersion > 0;
 
     public IGlobalBanReplica GlobalBans { get; }
+
+    public IAccountService Accounts { get; }
+
+    public IAuthorizationService Authorization { get; }
 
     public async ValueTask InitializeAsync(CancellationToken cancellationToken = default)
     {

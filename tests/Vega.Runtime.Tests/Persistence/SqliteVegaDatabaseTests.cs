@@ -1,6 +1,7 @@
 using Microsoft.Data.Sqlite;
 using NUnit.Framework;
 using Vega.Contracts.Cluster.Events;
+using Vega.Contracts.Authorization;
 using Vega.Persistence.Sqlite;
 
 namespace Vega.Runtime.Tests.Persistence;
@@ -39,12 +40,122 @@ public sealed class SqliteVegaDatabaseTests
 
         Assert.Multiple(() =>
         {
-            Assert.That(first.SchemaVersion, Is.EqualTo(1));
-            Assert.That(second.SchemaVersion, Is.EqualTo(1));
+            Assert.That(first.SchemaVersion, Is.EqualTo(2));
+            Assert.That(second.SchemaVersion, Is.EqualTo(2));
             Assert.That(first.DatabasePath, Is.EqualTo(Path.GetFullPath(databasePath)));
             Assert.That(File.Exists(databasePath), Is.True);
-            Assert.That(ScalarInt64("SELECT COUNT(*) FROM vega_schema_history;"), Is.EqualTo(1));
+            Assert.That(ScalarInt64("SELECT COUNT(*) FROM vega_schema_history;"), Is.EqualTo(2));
             Assert.That(ScalarInt64("SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = 'global_bans';"), Is.EqualTo(1));
+            Assert.That(ScalarInt64("SELECT COUNT(*) FROM vega_groups;"), Is.EqualTo(3));
+        });
+    }
+
+    [Test]
+    public async Task AccountsGroupsPasswordsAndOptimisticRevisionsPersistAcrossRestart()
+    {
+        SqliteVegaDatabase database = await OpenAsync();
+        var builders = await database.Authorization.CreateGroupAsync(
+            "Builders",
+            "default",
+            "Server");
+        var granted = await database.Authorization.SetPermissionAsync(
+            "builders",
+            "vega.world.build",
+            PermissionEffect.Grant,
+            builders.After!.Revision,
+            "Server");
+        var denied = await database.Authorization.SetPermissionAsync(
+            "builders",
+            "vega.world.destroy",
+            PermissionEffect.Deny,
+            granted.After!.Revision,
+            "Server");
+        var created = await database.Accounts.CreateAsync(
+            "Alice",
+            "correct horse battery staple",
+            "builders",
+            "Server");
+        var conflict = await database.Accounts.SetCultureAsync(
+            "alice",
+            "ru-RU",
+            expectedRevision: 999,
+            "Server");
+        var culture = await database.Accounts.SetCultureAsync(
+            "alice",
+            "ru-RU",
+            created.After!.Revision,
+            "Server");
+
+        SqliteVegaDatabase reopened = await OpenAsync();
+        var account = await reopened.Accounts.FindByNameAsync("ALICE");
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(denied.Succeeded, Is.True);
+            Assert.That(reopened.Authorization.HasPermission("builders", "vega.world.build"), Is.True);
+            Assert.That(reopened.Authorization.HasPermission("builders", "vega.world.destroy"), Is.False);
+            Assert.That(conflict.Code, Is.EqualTo("account.revision-conflict"));
+            Assert.That(culture.Succeeded, Is.True);
+            Assert.That(account!.Culture, Is.EqualTo("ru-RU"));
+            Assert.That(account.Revision, Is.EqualTo(2));
+            Assert.That(reopened.Accounts.VerifyPasswordAsync(
+                "alice",
+                "correct horse battery staple").AsTask().Result, Is.True);
+            Assert.That(reopened.Accounts.VerifyPasswordAsync("alice", "wrong password").AsTask().Result, Is.False);
+            Assert.That(ScalarInt64("SELECT COUNT(*) FROM vega_administration_audit;"), Is.EqualTo(5));
+        });
+    }
+
+    [Test]
+    public async Task GroupInheritanceCyclesAreRejected()
+    {
+        SqliteVegaDatabase database = await OpenAsync();
+        var first = await database.Authorization.CreateGroupAsync("first", "default", "Server");
+        var second = await database.Authorization.CreateGroupAsync("second", "first", "Server");
+
+        var cycle = await database.Authorization.SetParentAsync(
+            "first",
+            "second",
+            first.After!.Revision,
+            "Server");
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(second.Succeeded, Is.True);
+            Assert.That(cycle.Succeeded, Is.False);
+            Assert.That(cycle.Code, Is.EqualTo("group.inheritance-cycle"));
+        });
+    }
+
+    [Test]
+    public async Task ReleasedSchemaOneDatabaseUpgradesIdempotentlyToSchemaTwo()
+    {
+        Directory.CreateDirectory(Path.GetDirectoryName(databasePath)!);
+        await using (var connection = new SqliteConnection($"Data Source={databasePath}"))
+        {
+            await connection.OpenAsync();
+            await using SqliteCommand command = connection.CreateCommand();
+            command.CommandText =
+                """
+                CREATE TABLE vega_schema_history (
+                    version INTEGER NOT NULL PRIMARY KEY,
+                    name TEXT NOT NULL,
+                    applied_at_utc TEXT NOT NULL
+                );
+                INSERT INTO vega_schema_history VALUES (1, 'global-bans', '2026-08-20T12:00:00Z');
+                """;
+            await command.ExecuteNonQueryAsync();
+        }
+
+        SqliteVegaDatabase first = await OpenAsync();
+        SqliteVegaDatabase second = await OpenAsync();
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(first.SchemaVersion, Is.EqualTo(2));
+            Assert.That(second.SchemaVersion, Is.EqualTo(2));
+            Assert.That(ScalarInt64("SELECT COUNT(*) FROM vega_schema_history;"), Is.EqualTo(2));
+            Assert.That(ScalarInt64("SELECT COUNT(*) FROM vega_groups;"), Is.EqualTo(3));
         });
     }
 

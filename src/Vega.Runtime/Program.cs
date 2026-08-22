@@ -266,6 +266,10 @@ int Start()
         var banService = new GlobalBanService(database.GlobalBans);
         using IDisposable banCommandRegistration = commandDispatcher.Register(
             new BanCommand(playerBoundary, playerBoundary, banService));
+        using IDisposable accountCommandRegistration = commandDispatcher.Register(
+            new AccountCommand(database.Accounts, database.Authorization));
+        using IDisposable groupCommandRegistration = commandDispatcher.Register(
+            new GroupCommand(database.Authorization));
         using var banEnforcer = new PersistentBanEnforcer(
             banService,
             playerBoundary,

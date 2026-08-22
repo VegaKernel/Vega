@@ -12,10 +12,10 @@ internal enum RelationalProvider
 internal sealed class ExternalSchemaMigrator(
     IRelationalConnectionFactory connections,
     RelationalProvider provider,
-    string schemaSql)
+    string globalBanSchemaSql,
+    string identitySchemaSql)
 {
-    private const int CurrentVersion = 1;
-    private const string MigrationName = "global-bans";
+    private const int CurrentVersion = 2;
 
     public async ValueTask<int> ApplyAsync(CancellationToken cancellationToken)
     {
@@ -45,13 +45,27 @@ internal sealed class ExternalSchemaMigrator(
                 .ConfigureAwait(false);
             EnsureSupported(version);
 
-            if (version < CurrentVersion)
+            if (version < 1)
             {
-                await ExecuteAsync(connection, transaction, schemaSql, cancellationToken)
+                await ExecuteAsync(connection, transaction, globalBanSchemaSql, cancellationToken)
                     .ConfigureAwait(false);
-                await InsertHistoryAsync(connection, transaction, cancellationToken)
+                await InsertHistoryAsync(connection, transaction, 1, "global-bans", cancellationToken)
                     .ConfigureAwait(false);
-                version = CurrentVersion;
+                version = 1;
+            }
+
+            if (version < 2)
+            {
+                await ExecuteAsync(connection, transaction, identitySchemaSql, cancellationToken)
+                    .ConfigureAwait(false);
+                await InsertHistoryAsync(
+                        connection,
+                        transaction,
+                        2,
+                        "accounts-groups-authorization",
+                        cancellationToken)
+                    .ConfigureAwait(false);
+                version = 2;
             }
 
             await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
@@ -77,15 +91,29 @@ internal sealed class ExternalSchemaMigrator(
             int version = await ReadVersionAsync(connection, null, cancellationToken)
                 .ConfigureAwait(false);
             EnsureSupported(version);
-            if (version < CurrentVersion)
+            if (version < 1)
             {
                 // MySQL implicitly commits DDL. The migration SQL is idempotent so a
                 // crash before history insertion is safely retried under the same lock.
-                await ExecuteAsync(connection, null, schemaSql, cancellationToken)
+                await ExecuteAsync(connection, null, globalBanSchemaSql, cancellationToken)
                     .ConfigureAwait(false);
-                await InsertHistoryAsync(connection, null, cancellationToken)
+                await InsertHistoryAsync(connection, null, 1, "global-bans", cancellationToken)
                     .ConfigureAwait(false);
-                version = CurrentVersion;
+                version = 1;
+            }
+
+            if (version < 2)
+            {
+                await ExecuteAsync(connection, null, identitySchemaSql, cancellationToken)
+                    .ConfigureAwait(false);
+                await InsertHistoryAsync(
+                        connection,
+                        null,
+                        2,
+                        "accounts-groups-authorization",
+                        cancellationToken)
+                    .ConfigureAwait(false);
+                version = 2;
             }
 
             return version;
@@ -132,6 +160,8 @@ internal sealed class ExternalSchemaMigrator(
     private static async ValueTask InsertHistoryAsync(
         DbConnection connection,
         DbTransaction? transaction,
+        int version,
+        string migrationName,
         CancellationToken cancellationToken)
     {
         await using DbCommand command = connection.CreateCommand();
@@ -141,8 +171,8 @@ internal sealed class ExternalSchemaMigrator(
             INSERT INTO vega_schema_history (version, name, applied_at_utc)
             VALUES (@version, @name, @appliedAt);
             """;
-        command.AddParameter("@version", CurrentVersion);
-        command.AddParameter("@name", MigrationName);
+        command.AddParameter("@version", version);
+        command.AddParameter("@name", migrationName);
         command.AddParameter(
             "@appliedAt",
             DateTimeOffset.UtcNow.ToString("O", CultureInfo.InvariantCulture));

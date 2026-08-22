@@ -11,6 +11,7 @@ public sealed class PostgreSqlVegaDatabase : ExternalVegaDatabase
             connections,
             RelationalProvider.PostgreSql,
             SchemaSql,
+            IdentitySchemaSql,
             GlobalBanSql)
     {
     }
@@ -41,6 +42,63 @@ public sealed class PostgreSqlVegaDatabase : ExternalVegaDatabase
 
         CREATE INDEX ix_global_bans_active_expiry
             ON global_bans (revoked, expires_at_utc);
+        """;
+
+    private const string IdentitySchemaSql =
+        """
+        CREATE TABLE vega_groups (
+            name VARCHAR(255) NOT NULL PRIMARY KEY,
+            parent_name VARCHAR(255) NULL REFERENCES vega_groups(name) ON DELETE RESTRICT,
+            revision BIGINT NOT NULL CHECK (revision > 0)
+        );
+
+        CREATE TABLE vega_group_permissions (
+            group_name VARCHAR(255) NOT NULL REFERENCES vega_groups(name) ON DELETE CASCADE,
+            permission VARCHAR(255) NOT NULL,
+            effect SMALLINT NOT NULL CHECK (effect IN (-1, 1)),
+            PRIMARY KEY (group_name, permission)
+        );
+
+        CREATE TABLE vega_accounts (
+            id INTEGER NOT NULL PRIMARY KEY,
+            name VARCHAR(255) NOT NULL UNIQUE,
+            password_hash VARCHAR(512) NOT NULL,
+            group_name VARCHAR(255) NOT NULL REFERENCES vega_groups(name) ON DELETE RESTRICT,
+            culture VARCHAR(64) NULL,
+            last_seen_utc VARCHAR(40) NULL,
+            revision BIGINT NOT NULL CHECK (revision > 0)
+        );
+
+        CREATE TABLE vega_role_leases (
+            id VARCHAR(36) NOT NULL PRIMARY KEY,
+            account_id INTEGER NOT NULL REFERENCES vega_accounts(id) ON DELETE CASCADE,
+            group_name VARCHAR(255) NOT NULL REFERENCES vega_groups(name) ON DELETE RESTRICT,
+            issued_by VARCHAR(255) NOT NULL,
+            issued_at_utc VARCHAR(40) NOT NULL,
+            expires_at_utc VARCHAR(40) NOT NULL,
+            revision BIGINT NOT NULL CHECK (revision > 0),
+            revoked BOOLEAN NOT NULL DEFAULT FALSE
+        );
+
+        CREATE INDEX ix_role_leases_account_expiry
+            ON vega_role_leases (account_id, revoked, expires_at_utc);
+
+        CREATE TABLE vega_administration_audit (
+            id VARCHAR(36) NOT NULL PRIMARY KEY,
+            occurred_at_utc VARCHAR(40) NOT NULL,
+            actor VARCHAR(255) NOT NULL,
+            operation VARCHAR(255) NOT NULL,
+            target VARCHAR(255) NOT NULL,
+            before_revision BIGINT NOT NULL,
+            after_revision BIGINT NOT NULL,
+            outcome VARCHAR(64) NOT NULL
+        );
+
+        INSERT INTO vega_groups (name, parent_name, revision) VALUES ('guest', NULL, 1);
+        INSERT INTO vega_groups (name, parent_name, revision) VALUES ('default', 'guest', 1);
+        INSERT INTO vega_groups (name, parent_name, revision) VALUES ('administrator', 'default', 1);
+        INSERT INTO vega_group_permissions (group_name, permission, effect)
+            VALUES ('administrator', '*', 1);
         """;
 
     private static RelationalGlobalBanSql GlobalBanSql { get; } = new(
