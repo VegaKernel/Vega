@@ -92,6 +92,7 @@ public sealed class SqliteVegaDatabase : IVegaDatabase
                 .ApplyAsync(connections, cancellationToken)
                 .ConfigureAwait(false);
             Volatile.Write(ref schemaVersion, version);
+            Authorization.SnapshotGroups();
             Regions.SnapshotRegions(WorldId.Primary);
         }
         finally

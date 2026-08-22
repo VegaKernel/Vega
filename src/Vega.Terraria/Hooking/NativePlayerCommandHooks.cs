@@ -2,6 +2,7 @@ using Multiplicity.Packets;
 using Multiplicity.Packets.Views;
 using OTAPI;
 using Vega.Contracts.Authorization;
+using Vega.Contracts.Accounts;
 using Vega.Contracts.Commands;
 using Vega.Contracts.Messaging;
 using Vega.Contracts.Localization;
@@ -24,6 +25,7 @@ internal sealed class NativePlayerCommandHooks : IDisposable
     private readonly ILocalizationService localization;
     private readonly IPlayerCultureService cultures;
     private readonly IPlayerSessionLifecycle sessions;
+    private readonly IPlayerAccountSessionService accountSessions;
     private bool attached;
 
     public NativePlayerCommandHooks(
@@ -34,7 +36,8 @@ internal sealed class NativePlayerCommandHooks : IDisposable
         IOperationsLogger logger,
         ILocalizationService localization,
         IPlayerCultureService cultures,
-        IPlayerSessionLifecycle sessions)
+        IPlayerSessionLifecycle sessions,
+        IPlayerAccountSessionService accountSessions)
     {
         this.dispatcher = dispatcher ?? throw new ArgumentNullException(nameof(dispatcher));
         this.authorization = authorization ?? throw new ArgumentNullException(nameof(authorization));
@@ -44,6 +47,7 @@ internal sealed class NativePlayerCommandHooks : IDisposable
         this.localization = localization ?? throw new ArgumentNullException(nameof(localization));
         this.cultures = cultures ?? throw new ArgumentNullException(nameof(cultures));
         this.sessions = sessions ?? throw new ArgumentNullException(nameof(sessions));
+        this.accountSessions = accountSessions ?? throw new ArgumentNullException(nameof(accountSessions));
     }
 
     public void Attach()
@@ -156,10 +160,11 @@ internal sealed class NativePlayerCommandHooks : IDisposable
         try
         {
             var output = new PlayerCommandOutput(messenger, playerId);
+            accountSessions.TryGetAccount(playerId, out AccountSnapshot? account);
             var invocation = new CommandInvocation(
                 command.Name,
                 command.Arguments,
-                new PlayerCommandPrincipal(playerName, playerId, authorization),
+                new PlayerCommandPrincipal(playerName, playerId, authorization, account),
                 output,
                 command.Silent);
 
@@ -217,19 +222,38 @@ internal sealed class NativePlayerCommandHooks : IDisposable
 
     private static string CultureSubject(PlayerId playerId) => $"player:{playerId.Slot}";
 
-    private sealed class PlayerCommandPrincipal(
-        string name,
-        PlayerId playerId,
-        IPlayerAuthorizationService authorization) : ICommandCulturePrincipal
+    private sealed class PlayerCommandPrincipal : IPlayerCommandPrincipal
     {
-        public string Name { get; } = name;
+        private readonly IPlayerAuthorizationService authorization;
+
+        public PlayerCommandPrincipal(
+            string playerName,
+            PlayerId playerId,
+            IPlayerAuthorizationService authorization,
+            AccountSnapshot? account)
+        {
+            PlayerName = playerName;
+            PlayerId = playerId;
+            this.authorization = authorization;
+            Name = account?.Name ?? playerName;
+            AccountName = account?.Name;
+            CultureSubjectId = CultureSubject(playerId);
+        }
+
+        public string Name { get; }
 
         public bool IsServer => false;
 
-        public string CultureSubjectId { get; } = CultureSubject(playerId);
+        public string CultureSubjectId { get; }
+
+        public PlayerId PlayerId { get; }
+
+        public string PlayerName { get; }
+
+        public string? AccountName { get; }
 
         public bool HasPermission(string permission) =>
-            authorization.HasPermission(playerId, permission);
+            authorization.HasPermission(PlayerId, permission);
     }
 
     private sealed class PlayerCommandOutput(

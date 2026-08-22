@@ -1,6 +1,7 @@
 using Multiplicity.Packets;
 using Multiplicity.Packets.Views;
 using Vega.Contracts.Authorization;
+using Vega.Contracts.Accounts;
 using Vega.Contracts.Networking;
 using Vega.Contracts.Players;
 using Vega.Contracts.Regions;
@@ -11,7 +12,8 @@ namespace Vega.Core.Networking;
 public sealed class RegionBuildAuthorizationPolicy(
     IRegionService regions,
     IPlayerDirectory players,
-    IPlayerAuthorizationService authorization) : IPacketProcessor<PacketView>
+    IPlayerAuthorizationService authorization,
+    IPlayerAccountSessionService? accountSessions = null) : IPacketProcessor<PacketView>
 {
     public const string BypassPermission = "vega.regions.bypass";
 
@@ -41,11 +43,15 @@ public sealed class RegionBuildAuthorizationPolicy(
 
     private bool IsAllowed(RegionSnapshot? region, PlayerSnapshot player, PlayerId playerId)
     {
+        string subject = accountSessions is not null &&
+            accountSessions.TryGetAccount(playerId, out AccountSnapshot? account) && account is not null
+                ? account.Name
+                : player.Name;
         if (region is null ||
             (region.Flags.TryGetValue("protected", out bool protectedFlag) && !protectedFlag) ||
             (region.Flags.TryGetValue("build", out bool publicBuild) && publicBuild) ||
-            string.Equals(region.Owner, player.Name, StringComparison.OrdinalIgnoreCase) ||
-            region.Members.Contains(player.Name))
+            string.Equals(region.Owner, subject, StringComparison.OrdinalIgnoreCase) ||
+            region.Members.Contains(subject))
         {
             return true;
         }

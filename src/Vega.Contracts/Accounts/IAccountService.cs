@@ -35,6 +35,20 @@ public interface IAccountService
         string actor,
         CancellationToken cancellationToken = default);
 
+    ValueTask<AccountMutationResult> ChangePasswordAsync(
+        string name,
+        string password,
+        long expectedRevision,
+        string actor,
+        CancellationToken cancellationToken = default);
+
+    ValueTask<AccountMutationResult> RecordLoginAsync(
+        string name,
+        DateTimeOffset seenAt,
+        long expectedRevision,
+        string actor,
+        CancellationToken cancellationToken = default);
+
     ValueTask<bool> VerifyPasswordAsync(
         string name,
         string password,

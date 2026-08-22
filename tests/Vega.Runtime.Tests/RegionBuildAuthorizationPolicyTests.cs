@@ -2,6 +2,7 @@ using Multiplicity.Packets;
 using Multiplicity.Packets.Views;
 using NUnit.Framework;
 using Vega.Contracts.Authorization;
+using Vega.Contracts.Accounts;
 using Vega.Contracts.Networking;
 using Vega.Contracts.Players;
 using Vega.Contracts.Regions;
@@ -75,6 +76,22 @@ public sealed class RegionBuildAuthorizationPolicyTests
     {
         PacketProcessingDecision decision = Process(CreatePolicy(Region()),
             new PlaceChest { TileX = 80, TileY = 80 });
+
+        Assert.That(decision.Kind, Is.EqualTo(PacketDecisionKind.Allow));
+    }
+
+    [Test]
+    public void AuthenticatedAccountIdentityOwnsRegionEvenWhenCharacterNameDiffers()
+    {
+        RegionSnapshot region = Region() with { Owner = "alice" };
+        RegionBuildAuthorizationPolicy policy = new(
+            new FakeRegions(region),
+            new FakeDirectory(),
+            new FakeAuthorization([]),
+            new FakeAccountSessions());
+
+        PacketProcessingDecision decision = Process(policy,
+            new Tile { Action = TileAction.PlaceTile, TileX = 12, TileY = 14, Value = 1 });
 
         Assert.That(decision.Kind, Is.EqualTo(PacketDecisionKind.Allow));
     }
@@ -192,5 +209,19 @@ public sealed class RegionBuildAuthorizationPolicyTests
             WorldId worldId, string name, RegionAccessKind kind, string subject, bool enabled,
             long expectedRevision, string actor, CancellationToken cancellationToken = default) =>
             throw new NotSupportedException();
+    }
+
+    private sealed class FakeAccountSessions : IPlayerAccountSessionService
+    {
+        public bool TryGetAccount(PlayerId playerId, out AccountSnapshot? account)
+        {
+            account = new AccountSnapshot(new AccountId(1), "alice", "default", null) { Revision = 1 };
+            return true;
+        }
+
+        public ValueTask<bool> SetCultureAsync(
+            PlayerId playerId,
+            string? culture,
+            CancellationToken cancellationToken = default) => ValueTask.FromResult(true);
     }
 }

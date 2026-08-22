@@ -439,12 +439,12 @@ Vega 1.0 currently has the modern command/authorization boundaries and several r
 ### Accounts, groups and permissions
 
 - [x] Implement persistent account, group, inheritance and permission stores with stable identifiers, optimistic revisions and schema migrations; the current in-memory session authorization cache is not the source of truth.
-- [ ] Resolve effective permissions deterministically from account assignment, group inheritance, explicit grants/denials and active temporary role leases, with cycle detection and bounded caching.
-- [ ] Add authorized commands for account lifecycle, group create/delete/list/show, parent assignment, permission grant/revoke, player group assignment and temporary group assignment.
+- [ ] Resolve effective permissions deterministically from account assignment, group inheritance, explicit grants/denials and active temporary role leases, with cycle detection and bounded caching. Persistent account sessions and live cached group projection are complete; temporary role leases remain open.
+- [ ] Add authorized commands for account lifecycle, group create/delete/list/show, parent assignment, permission grant/revoke, player group assignment and temporary group assignment. Permanent administration plus player `register`/`login`/`logout`/`password` are complete; temporary assignment remains open.
 - [x] Enforce delegated-administration limits from ADR 0014 so an operator cannot grant a role or permission above their own authority.
 - [x] Persist every account/group/permission mutation and emit a structured audit record containing actor, target, before/after revision, reason and outcome.
 
-Schema 2 provides the same account/group tables through SQLite, PostgreSQL and MySQL, including case-normalized stable account identifiers, PBKDF2-SHA256 password verification, optimistic revisions, explicit grant/deny rows, cycle-bounded inheritance and an atomic administration audit row for every applied mutation. `account` and `group` commands use these services; the console can bootstrap the first administrator, while non-console delegation is bounded by the permissions the caller actually holds. Expiring role leases and connection-login projection remain open in the next two items.
+Schema 2 provides the same account/group tables through SQLite, PostgreSQL and MySQL, including case-normalized stable account identifiers, PBKDF2-SHA256 password verification, optimistic revisions, explicit grant/deny rows, cycle-bounded inheritance and an atomic administration audit row for every applied mutation. `account` and `group` commands use these services; the console can bootstrap the first administrator, while non-console delegation is bounded by the permissions the caller actually holds. Player account sessions project live group policy into command and region authorization, record last login, reject account bans and clear on logout/disconnect. Expiring role leases remain open in the next two items.
 
 ### Regions and world authorization
 
@@ -454,7 +454,7 @@ Schema 2 provides the same account/group tables through SQLite, PostgreSQL and M
 - [ ] Expose immutable region snapshots and authorized mutations to Operations/TUI so `HouseRegions`, `Region-Vision` and sandbox worlds share one source of truth.
 - [ ] Add migrations and regression tests for overlapping priorities, renamed/deleted worlds, offline owners, permission inheritance and concurrent edits.
 
-Schema 3 stores region identity by explicit `WorldId`, validates non-empty bounded rectangles, resolves overlaps by priority then smallest area and retains owners as offline-capable account names. Members, groups and boolean flags are versioned with the region; mutations use optimistic revisions and the shared administration audit. `region` commands always use `CommandInvocation.WorldId`, so identical names in different worlds do not collide. Runtime build packets now resolve protected regions from immutable per-world snapshots, allow owners/members/groups or `vega.regions.bypass`, and invalidate the cache after committed mutations. Chest/use admission, authenticated group projection, Operations projections and lifecycle validation for renamed/deleted worlds remain open above.
+Schema 3 stores region identity by explicit `WorldId`, validates non-empty bounded rectangles, resolves overlaps by priority then smallest area and retains owners as offline-capable account names. Members, groups and boolean flags are versioned with the region; mutations use optimistic revisions and the shared administration audit. `region` commands always use `CommandInvocation.WorldId`, so identical names in different worlds do not collide. Runtime build packets now resolve protected regions from immutable per-world snapshots, use authenticated account/group identity, allow `vega.regions.bypass`, and invalidate the cache after committed mutations. Chest/use admission, Operations projections and lifecycle validation for renamed/deleted worlds remain open above.
 
 ### Bans and moderation commands
 
@@ -466,12 +466,12 @@ Schema 3 stores region identity by explicit `WorldId`, validates non-empty bound
 ### Localization and command completeness
 
 - [x] Implement ADR 0009 localization catalogs, module namespaces, deterministic fallback and explicit per-recipient culture without process-global culture mutation.
-- [ ] Add `/lang`, `/lang list`, `/lang <culture>` and `/lang reset`; persist registered-account preference and keep guest preference session-scoped.
+- [x] Add `/lang`, `/lang list`, `/lang <culture>` and `/lang reset`; persist registered-account preference and keep guest preference session-scoped.
 - [ ] Add a generated command catalog and `help`/command-discovery output that shows only commands the caller may use, including aliases, syntax and permission requirements.
 - [ ] Keep Vega commands and Terraria native commands reachable from plain console and TUI without competing stdin readers; capture native command output into bounded operations logs/results.
 - [ ] Audit the minimum built-in operator set beyond `serverinfo`, `checkupdates`, `kick` and `playing`, and cover save/shutdown, moderation, identity, groups, regions, configuration and language with end-to-end tests.
 
-The native `lang` command and session-scoped guest preference are live for `en-US` and `ru-RU`; the command switches the recipient catalog immediately and stale module-catalog unload cannot remove a newer registration. The second item remains open until account persistence restores and updates the registered player's preference.
+The native `lang` command and session-scoped guest preference are live for `en-US` and `ru-RU`; authenticated account selection is persisted and restored at login. The command switches only the recipient catalog, and stale module-catalog unload cannot remove a newer registration.
 
 ### Persistence, migration and release validation
 

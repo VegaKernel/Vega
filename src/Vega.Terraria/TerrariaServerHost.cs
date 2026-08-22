@@ -2,6 +2,7 @@ using Multiplicity.Packets.Views;
 using ReLogic.OS;
 using Terraria.ID;
 using Vega.Contracts.Authorization;
+using Vega.Contracts.Accounts;
 using Vega.Contracts.Commands;
 using Vega.Contracts.Networking;
 using Vega.Contracts.Operations;
@@ -41,6 +42,7 @@ public static class TerrariaServerHost
         IPacketProcessor<PacketView> playerOwnershipSecurity,
         ICommandDispatcher commandDispatcher,
         IPlayerAuthorizationService playerAuthorization,
+        IPlayerAccountSessionService accountSessions,
         ILocalizationService localization,
         IPlayerCultureService cultures)
     {
@@ -61,6 +63,7 @@ public static class TerrariaServerHost
         ArgumentNullException.ThrowIfNull(playerOwnershipSecurity);
         ArgumentNullException.ThrowIfNull(commandDispatcher);
         ArgumentNullException.ThrowIfNull(playerAuthorization);
+        ArgumentNullException.ThrowIfNull(accountSessions);
         ArgumentNullException.ThrowIfNull(localization);
         ArgumentNullException.ThrowIfNull(cultures);
 
@@ -105,7 +108,8 @@ public static class TerrariaServerHost
             logger,
             localization,
             cultures,
-            playerBoundary);
+            playerBoundary,
+            accountSessions);
         using var worldClockSynchronizer = new TerrariaWorldClockSynchronizer(worldClock, logger);
 
         try

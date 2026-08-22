@@ -157,8 +157,7 @@ int Start()
         new TickRateCommand(operationsState),
         new CheckUpdatesCommand(updateChecker),
         new KickCommand(playerBoundary, playerBoundary, playerAuthorization),
-        new PlayingCommand(playerBoundary),
-        new LanguageCommand(localization)
+        new PlayingCommand(playerBoundary)
     ];
     var commandDispatcher = new CommandDispatcher(commandHandlers);
     using IDisposable helpCommandRegistration = commandDispatcher.Register(new HelpCommand(commandDispatcher));
@@ -224,6 +223,25 @@ int Start()
             return 1;
         }
 
+        var banService = new GlobalBanService(database.GlobalBans);
+        using var accountSessions = new PlayerAccountSessionService(
+            database.Accounts,
+            database.Authorization,
+            playerAuthorization,
+            localization,
+            playerBoundary,
+            banService);
+        using IDisposable registerAccountCommandRegistration = commandDispatcher.Register(
+            new RegisterAccountCommand(accountSessions));
+        using IDisposable loginAccountCommandRegistration = commandDispatcher.Register(
+            new LoginAccountCommand(accountSessions));
+        using IDisposable logoutAccountCommandRegistration = commandDispatcher.Register(
+            new LogoutAccountCommand(accountSessions));
+        using IDisposable passwordAccountCommandRegistration = commandDispatcher.Register(
+            new PasswordAccountCommand(accountSessions));
+        using IDisposable languageCommandRegistration = commandDispatcher.Register(
+            new LanguageCommand(localization, accountSessions));
+
         GameplayEnforcementOptions gameplayOptions = GameplayEnforcementOptionsStore.Load(
             Path.Combine(AppContext.BaseDirectory, "config", "security.json"),
             logger);
@@ -237,7 +255,11 @@ int Start()
         [
             packetRateLimits,
             gameplayEnforcement,
-            new RegionBuildAuthorizationPolicy(database.Regions, playerBoundary, playerAuthorization),
+            new RegionBuildAuthorizationPolicy(
+                database.Regions,
+                playerBoundary,
+                playerAuthorization,
+                accountSessions),
             new NpcCoinPickupAuthorityPolicy(),
             new WorldItemSyncSanityPolicy(
                 TerrariaPacketSecurityLimits.ItemTypeCount,
@@ -265,7 +287,6 @@ int Start()
         using IDisposable worldCleanCommandRegistration = commandDispatcher.Register(
             new AutoWorldCleanerCommand(autoWorldCleaner));
 
-        var banService = new GlobalBanService(database.GlobalBans);
         using IDisposable banCommandRegistration = commandDispatcher.Register(
             new BanCommand(playerBoundary, playerBoundary, banService));
         using IDisposable accountCommandRegistration = commandDispatcher.Register(
@@ -391,6 +412,7 @@ int Start()
             playerPacketPolicies,
             commandDispatcher,
             playerAuthorization,
+            accountSessions,
             localization,
             localization);
     }

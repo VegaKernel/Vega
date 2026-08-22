@@ -1,3 +1,4 @@
+using System.Collections.Frozen;
 using System.Data.Common;
 using System.Globalization;
 using System.Security.Cryptography;
@@ -13,6 +14,8 @@ internal sealed class RelationalIdentityService(
 {
     private const int PasswordIterations = 210_000;
     private readonly SemaphoreSlim mutations = new(1, 1);
+    private readonly object groupCacheSync = new();
+    private IReadOnlyList<GroupSnapshot>? groupCache;
 
     public IReadOnlyList<AccountSnapshot> SnapshotAccounts()
     {
@@ -177,6 +180,50 @@ internal sealed class RelationalIdentityService(
             cancellationToken: cancellationToken);
     }
 
+    public ValueTask<AccountMutationResult> ChangePasswordAsync(
+        string name,
+        string password,
+        long expectedRevision,
+        string actor,
+        CancellationToken cancellationToken = default)
+    {
+        ValidatePassword(password);
+        string passwordHash = HashPassword(password);
+        return MutateAccountAsync(
+            name,
+            expectedRevision,
+            actor,
+            "account.password",
+            (command, _) =>
+            {
+                command.CommandText =
+                    "UPDATE vega_accounts SET password_hash = @password, revision = revision + 1 " +
+                    "WHERE name = @name AND revision = @revision;";
+                command.AddParameter("@password", passwordHash);
+            },
+            cancellationToken: cancellationToken);
+    }
+
+    public ValueTask<AccountMutationResult> RecordLoginAsync(
+        string name,
+        DateTimeOffset seenAt,
+        long expectedRevision,
+        string actor,
+        CancellationToken cancellationToken = default) =>
+        MutateAccountAsync(
+            name,
+            expectedRevision,
+            actor,
+            "account.login",
+            (command, _) =>
+            {
+                command.CommandText =
+                    "UPDATE vega_accounts SET last_seen_utc = @seen, revision = revision + 1 " +
+                    "WHERE name = @name AND revision = @revision;";
+                command.AddParameter("@seen", seenAt.ToUniversalTime().ToString("O", CultureInfo.InvariantCulture));
+            },
+            cancellationToken: cancellationToken);
+
     public async ValueTask<bool> VerifyPasswordAsync(
         string name,
         string password,
@@ -194,8 +241,16 @@ internal sealed class RelationalIdentityService(
     public IReadOnlyList<GroupSnapshot> SnapshotGroups()
     {
         ensureReady();
-        using DbConnection connection = open();
-        return ReadGroups(connection);
+        lock (groupCacheSync)
+        {
+            if (groupCache is null)
+            {
+                using DbConnection connection = open();
+                groupCache = ReadGroups(connection);
+            }
+
+            return groupCache;
+        }
     }
 
     public bool TryGetGroup(string groupName, out GroupSnapshot? group)
@@ -280,6 +335,7 @@ internal sealed class RelationalIdentityService(
                 await WriteAuditAsync(connection, transaction, actor, "group.create", normalized, 0, 1, cancellationToken)
                     .ConfigureAwait(false);
                 await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
+                InvalidateGroups();
                 return new GroupMutationResult(true, "group.created", After: after);
             }
             catch
@@ -402,6 +458,7 @@ internal sealed class RelationalIdentityService(
                         before.Revision, after.Revision, cancellationToken)
                     .ConfigureAwait(false);
                 await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
+                InvalidateGroups();
                 return new GroupMutationResult(true, "group.permission-updated", before, after);
             }
             catch
@@ -563,6 +620,7 @@ internal sealed class RelationalIdentityService(
                         before.Revision, after?.Revision ?? checked(before.Revision + 1), cancellationToken)
                     .ConfigureAwait(false);
                 await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
+                InvalidateGroups();
                 return new GroupMutationResult(true, operation, before, after);
             }
             catch
@@ -621,7 +679,14 @@ internal sealed class RelationalIdentityService(
             }
         }
 
-        return groups.Values.OrderBy(static group => group.Name, StringComparer.OrdinalIgnoreCase).ToArray();
+        return Array.AsReadOnly(groups.Values
+            .Select(static group => group with
+            {
+                Permissions = group.Permissions.ToFrozenSet(StringComparer.OrdinalIgnoreCase),
+                DeniedPermissions = group.DeniedPermissions.ToFrozenSet(StringComparer.OrdinalIgnoreCase)
+            })
+            .OrderBy(static group => group.Name, StringComparer.OrdinalIgnoreCase)
+            .ToArray());
     }
 
     private static async ValueTask<AccountSnapshot?> FindAccountAsync(
@@ -807,4 +872,12 @@ internal sealed class RelationalIdentityService(
             "O",
             CultureInfo.InvariantCulture,
             DateTimeStyles.AssumeUniversal | DateTimeStyles.AdjustToUniversal);
+
+    private void InvalidateGroups()
+    {
+        lock (groupCacheSync)
+        {
+            groupCache = null;
+        }
+    }
 }

@@ -30,6 +30,7 @@ public sealed class AccountCommand(
             "create" => await CreateAsync(invocation, cancellationToken).ConfigureAwait(false),
             "delete" => await DeleteAsync(invocation, cancellationToken).ConfigureAwait(false),
             "group" => await SetGroupAsync(invocation, cancellationToken).ConfigureAwait(false),
+            "password" => await SetPasswordAsync(invocation, cancellationToken).ConfigureAwait(false),
             _ => Usage()
         };
     }
@@ -163,6 +164,41 @@ public sealed class AccountCommand(
         return Mutation(result, "Assigned account {0} to group {1}.");
     }
 
+    private async ValueTask<CommandExecutionResult> SetPasswordAsync(
+        CommandInvocation invocation,
+        CancellationToken cancellationToken)
+    {
+        if (invocation.Arguments.Count != 3)
+        {
+            return Usage();
+        }
+
+        AccountSnapshot? before = await accounts.FindByNameAsync(invocation.Arguments[1], cancellationToken)
+            .ConfigureAwait(false);
+        if (before is null)
+        {
+            return Failure("command.account.not-found", "Account not found.");
+        }
+
+        if (!CanDelegate(invocation.Principal, before.GroupName))
+        {
+            return Failure("command.account.delegation-denied", "You cannot change this account's password.");
+        }
+
+        if (invocation.Arguments[2].Length is < 8 or > 1024)
+        {
+            return Failure("account.invalid-password", "Password length must be between 8 and 1024 characters.");
+        }
+
+        AccountMutationResult result = await accounts.ChangePasswordAsync(
+            before.Name,
+            invocation.Arguments[2],
+            before.Revision,
+            invocation.Principal.Name,
+            cancellationToken).ConfigureAwait(false);
+        return Mutation(result, "Changed password for account {0}.");
+    }
+
     private bool CanDelegate(ICommandPrincipal principal, string groupName)
     {
         if (principal.IsServer)
@@ -201,7 +237,7 @@ public sealed class AccountCommand(
         CommandExecutionStatus.InvalidUsage,
         "command.account.usage",
         [MessageDescriptor.Error("command.account.usage")
-            .WithDefaultText("Usage: account list | show <name> | create <name> <password> [group] | delete <name> | group <name> <group>.")]);
+            .WithDefaultText("Usage: account list | show <name> | create <name> <password> [group] | delete <name> | group <name> <group> | password <name> <new-password>.")]);
 
     private static CommandExecutionResult Info(string key, string text) =>
         CommandExecutionResult.WithMessages(MessageDescriptor.Info(key).WithDefaultText(text));

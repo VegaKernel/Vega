@@ -76,6 +76,7 @@ public abstract class ExternalVegaDatabase : IVegaDatabase
 
             int version = await migrator.ApplyAsync(cancellationToken).ConfigureAwait(false);
             Volatile.Write(ref schemaVersion, version);
+            Authorization.SnapshotGroups();
             Regions.SnapshotRegions(WorldId.Primary);
         }
         finally
