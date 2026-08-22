@@ -1,6 +1,7 @@
 using Vega.Contracts.Players;
 using Vega.Contracts.Networking;
 using Vega.Contracts.Runtime;
+using Vega.Contracts.Regions;
 using Vega.Contracts.Worlds;
 
 namespace Vega.Contracts.Operations;
@@ -212,6 +213,9 @@ public sealed record OperationsSnapshot(
 
     public IReadOnlyList<SecuritySignal> SecuritySignals { get; init; } =
         Array.Empty<SecuritySignal>();
+
+    public IReadOnlyList<RegionSnapshot> Regions { get; init; } =
+        Array.Empty<RegionSnapshot>();
 }
 
 public interface IOperationsSnapshotProvider

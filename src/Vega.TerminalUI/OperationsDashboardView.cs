@@ -10,6 +10,7 @@ using Terminal.Gui.ViewBase;
 using Terminal.Gui.Views;
 using Vega.Contracts.Operations;
 using Vega.Contracts.Players;
+using Vega.Contracts.Regions;
 using Vega.Contracts.Worlds;
 using TuiAttribute = Terminal.Gui.Drawing.Attribute;
 using TuiColor = Terminal.Gui.Drawing.Color;
@@ -27,6 +28,7 @@ internal sealed class OperationsDashboardView : IDisposable
     private readonly Label networkText = CreateLabel();
     private readonly ListView playersList = new();
     private readonly ListView modulesList = new();
+    private readonly ListView regionsList = new();
     private readonly Editor logsText = CreateLogEditor();
     private readonly Editor chatText = CreateLogEditor();
     private readonly GraphView performanceGraph = CreateGraph("TPS / CPU");
@@ -41,6 +43,7 @@ internal sealed class OperationsDashboardView : IDisposable
     private IReadOnlyList<ModuleOperationsSnapshot> modules = Array.Empty<ModuleOperationsSnapshot>();
     private string[] playerRows = Array.Empty<string>();
     private string[] moduleRows = Array.Empty<string>();
+    private string[] regionRows = Array.Empty<string>();
     private PopoverMenu? playerMenu;
     private PopoverMenu? moduleMenu;
     private PlayerId? draggedPlayerId;
@@ -61,6 +64,8 @@ internal sealed class OperationsDashboardView : IDisposable
         playersList.ViewportSettings = ViewportSettingsFlags.HasVerticalScrollBar | ViewportSettingsFlags.HasHorizontalScrollBar;
         modulesList.SchemeName = SchemeName;
         modulesList.ViewportSettings = ViewportSettingsFlags.HasVerticalScrollBar | ViewportSettingsFlags.HasHorizontalScrollBar;
+        regionsList.SchemeName = SchemeName;
+        regionsList.ViewportSettings = ViewportSettingsFlags.HasVerticalScrollBar | ViewportSettingsFlags.HasHorizontalScrollBar;
 
         AddTextWindow(TerminalUiLayoutOptions.Overview, "Server", overviewText);
         AddGraphWindow(TerminalUiLayoutOptions.Performance, performanceGraph);
@@ -68,6 +73,7 @@ internal sealed class OperationsDashboardView : IDisposable
         AddGraphWindow(TerminalUiLayoutOptions.Memory, memoryGraph);
         AddTextWindow(TerminalUiLayoutOptions.Network, "Network", networkText);
         AddListWindow(TerminalUiLayoutOptions.Modules, "Modules", modulesList, ConfigureModuleContextMenu);
+        AddListWindow(TerminalUiLayoutOptions.Regions, "Regions", regionsList, static () => { });
         AddLogsWindow();
         AddTextWindow(TerminalUiLayoutOptions.Chat, "Chat", chatText);
 
@@ -95,6 +101,7 @@ internal sealed class OperationsDashboardView : IDisposable
         SetText(networkText, RenderNetwork(snapshot, sample));
         UpdatePlayerList(snapshot);
         UpdateModuleList(snapshot);
+        UpdateRegionList(snapshot);
         SetLogText(RenderLogs(snapshot, filter), logsText, ref lastLogText, ref pendingLogText);
         SetLogText(RenderChat(snapshot), chatText, ref lastChatText, ref pendingChatText);
         if (windows[TerminalUiLayoutOptions.Logs] is FrameView logsFrame)
@@ -657,6 +664,30 @@ internal sealed class OperationsDashboardView : IDisposable
         {
             modulesList.SelectedItem = index;
         }
+    }
+
+    private void UpdateRegionList(OperationsSnapshot snapshot)
+    {
+        string[] rows = snapshot.Regions.Select(RenderRegion).ToArray();
+        if (regionRows.SequenceEqual(rows, StringComparer.Ordinal))
+        {
+            return;
+        }
+
+        int? selected = regionsList.SelectedItem;
+        regionRows = rows;
+        regionsList.SetSource(new ObservableCollection<string>(rows));
+        if (selected is int index && index >= 0 && index < rows.Length)
+        {
+            regionsList.SelectedItem = index;
+        }
+    }
+
+    private static string RenderRegion(RegionSnapshot region)
+    {
+        string owner = region.Owner ?? "none";
+        string access = $"m{region.Members.Count}/g{region.Groups.Count}/f{region.Flags.Count}";
+        return $"{region.WorldId} · {region.Name} · ({region.X},{region.Y}) {region.Width}x{region.Height} · p{region.Priority} · {owner} · {access} · r{region.Revision}";
     }
 
     private static string RenderOverview(OperationsSnapshot snapshot)

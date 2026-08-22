@@ -349,7 +349,8 @@ int Start()
             serverPlugins,
             worldClock,
             autoWorldCleaner,
-            securitySignals: securitySignals);
+            securitySignals: securitySignals,
+            regions: database.Regions);
         var operationsCommands = new OperationsCommandService(
             commandDispatcher,
             localization,

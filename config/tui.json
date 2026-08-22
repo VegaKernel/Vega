@@ -44,6 +44,13 @@
       "widthPercent": 26,
       "heightPercent": 30
     },
+    "regions": {
+      "visible": false,
+      "xPercent": 56,
+      "yPercent": 0,
+      "widthPercent": 44,
+      "heightPercent": 46
+    },
     "logs": {
       "visible": true,
       "xPercent": 0,

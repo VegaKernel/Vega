@@ -1,6 +1,7 @@
 using System.Globalization;
 using System.Text;
 using Vega.Contracts.Operations;
+using Vega.Contracts.Regions;
 
 namespace Vega.TerminalUI;
 
@@ -197,6 +198,20 @@ public static class OperationsDashboardRenderer
         foreach (ModuleOperationsSnapshot module in snapshot.Modules)
         {
             text.AppendLine($"  {module.Name,-22} {module.Version,-12} {module.State,-10} {module.StartupDuration.TotalMilliseconds,7:F1} ms deps=[{string.Join(",", module.Dependencies)}]{FormatFailure(module.Failure)}");
+        }
+
+        text.AppendLine();
+        text.AppendLine("REGIONS");
+        if (snapshot.Regions.Count == 0)
+        {
+            text.AppendLine("  no configured regions");
+        }
+        else
+        {
+            foreach (RegionSnapshot region in snapshot.Regions)
+            {
+                text.AppendLine($"  {region.WorldId}/{region.Name} ({region.X},{region.Y}) {region.Width}x{region.Height} priority={region.Priority} owner={region.Owner ?? "none"} members={region.Members.Count} groups={region.Groups.Count} revision={region.Revision}");
+            }
         }
 
         text.AppendLine();

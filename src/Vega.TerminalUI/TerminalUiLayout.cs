@@ -23,6 +23,7 @@ public sealed record TerminalUiLayoutOptions(
     public const string Modules = "modules";
     public const string Logs = "logs";
     public const string Chat = "chat";
+    public const string Regions = "regions";
 
     public static IReadOnlyList<string> WindowNames { get; } =
     [
@@ -33,7 +34,8 @@ public sealed record TerminalUiLayoutOptions(
         Players,
         Modules,
         Logs,
-        Chat
+        Chat,
+        Regions
     ];
 
     public static TerminalUiLayoutOptions Default { get; } = new(
@@ -49,7 +51,8 @@ public sealed record TerminalUiLayoutOptions(
             [Memory] = new(true, 56, 46, 44, 18),
             [Network] = new(true, 56, 64, 22, 18),
             [Modules] = new(true, 78, 64, 22, 18),
-            [Chat] = new(true, 56, 82, 44, 18)
+            [Chat] = new(true, 56, 82, 44, 18),
+            [Regions] = new(false, 56, 0, 44, 46)
         });
 
     public TerminalUiPanelLayout GetWindow(string name) => Windows[name];

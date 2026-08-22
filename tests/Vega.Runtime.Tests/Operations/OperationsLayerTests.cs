@@ -6,6 +6,7 @@ using Vega.Contracts.Operations;
 using Vega.Contracts.Players;
 using Vega.Core.Commands;
 using Vega.Contracts.Runtime;
+using Vega.Contracts.Regions;
 using Vega.Contracts.Worlds;
 using Vega.Operations.Actions;
 using Vega.Operations.Logging;
@@ -201,7 +202,8 @@ public sealed class OperationsReadModelTests
             modules,
             logs,
             new FixedRuntimeMetrics(),
-            new FixedNetworkMetrics());
+            new FixedNetworkMetrics(),
+            regions: new FixedRegions());
 
         OperationsSnapshot snapshot = provider.Capture();
         OperationsSnapshot sensitive = provider.Capture(
@@ -224,6 +226,9 @@ public sealed class OperationsReadModelTests
             Assert.That(snapshot.Logs.Single().Text, Is.EqualTo("ready"));
             Assert.That(snapshot.Runtime.ManagedMemoryBytes, Is.EqualTo(200));
             Assert.That(snapshot.Network.InboundPackets, Is.EqualTo(7));
+            Assert.That(snapshot.Regions, Has.Count.EqualTo(1));
+            Assert.That(snapshot.Regions[0].Name, Is.EqualTo("spawn"));
+            Assert.That(snapshot.Regions[0].Members, Does.Contain("alice"));
         });
     }
 
@@ -390,6 +395,27 @@ public sealed class OperationsReadModelTests
             0,
             0,
             "auto_world_cleaner.failed");
+    }
+
+    private sealed class FixedRegions : IRegionService
+    {
+        private static readonly RegionSnapshot Spawn = new(7, "spawn", 10, 20, 30, 40, "owner")
+        {
+            Priority = 5,
+            Members = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "alice" },
+            Groups = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "builder" },
+            Flags = new Dictionary<string, bool>(StringComparer.OrdinalIgnoreCase) { ["build"] = false },
+            Revision = 3
+        };
+
+        public IReadOnlyList<RegionSnapshot> SnapshotRegions() => [Spawn];
+        public RegionSnapshot? FindTopRegion(int tileX, int tileY) => Spawn.Contains(tileX, tileY) ? Spawn : null;
+        public IReadOnlyList<RegionSnapshot> SnapshotRegions(WorldId worldId) => worldId == WorldId.Primary ? [Spawn] : [];
+        public RegionSnapshot? FindTopRegion(WorldId worldId, int tileX, int tileY) => worldId == WorldId.Primary && Spawn.Contains(tileX, tileY) ? Spawn : null;
+        public ValueTask<RegionMutationResult> CreateAsync(WorldId worldId, string name, int x, int y, int width, int height, int priority, string? owner, string actor, CancellationToken cancellationToken = default) => throw new NotSupportedException();
+        public ValueTask<RegionMutationResult> DeleteAsync(WorldId worldId, string name, long expectedRevision, string actor, CancellationToken cancellationToken = default) => throw new NotSupportedException();
+        public ValueTask<RegionMutationResult> UpdateAsync(WorldId worldId, string name, RegionUpdate update, long expectedRevision, string actor, CancellationToken cancellationToken = default) => throw new NotSupportedException();
+        public ValueTask<RegionMutationResult> SetAccessAsync(WorldId worldId, string name, RegionAccessKind kind, string subject, bool enabled, long expectedRevision, string actor, CancellationToken cancellationToken = default) => throw new NotSupportedException();
     }
 }
 

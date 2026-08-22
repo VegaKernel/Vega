@@ -1,7 +1,9 @@
+using System.Collections.Frozen;
 using Vega.Contracts.Operations;
 using Vega.Contracts.Networking;
 using Vega.Contracts.Players;
 using Vega.Contracts.Runtime;
+using Vega.Contracts.Regions;
 using Vega.Contracts.Worlds;
 
 namespace Vega.Operations.ReadModels;
@@ -22,7 +24,8 @@ public sealed class OperationsSnapshotProvider(
     IWorldClockReader? worldClocks = null,
     IWorldCleanupStatusReader? worldCleanup = null,
     IWorldContextOperationsCatalog? worldContexts = null,
-    ISecuritySignalReader? securitySignals = null) : IOperationsSnapshotProvider
+    ISecuritySignalReader? securitySignals = null,
+    IRegionService? regions = null) : IOperationsSnapshotProvider
 {
     public OperationsSnapshot Capture(
         OperationsLogFilter? logFilter = null,
@@ -74,6 +77,19 @@ public sealed class OperationsSnapshotProvider(
                 "primary",
                 TimeSpan.Zero)
         ];
+        RegionSnapshot[] regionSnapshots = contexts
+            .SelectMany(context => regions?.SnapshotRegions(context.Id) ?? [])
+            .OrderBy(static region => region.WorldId.Value, StringComparer.OrdinalIgnoreCase)
+            .ThenByDescending(static region => region.Priority)
+            .ThenBy(static region => region.Name, StringComparer.OrdinalIgnoreCase)
+            .Take(1_000)
+            .Select(static region => region with
+            {
+                Members = region.Members.ToFrozenSet(StringComparer.OrdinalIgnoreCase),
+                Groups = region.Groups.ToFrozenSet(StringComparer.OrdinalIgnoreCase),
+                Flags = region.Flags.ToFrozenDictionary(StringComparer.OrdinalIgnoreCase)
+            })
+            .ToArray();
 
         TickRateStatisticsSnapshot tickRate = state.TickRate.SampleCount > 0
             ? state.TickRate
@@ -125,7 +141,8 @@ public sealed class OperationsSnapshotProvider(
                 exposure == OperationsSnapshotExposure.Sensitive
                     ? SecuritySignalExposure.Sensitive
                     : SecuritySignalExposure.Redacted) ??
-                Array.Empty<SecuritySignal>()
+                Array.Empty<SecuritySignal>(),
+            Regions = Array.AsReadOnly(regionSnapshots)
         };
     }
 
