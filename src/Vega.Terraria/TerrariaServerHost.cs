@@ -8,6 +8,7 @@ using Vega.Contracts.Operations;
 using Vega.Contracts.Events;
 using Vega.Contracts.Runtime;
 using Vega.Contracts.Worlds;
+using Vega.Contracts.Localization;
 using Vega.Terraria.Hooking;
 using Vega.Terraria.Operations;
 using Vega.Terraria.Players;
@@ -39,7 +40,9 @@ public static class TerrariaServerHost
         IReadOnlyList<IRuntimeStartupParticipant> startupParticipants,
         IPacketProcessor<PacketView> playerOwnershipSecurity,
         ICommandDispatcher commandDispatcher,
-        IPlayerAuthorizationService playerAuthorization)
+        IPlayerAuthorizationService playerAuthorization,
+        ILocalizationService localization,
+        IPlayerCultureService cultures)
     {
         ArgumentNullException.ThrowIfNull(args);
         ArgumentNullException.ThrowIfNull(lifecycle);
@@ -58,6 +61,8 @@ public static class TerrariaServerHost
         ArgumentNullException.ThrowIfNull(playerOwnershipSecurity);
         ArgumentNullException.ThrowIfNull(commandDispatcher);
         ArgumentNullException.ThrowIfNull(playerAuthorization);
+        ArgumentNullException.ThrowIfNull(localization);
+        ArgumentNullException.ThrowIfNull(cultures);
 
         void Report(RuntimeLifecycleTransition transition)
         {
@@ -88,13 +93,19 @@ public static class TerrariaServerHost
             logger,
             networkMetrics,
             securitySignals);
-        using var consoleCommandHooks = new NativeConsoleCommandHooks(commandDispatcher);
+        using var consoleCommandHooks = new NativeConsoleCommandHooks(
+            commandDispatcher,
+            localization,
+            cultures);
         using var playerCommandHooks = new NativePlayerCommandHooks(
             commandDispatcher,
             playerAuthorization,
             playerBoundary,
             playerBoundary,
-            logger);
+            logger,
+            localization,
+            cultures,
+            playerBoundary);
         using var worldClockSynchronizer = new TerrariaWorldClockSynchronizer(worldClock, logger);
 
         try

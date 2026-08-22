@@ -11,6 +11,7 @@ using Vega.Operations.Actions;
 using Vega.Operations.Logging;
 using Vega.Operations.Metrics;
 using Vega.Operations.ReadModels;
+using Vega.Core.Localization;
 using Vega.TerminalUI;
 using Vega.Terraria.Operations;
 
@@ -97,7 +98,11 @@ public sealed class OperationsCommandServiceTests
     public async Task CommandsUseTheNormalDispatcherAuthorizationBoundary()
     {
         var handler = new RecordingCommandHandler();
-        var service = new OperationsCommandService(new CommandDispatcher([handler]));
+        var localization = new LocalizationService("en-US");
+        var service = new OperationsCommandService(
+            new CommandDispatcher([handler]),
+            localization,
+            localization);
 
         OperationsActionResult result = await service.ExecuteAsync("/operate now");
 

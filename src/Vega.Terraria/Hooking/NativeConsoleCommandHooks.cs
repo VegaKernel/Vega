@@ -1,6 +1,7 @@
 using OTAPI;
 using Vega.Contracts.Commands;
 using Vega.Contracts.Messaging;
+using Vega.Contracts.Localization;
 
 namespace Vega.Terraria.Hooking;
 
@@ -11,11 +12,18 @@ namespace Vega.Terraria.Hooking;
 internal sealed class NativeConsoleCommandHooks : IDisposable
 {
     private readonly ICommandDispatcher dispatcher;
+    private readonly ILocalizationService localization;
+    private readonly IPlayerCultureService cultures;
     private bool attached;
 
-    public NativeConsoleCommandHooks(ICommandDispatcher dispatcher)
+    public NativeConsoleCommandHooks(
+        ICommandDispatcher dispatcher,
+        ILocalizationService localization,
+        IPlayerCultureService cultures)
     {
         this.dispatcher = dispatcher ?? throw new ArgumentNullException(nameof(dispatcher));
+        this.localization = localization ?? throw new ArgumentNullException(nameof(localization));
+        this.cultures = cultures ?? throw new ArgumentNullException(nameof(cultures));
     }
 
     public void Attach()
@@ -75,7 +83,7 @@ internal sealed class NativeConsoleCommandHooks : IDisposable
         }
     }
 
-    private static void WriteResult(CommandExecutionResult result)
+    private void WriteResult(CommandExecutionResult result)
     {
         if (result.Messages is { Count: > 0 })
         {
@@ -93,9 +101,9 @@ internal sealed class NativeConsoleCommandHooks : IDisposable
         }
     }
 
-    private static void WriteMessage(MessageDescriptor message)
+    private void WriteMessage(MessageDescriptor message)
     {
-        string text = MessageFallbackFormatter.Format(message);
+        string text = localization.Format(message, cultures.ServerCulture);
         if (message.Severity is MessageSeverity.Warning or MessageSeverity.Error)
         {
             Console.Error.WriteLine(text);

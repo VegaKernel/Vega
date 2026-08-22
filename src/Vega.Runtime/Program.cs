@@ -3,6 +3,7 @@ using System.Reflection;
 using Multiplicity.Packets.Views;
 using Vega.Contracts.Commands;
 using Vega.Contracts.Operations;
+using Vega.Contracts.Localization;
 using Vega.Core.Commands;
 using Vega.Core.Commands.Administration;
 using Vega.Core.Commands.Players;
@@ -10,6 +11,7 @@ using Vega.Core.Commands.System;
 using Vega.Core.Authorization;
 using Vega.Core.Bans;
 using Vega.Core.Configuration;
+using Vega.Core.Localization;
 using Vega.Core.Modules;
 using Vega.Core.Operations;
 using Vega.Core.Updates;
@@ -130,6 +132,10 @@ int Start()
     }
 
     string[] serverArgs = worldImageOptions.ServerArguments.ToArray();
+    string configuredCulture = serverConfiguration.Current.Values["defaultCulture"].DisplayValue;
+    var localization = new LocalizationService(
+        configuredCulture.StartsWith('<') ? "en-US" : configuredCulture);
+    using IDisposable coreRussianCatalog = RegisterCoreRussianCatalog(localization);
 
     // Explicit composition root: no assembly scanning or reflection-based handler discovery.
     IEventPipeline<WorldHardmodeStarting> hardmodeStarting = new EventPipeline<WorldHardmodeStarting>(
@@ -151,7 +157,8 @@ int Start()
         new TickRateCommand(operationsState),
         new CheckUpdatesCommand(updateChecker),
         new KickCommand(playerBoundary, playerBoundary, playerAuthorization),
-        new PlayingCommand(playerBoundary)
+        new PlayingCommand(playerBoundary),
+        new LanguageCommand(localization)
     ];
     var commandDispatcher = new CommandDispatcher(commandHandlers);
     using IDisposable helpCommandRegistration = commandDispatcher.Register(new HelpCommand(commandDispatcher));
@@ -309,7 +316,10 @@ int Start()
             worldClock,
             autoWorldCleaner,
             securitySignals: securitySignals);
-        var operationsCommands = new OperationsCommandService(commandDispatcher);
+        var operationsCommands = new OperationsCommandService(
+            commandDispatcher,
+            localization,
+            localization);
         using var startupProgress = new TerrariaStartupProgress();
         using var terminalUi = new TerminalUiHost(
             snapshots,
@@ -372,9 +382,27 @@ int Start()
             [database],
             playerPacketPolicies,
             commandDispatcher,
-            playerAuthorization);
+            playerAuthorization,
+            localization,
+            localization);
     }
 }
+
+IDisposable RegisterCoreRussianCatalog(ILocalizationService localization) =>
+    localization.RegisterCatalog(
+        "tshock",
+        "ru-RU",
+        new Dictionary<string, string>(StringComparer.Ordinal)
+        {
+            ["command.lang.current"] = "Текущий язык: {0}. Используйте /lang list, /lang <культура> или /lang reset.",
+            ["command.lang.list"] = "Доступные языки: {0}.",
+            ["command.lang.reset"] = "Язык сброшен на серверный по умолчанию: {0}.",
+            ["command.lang.changed"] = "Язык изменён на {0}.",
+            ["command.lang.unavailable"] = "Язык '{0}' недоступен. Доступные языки: {1}.",
+            ["command.lang.usage"] = "Использование: lang | lang list | lang <культура> | lang reset.",
+            ["command.permission_denied"] = "Недостаточно прав для этой команды.",
+            ["command.not_found"] = "Неизвестная команда."
+        });
 
 JsonFileOperationsLogSink? TryCreateFileSink()
 {

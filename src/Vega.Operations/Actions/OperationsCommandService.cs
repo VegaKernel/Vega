@@ -1,10 +1,14 @@
 using Vega.Contracts.Commands;
 using Vega.Contracts.Messaging;
 using Vega.Contracts.Operations;
+using Vega.Contracts.Localization;
 
 namespace Vega.Operations.Actions;
 
-public sealed class OperationsCommandService(ICommandDispatcher dispatcher) : IOperationsCommandService
+public sealed class OperationsCommandService(
+    ICommandDispatcher dispatcher,
+    ILocalizationService localization,
+    IPlayerCultureService cultures) : IOperationsCommandService
 {
     public async ValueTask<OperationsActionResult> ExecuteAsync(
         string commandText,
@@ -33,7 +37,8 @@ public sealed class OperationsCommandService(ICommandDispatcher dispatcher) : IO
         var messages = output.Messages.ToList();
         if (result.Messages is not null)
         {
-            messages.AddRange(result.Messages.Select(MessageFallbackFormatter.Format));
+            messages.AddRange(result.Messages.Select(message =>
+                localization.Format(message, cultures.ServerCulture)));
         }
 
         return new OperationsActionResult(

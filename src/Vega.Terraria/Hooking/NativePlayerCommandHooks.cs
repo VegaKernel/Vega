@@ -4,6 +4,7 @@ using OTAPI;
 using Vega.Contracts.Authorization;
 using Vega.Contracts.Commands;
 using Vega.Contracts.Messaging;
+using Vega.Contracts.Localization;
 using Vega.Contracts.Players;
 using Vega.Contracts.Operations;
 
@@ -20,6 +21,9 @@ internal sealed class NativePlayerCommandHooks : IDisposable
     private readonly IPlayerDirectory players;
     private readonly IPlayerMessenger messenger;
     private readonly IOperationsLogger logger;
+    private readonly ILocalizationService localization;
+    private readonly IPlayerCultureService cultures;
+    private readonly IPlayerSessionLifecycle sessions;
     private bool attached;
 
     public NativePlayerCommandHooks(
@@ -27,13 +31,19 @@ internal sealed class NativePlayerCommandHooks : IDisposable
         IPlayerAuthorizationService authorization,
         IPlayerDirectory players,
         IPlayerMessenger messenger,
-        IOperationsLogger logger)
+        IOperationsLogger logger,
+        ILocalizationService localization,
+        IPlayerCultureService cultures,
+        IPlayerSessionLifecycle sessions)
     {
         this.dispatcher = dispatcher ?? throw new ArgumentNullException(nameof(dispatcher));
         this.authorization = authorization ?? throw new ArgumentNullException(nameof(authorization));
         this.players = players ?? throw new ArgumentNullException(nameof(players));
         this.messenger = messenger ?? throw new ArgumentNullException(nameof(messenger));
         this.logger = logger ?? throw new ArgumentNullException(nameof(logger));
+        this.localization = localization ?? throw new ArgumentNullException(nameof(localization));
+        this.cultures = cultures ?? throw new ArgumentNullException(nameof(cultures));
+        this.sessions = sessions ?? throw new ArgumentNullException(nameof(sessions));
     }
 
     public void Attach()
@@ -44,6 +54,7 @@ internal sealed class NativePlayerCommandHooks : IDisposable
         }
 
         Hooks.MessageBuffer.GetData += OnReceiveData;
+        sessions.Closed += OnSessionClosed;
         attached = true;
     }
 
@@ -55,6 +66,7 @@ internal sealed class NativePlayerCommandHooks : IDisposable
         }
 
         Hooks.MessageBuffer.GetData -= OnReceiveData;
+        sessions.Closed -= OnSessionClosed;
         attached = false;
     }
 
@@ -155,7 +167,7 @@ internal sealed class NativePlayerCommandHooks : IDisposable
                 .DispatchAsync(invocation)
                 .ConfigureAwait(false);
 
-            await WriteResultAsync(output, result).ConfigureAwait(false);
+            await WriteResultAsync(output, result, playerId).ConfigureAwait(false);
         }
         catch (Exception ex)
         {
@@ -164,15 +176,16 @@ internal sealed class NativePlayerCommandHooks : IDisposable
         }
     }
 
-    private static async ValueTask WriteResultAsync(
+    private async ValueTask WriteResultAsync(
         ICommandOutput output,
-        CommandExecutionResult result)
+        CommandExecutionResult result,
+        PlayerId playerId)
     {
         if (result.Messages is { Count: > 0 })
         {
             foreach (MessageDescriptor message in result.Messages)
             {
-                string text = MessageFallbackFormatter.Format(message);
+                string text = localization.Format(message, cultures.Resolve(CultureSubject(playerId)));
                 switch (message.Severity)
                 {
                     case MessageSeverity.Success:
@@ -199,14 +212,21 @@ internal sealed class NativePlayerCommandHooks : IDisposable
         }
     }
 
+    private void OnSessionClosed(PlayerSessionClosed closed) =>
+        cultures.RemoveSession(CultureSubject(closed.PlayerId));
+
+    private static string CultureSubject(PlayerId playerId) => $"player:{playerId.Slot}";
+
     private sealed class PlayerCommandPrincipal(
         string name,
         PlayerId playerId,
-        IPlayerAuthorizationService authorization) : ICommandPrincipal
+        IPlayerAuthorizationService authorization) : ICommandCulturePrincipal
     {
         public string Name { get; } = name;
 
         public bool IsServer => false;
+
+        public string CultureSubjectId { get; } = CultureSubject(playerId);
 
         public bool HasPermission(string permission) =>
             authorization.HasPermission(playerId, permission);

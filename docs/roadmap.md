@@ -461,11 +461,13 @@ Vega 1.0 currently has the modern command/authorization boundaries and several r
 
 ### Localization and command completeness
 
-- [ ] Implement ADR 0009 localization catalogs, module namespaces, deterministic fallback and explicit per-recipient culture without process-global culture mutation.
+- [x] Implement ADR 0009 localization catalogs, module namespaces, deterministic fallback and explicit per-recipient culture without process-global culture mutation.
 - [ ] Add `/lang`, `/lang list`, `/lang <culture>` and `/lang reset`; persist registered-account preference and keep guest preference session-scoped.
 - [ ] Add a generated command catalog and `help`/command-discovery output that shows only commands the caller may use, including aliases, syntax and permission requirements.
 - [ ] Keep Vega commands and Terraria native commands reachable from plain console and TUI without competing stdin readers; capture native command output into bounded operations logs/results.
 - [ ] Audit the minimum built-in operator set beyond `serverinfo`, `checkupdates`, `kick` and `playing`, and cover save/shutdown, moderation, identity, groups, regions, configuration and language with end-to-end tests.
+
+The native `lang` command and session-scoped guest preference are live for `en-US` and `ru-RU`; the command switches the recipient catalog immediately and stale module-catalog unload cannot remove a newer registration. The second item remains open until account persistence restores and updates the registered player's preference.
 
 ### Persistence, migration and release validation
 

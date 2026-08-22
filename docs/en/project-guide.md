@@ -131,6 +131,8 @@ The supported environment variables are `VEGA_WORLD`, `VEGA_PORT`, `VEGA_MAX_PLA
 
 Moderation uses one persistent typed-ban service for commands, connection admission and cluster replication. `ban <online-player> [reason]` records name and available IP identities and disconnects the player. Offline or network identities use `ban add <name|account|uuid|ip|cidr> <value> <30m|12h|7d|permanent> [reason]`. Inspect active entries with `ban list` or `ban show <id>` and revoke one with `unban <id>`. IP, UUID and CIDR subjects are redacted unless the caller also has `vega.moderation.sensitive`.
 
+Players can use `/lang`, `/lang list`, `/lang en-US`, `/lang ru-RU` and `/lang reset`. Selection is applied to that recipient immediately and never changes process-global culture; guest selection lasts for the current connection. Module catalogs use their module namespace and are removed safely on unload. Registered-account preference persistence is still tracked as unfinished in Phase 19.
+
 Server-wide optional gameplay rules live separately in `config/security.json`. They are disabled by default; when enabled they cover living-ghost/spectate restrictions, repeated-death timing and interaction proximity with the `vega.security.gameplay.bypass` permission. Database, module hot reload, TUI layout, autosave, cleaner and world-clock settings remain in their domain-specific files.
 
 ### Operations modes
