@@ -314,7 +314,16 @@ int Start()
             logger);
         using var worldMaintenance = new TerrariaWorldMaintenanceService(
             worldMaintenanceOptions,
+            logger,
+            gameThreadDispatcher);
+        var serverControl = new TerrariaServerControl(
+            worldMaintenance,
+            gameThreadDispatcher,
             logger);
+        using IDisposable saveCommandRegistration = commandDispatcher.Register(
+            new SaveCommand(serverControl));
+        using IDisposable shutdownCommandRegistration = commandDispatcher.Register(
+            new ShutdownCommand(serverControl));
         var hostMetrics = new ProcessHostMetricsReader();
         var runtimeMetrics = new SampledRuntimeMetricsReader(hostMetrics);
         WorldClockOptions worldClockOptions = WorldClockOptionsStore.Load(

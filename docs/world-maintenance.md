@@ -18,6 +18,12 @@ the game thread before filesystem work moves to a worker. When world images are 
 every successful manual or automatic save also refreshes the `.vworld` cache through the
 coalesced atomic image pipeline.
 
+Authorized operators use `save` for the same coalesced save barrier; a concurrent
+autosave/manual save is joined rather than duplicated. `shutdown [reason]` (aliases
+`stop` and `off`) requests Terraria's normal server-loop exit with
+`SaveOnServerExit=true`; it never kills the Vega process directly. Both commands require
+`tshock.cfg.maintenance`.
+
 Item/projectile cleanup is deliberately not part of world maintenance configuration.
 Its policy and scheduler belong to the optional `Vega.Modules.AutoWorldCleaner` module;
 see [the AutoWorldCleaner guide](auto-world-cleaner.md) and

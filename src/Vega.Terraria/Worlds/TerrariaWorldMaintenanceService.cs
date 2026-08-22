@@ -1,6 +1,7 @@
 using System.Diagnostics;
 using HookMain = HookEvents.Terraria.Main;
 using Vega.Contracts.Operations;
+using Vega.Contracts.Threading;
 
 namespace Vega.Terraria.Worlds;
 
@@ -13,6 +14,7 @@ public sealed class TerrariaWorldMaintenanceService : IDisposable
     private readonly object saveSync = new();
     private readonly WorldMaintenanceOptions options;
     private readonly IOperationsLogger logger;
+    private readonly IGameThreadDispatcher gameThread;
     private Task? saveTask;
     private long nextAutoSave;
     private bool attached;
@@ -20,10 +22,12 @@ public sealed class TerrariaWorldMaintenanceService : IDisposable
 
     public TerrariaWorldMaintenanceService(
         WorldMaintenanceOptions options,
-        IOperationsLogger logger)
+        IOperationsLogger logger,
+        IGameThreadDispatcher gameThread)
     {
         this.options = WorldMaintenanceOptions.Normalize(options);
         this.logger = logger ?? throw new ArgumentNullException(nameof(logger));
+        this.gameThread = gameThread ?? throw new ArgumentNullException(nameof(gameThread));
     }
 
     public void Attach()
@@ -54,7 +58,37 @@ public sealed class TerrariaWorldMaintenanceService : IDisposable
             pendingSave = saveTask;
         }
 
-        pendingSave?.GetAwaiter().GetResult();
+        try
+        {
+            pendingSave?.GetAwaiter().GetResult();
+        }
+        catch
+        {
+            // SaveWorld already records the failure; disposal must continue releasing hooks.
+        }
+    }
+
+    public async ValueTask SaveAsync(CancellationToken cancellationToken = default)
+    {
+        Task save;
+        if (gameThread.IsGameThread)
+        {
+            save = QueueSave("Manual");
+        }
+        else
+        {
+            var scheduled = new TaskCompletionSource<Task>(
+                TaskCreationOptions.RunContinuationsAsynchronously);
+            if (!gameThread.TryPost("manual-world-save", () =>
+                scheduled.TrySetResult(QueueSave("Manual"))))
+            {
+                throw new InvalidOperationException("The Terraria game-thread queue is full.");
+            }
+
+            save = await scheduled.Task.WaitAsync(cancellationToken).ConfigureAwait(false);
+        }
+
+        await save.WaitAsync(cancellationToken).ConfigureAwait(false);
     }
 
     private void OnUpdate(object? sender, HookMain.DoUpdate_AutoSaveEventArgs args)
@@ -71,17 +105,22 @@ public sealed class TerrariaWorldMaintenanceService : IDisposable
         if (options.AutoSave.Enabled && now >= nextAutoSave)
         {
             nextAutoSave = Add(now, TimeSpan.FromMinutes(options.AutoSave.IntervalMinutes));
-            QueueAutoSave();
+            _ = QueueSave("Automatic");
         }
     }
 
-    private void QueueAutoSave()
+    private Task QueueSave(string origin)
     {
         lock (saveSync)
         {
-            if (disposed || saveTask is { IsCompleted: false })
+            if (disposed)
             {
-                return;
+                return Task.FromException(new ObjectDisposedException(GetType().Name));
+            }
+
+            if (saveTask is { IsCompleted: false })
+            {
+                return saveTask;
             }
 
             try
@@ -95,16 +134,22 @@ public sealed class TerrariaWorldMaintenanceService : IDisposable
                 logger.Log(
                     OperationsLogLevel.Error,
                     "world-maintenance",
-                    "Automatic world snapshot failed; autosave was not queued.",
+                    $"{origin} world snapshot failed; save was not queued.",
                     ex);
-                return;
+                return Task.FromException(ex);
             }
 
-            saveTask = Task.Run(SaveWorld);
+            saveTask = Task.Run(() => SaveWorld(origin));
+            _ = saveTask.ContinueWith(
+                static failed => _ = failed.Exception,
+                CancellationToken.None,
+                TaskContinuationOptions.OnlyOnFaulted | TaskContinuationOptions.ExecuteSynchronously,
+                TaskScheduler.Default);
+            return saveTask;
         }
     }
 
-    private void SaveWorld()
+    private void SaveWorld(string origin)
     {
         try
         {
@@ -115,15 +160,16 @@ public sealed class TerrariaWorldMaintenanceService : IDisposable
             logger.Log(
                 OperationsLogLevel.Information,
                 "world-maintenance",
-                "Automatic world save completed.");
+                $"{origin} world save completed.");
         }
         catch (Exception ex)
         {
             logger.Log(
                 OperationsLogLevel.Error,
                 "world-maintenance",
-                "Automatic world save failed.",
+                $"{origin} world save failed.",
                 ex);
+            throw;
         }
     }
 
