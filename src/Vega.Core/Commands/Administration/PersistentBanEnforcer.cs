@@ -1,3 +1,5 @@
+using System.Net;
+using Vega.Contracts.Bans;
 using Vega.Contracts.Cluster.Events;
 using Vega.Contracts.Operations;
 using Vega.Contracts.Players;
@@ -6,7 +8,7 @@ namespace Vega.Core.Commands.Administration;
 
 public sealed class PersistentBanEnforcer : IDisposable
 {
-    private readonly IGlobalBanReplica bans;
+    private readonly IBanService bans;
     private readonly IPlayerDirectory players;
     private readonly IPlayerOperations playerOperations;
     private readonly IPlayerSessionLifecycle sessions;
@@ -14,7 +16,7 @@ public sealed class PersistentBanEnforcer : IDisposable
     private readonly CancellationTokenSource shutdown = new();
 
     public PersistentBanEnforcer(
-        IGlobalBanReplica bans,
+        IBanService bans,
         IPlayerDirectory players,
         IPlayerOperations playerOperations,
         IPlayerSessionLifecycle sessions,
@@ -46,8 +48,12 @@ public sealed class PersistentBanEnforcer : IDisposable
         {
             PlayerSnapshot? player = players.SnapshotOnlinePlayers()
                 .FirstOrDefault(candidate => candidate.Id == opened.PlayerId);
-            IReadOnlyList<GlobalBanCreated> active = bans.SnapshotActive(DateTimeOffset.UtcNow);
-            GlobalBanCreated? ban = active.FirstOrDefault(candidate => Matches(candidate.Subject, opened.PlayerName, player?.RemoteEndpoint));
+            IPAddress? address = BanCommand.TryGetIpAddress(player?.RemoteEndpoint, out string? rawAddress)
+                ? IPAddress.Parse(rawAddress!)
+                : null;
+            BanSnapshot? ban = await bans.FindActiveBanAsync(
+                new BanIdentity(opened.PlayerName, null, null, address),
+                shutdown.Token).ConfigureAwait(false);
             if (ban is null)
             {
                 return;
@@ -77,15 +83,4 @@ public sealed class PersistentBanEnforcer : IDisposable
         }
     }
 
-    private static bool Matches(GlobalBanSubject subject, string playerName, string? remoteEndpoint)
-    {
-        if (subject.Kind == GlobalBanSubjectKind.PlayerName)
-        {
-            return string.Equals(subject.Value, playerName, StringComparison.OrdinalIgnoreCase);
-        }
-
-        return subject.Kind == GlobalBanSubjectKind.IpAddress &&
-            BanCommand.TryGetIpAddress(remoteEndpoint, out string? address) &&
-            string.Equals(subject.Value, address, StringComparison.OrdinalIgnoreCase);
-    }
 }

@@ -1,4 +1,5 @@
 using System.Net;
+using Vega.Contracts.Bans;
 using Vega.Contracts.Cluster.Events;
 using Vega.Contracts.Commands;
 using Vega.Contracts.Messaging;
@@ -9,7 +10,7 @@ namespace Vega.Core.Commands.Administration;
 public sealed class BanCommand(
     IPlayerDirectory players,
     IPlayerOperations playerOperations,
-    IGlobalBanReplica bans,
+    IBanService bans,
     TimeProvider? timeProvider = null) : ICommandHandler
 {
     private const string BanPermission = "tshock.admin.ban";
@@ -59,7 +60,7 @@ public sealed class BanCommand(
 
         foreach (GlobalBanSubject subject in subjects)
         {
-            bool applied = await bans.ApplyCreatedAsync(
+            bool applied = await bans.CreateAsync(
                 new GlobalBanCreated(
                     GlobalBanId.New(),
                     subject,

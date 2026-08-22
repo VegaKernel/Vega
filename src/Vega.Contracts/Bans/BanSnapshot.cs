@@ -1,7 +1,12 @@
+using Vega.Contracts.Cluster.Events;
+
 namespace Vega.Contracts.Bans;
 
 public sealed record BanSnapshot(
-    string Identifier,
+    GlobalBanId Id,
+    GlobalBanSubject Subject,
     string Reason,
-    string? BanningUser,
-    DateTimeOffset? ExpiresUtc);
+    string CreatedBy,
+    DateTimeOffset CreatedAt,
+    DateTimeOffset? ExpiresAt,
+    long Revision);

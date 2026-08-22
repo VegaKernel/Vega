@@ -1,3 +1,5 @@
+using System.Net;
+using Vega.Contracts.Bans;
 using Vega.Contracts.Players;
 using Vega.Contracts.Cluster;
 using Vega.Contracts.Cluster.Events;
@@ -126,6 +128,7 @@ public sealed class GlobalBanCoordinator(
 
 public sealed class GlobalBanCreatedHandler(
     IGlobalBanReplica localReplica,
+    IBanService bans,
     IPlayerDirectory players,
     IPlayerOperations playerOperations,
     TimeProvider? timeProvider = null) : IClusterEventHandler<GlobalBanCreated>
@@ -138,21 +141,41 @@ public sealed class GlobalBanCreatedHandler(
     {
         GlobalBanCreated created = envelope.Message;
         if (!await localReplica.ApplyCreatedAsync(created, cancellationToken).ConfigureAwait(false) ||
-            created.ExpiresAt <= time.GetUtcNow() ||
-            created.Subject.Kind != GlobalBanSubjectKind.PlayerName)
+            created.ExpiresAt <= time.GetUtcNow())
         {
             return;
         }
 
         foreach (PlayerSnapshot player in players.SnapshotOnlinePlayers())
         {
-            if (string.Equals(player.Name, created.Subject.Value, StringComparison.OrdinalIgnoreCase))
+            IPAddress? address = TryGetIpAddress(player.RemoteEndpoint);
+            BanSnapshot? active = await bans.FindActiveBanAsync(
+                new BanIdentity(player.Name, null, null, address),
+                cancellationToken).ConfigureAwait(false);
+            if (active?.Id == created.BanId)
             {
                 await playerOperations
                     .KickAsync(player.Id, $"Globally banned: {created.Reason}", cancellationToken)
                     .ConfigureAwait(false);
             }
         }
+    }
+
+    private static IPAddress? TryGetIpAddress(string? remoteEndpoint)
+    {
+        if (string.IsNullOrWhiteSpace(remoteEndpoint))
+        {
+            return null;
+        }
+
+        if (IPAddress.TryParse(remoteEndpoint, out IPAddress? direct))
+        {
+            return direct;
+        }
+
+        return IPEndPoint.TryParse(remoteEndpoint, out IPEndPoint? endpoint)
+            ? endpoint.Address
+            : null;
     }
 }
 

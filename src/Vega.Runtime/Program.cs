@@ -8,6 +8,7 @@ using Vega.Core.Commands.Administration;
 using Vega.Core.Commands.Players;
 using Vega.Core.Commands.System;
 using Vega.Core.Authorization;
+using Vega.Core.Bans;
 using Vega.Core.Modules;
 using Vega.Core.Operations;
 using Vega.Core.Updates;
@@ -225,10 +226,11 @@ int Start()
             return 1;
         }
 
+        var banService = new GlobalBanService(database.GlobalBans);
         using IDisposable banCommandRegistration = commandDispatcher.Register(
-            new BanCommand(playerBoundary, playerBoundary, database.GlobalBans));
+            new BanCommand(playerBoundary, playerBoundary, banService));
         using var banEnforcer = new PersistentBanEnforcer(
-            database.GlobalBans,
+            banService,
             playerBoundary,
             playerBoundary,
             playerBoundary,

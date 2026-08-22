@@ -1,5 +1,6 @@
 using NUnit.Framework;
 using Vega.Contracts.Accounts;
+using Vega.Core.Bans;
 using Vega.Contracts.Commands;
 using Vega.Contracts.Operations;
 using Vega.Contracts.Players;
@@ -204,9 +205,10 @@ public sealed class ReplicationScenarioTests
         var player = Player("Alice", 2);
         var directory = new FakePlayerBoundary([player]);
         var remoteReplica = new InMemoryGlobalBanReplica();
+        var remoteBans = new GlobalBanService(remoteReplica);
         var remoteDispatcher = new ClusterMessageDispatcher(new ClusterMessageDeduplicator());
         remoteDispatcher.RegisterEvent<GlobalBanCreated>(
-            new GlobalBanCreatedHandler(remoteReplica, directory, directory));
+            new GlobalBanCreatedHandler(remoteReplica, remoteBans, directory, directory));
         remoteDispatcher.RegisterEvent<GlobalBanRevoked>(new GlobalBanRevokedHandler(remoteReplica));
 
         var bus = new InMemoryClusterBus();

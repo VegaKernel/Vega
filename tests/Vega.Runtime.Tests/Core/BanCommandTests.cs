@@ -2,6 +2,7 @@ using NUnit.Framework;
 using Vega.Contracts.Cluster.Events;
 using Vega.Contracts.Commands;
 using Vega.Contracts.Players;
+using Vega.Core.Bans;
 using Vega.Core.Commands.Administration;
 
 namespace Vega.Runtime.Tests.Core;
@@ -15,7 +16,10 @@ public sealed class BanCommandTests
         PlayerSnapshot target = Player(4, "Trouble") with { RemoteEndpoint = "203.0.113.7:7777" };
         var bans = new FakeBans();
         var operations = new FakeOperations();
-        var command = new BanCommand(new FakeDirectory([target]), operations, bans);
+        var command = new BanCommand(
+            new FakeDirectory([target]),
+            operations,
+            new GlobalBanService(bans));
 
         CommandExecutionResult result = await command.ExecuteAsync(
             Invocation(["tsi:4", "griefing", "spawn"]),
@@ -42,7 +46,7 @@ public sealed class BanCommandTests
         var command = new BanCommand(
             new FakeDirectory([Player(1, "Alice"), Player(2, "Alina")]),
             new FakeOperations(),
-            bans);
+            new GlobalBanService(bans));
 
         CommandExecutionResult result = await command.ExecuteAsync(
             Invocation(["Ali"]),
