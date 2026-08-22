@@ -18,8 +18,12 @@
 		<ProjectReference Include="..\Vega.Core\Vega.Core.csproj" />
 		<ProjectReference Include="..\Vega.Cluster\Vega.Cluster.csproj" />
 		<ProjectReference Include="..\Vega.Modules.AutoWorldCleaner\Vega.Modules.AutoWorldCleaner.csproj" />
+		<ProjectReference Include="..\Vega.Modules.Chests\Vega.Modules.Chests.csproj" />
 		<ProjectReference Include="..\Vega.Modules.CustomItems\Vega.Modules.CustomItems.csproj" />
+		<ProjectReference Include="..\Vega.Modules.Mentions\Vega.Modules.Mentions.csproj" />
 		<ProjectReference Include="..\Vega.Modules.Pvp\Vega.Modules.Pvp.csproj" />
+		<ProjectReference Include="..\Vega.Modules.Scenes\Vega.Modules.Scenes.csproj" />
+		<ProjectReference Include="..\Vega.Modules.Wipe\Vega.Modules.Wipe.csproj" />
 		<ProjectReference Include="..\Vega.Operations\Vega.Operations.csproj" />
 		<ProjectReference Include="..\Vega.Persistence\Vega.Persistence.csproj" />
 		<ProjectReference Include="..\Vega.Terraria\Vega.Terraria.csproj" />

@@ -123,7 +123,7 @@ These are behavior/test inputs. Their indentation, static globals, `TSPlayer` fi
 | `TPSChecker` | Bounded tick-rate telemetry, percentiles, operations warning and `tps` command | **Native**, Phase 14 |
 | `TimeSync` | Optional per-world monotonic clock with game-thread correction and explicit-change re-anchoring | **Native**, Phase 14 |
 | `PluginLoader` | Optional administrative unload/replace with tracked cleanup, collectible isolation and restart fallback | **Native**, Phase 14 |
-| `FakeProvider` | Observer-scoped tile layers, entity visibility and symmetric inbound validation | **Missing**, Phase 16 |
+| `FakeProvider` | Observer-scoped tile layers, entity visibility and symmetric inbound validation | **Implemented** by `Vega.Modules.Scenes` and the Core/Terraria scene boundary |
 
 ### Administration primitives with module consumers
 

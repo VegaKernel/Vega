@@ -27,8 +27,7 @@ internal sealed class NativePlayerCommandHooks : IDisposable
     private readonly IPlayerCultureService cultures;
     private readonly IPlayerSessionLifecycle sessions;
     private readonly IPlayerAccountSessionService accountSessions;
-    private readonly IMuteService? mutes;
-    private readonly TimeProvider time;
+    private readonly IChatPipeline chat;
     private bool attached;
 
     public NativePlayerCommandHooks(
@@ -41,8 +40,7 @@ internal sealed class NativePlayerCommandHooks : IDisposable
         IPlayerCultureService cultures,
         IPlayerSessionLifecycle sessions,
         IPlayerAccountSessionService accountSessions,
-        IMuteService? mutes = null,
-        TimeProvider? timeProvider = null)
+        IChatPipeline chat)
     {
         this.dispatcher = dispatcher ?? throw new ArgumentNullException(nameof(dispatcher));
         this.authorization = authorization ?? throw new ArgumentNullException(nameof(authorization));
@@ -53,8 +51,7 @@ internal sealed class NativePlayerCommandHooks : IDisposable
         this.cultures = cultures ?? throw new ArgumentNullException(nameof(cultures));
         this.sessions = sessions ?? throw new ArgumentNullException(nameof(sessions));
         this.accountSessions = accountSessions ?? throw new ArgumentNullException(nameof(accountSessions));
-        this.mutes = mutes;
-        time = timeProvider ?? TimeProvider.System;
+        this.chat = chat ?? throw new ArgumentNullException(nameof(chat));
     }
 
     public void Attach()
@@ -112,18 +109,27 @@ internal sealed class NativePlayerCommandHooks : IDisposable
             return;
         }
 
-        accountSessions.TryGetAccount(playerId, out AccountSnapshot? chatAccount);
-        MuteSnapshot? mute = mutes?.FindActive(player.Name, chatAccount?.Name, time.GetUtcNow());
-        if (mute is not null)
+        ChatPipelineResult chatResult = chat.Process(new ChatMessageContext(
+            player.WorldId,
+            player,
+            messageText,
+            players.SnapshotOnlinePlayers()));
+        if (!chatResult.Allowed)
         {
             args.Result = HookResult.Cancel;
-            _ = NotifyMutedAsync(playerId, mute);
+            _ = messenger.SendMessageAsync(playerId, chatResult.RejectionReason ?? "Chat message rejected.");
             logger.Log(
                 OperationsLogLevel.Information,
                 "moderation",
-                $"Muted chat rejected for {player.Name}; mute={mute.Id}.",
+                $"Chat rejected for {player.Name}: {chatResult.RejectionReason}",
                 correlationId: player.SessionId?.ToString());
             return;
+        }
+
+        if (chatResult.RequiresCustomDelivery)
+        {
+            args.Result = HookResult.Cancel;
+            _ = DeliverChatAsync(chatResult.Deliveries);
         }
 
         logger.Log(
@@ -238,18 +244,19 @@ internal sealed class NativePlayerCommandHooks : IDisposable
         }
     }
 
-    private async Task NotifyMutedAsync(PlayerId playerId, MuteSnapshot mute)
+    private async Task DeliverChatAsync(IReadOnlyList<ChatDelivery> deliveries)
     {
-        try
+        foreach (ChatDelivery delivery in deliveries)
         {
-            _ = await messenger.SendMessageAsync(
-                playerId,
-                $"You are muted until {mute.ExpiresAt:u}. Reason: {mute.Reason}")
-                .ConfigureAwait(false);
-        }
-        catch (Exception ex)
-        {
-            logger.Log(OperationsLogLevel.Warning, "moderation", "Unable to notify muted player.", ex);
+            try
+            {
+                _ = await messenger.SendMessageAsync(delivery.RecipientId, delivery.Content)
+                    .ConfigureAwait(false);
+            }
+            catch (Exception ex)
+            {
+                logger.Log(OperationsLogLevel.Warning, "chat", "Unable to deliver transformed chat.", ex);
+            }
         }
     }
 

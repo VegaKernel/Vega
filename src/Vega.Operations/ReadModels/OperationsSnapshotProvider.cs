@@ -8,6 +8,7 @@ using Vega.Contracts.Bans;
 using Vega.Contracts.Moderation;
 using Vega.Contracts.Cluster.Events;
 using Vega.Contracts.Worlds;
+using Vega.Contracts.Scenes;
 
 namespace Vega.Operations.ReadModels;
 
@@ -30,7 +31,9 @@ public sealed class OperationsSnapshotProvider(
     ISecuritySignalReader? securitySignals = null,
     IRegionService? regions = null,
     IBanService? bans = null,
-    IMuteService? mutes = null) : IOperationsSnapshotProvider
+    IMuteService? mutes = null,
+    ISceneRuntime? scenes = null,
+    ISceneVisibilityRuntime? visibility = null) : IOperationsSnapshotProvider
 {
     public OperationsSnapshot Capture(
         OperationsLogFilter? logFilter = null,
@@ -40,18 +43,7 @@ public sealed class OperationsSnapshotProvider(
         PlayerSnapshot[] playerSnapshots = players.SnapshotOnlinePlayers()
             .Select(player => exposure == OperationsSnapshotExposure.Sensitive
                 ? player
-                : player with
-                {
-                    RemoteEndpoint = null,
-                    Connection = player.Connection is null
-                        ? null
-                        : player.Connection with
-                        {
-                            TransportEndpoint = null,
-                            EffectiveEndpoint = null,
-                            ClientUuid = null
-                        }
-                })
+                : PlayerSnapshotPrivacy.RedactSensitive(player))
             .ToArray();
         ModuleOperationsSnapshot[] moduleSnapshots = modules
             .SnapshotModules()
@@ -157,7 +149,9 @@ public sealed class OperationsSnapshotProvider(
                 Array.Empty<SecuritySignal>(),
             Regions = Array.AsReadOnly(regionSnapshots),
             Bans = Array.AsReadOnly(banSnapshots),
-            Mutes = Array.AsReadOnly(muteSnapshots)
+            Mutes = Array.AsReadOnly(muteSnapshots),
+            Scenes = scenes?.SnapshotScenes() ?? Array.Empty<SceneSnapshot>(),
+            VisibilityLayers = visibility?.SnapshotLayers() ?? Array.Empty<VisibilityLayerSnapshot>()
         };
     }
 

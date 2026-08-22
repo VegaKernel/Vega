@@ -788,6 +788,15 @@ internal sealed class OperationsDashboardView : IDisposable
             text.AppendLine().Append("! ").Append(string.Join(" | ", server.Warnings));
         }
 
+        if (snapshot.Scenes.Count > 0 || snapshot.VisibilityLayers.Count > 0)
+        {
+            text.AppendLine()
+                .Append("Scenes ").Append(snapshot.Scenes.Count)
+                .Append(" · overlays ").Append(snapshot.Scenes.Sum(static scene => scene.Overlays.Count))
+                .Append(" · conflicts ").Append(snapshot.Scenes.Sum(static scene => scene.ConflictCount))
+                .Append(" · visibility ").Append(snapshot.VisibilityLayers.Count);
+        }
+
         return text.ToString();
     }
 

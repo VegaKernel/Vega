@@ -12,8 +12,11 @@ using Vega.Core.Authorization;
 using Vega.Core.Bans;
 using Vega.Core.Configuration;
 using Vega.Core.Localization;
+using Vega.Core.Messaging;
 using Vega.Core.Modules;
 using Vega.Core.Operations;
+using Vega.Core.Players;
+using Vega.Core.Scenes;
 using Vega.Core.Updates;
 using Vega.Core.Worlds;
 using Vega.Contracts.Events;
@@ -23,8 +26,12 @@ using Vega.Core.Events;
 using Vega.Core.Extensions;
 using Vega.Core.Networking;
 using Vega.Modules.AutoWorldCleaner;
+using Vega.Modules.Chests;
 using Vega.Modules.CustomItems;
+using Vega.Modules.Mentions;
 using Vega.Modules.Pvp;
+using Vega.Modules.Scenes;
+using Vega.Modules.Wipe;
 using Vega.Operations;
 using Vega.Operations.Actions;
 using Vega.Operations.Logging;
@@ -38,6 +45,7 @@ using Vega.Terraria.Networking;
 using Vega.Terraria.Players;
 using Vega.Terraria.Operations;
 using Vega.Terraria.Threading;
+using Vega.Terraria.Scenes;
 using Vega.Terraria.Worlds;
 
 var processStartedAt = Stopwatch.GetTimestamp();
@@ -132,6 +140,23 @@ int Start()
     }
 
     string[] serverArgs = worldImageOptions.ServerArguments.ToArray();
+    string configuredWorldPath = serverConfiguration.Current.Values["world"].DisplayValue;
+    if (!configuredWorldPath.StartsWith('<'))
+    {
+        try
+        {
+            string? resetBackup = FileWorldResetBackend.ApplyPending(configuredWorldPath);
+            if (resetBackup is not null)
+            {
+                Console.WriteLine($"Applied pending world reset; previous world: {resetBackup}");
+            }
+        }
+        catch (Exception ex)
+        {
+            Console.Error.WriteLine($"Pending world reset could not be applied: {ex.Message}");
+            return 2;
+        }
+    }
     string configuredCulture = serverConfiguration.Current.Values["defaultCulture"].DisplayValue;
     var localization = new LocalizationService(
         configuredCulture.StartsWith('<') ? "en-US" : configuredCulture);
@@ -151,6 +176,7 @@ int Start()
     using var operationsState = new TerrariaOperationsState();
     var pvpModule = new PvpModule(extensionState, playerBoundary, playerBoundary, playerBoundary);
     var customItemsModule = new CustomItemsModule(new TerrariaCustomItemDelivery(gameThreadDispatcher));
+    var mentionsModule = new MentionRenderer();
     ICommandHandler[] commandHandlers =
     [
         new ServerInfoCommand(new ProcessHostMetricsReader()),
@@ -184,10 +210,46 @@ int Start()
     using (fileSink)
     {
         var logger = new StructuredOperationsLogger(sinks);
+        using var sceneRenderer = new TerrariaSceneRenderSink(
+            gameThreadDispatcher,
+            playerBoundary,
+            logger);
+        var scenes = new SceneRuntime(sceneRenderer);
+        var visibility = new SceneVisibilityRuntime();
+        sceneRenderer.Attach(scenes, playerBoundary);
+        var sceneConsumers = new SceneConsumersModule(scenes, visibility, playerBoundary);
+        WorldMaintenanceOptions worldMaintenanceOptions = WorldMaintenanceOptionsStore.Load(
+            Path.Combine(AppContext.BaseDirectory, "config", "world-maintenance.json"),
+            logger);
+        using var worldMaintenance = new TerrariaWorldMaintenanceService(
+            worldMaintenanceOptions,
+            logger,
+            gameThreadDispatcher);
+        var serverControl = new TerrariaServerControl(
+            worldMaintenance,
+            gameThreadDispatcher,
+            logger);
+        using var worldReset = new WorldResetOrchestrator(
+            new FileWorldResetBackend(),
+            [],
+            logger);
+        var wipeModule = new WipeModule(
+            worldReset,
+            serverControl,
+            configuredWorldPath.StartsWith('<') ? null : configuredWorldPath);
         AutoWorldCleanerOptions cleanerOptions = AutoWorldCleanerOptionsStore.Load(
             Path.Combine(AppContext.BaseDirectory, "config", "auto-world-cleaner.json"),
             logger);
         var worldEntities = new TerrariaWorldEntityMaintenance(gameThreadDispatcher);
+        var chestBackend = new TerrariaChestBackend(gameThreadDispatcher);
+        var chestService = new ChestService(
+            chestBackend,
+            new AsyncEventPipeline<ChestChanging>([]),
+            new AsyncEventPipeline<ChestChanged>([]));
+        var chestModule = new ChestPolicyModule(
+            chestService,
+            logger,
+            Path.Combine(AppContext.BaseDirectory, "data", "chest-templates.json"));
         var autoWorldCleaner = new AutoWorldCleanerModule(
             cleanerOptions,
             worldEntities,
@@ -195,7 +257,8 @@ int Start()
             gameThreadDispatcher,
             playerBoundary,
             logger);
-        using var moduleHost = new VegaModuleHost([pvpModule, customItemsModule, autoWorldCleaner]);
+        using var moduleHost = new VegaModuleHost(
+            [pvpModule, customItemsModule, autoWorldCleaner, mentionsModule, chestModule, wipeModule, sceneConsumers]);
         try
         {
             moduleHost.Start();
@@ -242,6 +305,15 @@ int Start()
             new PasswordAccountCommand(accountSessions));
         using IDisposable languageCommandRegistration = commandDispatcher.Register(
             new LanguageCommand(localization, accountSessions));
+        var inventoryService = new TerrariaPlayerInventoryService(gameThreadDispatcher);
+        var inspectionService = new PlayerInspectionService(playerBoundary, inventoryService);
+        using IDisposable userInfoCommandRegistration = commandDispatcher.Register(
+            new UserInfoCommand(playerBoundary, inspectionService));
+        using IDisposable inventoryCommandRegistration = commandDispatcher.Register(
+            new InventoryCommand(playerBoundary, inventoryService));
+        var chat = new ChatPipeline(
+            moderation: [new MuteChatModerationRule(accountSessions, database.Mutes)],
+            renderers: [mentionsModule]);
 
         GameplayEnforcementOptions gameplayOptions = GameplayEnforcementOptionsStore.Load(
             Path.Combine(AppContext.BaseDirectory, "config", "security.json"),
@@ -258,6 +330,8 @@ int Start()
             gameplayEnforcement,
             new ChestInteractionAuthorityPolicy(playerBoundary),
             new TileEntityInteractionAuthorityPolicy(playerBoundary),
+            new SceneInteractionAuthorityPolicy(scenes),
+            new SceneEntityInteractionAuthorityPolicy(visibility),
             new RegionBuildAuthorizationPolicy(
                 database.Regions,
                 playerBoundary,
@@ -291,6 +365,12 @@ int Start()
         ]);
         using IDisposable worldCleanCommandRegistration = commandDispatcher.Register(
             new AutoWorldCleanerCommand(autoWorldCleaner));
+        using IDisposable chestPolicyCommandRegistration = commandDispatcher.Register(
+            new ChestPolicyCommand(chestModule));
+        using IDisposable wipeCommandRegistration = commandDispatcher.Register(
+            new WipeCommand(wipeModule));
+        using IDisposable sceneCommandRegistration = commandDispatcher.Register(
+            new SceneCommand(sceneConsumers, scenes, playerBoundary));
 
         using IDisposable banCommandRegistration = commandDispatcher.Register(
             new BanCommand(playerBoundary, playerBoundary, banService));
@@ -309,17 +389,6 @@ int Start()
             playerBoundary,
             logger);
         using var worldImages = new TerrariaWorldImageService(logger, lifecycle, worldImageOptions.Enabled);
-        WorldMaintenanceOptions worldMaintenanceOptions = WorldMaintenanceOptionsStore.Load(
-            Path.Combine(AppContext.BaseDirectory, "config", "world-maintenance.json"),
-            logger);
-        using var worldMaintenance = new TerrariaWorldMaintenanceService(
-            worldMaintenanceOptions,
-            logger,
-            gameThreadDispatcher);
-        var serverControl = new TerrariaServerControl(
-            worldMaintenance,
-            gameThreadDispatcher,
-            logger);
         using IDisposable saveCommandRegistration = commandDispatcher.Register(
             new SaveCommand(serverControl));
         using IDisposable shutdownCommandRegistration = commandDispatcher.Register(
@@ -363,7 +432,10 @@ int Start()
             securitySignals: securitySignals,
             regions: database.Regions,
             bans: banService,
-            mutes: database.Mutes);
+            mutes: database.Mutes,
+            scenes: scenes,
+            visibility: visibility);
+
         var operationsCommands = new OperationsCommandService(
             commandDispatcher,
             localization,
@@ -433,6 +505,11 @@ int Start()
             playerAuthorization,
             accountSessions,
             database.Mutes,
+            chat,
+            chestModule,
+            scenes,
+            visibility,
+            sceneRenderer,
             localization,
             localization);
     }

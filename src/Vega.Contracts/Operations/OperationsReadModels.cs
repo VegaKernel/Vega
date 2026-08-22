@@ -5,6 +5,7 @@ using Vega.Contracts.Networking;
 using Vega.Contracts.Runtime;
 using Vega.Contracts.Regions;
 using Vega.Contracts.Worlds;
+using Vega.Contracts.Scenes;
 
 namespace Vega.Contracts.Operations;
 
@@ -224,6 +225,12 @@ public sealed record OperationsSnapshot(
 
     public IReadOnlyList<MuteSnapshot> Mutes { get; init; } =
         Array.Empty<MuteSnapshot>();
+
+    public IReadOnlyList<SceneSnapshot> Scenes { get; init; } =
+        Array.Empty<SceneSnapshot>();
+
+    public IReadOnlyList<VisibilityLayerSnapshot> VisibilityLayers { get; init; } =
+        Array.Empty<VisibilityLayerSnapshot>();
 }
 
 public interface IOperationsSnapshotProvider

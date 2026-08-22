@@ -11,6 +11,8 @@ using Vega.Contracts.Runtime;
 using Vega.Contracts.Worlds;
 using Vega.Contracts.Localization;
 using Vega.Contracts.Moderation;
+using Vega.Contracts.Messaging;
+using Vega.Contracts.Scenes;
 using Vega.Terraria.Hooking;
 using Vega.Terraria.Operations;
 using Vega.Terraria.Players;
@@ -45,6 +47,11 @@ public static class TerrariaServerHost
         IPlayerAuthorizationService playerAuthorization,
         IPlayerAccountSessionService accountSessions,
         IMuteService mutes,
+        IChatPipeline chat,
+        IChestInteractionPolicy chestPolicy,
+        ISceneRuntime scenes,
+        ISceneVisibilityRuntime visibility,
+        ISceneRenderSink sceneRenderer,
         ILocalizationService localization,
         IPlayerCultureService cultures)
     {
@@ -67,6 +74,11 @@ public static class TerrariaServerHost
         ArgumentNullException.ThrowIfNull(playerAuthorization);
         ArgumentNullException.ThrowIfNull(accountSessions);
         ArgumentNullException.ThrowIfNull(mutes);
+        ArgumentNullException.ThrowIfNull(chat);
+        ArgumentNullException.ThrowIfNull(chestPolicy);
+        ArgumentNullException.ThrowIfNull(scenes);
+        ArgumentNullException.ThrowIfNull(visibility);
+        ArgumentNullException.ThrowIfNull(sceneRenderer);
         ArgumentNullException.ThrowIfNull(localization);
         ArgumentNullException.ThrowIfNull(cultures);
 
@@ -113,7 +125,19 @@ public static class TerrariaServerHost
             cultures,
             playerBoundary,
             accountSessions,
-            mutes);
+            chat);
+        using var chestPolicyHooks = new NativeChestPolicyHooks(
+            playerBoundary,
+            chestPolicy,
+            gameThreadDispatcher,
+            logger);
+        using var sceneNetworkHooks = new NativeSceneNetworkHooks(
+            scenes,
+            sceneRenderer,
+            playerBoundary);
+        using var sceneVisibilityHooks = new NativeSceneVisibilityHooks(
+            visibility,
+            playerBoundary);
         using var worldClockSynchronizer = new TerrariaWorldClockSynchronizer(worldClock, logger);
 
         try
@@ -133,6 +157,9 @@ public static class TerrariaServerHost
             playerPacketSecurityHooks.Attach();
             consoleCommandHooks.Attach();
             playerCommandHooks.Attach();
+            chestPolicyHooks.Attach();
+            sceneNetworkHooks.Attach();
+            sceneVisibilityHooks.Attach();
 
             lifecycle.Advance(RuntimeLifecycleStage.RuntimeReady);
 
