@@ -214,6 +214,20 @@ public sealed class RuntimeDependencyTests
     }
 
     [Test]
+    public void PublishedRuntimeDeclaresAssembliesRequiredByOtapiTypePreloading()
+    {
+        var repositoryRoot = FindRepositoryRoot();
+        string project = File.ReadAllText(Path.Combine(
+            repositoryRoot, "src", "Vega.Runtime", "Vega.Runtime.csproj"));
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(project, Does.Contain("PackageReference Include=\"System.Configuration.ConfigurationManager\""));
+            Assert.That(project, Does.Contain("PackageReference Include=\"System.Drawing.Common\""));
+        });
+    }
+
+    [Test]
     public void Vega_native_packet_security_owns_migrated_player_identity_packets()
     {
         var repositoryRoot = FindRepositoryRoot();
