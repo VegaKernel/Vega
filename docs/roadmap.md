@@ -440,13 +440,13 @@ Vega 1.0 currently has the modern command/authorization boundaries and several r
 
 ### Accounts, groups and permissions
 
-- [x] Implement persistent account, group, inheritance and permission stores with stable identifiers, optimistic revisions and schema migrations; the current in-memory session authorization cache is not the source of truth.
+- [x] Implement persistent account, group, inheritance and permission stores with stable identifiers, optimistic revisions and baseline schema initialization; the current in-memory session authorization cache is not the source of truth.
 - [x] Resolve effective permissions deterministically from account assignment, group inheritance, explicit grants/denials and active temporary role leases, with cycle detection and bounded caching.
 - [x] Add authorized commands for account lifecycle, group create/delete/list/show, parent assignment, permission grant/revoke, player group assignment and temporary group assignment.
 - [x] Enforce delegated-administration limits from ADR 0014 so an operator cannot grant a role or permission above their own authority.
 - [x] Persist every account/group/permission mutation and emit a structured audit record containing actor, target, before/after revision, reason and outcome.
 
-Schema 2 provides the same account/group/role-lease tables through SQLite, PostgreSQL and MySQL, including case-normalized stable account identifiers, PBKDF2-SHA256 password verification, optimistic revisions, explicit grant/deny rows, cycle-bounded inheritance and an atomic administration audit row for every applied mutation. `account` and `group` commands use these services; the console can bootstrap the first administrator, while non-console delegation is bounded by the permissions the caller actually holds. Player account sessions project live base-group policy and the current account-scoped temporary-group override into command and region authorization, record last login, reject account bans and clear on logout/disconnect. Lease expiry is evaluated against absolute UTC time without player timers, and replacement revisions make stale expiry/revoke attempts harmless.
+The Vega 1.0 baseline provides the same account/group/role-lease tables through SQLite, PostgreSQL and MySQL, including case-normalized stable account identifiers, PBKDF2-SHA256 password verification, optimistic revisions, explicit grant/deny rows, cycle-bounded inheritance and an atomic administration audit row for every applied mutation. `account` and `group` commands use these services; the console can bootstrap the first administrator, while non-console delegation is bounded by the permissions the caller actually holds. Player account sessions project live base-group policy and the current account-scoped temporary-group override into command and region authorization, record last login, reject account bans and clear on logout/disconnect. Lease expiry is evaluated against absolute UTC time without player timers, and replacement revisions make stale expiry/revoke attempts harmless.
 
 ### Regions and world authorization
 
@@ -454,9 +454,9 @@ Schema 2 provides the same account/group/role-lease tables through SQLite, Postg
 - [x] Add game-thread-safe region admission/build/use checks through typed world/player contexts rather than module-specific tile hooks.
 - [x] Add authorized `region` create/delete/list/show/resize/priority/owner/member/group/flag commands with overlap and world validation.
 - [x] Expose immutable region snapshots and authorized mutations to Operations/TUI so `HouseRegions`, `Region-Vision` and sandbox worlds share one source of truth.
-- [ ] Add migrations and regression tests for overlapping priorities, renamed/deleted worlds, offline owners, permission inheritance and concurrent edits.
+- [ ] Add lifecycle and regression tests for overlapping priorities, renamed/deleted worlds, offline owners, permission inheritance and concurrent edits.
 
-Schema 3 stores region identity by explicit `WorldId`, validates non-empty bounded rectangles, resolves overlaps by priority then smallest area and retains owners as offline-capable account names. Members, groups and boolean flags are versioned with the region; mutations use optimistic revisions and the shared administration audit. `region` commands always use `CommandInvocation.WorldId`, so identical names in different worlds do not collide. Runtime build, paint, door, sign, chest and tile-entity packets resolve protected regions from immutable per-world snapshots, use authenticated account/group identity, allow `vega.regions.bypass`, and invalidate the cache after committed mutations. Chest and tile-entity identifiers are resolved against Terraria-owned state before ACL evaluation, including active-chest ownership for item mutation. Operations publishes a bounded deep-immutable projection for all active world contexts; plain output and the configurable TUI Regions window consume it, while mutations still pass through the authorized command boundary. Lifecycle validation for renamed/deleted worlds remains open above.
+The Vega 1.0 baseline stores region identity by explicit `WorldId`, validates non-empty bounded rectangles, resolves overlaps by priority then smallest area and retains owners as offline-capable account names. Members, groups and boolean flags are versioned with the region; mutations use optimistic revisions and the shared administration audit. `region` commands always use `CommandInvocation.WorldId`, so identical names in different worlds do not collide. Runtime build, paint, door, sign, chest and tile-entity packets resolve protected regions from immutable per-world snapshots, use authenticated account/group identity, allow `vega.regions.bypass`, and invalidate the cache after committed mutations. Chest and tile-entity identifiers are resolved against Terraria-owned state before ACL evaluation, including active-chest ownership for item mutation. Operations publishes a bounded deep-immutable projection for all active world contexts; plain output and the configurable TUI Regions window consume it, while mutations still pass through the authorized command boundary. Lifecycle validation for renamed/deleted worlds remains open above.
 
 ### Bans and moderation commands
 
@@ -465,7 +465,7 @@ Schema 3 stores region identity by explicit `WorldId`, validates non-empty bound
 - [x] Add account/player mute primitives only with explicit identity, duration, reason, issuer and audit semantics; do not hide moderation state in command-local tables.
 - [x] Expose bounded, redacted moderation views in Operations/TUI and verify that sensitive IP/UUID subjects require separate permissions.
 
-Schema 4 stores revisioned account/player-name mutes with explicit issuer, reason and finite absolute UTC expiry across SQLite, PostgreSQL and MySQL. `mute`/`unmute` own creation, bounded listing, inspection and revocation. Active account identity wins over a display-name match; ordinary chat is cancelled before Terraria while Vega commands remain usable, and no per-player timer or command-local table owns moderation state. Operations limits active ban/mute projections to 200 each, redacts IP/UUID/CIDR ban subjects unless sensitive exposure is requested, and feeds both plain output and the configurable TUI Moderation window.
+The Vega 1.0 baseline stores revisioned account/player-name mutes with explicit issuer, reason and finite absolute UTC expiry across SQLite, PostgreSQL and MySQL. `mute`/`unmute` own creation, bounded listing, inspection and revocation. Active account identity wins over a display-name match; ordinary chat is cancelled before Terraria while Vega commands remain usable, and no per-player timer or command-local table owns moderation state. Operations limits active ban/mute projections to 200 each, redacts IP/UUID/CIDR ban subjects unless sensitive exposure is requested, and feeds both plain output and the configurable TUI Moderation window.
 
 ### Localization and command completeness
 
@@ -477,15 +477,26 @@ Schema 4 stores revisioned account/player-name mutes with explicit issuer, reaso
 
 The native `lang` command and session-scoped guest preference are live for `en-US` and `ru-RU`; authenticated account selection is persisted and restored at login. The command switches only the recipient catalog, and stale module-catalog unload cannot remove a newer registration.
 
-### Persistence, migration and release validation
+### Persistence, baseline schema and release validation
 
 - [x] Ship the domain-oriented `Vega.Persistence` layer with deploy-ready SQLite and selectable PostgreSQL/MySQL providers; initialize it before world loading and fail startup when the selected store is unavailable.
 - [x] Persist the first revision-aware domain consumer (global-ban creation/revocation tombstones) through the same contract used by cluster replication.
-- [ ] Make schema upgrades transactional with backup/recovery guidance and idempotent migration tests from every released Vega schema.
+- [ ] Freeze one clean Vega 1.0 baseline schema for every database provider and test creation/reopen from an empty store; do not preserve migration steps between unreleased development schemas.
+- [ ] Introduce numbered, forward-only migrations and upgrade/rollback fixtures only after the first public Vega schema has shipped.
 - [ ] Add clean-archive tests proving that an operator can extract the release, edit documented configuration, create the first administrator, start a world and manage groups/regions/bans without repository files.
 - [ ] Update English/Russian guides and the deployable archive only after command examples, generated configuration and persistence paths match the running server.
 
-ADR 0022 establishes the persistence boundary without reproducing TShock's generic database helpers. Domain contracts never expose SQL or `DbConnection`. SQLite and PostgreSQL use transactional schema upgrades; MySQL uses a database-scoped migration lock plus idempotent retryable DDL because its engine implicitly commits DDL. Schema 1 ban persistence and the schema 1-to-2 identity upgrade have clean/reopen/future-version/revision tests. The phase remains open for region, SSC and moderation product stores, backup/recovery guidance and real disposable PostgreSQL/MySQL contract tests in CI.
+ADR 0022 establishes the persistence boundary without reproducing TShock's generic database helpers. Domain contracts never expose SQL or `DbConnection`. Before the first public release all current tables belong to one Vega 1.0 baseline; the temporary development sequence is not a compatibility contract. The phase remains open for SSC product storage, clean deployment validation and real disposable PostgreSQL/MySQL contract tests in CI.
+
+### Scheduled deployment backups
+
+- [ ] Add `config/backups.json` with exactly three operator settings: `enabled`, `interval` and `retainedBackups`; write completed archives beneath the fixed deploy-local `backups/` directory.
+- [ ] Coordinate backup with the world-save barrier so the archive contains one consistent saved world and its matching `.vworld` cache when enabled, without stopping the server process or racing autosave/manual save.
+- [ ] Include a consistent database snapshot: SQLite online backup, PostgreSQL logical dump and MySQL/MariaDB logical dump through provider-owned implementations; never copy a live SQLite database/WAL pair opportunistically.
+- [ ] Stage every backup outside the visible archive set, then atomically publish a timestamped archive containing the world, database dump, effective non-secret configuration, version/schema manifest and checksums.
+- [ ] Reject overlapping scheduled/manual runs, expose progress and the last result through Operations/TUI/logs, and provide an authorized `backup` command without adding more persistent configuration knobs.
+- [ ] After successful publication retain only the newest `retainedBackups` archives; validate bounds and never delete files outside the resolved `backups/` directory.
+- [ ] Add cancellation, disk-full, dump-tool failure, world-save failure, archive-integrity, retention and restore-drill tests plus English/Russian recovery documentation.
 
 ## Phase 20 — in-process soft restart
 
@@ -493,7 +504,7 @@ Provide an authorized operational restart of the Vega application/module graph w
 
 ### Restart boundary and lifecycle
 
-- [ ] Classify every runtime component as `PreservedInfrastructure`, `RestartableModule` or `ProcessRestartOnly`; keep Terraria/OTAPI, the loaded world, network listener, database connections/migrations, lifecycle coordinator and Operations control plane outside the restartable graph.
+- [ ] Classify every runtime component as `PreservedInfrastructure`, `RestartableModule` or `ProcessRestartOnly`; keep Terraria/OTAPI, the loaded world, network listener, database connections/schema management, lifecycle coordinator and Operations control plane outside the restartable graph.
 - [ ] Replace one-shot static-module construction with explicit factories and owned registration scopes so every restartable module can quiesce, stop, remove hooks/commands/jobs and be recreated without retaining the previous generation.
 - [ ] Add a generation-aware module router and an exclusive restart barrier: reject concurrent restart requests, stop new module callbacks, drain bounded in-flight work, atomically swap the packet/event/command generation and then dispose the old graph.
 - [ ] Stop modules in reverse dependency order and start them in validated topological order with cancellation, per-module timeout and a total restart deadline.

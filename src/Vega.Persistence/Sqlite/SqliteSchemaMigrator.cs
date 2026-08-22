@@ -3,15 +3,13 @@ using Microsoft.Data.Sqlite;
 
 namespace Vega.Persistence.Sqlite;
 
-internal static class SqliteSchemaMigrator
+internal static class SqliteSchemaInitializer
 {
-    private const int CurrentVersion = 4;
+    private const int CurrentVersion = 1;
 
-    private static readonly Migration[] Migrations =
+    private static readonly SchemaSection[] BaselineSections =
     [
         new(
-            1,
-            "global-bans",
             """
             CREATE TABLE global_bans (
                 id TEXT NOT NULL PRIMARY KEY,
@@ -36,8 +34,6 @@ internal static class SqliteSchemaMigrator
                 ON global_bans (revoked, expires_at_utc);
             """),
         new(
-            2,
-            "accounts-groups-authorization",
             """
             CREATE TABLE vega_groups (
                 name TEXT NOT NULL COLLATE NOCASE PRIMARY KEY,
@@ -94,8 +90,6 @@ internal static class SqliteSchemaMigrator
                 VALUES ('administrator', '*', 1);
             """),
         new(
-            3,
-            "world-regions",
             """
             CREATE TABLE vega_regions (
                 id INTEGER NOT NULL PRIMARY KEY,
@@ -134,8 +128,6 @@ internal static class SqliteSchemaMigrator
             );
             """),
         new(
-            4,
-            "persistent-mutes",
             """
             CREATE TABLE vega_mutes (
                 id TEXT NOT NULL PRIMARY KEY,
@@ -156,7 +148,7 @@ internal static class SqliteSchemaMigrator
             """)
     ];
 
-    public static async ValueTask<int> ApplyAsync(
+    public static async ValueTask<int> InitializeAsync(
         SqliteConnectionFactory connections,
         CancellationToken cancellationToken)
     {
@@ -180,20 +172,21 @@ internal static class SqliteSchemaMigrator
                     $"Database schema {version} is newer than supported schema {CurrentVersion}.");
             }
 
-            foreach (Migration migration in Migrations)
+            if (version == 0)
             {
-                if (migration.Version <= version)
+                foreach (SchemaSection section in BaselineSections)
                 {
-                    continue;
+                    await ExecuteSchemaSectionAsync(
+                            connection,
+                            transaction,
+                            section,
+                            cancellationToken)
+                        .ConfigureAwait(false);
                 }
 
-                await ExecuteMigrationAsync(
-                        connection,
-                        transaction,
-                        migration,
-                        cancellationToken)
+                await InsertBaselineHistoryAsync(connection, transaction, cancellationToken)
                     .ConfigureAwait(false);
-                version = migration.Version;
+                version = CurrentVersion;
             }
 
             await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
@@ -245,19 +238,23 @@ internal static class SqliteSchemaMigrator
         return Convert.ToInt32(scalar, CultureInfo.InvariantCulture);
     }
 
-    private static async ValueTask ExecuteMigrationAsync(
+    private static async ValueTask ExecuteSchemaSectionAsync(
         SqliteConnection connection,
         SqliteTransaction transaction,
-        Migration migration,
+        SchemaSection section,
         CancellationToken cancellationToken)
     {
-        await using (SqliteCommand schema = connection.CreateCommand())
-        {
-            schema.Transaction = transaction;
-            schema.CommandText = migration.Sql;
-            await schema.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
-        }
+        await using SqliteCommand schema = connection.CreateCommand();
+        schema.Transaction = transaction;
+        schema.CommandText = section.Sql;
+        await schema.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
+    }
 
+    private static async ValueTask InsertBaselineHistoryAsync(
+        SqliteConnection connection,
+        SqliteTransaction transaction,
+        CancellationToken cancellationToken)
+    {
         await using SqliteCommand history = connection.CreateCommand();
         history.Transaction = transaction;
         history.CommandText =
@@ -265,13 +262,13 @@ internal static class SqliteSchemaMigrator
             INSERT INTO vega_schema_history (version, name, applied_at_utc)
             VALUES ($version, $name, $appliedAt);
             """;
-        history.Parameters.AddWithValue("$version", migration.Version);
-        history.Parameters.AddWithValue("$name", migration.Name);
+        history.Parameters.AddWithValue("$version", CurrentVersion);
+        history.Parameters.AddWithValue("$name", "vega-1.0-baseline");
         history.Parameters.AddWithValue(
             "$appliedAt",
             DateTimeOffset.UtcNow.ToString("O", CultureInfo.InvariantCulture));
         await history.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
     }
 
-    private sealed record Migration(int Version, string Name, string Sql);
+    private sealed record SchemaSection(string Sql);
 }

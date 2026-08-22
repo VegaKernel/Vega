@@ -43,11 +43,11 @@ public sealed class SqliteVegaDatabaseTests
 
         Assert.Multiple(() =>
         {
-            Assert.That(first.SchemaVersion, Is.EqualTo(4));
-            Assert.That(second.SchemaVersion, Is.EqualTo(4));
+            Assert.That(first.SchemaVersion, Is.EqualTo(1));
+            Assert.That(second.SchemaVersion, Is.EqualTo(1));
             Assert.That(first.DatabasePath, Is.EqualTo(Path.GetFullPath(databasePath)));
             Assert.That(File.Exists(databasePath), Is.True);
-            Assert.That(ScalarInt64("SELECT COUNT(*) FROM vega_schema_history;"), Is.EqualTo(4));
+            Assert.That(ScalarInt64("SELECT COUNT(*) FROM vega_schema_history;"), Is.EqualTo(1));
             Assert.That(ScalarInt64("SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = 'global_bans';"), Is.EqualTo(1));
             Assert.That(ScalarInt64("SELECT COUNT(*) FROM vega_groups;"), Is.EqualTo(3));
         });
@@ -211,38 +211,6 @@ public sealed class SqliteVegaDatabaseTests
             Assert.That(revoked.Succeeded, Is.True);
             Assert.That(reopened.Mutes.FindActive("Alice", "Alice", now.AddMinutes(4)), Is.Null);
             Assert.That(reopened.Mutes.SnapshotActive(now.AddHours(3)), Is.Empty);
-        });
-    }
-
-    [Test]
-    public async Task ReleasedSchemaOneDatabaseUpgradesIdempotentlyToCurrentSchema()
-    {
-        Directory.CreateDirectory(Path.GetDirectoryName(databasePath)!);
-        await using (var connection = new SqliteConnection($"Data Source={databasePath}"))
-        {
-            await connection.OpenAsync();
-            await using SqliteCommand command = connection.CreateCommand();
-            command.CommandText =
-                """
-                CREATE TABLE vega_schema_history (
-                    version INTEGER NOT NULL PRIMARY KEY,
-                    name TEXT NOT NULL,
-                    applied_at_utc TEXT NOT NULL
-                );
-                INSERT INTO vega_schema_history VALUES (1, 'global-bans', '2026-08-20T12:00:00Z');
-                """;
-            await command.ExecuteNonQueryAsync();
-        }
-
-        SqliteVegaDatabase first = await OpenAsync();
-        SqliteVegaDatabase second = await OpenAsync();
-
-        Assert.Multiple(() =>
-        {
-            Assert.That(first.SchemaVersion, Is.EqualTo(4));
-            Assert.That(second.SchemaVersion, Is.EqualTo(4));
-            Assert.That(ScalarInt64("SELECT COUNT(*) FROM vega_schema_history;"), Is.EqualTo(4));
-            Assert.That(ScalarInt64("SELECT COUNT(*) FROM vega_groups;"), Is.EqualTo(3));
         });
     }
 

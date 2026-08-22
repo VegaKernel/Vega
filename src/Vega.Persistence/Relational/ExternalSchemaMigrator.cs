@@ -9,7 +9,7 @@ internal enum RelationalProvider
     MySql
 }
 
-internal sealed class ExternalSchemaMigrator(
+internal sealed class ExternalSchemaInitializer(
     IRelationalConnectionFactory connections,
     RelationalProvider provider,
     string globalBanSchemaSql,
@@ -17,9 +17,9 @@ internal sealed class ExternalSchemaMigrator(
     string regionSchemaSql,
     string moderationSchemaSql)
 {
-    private const int CurrentVersion = 4;
+    private const int CurrentVersion = 1;
 
-    public async ValueTask<int> ApplyAsync(CancellationToken cancellationToken)
+    public async ValueTask<int> InitializeAsync(CancellationToken cancellationToken)
     {
         await using DbConnection connection = await connections
             .OpenAsync(cancellationToken)
@@ -47,55 +47,24 @@ internal sealed class ExternalSchemaMigrator(
                 .ConfigureAwait(false);
             EnsureSupported(version);
 
-            if (version < 1)
+            if (version == 0)
             {
                 await ExecuteAsync(connection, transaction, globalBanSchemaSql, cancellationToken)
                     .ConfigureAwait(false);
-                await InsertHistoryAsync(connection, transaction, 1, "global-bans", cancellationToken)
-                    .ConfigureAwait(false);
-                version = 1;
-            }
-
-            if (version < 2)
-            {
                 await ExecuteAsync(connection, transaction, identitySchemaSql, cancellationToken)
                     .ConfigureAwait(false);
-                await InsertHistoryAsync(
-                        connection,
-                        transaction,
-                        2,
-                        "accounts-groups-authorization",
-                        cancellationToken)
-                    .ConfigureAwait(false);
-                version = 2;
-            }
-
-            if (version < 3)
-            {
                 await ExecuteAsync(connection, transaction, regionSchemaSql, cancellationToken)
                     .ConfigureAwait(false);
-                await InsertHistoryAsync(
-                        connection,
-                        transaction,
-                        3,
-                        "world-regions",
-                        cancellationToken)
-                    .ConfigureAwait(false);
-                version = 3;
-            }
-
-            if (version < 4)
-            {
                 await ExecuteAsync(connection, transaction, moderationSchemaSql, cancellationToken)
                     .ConfigureAwait(false);
                 await InsertHistoryAsync(
                         connection,
                         transaction,
-                        4,
-                        "persistent-mutes",
+                        CurrentVersion,
+                        "vega-1.0-baseline",
                         cancellationToken)
                     .ConfigureAwait(false);
-                version = 4;
+                version = CurrentVersion;
             }
 
             await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
@@ -121,57 +90,26 @@ internal sealed class ExternalSchemaMigrator(
             int version = await ReadVersionAsync(connection, null, cancellationToken)
                 .ConfigureAwait(false);
             EnsureSupported(version);
-            if (version < 1)
+            if (version == 0)
             {
-                // MySQL implicitly commits DDL. The migration SQL is idempotent so a
-                // crash before history insertion is safely retried under the same lock.
+                // MySQL implicitly commits DDL. Baseline DDL is idempotent so a crash
+                // before the single history row is safely retried under the same lock.
                 await ExecuteAsync(connection, null, globalBanSchemaSql, cancellationToken)
                     .ConfigureAwait(false);
-                await InsertHistoryAsync(connection, null, 1, "global-bans", cancellationToken)
-                    .ConfigureAwait(false);
-                version = 1;
-            }
-
-            if (version < 2)
-            {
                 await ExecuteAsync(connection, null, identitySchemaSql, cancellationToken)
                     .ConfigureAwait(false);
-                await InsertHistoryAsync(
-                        connection,
-                        null,
-                        2,
-                        "accounts-groups-authorization",
-                        cancellationToken)
-                    .ConfigureAwait(false);
-                version = 2;
-            }
-
-            if (version < 3)
-            {
                 await ExecuteAsync(connection, null, regionSchemaSql, cancellationToken)
                     .ConfigureAwait(false);
-                await InsertHistoryAsync(
-                        connection,
-                        null,
-                        3,
-                        "world-regions",
-                        cancellationToken)
-                    .ConfigureAwait(false);
-                version = 3;
-            }
-
-            if (version < 4)
-            {
                 await ExecuteAsync(connection, null, moderationSchemaSql, cancellationToken)
                     .ConfigureAwait(false);
                 await InsertHistoryAsync(
                         connection,
                         null,
-                        4,
-                        "persistent-mutes",
+                        CurrentVersion,
+                        "vega-1.0-baseline",
                         cancellationToken)
                     .ConfigureAwait(false);
-                version = 4;
+                version = CurrentVersion;
             }
 
             return version;
@@ -219,7 +157,7 @@ internal sealed class ExternalSchemaMigrator(
         DbConnection connection,
         DbTransaction? transaction,
         int version,
-        string migrationName,
+        string baselineName,
         CancellationToken cancellationToken)
     {
         await using DbCommand command = connection.CreateCommand();
@@ -230,7 +168,7 @@ internal sealed class ExternalSchemaMigrator(
             VALUES (@version, @name, @appliedAt);
             """;
         command.AddParameter("@version", version);
-        command.AddParameter("@name", migrationName);
+        command.AddParameter("@name", baselineName);
         command.AddParameter(
             "@appliedAt",
             DateTimeOffset.UtcNow.ToString("O", CultureInfo.InvariantCulture));
@@ -259,7 +197,7 @@ internal sealed class ExternalSchemaMigrator(
         if (Convert.ToInt32(result, CultureInfo.InvariantCulture) != 1)
         {
             throw new InvalidOperationException(
-                "Could not acquire the MySQL Vega schema migration lock.");
+                "Could not acquire the MySQL Vega schema initialization lock.");
         }
 
         return true;

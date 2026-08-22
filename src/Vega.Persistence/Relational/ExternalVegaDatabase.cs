@@ -9,7 +9,7 @@ namespace Vega.Persistence.Relational;
 
 public abstract class ExternalVegaDatabase : IVegaDatabase
 {
-    private readonly ExternalSchemaMigrator migrator;
+    private readonly ExternalSchemaInitializer schemaInitializer;
     private readonly SemaphoreSlim initialization = new(1, 1);
     private int schemaVersion;
 
@@ -26,7 +26,7 @@ public abstract class ExternalVegaDatabase : IVegaDatabase
     {
         Provider = provider;
         Name = name;
-        migrator = new ExternalSchemaMigrator(
+        schemaInitializer = new ExternalSchemaInitializer(
             connections,
             relationalProvider,
             schemaSql,
@@ -89,7 +89,9 @@ public abstract class ExternalVegaDatabase : IVegaDatabase
                 return;
             }
 
-            int version = await migrator.ApplyAsync(cancellationToken).ConfigureAwait(false);
+            int version = await schemaInitializer
+                .InitializeAsync(cancellationToken)
+                .ConfigureAwait(false);
             Volatile.Write(ref schemaVersion, version);
             Authorization.SnapshotGroups();
             RoleLeases.SnapshotActive(DateTimeOffset.UtcNow);

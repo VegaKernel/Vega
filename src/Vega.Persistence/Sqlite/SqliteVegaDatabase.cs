@@ -101,8 +101,8 @@ public sealed class SqliteVegaDatabase : IVegaDatabase
             }
 
             Directory.CreateDirectory(databaseDirectory);
-            int version = await SqliteSchemaMigrator
-                .ApplyAsync(connections, cancellationToken)
+            int version = await SqliteSchemaInitializer
+                .InitializeAsync(connections, cancellationToken)
                 .ConfigureAwait(false);
             Volatile.Write(ref schemaVersion, version);
             Authorization.SnapshotGroups();

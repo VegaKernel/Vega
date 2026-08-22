@@ -1,6 +1,6 @@
 # Persistence
 
-Vega ships one domain-oriented persistence layer with three relational providers: SQLite, PostgreSQL and MySQL/MariaDB. SQLite is the deploy-ready default. The runtime reads `config/database.json`, initializes the selected provider after cheap runtime/module registration and before world loading, and fails startup if the required store cannot connect or migrate.
+Vega ships one domain-oriented persistence layer with three relational providers: SQLite, PostgreSQL and MySQL/MariaDB. SQLite is the deploy-ready default. The runtime reads `config/database.json`, initializes the selected provider after cheap runtime/module registration and before world loading, and fails startup if the required store cannot connect or initialize its baseline schema.
 
 ## Configuration
 
@@ -34,11 +34,11 @@ Then change only `provider` in `config/database.json`. The environment variable 
 
 ## Schema and behavior
 
-`vega_schema_history` records ordered schema revisions. SQLite uses WAL, a bounded busy timeout and transactional migrations. PostgreSQL uses transactional migrations plus a transaction-scoped advisory lock. MySQL DDL implicitly commits, so Vega holds a database-scoped named lock and uses idempotent, retryable DDL before recording the migration.
+`vega_schema_history` currently contains one `vega-1.0-baseline` row. No public Vega database schema exists yet, so the former development-only sequence has been collapsed instead of being treated as a compatibility contract. SQLite and PostgreSQL create the complete baseline transactionally. MySQL DDL implicitly commits, so Vega holds a database-scoped named lock and uses idempotent baseline DDL before recording that row. Numbered forward migrations begin only after the first public schema ships.
 
 The first schema owns the persistent global-ban replica. Create and revoke operations use monotonic revisions; stale or duplicate delivery cannot overwrite newer state. Revocations are tombstones, including when they arrive before an older create event. Expired and revoked bans are excluded from the active snapshot.
 
-Schema 2 adds accounts, inherited groups, explicit permission grants/denials, administration audit records and account-scoped temporary role leases. Granting a temporary group atomically revokes the previous active row before inserting its replacement. Every replacement or explicit revoke is audited and revisioned; an older expiry/revoke request therefore cannot remove a newer assignment. Runtime permission checks read a preloaded one-active-lease-per-account cache and compare its absolute UTC expiration without querying SQL or keeping a timer on the player session. Schema 3 adds world-scoped regions and versioned ACL rows. Schema 4 adds finite account/player-name mutes with issuer, reason, expiry, optimistic revision, revocation metadata and the shared administration audit.
+The Vega 1.0 baseline includes accounts, inherited groups, explicit permission grants/denials, administration audit records, account-scoped temporary role leases, world-scoped regions with versioned ACL rows, and finite account/player-name mutes. Granting a temporary group atomically revokes the previous active row before inserting its replacement. Every replacement or explicit revoke is audited and revisioned; an older expiry/revoke request therefore cannot remove a newer assignment. Runtime permission checks read a preloaded one-active-lease-per-account cache and compare its absolute UTC expiration without querying SQL or keeping a timer on the player session.
 
 This is infrastructure, not a generic DAL. `Vega.Contracts` exposes domain repositories; it never exposes SQL or `DbConnection` to Core or `ServerPlugins`.
 
