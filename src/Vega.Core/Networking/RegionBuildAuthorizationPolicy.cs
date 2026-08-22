@@ -177,10 +177,9 @@ public sealed class RegionBuildAuthorizationPolicy(
 
         if (packet.PacketType == PacketTypes.ChestOpen)
         {
-            var reader = packet.CreatePayloadReader();
-            _ = reader.ReadInt16();
-            startX = endX = reader.ReadInt16();
-            startY = endY = reader.ReadInt16();
+            ChestOpenView chest = packet.AsChestOpenView();
+            startX = endX = chest.ChestX;
+            startY = endY = chest.ChestY;
             interaction = RegionInteraction.Use;
             return true;
         }

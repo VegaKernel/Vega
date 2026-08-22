@@ -53,7 +53,7 @@ public sealed class WorldMutationSanityPolicy(
                 context.Packet.AsChestGetContentsView().TileY,
                 "packet.chest.position_out_of_world"),
             PacketTypes.ChestItem => ValidateChestItem(context.Packet.AsChestItemView()),
-            PacketTypes.ChestOpen => ValidateChestOpen(context.Packet),
+            PacketTypes.ChestOpen => ValidateChestOpen(context.Packet.AsChestOpenView()),
             PacketTypes.PlaceChest => ValidatePlaceChest(context.Packet.AsPlaceChestView()),
             PacketTypes.SyncChestSize => ValidateChestSize(context.Packet.AsSyncChestSizeView()),
             PacketTypes.ChestName => ValidateChestName(context.Packet.AsChestNameView()),
@@ -218,21 +218,20 @@ public sealed class WorldMutationSanityPolicy(
             : PacketProcessingDecision.Allow;
     }
 
-    private PacketProcessingDecision ValidateChestOpen(PacketView packet)
+    private PacketProcessingDecision ValidateChestOpen(ChestOpenView value)
     {
-        var reader = packet.CreatePayloadReader();
-        int chestId = reader.ReadInt16();
-        int chestX = reader.ReadInt16();
-        int chestY = reader.ReadInt16();
-        PacketProcessingDecision position = ValidateCoordinates(chestX, chestY, "packet.chest.position_out_of_world");
+        PacketProcessingDecision position = ValidateCoordinates(
+            value.ChestX,
+            value.ChestY,
+            "packet.chest.position_out_of_world");
         if (position.Kind != PacketDecisionKind.Allow)
         {
             return position;
         }
 
-        return chestId < -1
+        return value.ChestId < -1
             ? PacketProcessingDecision.Violation("packet.chest.id_out_of_range")
-            : chestId >= 0 ? ValidateChestId(chestId) : PacketProcessingDecision.Allow;
+            : value.ChestId >= 0 ? ValidateChestId(value.ChestId) : PacketProcessingDecision.Allow;
     }
 
     private PacketProcessingDecision ValidatePlaceChest(PlaceChestView value)

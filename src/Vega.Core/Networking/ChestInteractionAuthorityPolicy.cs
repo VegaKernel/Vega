@@ -23,7 +23,7 @@ public sealed class ChestInteractionAuthorityPolicy(IWorldInteractionState world
             PacketTypes.SyncChestSize => ValidateActiveChest(
                 playerId,
                 context.Packet.AsSyncChestSizeView().ChestId),
-            PacketTypes.ChestOpen => ValidateChestOpen(context.Packet),
+            PacketTypes.ChestOpen => ValidateChestOpen(context.Packet.AsChestOpenView()),
             PacketTypes.ChestName => ValidateChestName(context.Packet.AsChestNameView()),
             _ => PacketProcessingDecision.Allow
         };
@@ -36,19 +36,15 @@ public sealed class ChestInteractionAuthorityPolicy(IWorldInteractionState world
             ? PacketProcessingDecision.Allow
             : PacketProcessingDecision.Reject("packet.chest.session_mismatch");
 
-    private PacketProcessingDecision ValidateChestOpen(PacketView packet)
+    private PacketProcessingDecision ValidateChestOpen(ChestOpenView packet)
     {
-        var reader = packet.CreatePayloadReader();
-        int chestId = reader.ReadInt16();
-        int x = reader.ReadInt16();
-        int y = reader.ReadInt16();
-        if (chestId == -1)
+        if (packet.ChestId == -1)
         {
             return PacketProcessingDecision.Allow;
         }
 
-        return world.TryGetChestPosition(chestId, out WorldTilePosition actual) &&
-            actual.X == x && actual.Y == y
+        return world.TryGetChestPosition(packet.ChestId, out WorldTilePosition actual) &&
+            actual.X == packet.ChestX && actual.Y == packet.ChestY
                 ? PacketProcessingDecision.Allow
                 : PacketProcessingDecision.Reject("packet.chest.position_mismatch");
     }
