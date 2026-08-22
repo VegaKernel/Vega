@@ -119,6 +119,18 @@ artifacts/server/Vega.Server.exe --vega-ui=plain
 
 Vega-specific options are removed before the remaining arguments are passed to Terraria.
 
+### Server configuration and precedence
+
+`config/server.json` is the deploy-time entry point for the world path, listener port, player slots, password, default Vega culture, UI mode and `.vworld` cache. Leave `worldPath` as `null` to retain Terraria's interactive world selector. The deterministic precedence is:
+
+```text
+command line > VEGA_* environment > config/server.json > Terraria/Vega default
+```
+
+The supported environment variables are `VEGA_WORLD`, `VEGA_PORT`, `VEGA_MAX_PLAYERS`, `VEGA_PASSWORD`, `VEGA_DEFAULT_CULTURE`, `VEGA_UI` and `VEGA_WORLD_IMAGE`. Invalid JSON, ports, slot counts, booleans or cultures stop startup before persistence and world services initialize. `config show` reports every effective non-secret value and its source, `config validate` checks the file, and `config reload` validates but explicitly reports these listener/world settings as restart-only. Password values are always displayed only as `<set>`.
+
+Server-wide optional gameplay rules live separately in `config/security.json`. They are disabled by default; when enabled they cover living-ghost/spectate restrictions, repeated-death timing and interaction proximity with the `vega.security.gameplay.bypass` permission. Database, module hot reload, TUI layout, autosave, cleaner and world-clock settings remain in their domain-specific files.
+
 ### Operations modes
 
 | Option | Behavior |

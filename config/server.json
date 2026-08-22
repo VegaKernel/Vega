@@ -1,0 +1,9 @@
+{
+  "worldPath": null,
+  "port": 7777,
+  "maximumPlayers": 16,
+  "password": null,
+  "defaultCulture": "en-US",
+  "uiMode": "auto",
+  "worldImageEnabled": false
+}

@@ -427,12 +427,14 @@ Vega 1.0 currently has the modern command/authorization boundaries and several r
 
 ### Operator configuration
 
-- [ ] Define a documented deploy-time layout for server, storage, security and module settings under `config/`, with generated example files included in the release archive.
-- [ ] Establish deterministic precedence for command-line arguments, environment variables, Vega configuration, Terraria configuration and built-in defaults; show the source of each effective value in diagnostics without exposing secrets.
-- [ ] Validate configuration before starting authoritative services and report the exact file, property and rejected value; malformed optional module configuration must degrade that module without silently changing policy.
-- [ ] Support atomic, section-scoped reload only for settings proven safe to reload; mark port, world, storage-provider and other restart-only changes explicitly.
-- [ ] Provide `config show`, `config validate` and authorized `config reload` operations through the normal command/audit boundary.
-- [ ] Document world selection/generation, listener/password, slots, default culture, storage, logs, TUI, `.vworld`, modules and cluster configuration in both project-guide languages.
+- [x] Define a documented deploy-time layout for server, storage, security and module settings under `config/`, with generated example files included in the release archive.
+- [x] Establish deterministic precedence for command-line arguments, environment variables, Vega configuration, Terraria configuration and built-in defaults; show the source of each effective value in diagnostics without exposing secrets.
+- [x] Validate configuration before starting authoritative services and report the exact file, property and rejected value; malformed optional module configuration must degrade that module without silently changing policy.
+- [x] Support atomic, section-scoped reload only for settings proven safe to reload; mark port, world, storage-provider and other restart-only changes explicitly.
+- [x] Provide `config show`, `config validate` and authorized `config reload` operations through the normal command/audit boundary.
+- [x] Document world selection/generation, listener/password, slots, default culture, storage, logs, TUI, `.vworld`, modules and cluster configuration in both project-guide languages.
+
+`config/server.json` composes launch settings before any authoritative service starts. CLI values win over `VEGA_*`, then JSON, then stock defaults; diagnostics retain the source and redact the password. A null world deliberately preserves native interactive selection. Server/listener/world/storage settings are restart-only, so `config reload` performs atomic parse/validation without mutating live policy and reports that boundary instead of pretending an unsafe reload succeeded.
 
 ### Accounts, groups and permissions
 

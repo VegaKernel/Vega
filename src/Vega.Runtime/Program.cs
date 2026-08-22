@@ -9,6 +9,7 @@ using Vega.Core.Commands.Players;
 using Vega.Core.Commands.System;
 using Vega.Core.Authorization;
 using Vega.Core.Bans;
+using Vega.Core.Configuration;
 using Vega.Core.Modules;
 using Vega.Core.Operations;
 using Vega.Core.Updates;
@@ -92,10 +93,24 @@ Assembly? ResolveFromRuntimeDirectories(System.Runtime.Loader.AssemblyLoadContex
 
 int Start()
 {
+    VegaServerConfigurationState serverConfiguration;
+    try
+    {
+        serverConfiguration = new VegaServerConfigurationState(
+            Path.Combine(AppContext.BaseDirectory, "config", "server.json"),
+            args);
+    }
+    catch (Exception ex) when (
+        ex is InvalidDataException or IOException or UnauthorizedAccessException)
+    {
+        Console.Error.WriteLine(ex.Message);
+        return 2;
+    }
+
     OperationsUiOptions uiOptions;
     try
     {
-        uiOptions = OperationsUiModeParser.Parse(args);
+        uiOptions = OperationsUiModeParser.Parse(serverConfiguration.Current.Arguments);
     }
     catch (ArgumentException ex)
     {
@@ -141,6 +156,8 @@ int Start()
     var commandDispatcher = new CommandDispatcher(commandHandlers);
     using IDisposable helpCommandRegistration = commandDispatcher.Register(new HelpCommand(commandDispatcher));
     using IDisposable aliasesCommandRegistration = commandDispatcher.Register(new AliasesCommand(commandDispatcher));
+    using IDisposable configCommandRegistration = commandDispatcher.Register(
+        new ConfigurationCommand(serverConfiguration));
     var lifecycle = new RuntimeLifecycleTracker(processStartedAt);
     var networkMetrics = new NetworkMetricsCounter();
     var securitySignals = new BoundedSecuritySignalStore();
