@@ -36,7 +36,11 @@ public sealed class CommandDiscoveryCommandTests
     public async Task HelpResolvesAliasesAndReportsPermissions()
     {
         var dispatcher = new CommandDispatcher([
-            new FakeHandler(new CommandDescriptor("secure", ["sec"], ["server.secure"]))
+            new FakeHandler(new CommandDescriptor(
+                "secure",
+                ["sec"],
+                ["server.secure"],
+                Syntax: "secure <target>"))
         ]);
         var help = new HelpCommand(dispatcher);
 
@@ -47,7 +51,8 @@ public sealed class CommandDiscoveryCommandTests
         Assert.Multiple(() =>
         {
             Assert.That(result.Status, Is.EqualTo(CommandExecutionStatus.Success));
-            Assert.That(result.Messages![0].Arguments, Is.EqualTo(new object?[] { "secure", "sec", "server.secure" }));
+            Assert.That(result.Messages![0].Arguments, Is.EqualTo(
+                new object?[] { "secure", "secure <target>", "sec", "server.secure" }));
         });
     }
 

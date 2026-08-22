@@ -19,7 +19,8 @@ public sealed class BanCommand(
     public CommandDescriptor Descriptor { get; } = new(
         "ban",
         ["unban"],
-        [BanPermission]);
+        [BanPermission],
+        Syntax: "ban <player> [reason] | ban add <name|account|uuid|ip|cidr> <value> <duration|permanent> [reason] | ban list | ban show <id> | unban <id>");
 
     public async ValueTask<CommandExecutionResult> ExecuteAsync(
         CommandInvocation invocation,

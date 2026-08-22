@@ -6,7 +6,9 @@ namespace Vega.Core.Commands.Players;
 
 public sealed class RegisterAccountCommand(PlayerAccountSessionService sessions) : ICommandHandler
 {
-    public CommandDescriptor Descriptor { get; } = new("register", [], [], AllowServer: false);
+    public CommandDescriptor Descriptor { get; } = new(
+        "register", [], [], AllowServer: false,
+        Syntax: "register <password> | register <account> <password>");
 
     public async ValueTask<CommandExecutionResult> ExecuteAsync(
         CommandInvocation invocation,
@@ -28,7 +30,9 @@ public sealed class RegisterAccountCommand(PlayerAccountSessionService sessions)
 
 public sealed class LoginAccountCommand(PlayerAccountSessionService sessions) : ICommandHandler
 {
-    public CommandDescriptor Descriptor { get; } = new("login", ["auth"], [], AllowServer: false);
+    public CommandDescriptor Descriptor { get; } = new(
+        "login", ["auth"], [], AllowServer: false,
+        Syntax: "login <password> | login <account> <password>");
 
     public async ValueTask<CommandExecutionResult> ExecuteAsync(
         CommandInvocation invocation,
@@ -50,7 +54,9 @@ public sealed class LoginAccountCommand(PlayerAccountSessionService sessions) : 
 
 public sealed class LogoutAccountCommand(PlayerAccountSessionService sessions) : ICommandHandler
 {
-    public CommandDescriptor Descriptor { get; } = new("logout", [], [], AllowServer: false);
+    public CommandDescriptor Descriptor { get; } = new(
+        "logout", [], [], AllowServer: false,
+        Syntax: "logout");
 
     public ValueTask<CommandExecutionResult> ExecuteAsync(
         CommandInvocation invocation,
@@ -72,7 +78,9 @@ public sealed class LogoutAccountCommand(PlayerAccountSessionService sessions) :
 
 public sealed class PasswordAccountCommand(PlayerAccountSessionService sessions) : ICommandHandler
 {
-    public CommandDescriptor Descriptor { get; } = new("password", ["passwd"], [], AllowServer: false);
+    public CommandDescriptor Descriptor { get; } = new(
+        "password", ["passwd"], [], AllowServer: false,
+        Syntax: "password <current> <new>");
 
     public async ValueTask<CommandExecutionResult> ExecuteAsync(
         CommandInvocation invocation,

@@ -8,7 +8,8 @@ public sealed class HelpCommand(ICommandCatalog commands) : ICommandHandler
     public CommandDescriptor Descriptor { get; } = new(
         "help",
         ["commands"],
-        Array.Empty<string>());
+        Array.Empty<string>(),
+        Syntax: "help [command]");
 
     public ValueTask<CommandExecutionResult> ExecuteAsync(
         CommandInvocation invocation,
@@ -30,7 +31,7 @@ public sealed class HelpCommand(ICommandCatalog commands) : ICommandHandler
                 : string.Join(", ", visible.Select(static command => command.Name));
             return ValueTask.FromResult(CommandExecutionResult.WithMessages(
                 MessageDescriptor.Info("command.help.list", names)
-                    .WithDefaultText("Available commands: {0}. Use /help <command> for aliases and permissions.")));
+                    .WithDefaultText("Available commands: {0}. Use /help <command> for syntax, aliases and permissions.")));
         }
 
         string requested = invocation.Arguments[0];
@@ -47,9 +48,10 @@ public sealed class HelpCommand(ICommandCatalog commands) : ICommandHandler
 
         string aliases = match.Aliases.Count == 0 ? "none" : string.Join(", ", match.Aliases);
         string permissions = match.Permissions.Count == 0 ? "none" : string.Join(" or ", match.Permissions);
+        string syntax = string.IsNullOrWhiteSpace(match.Syntax) ? match.Name : match.Syntax;
         return ValueTask.FromResult(CommandExecutionResult.WithMessages(
-            MessageDescriptor.Info("command.help.command", match.Name, aliases, permissions)
-                .WithDefaultText("/{0} | aliases: {1} | permissions: {2}")));
+            MessageDescriptor.Info("command.help.command", match.Name, syntax, aliases, permissions)
+                .WithDefaultText("/{0} | syntax: /{1} | aliases: {2} | permissions: {3}")));
     }
 
     private static CommandExecutionResult InvalidUsage() => new(
@@ -64,7 +66,8 @@ public sealed class AliasesCommand(ICommandCatalog commands) : ICommandHandler
     public CommandDescriptor Descriptor { get; } = new(
         "aliases",
         Array.Empty<string>(),
-        Array.Empty<string>());
+        Array.Empty<string>(),
+        Syntax: "aliases");
 
     public ValueTask<CommandExecutionResult> ExecuteAsync(
         CommandInvocation invocation,

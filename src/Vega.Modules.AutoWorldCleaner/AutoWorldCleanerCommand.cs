@@ -9,7 +9,8 @@ public sealed class AutoWorldCleanerCommand(AutoWorldCleanerModule cleaner) : IC
     public CommandDescriptor Descriptor { get; } = new(
         "worldclean",
         ["cleanworld"],
-        ["tshock.cfg.maintenance"]);
+        ["tshock.cfg.maintenance"],
+        Syntax: "worldclean [run|status]");
 
     public async ValueTask<CommandExecutionResult> ExecuteAsync(
         CommandInvocation invocation,

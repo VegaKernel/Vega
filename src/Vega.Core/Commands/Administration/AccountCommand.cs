@@ -17,7 +17,8 @@ public sealed class AccountCommand(
     public CommandDescriptor Descriptor { get; } = new(
         "account",
         ["user"],
-        ["vega.accounts.manage"]);
+        ["vega.accounts.manage"],
+        Syntax: "account list | show <name> | create <name> <password> [group] | delete <name> | group <name> <group> | password <name> <new-password> | temp <name> <group> <duration> | temp-clear <name> | temp-list");
 
     public async ValueTask<CommandExecutionResult> ExecuteAsync(
         CommandInvocation invocation,

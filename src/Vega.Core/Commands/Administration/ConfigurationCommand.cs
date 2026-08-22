@@ -9,7 +9,8 @@ public sealed class ConfigurationCommand(VegaServerConfigurationState configurat
     public CommandDescriptor Descriptor { get; } = new(
         "config",
         ["configuration"],
-        ["vega.config.manage"]);
+        ["vega.config.manage"],
+        Syntax: "config show | config validate | config reload");
 
     public ValueTask<CommandExecutionResult> ExecuteAsync(
         CommandInvocation invocation,

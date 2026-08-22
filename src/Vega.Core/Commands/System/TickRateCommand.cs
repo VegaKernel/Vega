@@ -10,7 +10,8 @@ public sealed class TickRateCommand(IServerRuntimeStateReader serverState) : ICo
     public CommandDescriptor Descriptor { get; } = new(
         "tps",
         ["tpsstats"],
-        ["tickrate.check"]);
+        ["tickrate.check"],
+        Syntax: "tps");
 
     public ValueTask<CommandExecutionResult> ExecuteAsync(
         CommandInvocation invocation,

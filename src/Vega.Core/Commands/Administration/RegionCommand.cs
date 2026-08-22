@@ -10,7 +10,8 @@ public sealed class RegionCommand(IRegionService regions) : ICommandHandler
     public CommandDescriptor Descriptor { get; } = new(
         "region",
         ["regions"],
-        ["vega.regions.manage"]);
+        ["vega.regions.manage"],
+        Syntax: "region list | show <name> | create <name> <x> <y> <width> <height> [priority] [owner] | delete <name> | resize <name> <x> <y> <width> <height> | priority <name> <value> | owner <name> <owner|none> | member|group <name> add|remove <subject> | flag <name> <flag> <true|false>");
 
     public async ValueTask<CommandExecutionResult> ExecuteAsync(
         CommandInvocation invocation,

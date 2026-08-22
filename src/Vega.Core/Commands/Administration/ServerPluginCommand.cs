@@ -10,7 +10,8 @@ public sealed class ServerPluginCommand(IServerPluginController plugins) : IComm
     public CommandDescriptor Descriptor { get; } = new(
         "plugin",
         ["plugins"],
-        ["server.plugins.manage"]);
+        ["server.plugins.manage"],
+        Syntax: "plugin [list] | plugin reload <name-or-dll> | plugin unload <name-or-dll>");
 
     public async ValueTask<CommandExecutionResult> ExecuteAsync(
         CommandInvocation invocation,

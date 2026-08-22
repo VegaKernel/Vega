@@ -471,11 +471,11 @@ The Vega 1.0 baseline stores revisioned account/player-name mutes with explicit 
 
 - [x] Implement ADR 0009 localization catalogs, module namespaces, deterministic fallback and explicit per-recipient culture without process-global culture mutation.
 - [x] Add `/lang`, `/lang list`, `/lang <culture>` and `/lang reset`; persist registered-account preference and keep guest preference session-scoped.
-- [ ] Add a generated command catalog and `help`/command-discovery output that shows only commands the caller may use, including aliases, syntax and permission requirements.
+- [x] Add a generated command catalog and `help`/command-discovery output that shows only commands the caller may use, including aliases, syntax and permission requirements.
 - [ ] Keep Vega commands and Terraria native commands reachable from plain console and TUI without competing stdin readers; capture native command output into bounded operations logs/results.
 - [ ] Audit the minimum built-in operator set beyond `serverinfo`, `checkupdates`, `kick` and `playing`, and cover save/shutdown, moderation, identity, groups, regions, configuration and language with end-to-end tests.
 
-The native `lang` command and session-scoped guest preference are live for `en-US` and `ru-RU`; authenticated account selection is persisted and restored at login. The command switches only the recipient catalog, and stale module-catalog unload cannot remove a newer registration.
+The native `lang` command and session-scoped guest preference are live for `en-US` and `ru-RU`; authenticated account selection is persisted and restored at login. The command switches only the recipient catalog, and stale module-catalog unload cannot remove a newer registration. Every built-in command now declares canonical syntax in the same descriptor that owns its name, aliases, permissions and console availability. `help` reads a live dispatcher snapshot, filters it with the dispatch authorization rule and includes syntax/aliases/permissions without maintaining a second catalog; dynamically loaded commands appear and disappear with their registration lease.
 
 ### Persistence, baseline schema and release validation
 

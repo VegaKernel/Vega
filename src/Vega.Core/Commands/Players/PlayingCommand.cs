@@ -14,7 +14,8 @@ public sealed class PlayingCommand(IPlayerDirectory players) : ICommandHandler
     public CommandDescriptor Descriptor { get; } = new(
         "playing",
         ["online", "who"],
-        Array.Empty<string>());
+        Array.Empty<string>(),
+        Syntax: "playing [-i] [page]");
 
     public ValueTask<CommandExecutionResult> ExecuteAsync(
         CommandInvocation invocation,

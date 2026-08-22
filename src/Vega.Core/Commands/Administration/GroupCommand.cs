@@ -9,7 +9,8 @@ public sealed class GroupCommand(IAuthorizationService authorization) : ICommand
     public CommandDescriptor Descriptor { get; } = new(
         "group",
         ["groups"],
-        ["vega.groups.manage"]);
+        ["vega.groups.manage"],
+        Syntax: "group list | show <name> | create <name> [parent] | delete <name> | parent <name> <parent|none> | grant|deny|revoke <name> <permission>");
 
     public async ValueTask<CommandExecutionResult> ExecuteAsync(
         CommandInvocation invocation,

@@ -16,7 +16,8 @@ public sealed class KickCommand(
     public CommandDescriptor Descriptor { get; } = new(
         "kick",
         Array.Empty<string>(),
-        [KickPermission]);
+        [KickPermission],
+        Syntax: "kick <player> [reason]");
 
     public async ValueTask<CommandExecutionResult> ExecuteAsync(
         CommandInvocation invocation,

@@ -6,7 +6,8 @@ public sealed record CommandDescriptor(
     string Name,
     IReadOnlyList<string> Aliases,
     IReadOnlyList<string> Permissions,
-    bool AllowServer = true)
+    bool AllowServer = true,
+    string Syntax = "")
 {
     public bool IsAvailableTo(ICommandPrincipal principal)
     {

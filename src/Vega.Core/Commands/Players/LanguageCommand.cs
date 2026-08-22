@@ -12,7 +12,8 @@ public sealed class LanguageCommand(
     public CommandDescriptor Descriptor { get; } = new(
         "lang",
         ["language"],
-        Array.Empty<string>());
+        Array.Empty<string>(),
+        Syntax: "lang | lang list | lang <culture> | lang reset");
 
     public async ValueTask<CommandExecutionResult> ExecuteAsync(
         CommandInvocation invocation,

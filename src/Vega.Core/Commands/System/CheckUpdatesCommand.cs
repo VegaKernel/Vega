@@ -9,7 +9,8 @@ public sealed class CheckUpdatesCommand(IUpdateChecker updateChecker) : ICommand
     public CommandDescriptor Descriptor { get; } = new(
         "checkupdates",
         Array.Empty<string>(),
-        ["tshock.cfg.maintenance"]);
+        ["tshock.cfg.maintenance"],
+        Syntax: "checkupdates");
 
     public async ValueTask<CommandExecutionResult> ExecuteAsync(
         CommandInvocation invocation,
