@@ -2,6 +2,7 @@ using Vega.Contracts.Cluster.Events;
 using Vega.Contracts.Runtime;
 using Vega.Contracts.Accounts;
 using Vega.Contracts.Authorization;
+using Vega.Contracts.Regions;
 using Vega.Persistence.Relational;
 
 namespace Vega.Persistence.Sqlite;
@@ -29,6 +30,10 @@ public sealed class SqliteVegaDatabase : IVegaDatabase
             EnsureReady);
         Accounts = identities;
         Authorization = identities;
+        Regions = new RelationalRegionService(
+            connections.Open,
+            async cancellationToken => await connections.OpenAsync(cancellationToken).ConfigureAwait(false),
+            EnsureReady);
     }
 
     public string Name => "SQLite persistence";
@@ -46,6 +51,8 @@ public sealed class SqliteVegaDatabase : IVegaDatabase
     public IAccountService Accounts { get; }
 
     public IAuthorizationService Authorization { get; }
+
+    public IRegionService Regions { get; }
 
     public static SqliteVegaDatabase Create(SqliteVegaDatabaseOptions options)
     {

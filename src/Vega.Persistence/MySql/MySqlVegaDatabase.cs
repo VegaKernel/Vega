@@ -12,6 +12,7 @@ public sealed class MySqlVegaDatabase : ExternalVegaDatabase
             RelationalProvider.MySql,
             SchemaSql,
             IdentitySchemaSql,
+            RegionSchemaSql,
             GlobalBanSql)
     {
     }
@@ -105,6 +106,46 @@ public sealed class MySqlVegaDatabase : ExternalVegaDatabase
         INSERT IGNORE INTO vega_groups (name, parent_name, revision) VALUES ('administrator', 'default', 1);
         INSERT IGNORE INTO vega_group_permissions (group_name, permission, effect)
             VALUES ('administrator', '*', 1);
+        """;
+
+    private const string RegionSchemaSql =
+        """
+        CREATE TABLE IF NOT EXISTS vega_regions (
+            id INT NOT NULL PRIMARY KEY,
+            world_id VARCHAR(255) NOT NULL,
+            name VARCHAR(255) NOT NULL,
+            x INT NOT NULL CHECK (x >= 0),
+            y INT NOT NULL CHECK (y >= 0),
+            width INT NOT NULL CHECK (width > 0),
+            height INT NOT NULL CHECK (height > 0),
+            priority INT NOT NULL,
+            owner VARCHAR(255) NULL,
+            revision BIGINT NOT NULL CHECK (revision > 0),
+            UNIQUE KEY ux_vega_regions_world_name (world_id, name),
+            INDEX ix_vega_regions_world_priority (world_id, priority)
+        ) ENGINE=InnoDB;
+        CREATE TABLE IF NOT EXISTS vega_region_members (
+            region_id INT NOT NULL,
+            account_name VARCHAR(255) NOT NULL,
+            PRIMARY KEY (region_id, account_name),
+            CONSTRAINT fk_vega_region_members_region FOREIGN KEY (region_id)
+                REFERENCES vega_regions(id) ON DELETE CASCADE
+        ) ENGINE=InnoDB;
+        CREATE TABLE IF NOT EXISTS vega_region_groups (
+            region_id INT NOT NULL,
+            group_name VARCHAR(255) NOT NULL,
+            PRIMARY KEY (region_id, group_name),
+            CONSTRAINT fk_vega_region_groups_region FOREIGN KEY (region_id)
+                REFERENCES vega_regions(id) ON DELETE CASCADE
+        ) ENGINE=InnoDB;
+        CREATE TABLE IF NOT EXISTS vega_region_flags (
+            region_id INT NOT NULL,
+            flag VARCHAR(255) NOT NULL,
+            value SMALLINT NOT NULL CHECK (value IN (0, 1)),
+            PRIMARY KEY (region_id, flag),
+            CONSTRAINT fk_vega_region_flags_region FOREIGN KEY (region_id)
+                REFERENCES vega_regions(id) ON DELETE CASCADE
+        ) ENGINE=InnoDB;
         """;
 
     private static RelationalGlobalBanSql GlobalBanSql { get; } = new(

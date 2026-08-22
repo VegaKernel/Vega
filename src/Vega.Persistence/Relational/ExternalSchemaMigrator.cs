@@ -13,9 +13,10 @@ internal sealed class ExternalSchemaMigrator(
     IRelationalConnectionFactory connections,
     RelationalProvider provider,
     string globalBanSchemaSql,
-    string identitySchemaSql)
+    string identitySchemaSql,
+    string regionSchemaSql)
 {
-    private const int CurrentVersion = 2;
+    private const int CurrentVersion = 3;
 
     public async ValueTask<int> ApplyAsync(CancellationToken cancellationToken)
     {
@@ -68,6 +69,20 @@ internal sealed class ExternalSchemaMigrator(
                 version = 2;
             }
 
+            if (version < 3)
+            {
+                await ExecuteAsync(connection, transaction, regionSchemaSql, cancellationToken)
+                    .ConfigureAwait(false);
+                await InsertHistoryAsync(
+                        connection,
+                        transaction,
+                        3,
+                        "world-regions",
+                        cancellationToken)
+                    .ConfigureAwait(false);
+                version = 3;
+            }
+
             await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
             return version;
         }
@@ -114,6 +129,20 @@ internal sealed class ExternalSchemaMigrator(
                         cancellationToken)
                     .ConfigureAwait(false);
                 version = 2;
+            }
+
+            if (version < 3)
+            {
+                await ExecuteAsync(connection, null, regionSchemaSql, cancellationToken)
+                    .ConfigureAwait(false);
+                await InsertHistoryAsync(
+                        connection,
+                        null,
+                        3,
+                        "world-regions",
+                        cancellationToken)
+                    .ConfigureAwait(false);
+                version = 3;
             }
 
             return version;

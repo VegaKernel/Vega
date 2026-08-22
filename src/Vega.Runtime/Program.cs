@@ -270,6 +270,8 @@ int Start()
             new AccountCommand(database.Accounts, database.Authorization));
         using IDisposable groupCommandRegistration = commandDispatcher.Register(
             new GroupCommand(database.Authorization));
+        using IDisposable regionCommandRegistration = commandDispatcher.Register(
+            new RegionCommand(database.Regions));
         using var banEnforcer = new PersistentBanEnforcer(
             banService,
             playerBoundary,

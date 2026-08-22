@@ -448,11 +448,13 @@ Schema 2 provides the same account/group tables through SQLite, PostgreSQL and M
 
 ### Regions and world authorization
 
-- [ ] Implement the currently contract-only region service with persistent world-scoped region identity, bounds, priority, owner, members, groups and permission/flag ACLs.
+- [x] Implement the currently contract-only region service with persistent world-scoped region identity, bounds, priority, owner, members, groups and permission/flag ACLs.
 - [ ] Add game-thread-safe region admission/build/use checks through typed world/player contexts rather than module-specific tile hooks.
-- [ ] Add authorized `region` create/delete/list/show/resize/priority/owner/member/group/flag commands with overlap and world validation.
+- [x] Add authorized `region` create/delete/list/show/resize/priority/owner/member/group/flag commands with overlap and world validation.
 - [ ] Expose immutable region snapshots and authorized mutations to Operations/TUI so `HouseRegions`, `Region-Vision` and sandbox worlds share one source of truth.
 - [ ] Add migrations and regression tests for overlapping priorities, renamed/deleted worlds, offline owners, permission inheritance and concurrent edits.
+
+Schema 3 stores region identity by explicit `WorldId`, validates non-empty bounded rectangles, resolves overlaps by priority then smallest area and retains owners as offline-capable account names. Members, groups and boolean flags are versioned with the region; mutations use optimistic revisions and the shared administration audit. `region` commands always use `CommandInvocation.WorldId`, so identical names in different worlds do not collide. Runtime packet admission/build enforcement, Operations projections and lifecycle validation for renamed/deleted worlds remain open above.
 
 ### Bans and moderation commands
 

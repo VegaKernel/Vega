@@ -2,6 +2,8 @@ using Microsoft.Data.Sqlite;
 using NUnit.Framework;
 using Vega.Contracts.Cluster.Events;
 using Vega.Contracts.Authorization;
+using Vega.Contracts.Regions;
+using Vega.Contracts.Worlds;
 using Vega.Persistence.Sqlite;
 
 namespace Vega.Runtime.Tests.Persistence;
@@ -40,11 +42,11 @@ public sealed class SqliteVegaDatabaseTests
 
         Assert.Multiple(() =>
         {
-            Assert.That(first.SchemaVersion, Is.EqualTo(2));
-            Assert.That(second.SchemaVersion, Is.EqualTo(2));
+            Assert.That(first.SchemaVersion, Is.EqualTo(3));
+            Assert.That(second.SchemaVersion, Is.EqualTo(3));
             Assert.That(first.DatabasePath, Is.EqualTo(Path.GetFullPath(databasePath)));
             Assert.That(File.Exists(databasePath), Is.True);
-            Assert.That(ScalarInt64("SELECT COUNT(*) FROM vega_schema_history;"), Is.EqualTo(2));
+            Assert.That(ScalarInt64("SELECT COUNT(*) FROM vega_schema_history;"), Is.EqualTo(3));
             Assert.That(ScalarInt64("SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = 'global_bans';"), Is.EqualTo(1));
             Assert.That(ScalarInt64("SELECT COUNT(*) FROM vega_groups;"), Is.EqualTo(3));
         });
@@ -128,7 +130,7 @@ public sealed class SqliteVegaDatabaseTests
     }
 
     [Test]
-    public async Task ReleasedSchemaOneDatabaseUpgradesIdempotentlyToSchemaTwo()
+    public async Task ReleasedSchemaOneDatabaseUpgradesIdempotentlyToCurrentSchema()
     {
         Directory.CreateDirectory(Path.GetDirectoryName(databasePath)!);
         await using (var connection = new SqliteConnection($"Data Source={databasePath}"))
@@ -152,10 +154,56 @@ public sealed class SqliteVegaDatabaseTests
 
         Assert.Multiple(() =>
         {
-            Assert.That(first.SchemaVersion, Is.EqualTo(2));
-            Assert.That(second.SchemaVersion, Is.EqualTo(2));
-            Assert.That(ScalarInt64("SELECT COUNT(*) FROM vega_schema_history;"), Is.EqualTo(2));
+            Assert.That(first.SchemaVersion, Is.EqualTo(3));
+            Assert.That(second.SchemaVersion, Is.EqualTo(3));
+            Assert.That(ScalarInt64("SELECT COUNT(*) FROM vega_schema_history;"), Is.EqualTo(3));
             Assert.That(ScalarInt64("SELECT COUNT(*) FROM vega_groups;"), Is.EqualTo(3));
+        });
+    }
+
+    [Test]
+    public async Task WorldScopedRegionsPersistPriorityAccessFlagsAndOptimisticRevision()
+    {
+        SqliteVegaDatabase database = await OpenAsync();
+        WorldId world = new("arena");
+        RegionMutationResult outer = await database.Regions.CreateAsync(
+            world, "outer", 0, 0, 100, 100, 1, "alice", "Server");
+        RegionMutationResult inner = await database.Regions.CreateAsync(
+            world, "inner", 10, 10, 20, 20, 5, "bob", "Server");
+        RegionMutationResult member = await database.Regions.SetAccessAsync(
+            world,
+            "inner",
+            RegionAccessKind.Member,
+            "alice",
+            true,
+            inner.After!.Revision,
+            "Server");
+        RegionMutationResult flagged = await database.Regions.UpdateAsync(
+            world,
+            "inner",
+            new RegionUpdate(Flag: "build", FlagValue: false),
+            member.After!.Revision,
+            "Server");
+        RegionMutationResult conflict = await database.Regions.UpdateAsync(
+            world,
+            "inner",
+            new RegionUpdate(Priority: 10),
+            expectedRevision: 1,
+            "Server");
+
+        SqliteVegaDatabase reopened = await OpenAsync();
+        RegionSnapshot? top = reopened.Regions.FindTopRegion(world, 15, 15);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(outer.Succeeded, Is.True);
+            Assert.That(flagged.Succeeded, Is.True);
+            Assert.That(conflict.Code, Is.EqualTo("region.revision-conflict"));
+            Assert.That(top!.Name, Is.EqualTo("inner"));
+            Assert.That(top.Priority, Is.EqualTo(5));
+            Assert.That(top.Members, Does.Contain("alice"));
+            Assert.That(top.Flags["build"], Is.False);
+            Assert.That(reopened.Regions.SnapshotRegions(WorldId.Primary), Is.Empty);
         });
     }
 

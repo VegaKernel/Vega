@@ -2,6 +2,7 @@ using Vega.Contracts.Cluster.Events;
 using Vega.Contracts.Runtime;
 using Vega.Contracts.Accounts;
 using Vega.Contracts.Authorization;
+using Vega.Contracts.Regions;
 
 namespace Vega.Persistence;
 
@@ -18,4 +19,6 @@ public interface IVegaDatabase : IRuntimeStartupParticipant
     IAccountService Accounts { get; }
 
     IAuthorizationService Authorization { get; }
+
+    IRegionService Regions { get; }
 }

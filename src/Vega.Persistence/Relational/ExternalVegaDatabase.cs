@@ -1,6 +1,7 @@
 using Vega.Contracts.Cluster.Events;
 using Vega.Contracts.Accounts;
 using Vega.Contracts.Authorization;
+using Vega.Contracts.Regions;
 
 namespace Vega.Persistence.Relational;
 
@@ -17,6 +18,7 @@ public abstract class ExternalVegaDatabase : IVegaDatabase
         RelationalProvider relationalProvider,
         string schemaSql,
         string identitySchemaSql,
+        string regionSchemaSql,
         RelationalGlobalBanSql globalBanSql)
     {
         Provider = provider;
@@ -25,7 +27,8 @@ public abstract class ExternalVegaDatabase : IVegaDatabase
             connections,
             relationalProvider,
             schemaSql,
-            identitySchemaSql);
+            identitySchemaSql,
+            regionSchemaSql);
         GlobalBans = new RelationalGlobalBanReplica(connections, globalBanSql, EnsureReady);
         var identities = new RelationalIdentityService(
             connections.Open,
@@ -33,6 +36,10 @@ public abstract class ExternalVegaDatabase : IVegaDatabase
             EnsureReady);
         Accounts = identities;
         Authorization = identities;
+        Regions = new RelationalRegionService(
+            connections.Open,
+            connections.OpenAsync,
+            EnsureReady);
     }
 
     public string Provider { get; }
@@ -48,6 +55,8 @@ public abstract class ExternalVegaDatabase : IVegaDatabase
     public IAccountService Accounts { get; }
 
     public IAuthorizationService Authorization { get; }
+
+    public IRegionService Regions { get; }
 
     public async ValueTask InitializeAsync(CancellationToken cancellationToken = default)
     {

@@ -12,6 +12,7 @@ public sealed class PostgreSqlVegaDatabase : ExternalVegaDatabase
             RelationalProvider.PostgreSql,
             SchemaSql,
             IdentitySchemaSql,
+            RegionSchemaSql,
             GlobalBanSql)
     {
     }
@@ -99,6 +100,41 @@ public sealed class PostgreSqlVegaDatabase : ExternalVegaDatabase
         INSERT INTO vega_groups (name, parent_name, revision) VALUES ('administrator', 'default', 1);
         INSERT INTO vega_group_permissions (group_name, permission, effect)
             VALUES ('administrator', '*', 1);
+        """;
+
+    private const string RegionSchemaSql =
+        """
+        CREATE TABLE vega_regions (
+            id INTEGER NOT NULL PRIMARY KEY,
+            world_id VARCHAR(255) NOT NULL,
+            name VARCHAR(255) NOT NULL,
+            x INTEGER NOT NULL CHECK (x >= 0),
+            y INTEGER NOT NULL CHECK (y >= 0),
+            width INTEGER NOT NULL CHECK (width > 0),
+            height INTEGER NOT NULL CHECK (height > 0),
+            priority INTEGER NOT NULL,
+            owner VARCHAR(255) NULL,
+            revision BIGINT NOT NULL CHECK (revision > 0),
+            UNIQUE (world_id, name)
+        );
+        CREATE INDEX ix_vega_regions_world_priority
+            ON vega_regions (world_id, priority DESC);
+        CREATE TABLE vega_region_members (
+            region_id INTEGER NOT NULL REFERENCES vega_regions(id) ON DELETE CASCADE,
+            account_name VARCHAR(255) NOT NULL,
+            PRIMARY KEY (region_id, account_name)
+        );
+        CREATE TABLE vega_region_groups (
+            region_id INTEGER NOT NULL REFERENCES vega_regions(id) ON DELETE CASCADE,
+            group_name VARCHAR(255) NOT NULL,
+            PRIMARY KEY (region_id, group_name)
+        );
+        CREATE TABLE vega_region_flags (
+            region_id INTEGER NOT NULL REFERENCES vega_regions(id) ON DELETE CASCADE,
+            flag VARCHAR(255) NOT NULL,
+            value SMALLINT NOT NULL CHECK (value IN (0, 1)),
+            PRIMARY KEY (region_id, flag)
+        );
         """;
 
     private static RelationalGlobalBanSql GlobalBanSql { get; } = new(
