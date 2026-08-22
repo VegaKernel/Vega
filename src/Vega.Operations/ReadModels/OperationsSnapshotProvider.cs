@@ -4,6 +4,9 @@ using Vega.Contracts.Networking;
 using Vega.Contracts.Players;
 using Vega.Contracts.Runtime;
 using Vega.Contracts.Regions;
+using Vega.Contracts.Bans;
+using Vega.Contracts.Moderation;
+using Vega.Contracts.Cluster.Events;
 using Vega.Contracts.Worlds;
 
 namespace Vega.Operations.ReadModels;
@@ -25,7 +28,9 @@ public sealed class OperationsSnapshotProvider(
     IWorldCleanupStatusReader? worldCleanup = null,
     IWorldContextOperationsCatalog? worldContexts = null,
     ISecuritySignalReader? securitySignals = null,
-    IRegionService? regions = null) : IOperationsSnapshotProvider
+    IRegionService? regions = null,
+    IBanService? bans = null,
+    IMuteService? mutes = null) : IOperationsSnapshotProvider
 {
     public OperationsSnapshot Capture(
         OperationsLogFilter? logFilter = null,
@@ -90,6 +95,14 @@ public sealed class OperationsSnapshotProvider(
                 Flags = region.Flags.ToFrozenDictionary(StringComparer.OrdinalIgnoreCase)
             })
             .ToArray();
+        DateTimeOffset now = DateTimeOffset.UtcNow;
+        BanSnapshot[] banSnapshots = bans?.SnapshotActive(now)
+            .Take(200)
+            .Select(ban => exposure == OperationsSnapshotExposure.Sensitive
+                ? ban
+                : ban with { Subject = Redact(ban.Subject) })
+            .ToArray() ?? [];
+        MuteSnapshot[] muteSnapshots = mutes?.SnapshotActive(now).Take(200).ToArray() ?? [];
 
         TickRateStatisticsSnapshot tickRate = state.TickRate.SampleCount > 0
             ? state.TickRate
@@ -142,9 +155,16 @@ public sealed class OperationsSnapshotProvider(
                     ? SecuritySignalExposure.Sensitive
                     : SecuritySignalExposure.Redacted) ??
                 Array.Empty<SecuritySignal>(),
-            Regions = Array.AsReadOnly(regionSnapshots)
+            Regions = Array.AsReadOnly(regionSnapshots),
+            Bans = Array.AsReadOnly(banSnapshots),
+            Mutes = Array.AsReadOnly(muteSnapshots)
         };
     }
+
+    private static GlobalBanSubject Redact(GlobalBanSubject subject) =>
+        subject.Kind is GlobalBanSubjectKind.Uuid or GlobalBanSubjectKind.IpAddress or GlobalBanSubjectKind.Network
+            ? subject with { Value = "<redacted>" }
+            : subject;
 
     private static string[] BuildWarnings(
         ServerRuntimeStateSnapshot state,

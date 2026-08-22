@@ -3,6 +3,7 @@ using Vega.Contracts.Runtime;
 using Vega.Contracts.Accounts;
 using Vega.Contracts.Authorization;
 using Vega.Contracts.Regions;
+using Vega.Contracts.Moderation;
 
 namespace Vega.Persistence;
 
@@ -21,6 +22,8 @@ public interface IVegaDatabase : IRuntimeStartupParticipant
     IAuthorizationService Authorization { get; }
 
     IRoleLeaseService RoleLeases { get; }
+
+    IMuteService Mutes { get; }
 
     IRegionService Regions { get; }
 }

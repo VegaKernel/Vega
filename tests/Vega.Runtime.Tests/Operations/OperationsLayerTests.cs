@@ -1,5 +1,7 @@
 using NUnit.Framework;
 using Vega.Contracts.Commands;
+using Vega.Contracts.Bans;
+using Vega.Contracts.Cluster.Events;
 using Vega.Contracts.Messaging;
 using Vega.Contracts.Networking;
 using Vega.Contracts.Operations;
@@ -7,6 +9,7 @@ using Vega.Contracts.Players;
 using Vega.Core.Commands;
 using Vega.Contracts.Runtime;
 using Vega.Contracts.Regions;
+using Vega.Contracts.Moderation;
 using Vega.Contracts.Worlds;
 using Vega.Operations.Actions;
 using Vega.Operations.Logging;
@@ -203,7 +206,9 @@ public sealed class OperationsReadModelTests
             logs,
             new FixedRuntimeMetrics(),
             new FixedNetworkMetrics(),
-            regions: new FixedRegions());
+            regions: new FixedRegions(),
+            bans: new FixedBans(),
+            mutes: new FixedMutes());
 
         OperationsSnapshot snapshot = provider.Capture();
         OperationsSnapshot sensitive = provider.Capture(
@@ -229,6 +234,9 @@ public sealed class OperationsReadModelTests
             Assert.That(snapshot.Regions, Has.Count.EqualTo(1));
             Assert.That(snapshot.Regions[0].Name, Is.EqualTo("spawn"));
             Assert.That(snapshot.Regions[0].Members, Does.Contain("alice"));
+            Assert.That(snapshot.Bans.Single().Subject.Value, Is.EqualTo("<redacted>"));
+            Assert.That(sensitive.Bans.Single().Subject.Value, Is.EqualTo("203.0.113.8"));
+            Assert.That(snapshot.Mutes.Single().SubjectValue, Is.EqualTo("Alice"));
         });
     }
 
@@ -416,6 +424,36 @@ public sealed class OperationsReadModelTests
         public ValueTask<RegionMutationResult> DeleteAsync(WorldId worldId, string name, long expectedRevision, string actor, CancellationToken cancellationToken = default) => throw new NotSupportedException();
         public ValueTask<RegionMutationResult> UpdateAsync(WorldId worldId, string name, RegionUpdate update, long expectedRevision, string actor, CancellationToken cancellationToken = default) => throw new NotSupportedException();
         public ValueTask<RegionMutationResult> SetAccessAsync(WorldId worldId, string name, RegionAccessKind kind, string subject, bool enabled, long expectedRevision, string actor, CancellationToken cancellationToken = default) => throw new NotSupportedException();
+    }
+
+    private sealed class FixedBans : IBanService
+    {
+        private static readonly BanSnapshot Active = new(
+            GlobalBanId.New(),
+            new GlobalBanSubject(GlobalBanSubjectKind.IpAddress, "203.0.113.8"),
+            "test",
+            "Server",
+            DateTimeOffset.UtcNow,
+            DateTimeOffset.UtcNow.AddHours(1),
+            1);
+
+        public bool TryNormalizeSubject(GlobalBanSubject subject, out GlobalBanSubject? normalized, out string? error) { normalized = subject; error = null; return true; }
+        public ValueTask<bool> CreateAsync(GlobalBanCreated created, CancellationToken cancellationToken = default) => throw new NotSupportedException();
+        public ValueTask<bool> RevokeAsync(GlobalBanRevoked revoked, CancellationToken cancellationToken = default) => throw new NotSupportedException();
+        public ValueTask<BanSnapshot?> FindActiveBanAsync(BanIdentity identity, CancellationToken cancellationToken = default) => ValueTask.FromResult<BanSnapshot?>(Active);
+        public IReadOnlyList<BanSnapshot> SnapshotActive(DateTimeOffset now) => [Active];
+    }
+
+    private sealed class FixedMutes : IMuteService
+    {
+        private static readonly MuteSnapshot Active = new(
+            MuteId.New(), MuteSubjectKind.Account, "Alice", "test", "Server",
+            DateTimeOffset.UtcNow, DateTimeOffset.UtcNow.AddHours(1), 1);
+
+        public IReadOnlyList<MuteSnapshot> SnapshotActive(DateTimeOffset now) => [Active];
+        public MuteSnapshot? FindActive(string playerName, string? accountName, DateTimeOffset now) => Active;
+        public ValueTask<MuteMutationResult> CreateAsync(MuteSnapshot mute, CancellationToken cancellationToken = default) => throw new NotSupportedException();
+        public ValueTask<MuteMutationResult> RevokeAsync(MuteId muteId, long expectedRevision, string actor, DateTimeOffset revokedAt, CancellationToken cancellationToken = default) => throw new NotSupportedException();
     }
 }
 

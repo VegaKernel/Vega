@@ -1,6 +1,7 @@
 using Vega.Contracts.Cluster.Events;
 using Vega.Contracts.Accounts;
 using Vega.Contracts.Authorization;
+using Vega.Contracts.Moderation;
 using Vega.Contracts.Regions;
 using Vega.Contracts.Worlds;
 
@@ -20,6 +21,7 @@ public abstract class ExternalVegaDatabase : IVegaDatabase
         string schemaSql,
         string identitySchemaSql,
         string regionSchemaSql,
+        string moderationSchemaSql,
         RelationalGlobalBanSql globalBanSql)
     {
         Provider = provider;
@@ -29,7 +31,8 @@ public abstract class ExternalVegaDatabase : IVegaDatabase
             relationalProvider,
             schemaSql,
             identitySchemaSql,
-            regionSchemaSql);
+            regionSchemaSql,
+            moderationSchemaSql);
         GlobalBans = new RelationalGlobalBanReplica(connections, globalBanSql, EnsureReady);
         var identities = new RelationalIdentityService(
             connections.Open,
@@ -38,6 +41,10 @@ public abstract class ExternalVegaDatabase : IVegaDatabase
         Accounts = identities;
         Authorization = identities;
         RoleLeases = new RelationalRoleLeaseService(
+            connections.Open,
+            connections.OpenAsync,
+            EnsureReady);
+        Mutes = new RelationalMuteService(
             connections.Open,
             connections.OpenAsync,
             EnsureReady);
@@ -63,6 +70,8 @@ public abstract class ExternalVegaDatabase : IVegaDatabase
 
     public IRoleLeaseService RoleLeases { get; }
 
+    public IMuteService Mutes { get; }
+
     public IRegionService Regions { get; }
 
     public async ValueTask InitializeAsync(CancellationToken cancellationToken = default)
@@ -84,6 +93,7 @@ public abstract class ExternalVegaDatabase : IVegaDatabase
             Volatile.Write(ref schemaVersion, version);
             Authorization.SnapshotGroups();
             RoleLeases.SnapshotActive(DateTimeOffset.UtcNow);
+            Mutes.SnapshotActive(DateTimeOffset.UtcNow);
             Regions.SnapshotRegions(WorldId.Primary);
         }
         finally

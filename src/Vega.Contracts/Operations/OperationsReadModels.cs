@@ -1,4 +1,6 @@
 using Vega.Contracts.Players;
+using Vega.Contracts.Bans;
+using Vega.Contracts.Moderation;
 using Vega.Contracts.Networking;
 using Vega.Contracts.Runtime;
 using Vega.Contracts.Regions;
@@ -216,6 +218,12 @@ public sealed record OperationsSnapshot(
 
     public IReadOnlyList<RegionSnapshot> Regions { get; init; } =
         Array.Empty<RegionSnapshot>();
+
+    public IReadOnlyList<BanSnapshot> Bans { get; init; } =
+        Array.Empty<BanSnapshot>();
+
+    public IReadOnlyList<MuteSnapshot> Mutes { get; init; } =
+        Array.Empty<MuteSnapshot>();
 }
 
 public interface IOperationsSnapshotProvider

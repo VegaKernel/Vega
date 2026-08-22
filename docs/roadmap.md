@@ -462,8 +462,10 @@ Schema 3 stores region identity by explicit `WorldId`, validates non-empty bound
 
 - [x] Complete the Phase 13 typed account/UUID/IP/CIDR ban matcher, persistence and connection-admission enforcement before presenting bans as production-ready.
 - [x] Add authorized `ban`, `unban`, `ban list`, `ban show` and expiration/reason workflows over the same authoritative service used by login and cluster replication.
-- [ ] Add account/player mute primitives only with explicit identity, duration, reason, issuer and audit semantics; do not hide moderation state in command-local tables.
-- [ ] Expose bounded, redacted moderation views in Operations/TUI and verify that sensitive IP/UUID subjects require separate permissions.
+- [x] Add account/player mute primitives only with explicit identity, duration, reason, issuer and audit semantics; do not hide moderation state in command-local tables.
+- [x] Expose bounded, redacted moderation views in Operations/TUI and verify that sensitive IP/UUID subjects require separate permissions.
+
+Schema 4 stores revisioned account/player-name mutes with explicit issuer, reason and finite absolute UTC expiry across SQLite, PostgreSQL and MySQL. `mute`/`unmute` own creation, bounded listing, inspection and revocation. Active account identity wins over a display-name match; ordinary chat is cancelled before Terraria while Vega commands remain usable, and no per-player timer or command-local table owns moderation state. Operations limits active ban/mute projections to 200 each, redacts IP/UUID/CIDR ban subjects unless sensitive exposure is requested, and feeds both plain output and the configurable TUI Moderation window.
 
 ### Localization and command completeness
 

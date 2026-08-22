@@ -3,6 +3,7 @@ using NUnit.Framework;
 using Vega.Contracts.Cluster.Events;
 using Vega.Contracts.Authorization;
 using Vega.Contracts.Regions;
+using Vega.Contracts.Moderation;
 using Vega.Contracts.Worlds;
 using Vega.Persistence.Sqlite;
 
@@ -42,11 +43,11 @@ public sealed class SqliteVegaDatabaseTests
 
         Assert.Multiple(() =>
         {
-            Assert.That(first.SchemaVersion, Is.EqualTo(3));
-            Assert.That(second.SchemaVersion, Is.EqualTo(3));
+            Assert.That(first.SchemaVersion, Is.EqualTo(4));
+            Assert.That(second.SchemaVersion, Is.EqualTo(4));
             Assert.That(first.DatabasePath, Is.EqualTo(Path.GetFullPath(databasePath)));
             Assert.That(File.Exists(databasePath), Is.True);
-            Assert.That(ScalarInt64("SELECT COUNT(*) FROM vega_schema_history;"), Is.EqualTo(3));
+            Assert.That(ScalarInt64("SELECT COUNT(*) FROM vega_schema_history;"), Is.EqualTo(4));
             Assert.That(ScalarInt64("SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = 'global_bans';"), Is.EqualTo(1));
             Assert.That(ScalarInt64("SELECT COUNT(*) FROM vega_groups;"), Is.EqualTo(3));
         });
@@ -180,6 +181,40 @@ public sealed class SqliteVegaDatabaseTests
     }
 
     [Test]
+    public async Task AccountMutePersistsMatchesExpiresAndRevokesWithAudit()
+    {
+        DateTimeOffset now = DateTimeOffset.Parse("2026-08-23T12:00:00Z");
+        var mute = new MuteSnapshot(
+            MuteId.New(),
+            MuteSubjectKind.Account,
+            "Alice",
+            "chat abuse",
+            "Server",
+            now,
+            now.AddHours(2),
+            1);
+        SqliteVegaDatabase database = await OpenAsync();
+
+        MuteMutationResult created = await database.Mutes.CreateAsync(mute);
+        SqliteVegaDatabase reopened = await OpenAsync();
+        MuteSnapshot? matched = reopened.Mutes.FindActive("DifferentPlayerName", "alice", now.AddMinutes(1));
+        MuteMutationResult stale = await reopened.Mutes.RevokeAsync(
+            mute.Id, expectedRevision: 9, "stale", now.AddMinutes(2));
+        MuteMutationResult revoked = await reopened.Mutes.RevokeAsync(
+            mute.Id, mute.Revision, "Server", now.AddMinutes(3));
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(created.Succeeded, Is.True);
+            Assert.That(matched!.Reason, Is.EqualTo("chat abuse"));
+            Assert.That(stale.Code, Is.EqualTo("mute.revision-conflict"));
+            Assert.That(revoked.Succeeded, Is.True);
+            Assert.That(reopened.Mutes.FindActive("Alice", "Alice", now.AddMinutes(4)), Is.Null);
+            Assert.That(reopened.Mutes.SnapshotActive(now.AddHours(3)), Is.Empty);
+        });
+    }
+
+    [Test]
     public async Task ReleasedSchemaOneDatabaseUpgradesIdempotentlyToCurrentSchema()
     {
         Directory.CreateDirectory(Path.GetDirectoryName(databasePath)!);
@@ -204,9 +239,9 @@ public sealed class SqliteVegaDatabaseTests
 
         Assert.Multiple(() =>
         {
-            Assert.That(first.SchemaVersion, Is.EqualTo(3));
-            Assert.That(second.SchemaVersion, Is.EqualTo(3));
-            Assert.That(ScalarInt64("SELECT COUNT(*) FROM vega_schema_history;"), Is.EqualTo(3));
+            Assert.That(first.SchemaVersion, Is.EqualTo(4));
+            Assert.That(second.SchemaVersion, Is.EqualTo(4));
+            Assert.That(ScalarInt64("SELECT COUNT(*) FROM vega_schema_history;"), Is.EqualTo(4));
             Assert.That(ScalarInt64("SELECT COUNT(*) FROM vega_groups;"), Is.EqualTo(3));
         });
     }

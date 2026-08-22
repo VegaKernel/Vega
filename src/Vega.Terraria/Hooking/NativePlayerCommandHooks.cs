@@ -8,6 +8,7 @@ using Vega.Contracts.Messaging;
 using Vega.Contracts.Localization;
 using Vega.Contracts.Players;
 using Vega.Contracts.Operations;
+using Vega.Contracts.Moderation;
 
 namespace Vega.Terraria.Hooking;
 
@@ -26,6 +27,8 @@ internal sealed class NativePlayerCommandHooks : IDisposable
     private readonly IPlayerCultureService cultures;
     private readonly IPlayerSessionLifecycle sessions;
     private readonly IPlayerAccountSessionService accountSessions;
+    private readonly IMuteService? mutes;
+    private readonly TimeProvider time;
     private bool attached;
 
     public NativePlayerCommandHooks(
@@ -37,7 +40,9 @@ internal sealed class NativePlayerCommandHooks : IDisposable
         ILocalizationService localization,
         IPlayerCultureService cultures,
         IPlayerSessionLifecycle sessions,
-        IPlayerAccountSessionService accountSessions)
+        IPlayerAccountSessionService accountSessions,
+        IMuteService? mutes = null,
+        TimeProvider? timeProvider = null)
     {
         this.dispatcher = dispatcher ?? throw new ArgumentNullException(nameof(dispatcher));
         this.authorization = authorization ?? throw new ArgumentNullException(nameof(authorization));
@@ -48,6 +53,8 @@ internal sealed class NativePlayerCommandHooks : IDisposable
         this.cultures = cultures ?? throw new ArgumentNullException(nameof(cultures));
         this.sessions = sessions ?? throw new ArgumentNullException(nameof(sessions));
         this.accountSessions = accountSessions ?? throw new ArgumentNullException(nameof(accountSessions));
+        this.mutes = mutes;
+        time = timeProvider ?? TimeProvider.System;
     }
 
     public void Attach()
@@ -102,6 +109,20 @@ internal sealed class NativePlayerCommandHooks : IDisposable
             // Execution and game-thread message delivery continue asynchronously without blocking packet processing.
             args.Result = HookResult.Cancel;
             _ = ExecuteAsync(playerId, player.Name, command);
+            return;
+        }
+
+        accountSessions.TryGetAccount(playerId, out AccountSnapshot? chatAccount);
+        MuteSnapshot? mute = mutes?.FindActive(player.Name, chatAccount?.Name, time.GetUtcNow());
+        if (mute is not null)
+        {
+            args.Result = HookResult.Cancel;
+            _ = NotifyMutedAsync(playerId, mute);
+            logger.Log(
+                OperationsLogLevel.Information,
+                "moderation",
+                $"Muted chat rejected for {player.Name}; mute={mute.Id}.",
+                correlationId: player.SessionId?.ToString());
             return;
         }
 
@@ -214,6 +235,21 @@ internal sealed class NativePlayerCommandHooks : IDisposable
         if (result.Status != CommandExecutionStatus.Success && !string.IsNullOrWhiteSpace(result.ErrorCode))
         {
             await output.ErrorAsync(result.ErrorCode).ConfigureAwait(false);
+        }
+    }
+
+    private async Task NotifyMutedAsync(PlayerId playerId, MuteSnapshot mute)
+    {
+        try
+        {
+            _ = await messenger.SendMessageAsync(
+                playerId,
+                $"You are muted until {mute.ExpiresAt:u}. Reason: {mute.Reason}")
+                .ConfigureAwait(false);
+        }
+        catch (Exception ex)
+        {
+            logger.Log(OperationsLogLevel.Warning, "moderation", "Unable to notify muted player.", ex);
         }
     }
 

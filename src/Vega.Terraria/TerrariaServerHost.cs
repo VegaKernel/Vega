@@ -10,6 +10,7 @@ using Vega.Contracts.Events;
 using Vega.Contracts.Runtime;
 using Vega.Contracts.Worlds;
 using Vega.Contracts.Localization;
+using Vega.Contracts.Moderation;
 using Vega.Terraria.Hooking;
 using Vega.Terraria.Operations;
 using Vega.Terraria.Players;
@@ -43,6 +44,7 @@ public static class TerrariaServerHost
         ICommandDispatcher commandDispatcher,
         IPlayerAuthorizationService playerAuthorization,
         IPlayerAccountSessionService accountSessions,
+        IMuteService mutes,
         ILocalizationService localization,
         IPlayerCultureService cultures)
     {
@@ -64,6 +66,7 @@ public static class TerrariaServerHost
         ArgumentNullException.ThrowIfNull(commandDispatcher);
         ArgumentNullException.ThrowIfNull(playerAuthorization);
         ArgumentNullException.ThrowIfNull(accountSessions);
+        ArgumentNullException.ThrowIfNull(mutes);
         ArgumentNullException.ThrowIfNull(localization);
         ArgumentNullException.ThrowIfNull(cultures);
 
@@ -109,7 +112,8 @@ public static class TerrariaServerHost
             localization,
             cultures,
             playerBoundary,
-            accountSessions);
+            accountSessions,
+            mutes);
         using var worldClockSynchronizer = new TerrariaWorldClockSynchronizer(worldClock, logger);
 
         try

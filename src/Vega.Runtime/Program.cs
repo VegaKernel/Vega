@@ -294,6 +294,8 @@ int Start()
 
         using IDisposable banCommandRegistration = commandDispatcher.Register(
             new BanCommand(playerBoundary, playerBoundary, banService));
+        using IDisposable muteCommandRegistration = commandDispatcher.Register(
+            new MuteCommand(playerBoundary, accountSessions, database.Mutes));
         using IDisposable accountCommandRegistration = commandDispatcher.Register(
             new AccountCommand(database.Accounts, database.Authorization, database.RoleLeases));
         using IDisposable groupCommandRegistration = commandDispatcher.Register(
@@ -350,7 +352,9 @@ int Start()
             worldClock,
             autoWorldCleaner,
             securitySignals: securitySignals,
-            regions: database.Regions);
+            regions: database.Regions,
+            bans: banService,
+            mutes: database.Mutes);
         var operationsCommands = new OperationsCommandService(
             commandDispatcher,
             localization,
@@ -419,6 +423,7 @@ int Start()
             commandDispatcher,
             playerAuthorization,
             accountSessions,
+            database.Mutes,
             localization,
             localization);
     }

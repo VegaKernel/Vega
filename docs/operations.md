@@ -25,6 +25,7 @@ The TUI uses separate high-contrast, movable and resizable windows instead of re
 - **Network**: inbound/outbound rates and cumulative packet/byte counters;
 - **Players**: immutable `PlayerSnapshot` entries;
 - **Regions**: a bounded immutable world/name/bounds/priority/owner/ACL/revision projection (hidden by default and available through `:show regions`);
+- **Moderation**: bounded active bans and mutes; sensitive IP/UUID/CIDR subjects are redacted outside an explicitly sensitive snapshot (hidden by default and available through `:show moderation`);
 - **Modules**: version, load state, dependencies, startup duration and failures;
 - **Logs**: recent structured records and degraded-capability warnings.
 
@@ -81,8 +82,8 @@ Local palette actions control only the view:
 :find budget
 :clear
 :windows
-:show <overview|performance|memory|network|players|regions|modules|logs|chat>
-:hide <overview|performance|memory|network|players|regions|modules|logs|chat>
+:show <overview|performance|memory|network|players|regions|moderation|modules|logs|chat>
+:hide <overview|performance|memory|network|players|regions|moderation|modules|logs|chat>
 :layout save
 :layout reset
 ```

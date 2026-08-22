@@ -5,7 +5,7 @@ namespace Vega.Persistence.Sqlite;
 
 internal static class SqliteSchemaMigrator
 {
-    private const int CurrentVersion = 3;
+    private const int CurrentVersion = 4;
 
     private static readonly Migration[] Migrations =
     [
@@ -132,6 +132,27 @@ internal static class SqliteSchemaMigrator
                 value INTEGER NOT NULL CHECK (value IN (0, 1)),
                 PRIMARY KEY (region_id, flag)
             );
+            """),
+        new(
+            4,
+            "persistent-mutes",
+            """
+            CREATE TABLE vega_mutes (
+                id TEXT NOT NULL PRIMARY KEY,
+                subject_kind INTEGER NOT NULL CHECK (subject_kind BETWEEN 0 AND 1),
+                subject_value TEXT NOT NULL COLLATE NOCASE,
+                reason TEXT NOT NULL,
+                issued_by TEXT NOT NULL,
+                issued_at_utc TEXT NOT NULL,
+                expires_at_utc TEXT NOT NULL,
+                revision INTEGER NOT NULL CHECK (revision > 0),
+                revoked INTEGER NOT NULL DEFAULT 0 CHECK (revoked IN (0, 1)),
+                revoked_by TEXT NULL,
+                revoked_at_utc TEXT NULL
+            );
+
+            CREATE INDEX ix_vega_mutes_active_subject
+                ON vega_mutes (revoked, subject_kind, subject_value, expires_at_utc);
             """)
     ];
 

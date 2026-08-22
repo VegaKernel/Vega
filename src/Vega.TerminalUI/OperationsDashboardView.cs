@@ -11,6 +11,8 @@ using Terminal.Gui.Views;
 using Vega.Contracts.Operations;
 using Vega.Contracts.Players;
 using Vega.Contracts.Regions;
+using Vega.Contracts.Bans;
+using Vega.Contracts.Moderation;
 using Vega.Contracts.Worlds;
 using TuiAttribute = Terminal.Gui.Drawing.Attribute;
 using TuiColor = Terminal.Gui.Drawing.Color;
@@ -29,6 +31,7 @@ internal sealed class OperationsDashboardView : IDisposable
     private readonly ListView playersList = new();
     private readonly ListView modulesList = new();
     private readonly ListView regionsList = new();
+    private readonly ListView moderationList = new();
     private readonly Editor logsText = CreateLogEditor();
     private readonly Editor chatText = CreateLogEditor();
     private readonly GraphView performanceGraph = CreateGraph("TPS / CPU");
@@ -44,6 +47,7 @@ internal sealed class OperationsDashboardView : IDisposable
     private string[] playerRows = Array.Empty<string>();
     private string[] moduleRows = Array.Empty<string>();
     private string[] regionRows = Array.Empty<string>();
+    private string[] moderationRows = Array.Empty<string>();
     private PopoverMenu? playerMenu;
     private PopoverMenu? moduleMenu;
     private PlayerId? draggedPlayerId;
@@ -66,6 +70,8 @@ internal sealed class OperationsDashboardView : IDisposable
         modulesList.ViewportSettings = ViewportSettingsFlags.HasVerticalScrollBar | ViewportSettingsFlags.HasHorizontalScrollBar;
         regionsList.SchemeName = SchemeName;
         regionsList.ViewportSettings = ViewportSettingsFlags.HasVerticalScrollBar | ViewportSettingsFlags.HasHorizontalScrollBar;
+        moderationList.SchemeName = SchemeName;
+        moderationList.ViewportSettings = ViewportSettingsFlags.HasVerticalScrollBar | ViewportSettingsFlags.HasHorizontalScrollBar;
 
         AddTextWindow(TerminalUiLayoutOptions.Overview, "Server", overviewText);
         AddGraphWindow(TerminalUiLayoutOptions.Performance, performanceGraph);
@@ -74,6 +80,7 @@ internal sealed class OperationsDashboardView : IDisposable
         AddTextWindow(TerminalUiLayoutOptions.Network, "Network", networkText);
         AddListWindow(TerminalUiLayoutOptions.Modules, "Modules", modulesList, ConfigureModuleContextMenu);
         AddListWindow(TerminalUiLayoutOptions.Regions, "Regions", regionsList, static () => { });
+        AddListWindow(TerminalUiLayoutOptions.Moderation, "Moderation", moderationList, static () => { });
         AddLogsWindow();
         AddTextWindow(TerminalUiLayoutOptions.Chat, "Chat", chatText);
 
@@ -102,6 +109,7 @@ internal sealed class OperationsDashboardView : IDisposable
         UpdatePlayerList(snapshot);
         UpdateModuleList(snapshot);
         UpdateRegionList(snapshot);
+        UpdateModerationList(snapshot);
         SetLogText(RenderLogs(snapshot, filter), logsText, ref lastLogText, ref pendingLogText);
         SetLogText(RenderChat(snapshot), chatText, ref lastChatText, ref pendingChatText);
         if (windows[TerminalUiLayoutOptions.Logs] is FrameView logsFrame)
@@ -688,6 +696,20 @@ internal sealed class OperationsDashboardView : IDisposable
         string owner = region.Owner ?? "none";
         string access = $"m{region.Members.Count}/g{region.Groups.Count}/f{region.Flags.Count}";
         return $"{region.WorldId} · {region.Name} · ({region.X},{region.Y}) {region.Width}x{region.Height} · p{region.Priority} · {owner} · {access} · r{region.Revision}";
+    }
+
+    private void UpdateModerationList(OperationsSnapshot snapshot)
+    {
+        string[] rows = snapshot.Bans
+            .Select(static ban => $"BAN · {ban.Id} · {ban.Subject.Kind}:{ban.Subject.Value} · {ban.ExpiresAt?.ToString("u") ?? "never"} · {ban.Reason}")
+            .Concat(snapshot.Mutes.Select(static mute =>
+                $"MUTE · {mute.Id} · {mute.SubjectKind}:{mute.SubjectValue} · {mute.ExpiresAt:u} · {mute.Reason}"))
+            .ToArray();
+        if (moderationRows.SequenceEqual(rows, StringComparer.Ordinal)) return;
+        int? selected = moderationList.SelectedItem;
+        moderationRows = rows;
+        moderationList.SetSource(new ObservableCollection<string>(rows));
+        if (selected is int index && index >= 0 && index < rows.Length) moderationList.SelectedItem = index;
     }
 
     private static string RenderOverview(OperationsSnapshot snapshot)

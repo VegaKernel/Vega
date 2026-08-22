@@ -215,6 +215,21 @@ public static class OperationsDashboardRenderer
         }
 
         text.AppendLine();
+        text.AppendLine("MODERATION");
+        foreach (var ban in snapshot.Bans)
+        {
+            text.AppendLine($"  BAN {ban.Id} {ban.Subject.Kind}:{ban.Subject.Value} expires={ban.ExpiresAt?.ToString("u") ?? "never"} reason={ban.Reason}");
+        }
+        foreach (var mute in snapshot.Mutes)
+        {
+            text.AppendLine($"  MUTE {mute.Id} {mute.SubjectKind}:{mute.SubjectValue} expires={mute.ExpiresAt:u} reason={mute.Reason}");
+        }
+        if (snapshot.Bans.Count == 0 && snapshot.Mutes.Count == 0)
+        {
+            text.AppendLine("  no active bans or mutes");
+        }
+
+        text.AppendLine();
         text.AppendLine($"LOGS {(isFollowing ? "FOLLOW" : "PAUSED")} level={filter.MinimumLevel?.ToString() ?? "all"} source={filter.Source ?? "all"} text={filter.Text ?? "all"}");
         foreach (OperationsLogRecord record in snapshot.Logs)
         {

@@ -13,6 +13,7 @@ public sealed class PostgreSqlVegaDatabase : ExternalVegaDatabase
             SchemaSql,
             IdentitySchemaSql,
             RegionSchemaSql,
+            ModerationSchemaSql,
             GlobalBanSql)
     {
     }
@@ -135,6 +136,25 @@ public sealed class PostgreSqlVegaDatabase : ExternalVegaDatabase
             value SMALLINT NOT NULL CHECK (value IN (0, 1)),
             PRIMARY KEY (region_id, flag)
         );
+        """;
+
+    private const string ModerationSchemaSql =
+        """
+        CREATE TABLE vega_mutes (
+            id VARCHAR(36) NOT NULL PRIMARY KEY,
+            subject_kind SMALLINT NOT NULL CHECK (subject_kind BETWEEN 0 AND 1),
+            subject_value VARCHAR(255) NOT NULL,
+            reason TEXT NOT NULL,
+            issued_by VARCHAR(255) NOT NULL,
+            issued_at_utc VARCHAR(40) NOT NULL,
+            expires_at_utc VARCHAR(40) NOT NULL,
+            revision BIGINT NOT NULL CHECK (revision > 0),
+            revoked BOOLEAN NOT NULL DEFAULT FALSE,
+            revoked_by VARCHAR(255) NULL,
+            revoked_at_utc VARCHAR(40) NULL
+        );
+        CREATE INDEX ix_vega_mutes_active_subject
+            ON vega_mutes (revoked, subject_kind, subject_value, expires_at_utc);
         """;
 
     private static RelationalGlobalBanSql GlobalBanSql { get; } = new(

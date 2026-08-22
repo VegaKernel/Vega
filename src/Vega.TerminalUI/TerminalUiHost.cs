@@ -572,6 +572,7 @@ public sealed class TerminalUiHost : IDisposable
                 new MenuItem("P_layers", action: () => { dashboard.ToggleWindowVisibility(TerminalUiLayoutOptions.Players); }),
                 new MenuItem("M_odules", action: () => { dashboard.ToggleWindowVisibility(TerminalUiLayoutOptions.Modules); }),
                 new MenuItem("_Regions", action: () => { dashboard.ToggleWindowVisibility(TerminalUiLayoutOptions.Regions); }),
+                new MenuItem("_Moderation", action: () => { dashboard.ToggleWindowVisibility(TerminalUiLayoutOptions.Moderation); }),
                 new MenuItem("Lo_gs", action: () => { dashboard.ToggleWindowVisibility(TerminalUiLayoutOptions.Logs); }),
                 new MenuItem("_Chat", action: () => { dashboard.ToggleWindowVisibility(TerminalUiLayoutOptions.Chat); }),
                 new Line(),

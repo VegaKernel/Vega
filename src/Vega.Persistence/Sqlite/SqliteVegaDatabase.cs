@@ -2,6 +2,7 @@ using Vega.Contracts.Cluster.Events;
 using Vega.Contracts.Runtime;
 using Vega.Contracts.Accounts;
 using Vega.Contracts.Authorization;
+using Vega.Contracts.Moderation;
 using Vega.Contracts.Regions;
 using Vega.Contracts.Worlds;
 using Vega.Persistence.Relational;
@@ -35,6 +36,10 @@ public sealed class SqliteVegaDatabase : IVegaDatabase
             connections.Open,
             async cancellationToken => await connections.OpenAsync(cancellationToken).ConfigureAwait(false),
             EnsureReady);
+        Mutes = new RelationalMuteService(
+            connections.Open,
+            async cancellationToken => await connections.OpenAsync(cancellationToken).ConfigureAwait(false),
+            EnsureReady);
         Regions = new RelationalRegionService(
             connections.Open,
             async cancellationToken => await connections.OpenAsync(cancellationToken).ConfigureAwait(false),
@@ -58,6 +63,8 @@ public sealed class SqliteVegaDatabase : IVegaDatabase
     public IAuthorizationService Authorization { get; }
 
     public IRoleLeaseService RoleLeases { get; }
+
+    public IMuteService Mutes { get; }
 
     public IRegionService Regions { get; }
 
@@ -100,6 +107,7 @@ public sealed class SqliteVegaDatabase : IVegaDatabase
             Volatile.Write(ref schemaVersion, version);
             Authorization.SnapshotGroups();
             RoleLeases.SnapshotActive(DateTimeOffset.UtcNow);
+            Mutes.SnapshotActive(DateTimeOffset.UtcNow);
             Regions.SnapshotRegions(WorldId.Primary);
         }
         finally

@@ -13,6 +13,7 @@ public sealed class MySqlVegaDatabase : ExternalVegaDatabase
             SchemaSql,
             IdentitySchemaSql,
             RegionSchemaSql,
+            ModerationSchemaSql,
             GlobalBanSql)
     {
     }
@@ -145,6 +146,24 @@ public sealed class MySqlVegaDatabase : ExternalVegaDatabase
             PRIMARY KEY (region_id, flag),
             CONSTRAINT fk_vega_region_flags_region FOREIGN KEY (region_id)
                 REFERENCES vega_regions(id) ON DELETE CASCADE
+        ) ENGINE=InnoDB;
+        """;
+
+    private const string ModerationSchemaSql =
+        """
+        CREATE TABLE IF NOT EXISTS vega_mutes (
+            id CHAR(36) CHARACTER SET ascii COLLATE ascii_bin NOT NULL PRIMARY KEY,
+            subject_kind SMALLINT NOT NULL CHECK (subject_kind BETWEEN 0 AND 1),
+            subject_value VARCHAR(255) NOT NULL,
+            reason TEXT NOT NULL,
+            issued_by VARCHAR(255) NOT NULL,
+            issued_at_utc VARCHAR(40) NOT NULL,
+            expires_at_utc VARCHAR(40) NOT NULL,
+            revision BIGINT NOT NULL CHECK (revision > 0),
+            revoked BOOLEAN NOT NULL DEFAULT FALSE,
+            revoked_by VARCHAR(255) NULL,
+            revoked_at_utc VARCHAR(40) NULL,
+            INDEX ix_vega_mutes_active_subject (revoked, subject_kind, subject_value, expires_at_utc)
         ) ENGINE=InnoDB;
         """;
 

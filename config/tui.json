@@ -51,6 +51,13 @@
       "widthPercent": 44,
       "heightPercent": 46
     },
+    "moderation": {
+      "visible": false,
+      "xPercent": 56,
+      "yPercent": 46,
+      "widthPercent": 44,
+      "heightPercent": 36
+    },
     "logs": {
       "visible": true,
       "xPercent": 0,
