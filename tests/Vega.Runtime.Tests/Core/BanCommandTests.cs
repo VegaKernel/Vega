@@ -60,8 +60,71 @@ public sealed class BanCommandTests
         });
     }
 
+    [Test]
+    public async Task CreatesListsAndRevokesTypedExpiringBan()
+    {
+        var replica = new FakeBans();
+        var command = new BanCommand(
+            new FakeDirectory([]),
+            new FakeOperations(),
+            new GlobalBanService(replica));
+
+        CommandExecutionResult created = await command.ExecuteAsync(
+            Invocation(["add", "cidr", "203.0.113.77/24", "7d", "proxy", "range"]),
+            CancellationToken.None);
+        GlobalBanCreated stored = replica.Created.Single();
+        CommandExecutionResult listed = await command.ExecuteAsync(
+            Invocation(["list"]),
+            CancellationToken.None);
+        CommandExecutionResult revoked = await command.ExecuteAsync(
+            Invocation("unban", [stored.BanId.Value.ToString("D")]),
+            CancellationToken.None);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(created.Status, Is.EqualTo(CommandExecutionStatus.Success));
+            Assert.That(stored.Subject, Is.EqualTo(
+                new GlobalBanSubject(GlobalBanSubjectKind.Network, "203.0.113.0/24")));
+            Assert.That(stored.ExpiresAt, Is.Not.Null);
+            Assert.That(stored.Reason, Is.EqualTo("proxy range"));
+            Assert.That(listed.Messages, Has.Count.EqualTo(1));
+            Assert.That(revoked.Status, Is.EqualTo(CommandExecutionStatus.Success));
+            Assert.That(replica.Revoked.Single().Revision, Is.EqualTo(2));
+        });
+    }
+
+    [Test]
+    public async Task RedactsSensitiveBanSubjectsWithoutDedicatedPermission()
+    {
+        var replica = new FakeBans();
+        var service = new GlobalBanService(replica);
+        DateTimeOffset now = DateTimeOffset.UtcNow;
+        await service.CreateAsync(new GlobalBanCreated(
+            GlobalBanId.New(),
+            new GlobalBanSubject(GlobalBanSubjectKind.IpAddress, "203.0.113.8"),
+            "test",
+            "system",
+            now,
+            null,
+            1));
+        var command = new BanCommand(new FakeDirectory([]), new FakeOperations(), service);
+
+        CommandExecutionResult result = await command.ExecuteAsync(
+            new CommandInvocation(
+                "ban",
+                ["list"],
+                new FakePrincipal(["tshock.admin.ban"]),
+                new FakeOutput()),
+            CancellationToken.None);
+
+        Assert.That(result.Messages!.Single().Arguments[1], Is.EqualTo("IpAddress:<redacted>"));
+    }
+
     private static CommandInvocation Invocation(IReadOnlyList<string> arguments) =>
-        new("ban", arguments, new FakePrincipal(), new FakeOutput());
+        Invocation("ban", arguments);
+
+    private static CommandInvocation Invocation(string name, IReadOnlyList<string> arguments) =>
+        new(name, arguments, new FakePrincipal(), new FakeOutput());
 
     private static PlayerSnapshot Player(int slot, string name) =>
         new(
@@ -79,6 +142,7 @@ public sealed class BanCommandTests
     private sealed class FakeBans : IGlobalBanReplica
     {
         public List<GlobalBanCreated> Created { get; } = [];
+        public List<GlobalBanRevoked> Revoked { get; } = [];
 
         public ValueTask<bool> ApplyCreatedAsync(GlobalBanCreated created, CancellationToken cancellationToken = default)
         {
@@ -86,10 +150,16 @@ public sealed class BanCommandTests
             return ValueTask.FromResult(true);
         }
 
-        public ValueTask<bool> ApplyRevokedAsync(GlobalBanRevoked revoked, CancellationToken cancellationToken = default) =>
-            ValueTask.FromResult(true);
+        public ValueTask<bool> ApplyRevokedAsync(GlobalBanRevoked revoked, CancellationToken cancellationToken = default)
+        {
+            Revoked.Add(revoked);
+            return ValueTask.FromResult(true);
+        }
 
-        public IReadOnlyList<GlobalBanCreated> SnapshotActive(DateTimeOffset now) => Created;
+        public IReadOnlyList<GlobalBanCreated> SnapshotActive(DateTimeOffset now) => Created
+            .Where(created => created.ExpiresAt is null || created.ExpiresAt > now)
+            .Where(created => Revoked.All(revoked => revoked.BanId != created.BanId))
+            .ToArray();
     }
 
     private sealed class FakeDirectory(IReadOnlyList<PlayerSnapshot> players) : IPlayerDirectory
@@ -132,11 +202,12 @@ public sealed class BanCommandTests
             ValueTask.FromResult(PlayerOperationResult.Applied());
     }
 
-    private sealed class FakePrincipal : ICommandPrincipal
+    private sealed class FakePrincipal(IReadOnlyCollection<string>? permissions = null) : ICommandPrincipal
     {
         public string Name => "Moderator";
         public bool IsServer => true;
-        public bool HasPermission(string permission) => true;
+        public bool HasPermission(string permission) =>
+            permissions is null || permissions.Contains(permission, StringComparer.OrdinalIgnoreCase);
     }
 
     private sealed class FakeOutput : ICommandOutput
