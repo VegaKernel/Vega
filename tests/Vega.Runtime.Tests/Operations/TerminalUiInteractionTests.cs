@@ -29,6 +29,26 @@ public sealed class TerminalUiInteractionTests
         });
     }
 
+    [Test]
+    public void CapturedSnapshotDoesNotMutateDisplayedStateUntilUiAppliesIt()
+    {
+        var provider = new SequencedSnapshotProvider();
+        var viewModel = new OperationsDashboardViewModel(provider, new UnusedOperationsCommands());
+
+        OperationsSnapshot first = viewModel.Refresh();
+        OperationsSnapshot captured = viewModel.Capture();
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(provider.CaptureCount, Is.EqualTo(2));
+            Assert.That(viewModel.Render(), Does.Contain(first.Server.TicksPerSecond.ToString("F1")));
+        });
+
+        OperationsSnapshot applied = viewModel.Apply(captured);
+
+        Assert.That(applied.Server.TicksPerSecond, Is.EqualTo(58));
+    }
+
     [TestCase(71, 22, false)]
     [TestCase(72, 21, false)]
     [TestCase(72, 22, true)]

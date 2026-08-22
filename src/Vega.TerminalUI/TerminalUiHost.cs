@@ -367,6 +367,8 @@ public sealed class TerminalUiHost : IDisposable
 
             window.Add(menuBar, startup, desktop, terminalSizeWarning, commandBar, statusBar);
             DateTimeOffset lastRefreshFailureLoggedAt = DateTimeOffset.MinValue;
+            Task<OperationsSnapshot>? snapshotCapture = Task.Run(viewModel.Capture);
+            OperationsSnapshot? latestSnapshot = null;
             app.AddTimeout(TimeSpan.FromMilliseconds(layout.RefreshIntervalMilliseconds), () =>
             {
                 if (shutdown.IsCancellationRequested)
@@ -377,8 +379,23 @@ public sealed class TerminalUiHost : IDisposable
 
                 try
                 {
-                    OperationsSnapshot snapshot = viewModel.Refresh();
+                    if (snapshotCapture.IsCompleted)
+                    {
+                        Task<OperationsSnapshot> completedCapture = snapshotCapture;
+                        snapshotCapture = Task.Run(viewModel.Capture);
+                        latestSnapshot = viewModel.Apply(
+                            completedCapture.GetAwaiter().GetResult());
+                    }
+
                     RefreshCommandSuggestions();
+                    if (latestSnapshot is not OperationsSnapshot snapshot)
+                    {
+                        StartupProgressSnapshot current = startupProgress.Read();
+                        startupStage.Text = current.Activity;
+                        progress.Pulse();
+                        return true;
+                    }
+
                     if (!snapshot.Server.IsNetworkReady)
                     {
                         StartupProgressSnapshot current = startupProgress.Read();

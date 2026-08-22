@@ -18,11 +18,13 @@ public sealed class OperationsDashboardViewModel(
 
     public OperationsLogFilter LogFilter => logFilter;
 
-    public OperationsSnapshot Refresh()
-    {
-        OperationsSnapshot current = snapshots.Capture(
+    public OperationsSnapshot Capture() => snapshots.Capture(
             logFilter,
             OperationsSnapshotExposure.Sensitive);
+
+    public OperationsSnapshot Apply(OperationsSnapshot current)
+    {
+        ArgumentNullException.ThrowIfNull(current);
         if (IsFollowing)
         {
             pausedLogs = null;
@@ -34,6 +36,8 @@ public sealed class OperationsDashboardViewModel(
         displayed = current with { Logs = pausedLogs };
         return displayed;
     }
+
+    public OperationsSnapshot Refresh() => Apply(Capture());
 
     public string Render() => OperationsDashboardRenderer.Render(displayed ?? Refresh(), IsFollowing, logFilter);
 

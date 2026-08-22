@@ -17,7 +17,7 @@ The Vega option is removed before arguments are passed to Terraria. TUI initiali
 
 ## Dashboard
 
-The TUI uses separate high-contrast, movable and resizable windows instead of repainting one large text document. Its default desktop contains:
+The TUI uses separate high-contrast tiled windows instead of repainting one large text document. Its default desktop contains:
 
 - **Server / world**: lifecycle, uptime, world/readiness, listener port and player count;
 - **Performance**: bounded TPS and process CPU history; the server window also shows rolling-minute TPS, lifetime min/max and tick-duration p50/p95/p99;
@@ -29,11 +29,11 @@ The TUI uses separate high-contrast, movable and resizable windows instead of re
 - **Modules**: version, load state, dependencies, startup duration and failures;
 - **Logs**: recent structured records and degraded-capability warnings.
 
-The default refresh interval is 750 ms, which avoids the full-screen 150 ms document replacement that made some Windows terminals flicker. Static labels are updated only when their text changes; graph and log history is bounded.
+The default refresh interval is 750 ms, which avoids the full-screen 150 ms document replacement that made some Windows terminals flicker. Snapshot capture runs off the UI thread with at most one request in flight, so slow metrics or persistence reads cannot queue up or block keyboard and mouse input. Static labels are updated only when their text changes; graph and log history is bounded.
 
 ### Window layout
 
-Drag a window title to move it and drag its border to resize it. The following local palette commands manage the desktop:
+The desktop stays tiled: drag a shared border to grow one window while shrinking its adjacent window or windows, and drag a title over another tile to exchange their places. A rejected resize restores the prior geometry rather than overlapping panels; every tile keeps a usable minimum size. Double-click a title to maximize or restore that tile. The following local palette commands manage the desktop:
 
 ```text
 :windows                 List available windows and visibility.

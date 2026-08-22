@@ -26,6 +26,7 @@ internal sealed class OperationsDashboardView : IDisposable
     private readonly View desktop;
     private readonly Dictionary<string, View> windows = new(StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<string, TerminalUiPanelLayout> restoreLayouts = new(StringComparer.OrdinalIgnoreCase);
+    private readonly Dictionary<string, WindowInteraction> windowInteractions = new(StringComparer.OrdinalIgnoreCase);
     private readonly Label overviewText = CreateLabel();
     private readonly Label networkText = CreateLabel();
     private readonly ListView playersList = new();
@@ -308,7 +309,7 @@ internal sealed class OperationsDashboardView : IDisposable
     {
         windows.Add(name, view);
         Apply(view, layout.GetWindow(name));
-        AttachSnapping(name, view);
+        AttachTiling(name, view);
         desktop.Add(view);
     }
 
@@ -334,40 +335,92 @@ internal sealed class OperationsDashboardView : IDisposable
         };
     }
 
-    private void AttachSnapping(string name, View view)
+    private void AttachTiling(string name, View view)
     {
         view.MouseEvent += (_, args) =>
         {
-            if (!args.Flags.HasFlag(MouseFlags.LeftButtonReleased) || restoreLayouts.ContainsKey(name))
+            if (restoreLayouts.ContainsKey(name))
             {
                 return;
             }
 
-            SnapWindow(name, view);
+            if (args.Flags.HasFlag(MouseFlags.LeftButtonPressed))
+            {
+                windowInteractions[name] = new WindowInteraction(
+                    view.Frame,
+                    args.Position?.Y == 0);
+                return;
+            }
+
+            if (!args.Flags.HasFlag(MouseFlags.LeftButtonReleased) ||
+                !windowInteractions.Remove(name, out WindowInteraction? interaction) ||
+                interaction is null)
+            {
+                return;
+            }
+
+            CompleteTilingInteraction(name, view, interaction);
         };
     }
 
-    private void SnapWindow(string name, View view)
+    private void CompleteTilingInteraction(string name, View view, WindowInteraction interaction)
     {
         if (desktop.Viewport.Width <= 1 || desktop.Viewport.Height <= 1)
         {
             return;
         }
 
-        Rectangle frame = view.Frame;
-        Point snapped = TerminalUiSnapping.SnapPosition(
-            frame,
-            new Size(desktop.Viewport.Width, desktop.Viewport.Height),
-            windows
-                .Where(pair => !string.Equals(pair.Key, name, StringComparison.OrdinalIgnoreCase) && pair.Value.Visible)
-                .Select(static pair => pair.Value.Frame));
-        if (snapped == frame.Location)
+        Rectangle changed = view.Frame;
+        if (changed == interaction.Frame)
         {
             return;
         }
 
-        view.X = Pos.Percent(ToPercent(snapped.X, desktop.Viewport.Width));
-        view.Y = Pos.Percent(ToPercent(snapped.Y, desktop.Viewport.Height));
+        Dictionary<string, Rectangle> frames = windows
+            .Where(static pair => pair.Value.Visible)
+            .ToDictionary(static pair => pair.Key, static pair => pair.Value.Frame, StringComparer.OrdinalIgnoreCase);
+        frames[name] = interaction.Frame;
+
+        if (interaction.StartedOnTitle)
+        {
+            string? targetName = TerminalUiTiling.FindSwapTarget(name, changed, frames);
+            if (targetName is not null)
+            {
+                Rectangle targetFrame = frames[targetName];
+                ApplyFrame(windows[targetName], interaction.Frame);
+                ApplyFrame(view, targetFrame);
+                return;
+            }
+
+            ApplyFrame(view, interaction.Frame);
+            return;
+        }
+
+        if (TerminalUiTiling.TryResizeSharedEdges(
+                name,
+                interaction.Frame,
+                changed,
+                frames,
+                new Size(desktop.Viewport.Width, desktop.Viewport.Height),
+                out IReadOnlyDictionary<string, Rectangle> resized))
+        {
+            foreach ((string windowName, Rectangle frame) in resized)
+            {
+                ApplyFrame(windows[windowName], frame);
+            }
+
+            return;
+        }
+
+        ApplyFrame(view, interaction.Frame);
+    }
+
+    private void ApplyFrame(View view, Rectangle frame)
+    {
+        view.X = Pos.Percent(ToPercent(frame.X, desktop.Viewport.Width));
+        view.Y = Pos.Percent(ToPercent(frame.Y, desktop.Viewport.Height));
+        view.Width = Dim.Percent(ToPercent(frame.Width, desktop.Viewport.Width));
+        view.Height = Dim.Percent(ToPercent(frame.Height, desktop.Viewport.Height));
     }
 
     private void ToggleMaximize(string name)
@@ -924,4 +977,6 @@ internal sealed class OperationsDashboardView : IDisposable
         string Text,
         PlayerSnapshot? Player,
         WorldContextSnapshot? Context);
+
+    private sealed record WindowInteraction(Rectangle Frame, bool StartedOnTitle);
 }
