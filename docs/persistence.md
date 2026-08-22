@@ -38,6 +38,8 @@ Then change only `provider` in `config/database.json`. The environment variable 
 
 The first schema owns the persistent global-ban replica. Create and revoke operations use monotonic revisions; stale or duplicate delivery cannot overwrite newer state. Revocations are tombstones, including when they arrive before an older create event. Expired and revoked bans are excluded from the active snapshot.
 
+Schema 2 adds accounts, inherited groups, explicit permission grants/denials, administration audit records and account-scoped temporary role leases. Granting a temporary group atomically revokes the previous active row before inserting its replacement. Every replacement or explicit revoke is audited and revisioned; an older expiry/revoke request therefore cannot remove a newer assignment. Runtime permission checks read a preloaded one-active-lease-per-account cache and compare its absolute UTC expiration without querying SQL or keeping a timer on the player session. Schema 3 adds world-scoped regions and versioned ACL rows.
+
 This is infrastructure, not a generic DAL. `Vega.Contracts` exposes domain repositories; it never exposes SQL or `DbConnection` to Core or `ServerPlugins`.
 
 ## Backup and recovery

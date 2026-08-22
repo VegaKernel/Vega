@@ -15,6 +15,7 @@ public sealed class PlayerAccountSessionService : IPlayerAccountSessionService, 
     private readonly IPlayerCultureService cultures;
     private readonly IPlayerSessionLifecycle lifecycle;
     private readonly IBanService? bans;
+    private readonly IRoleLeaseService? roleLeases;
     private readonly Dictionary<PlayerId, AccountSnapshot> authenticated = [];
     private bool disposed;
 
@@ -24,7 +25,8 @@ public sealed class PlayerAccountSessionService : IPlayerAccountSessionService, 
         PlayerSessionAuthorizationService playerAuthorization,
         IPlayerCultureService cultures,
         IPlayerSessionLifecycle lifecycle,
-        IBanService? bans = null)
+        IBanService? bans = null,
+        IRoleLeaseService? roleLeases = null)
     {
         this.accounts = accounts ?? throw new ArgumentNullException(nameof(accounts));
         this.authorization = authorization ?? throw new ArgumentNullException(nameof(authorization));
@@ -32,6 +34,7 @@ public sealed class PlayerAccountSessionService : IPlayerAccountSessionService, 
         this.cultures = cultures ?? throw new ArgumentNullException(nameof(cultures));
         this.lifecycle = lifecycle ?? throw new ArgumentNullException(nameof(lifecycle));
         this.bans = bans;
+        this.roleLeases = roleLeases;
         lifecycle.Closed += OnClosed;
     }
 
@@ -266,7 +269,12 @@ public sealed class PlayerAccountSessionService : IPlayerAccountSessionService, 
             authenticated[playerId] = current;
         }
 
-        playerAuthorization.ReplaceAccountGroup(playerId, current.GroupName, authorization);
+        playerAuthorization.ReplaceAccountGroup(
+            playerId,
+            current.GroupName,
+            authorization,
+            current.Id,
+            roleLeases);
         cultures.ResetSession(CultureSubject(playerId));
         if (current.Culture is not null)
         {

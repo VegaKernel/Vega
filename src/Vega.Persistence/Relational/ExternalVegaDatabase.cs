@@ -37,6 +37,10 @@ public abstract class ExternalVegaDatabase : IVegaDatabase
             EnsureReady);
         Accounts = identities;
         Authorization = identities;
+        RoleLeases = new RelationalRoleLeaseService(
+            connections.Open,
+            connections.OpenAsync,
+            EnsureReady);
         Regions = new RelationalRegionService(
             connections.Open,
             connections.OpenAsync,
@@ -56,6 +60,8 @@ public abstract class ExternalVegaDatabase : IVegaDatabase
     public IAccountService Accounts { get; }
 
     public IAuthorizationService Authorization { get; }
+
+    public IRoleLeaseService RoleLeases { get; }
 
     public IRegionService Regions { get; }
 
@@ -77,6 +83,7 @@ public abstract class ExternalVegaDatabase : IVegaDatabase
             int version = await migrator.ApplyAsync(cancellationToken).ConfigureAwait(false);
             Volatile.Write(ref schemaVersion, version);
             Authorization.SnapshotGroups();
+            RoleLeases.SnapshotActive(DateTimeOffset.UtcNow);
             Regions.SnapshotRegions(WorldId.Primary);
         }
         finally

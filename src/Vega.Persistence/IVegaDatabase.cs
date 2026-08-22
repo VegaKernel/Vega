@@ -20,5 +20,7 @@ public interface IVegaDatabase : IRuntimeStartupParticipant
 
     IAuthorizationService Authorization { get; }
 
+    IRoleLeaseService RoleLeases { get; }
+
     IRegionService Regions { get; }
 }

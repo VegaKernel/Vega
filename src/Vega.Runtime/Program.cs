@@ -230,7 +230,8 @@ int Start()
             playerAuthorization,
             localization,
             playerBoundary,
-            banService);
+            banService,
+            database.RoleLeases);
         using IDisposable registerAccountCommandRegistration = commandDispatcher.Register(
             new RegisterAccountCommand(accountSessions));
         using IDisposable loginAccountCommandRegistration = commandDispatcher.Register(
@@ -294,7 +295,7 @@ int Start()
         using IDisposable banCommandRegistration = commandDispatcher.Register(
             new BanCommand(playerBoundary, playerBoundary, banService));
         using IDisposable accountCommandRegistration = commandDispatcher.Register(
-            new AccountCommand(database.Accounts, database.Authorization));
+            new AccountCommand(database.Accounts, database.Authorization, database.RoleLeases));
         using IDisposable groupCommandRegistration = commandDispatcher.Register(
             new GroupCommand(database.Authorization));
         using IDisposable regionCommandRegistration = commandDispatcher.Register(

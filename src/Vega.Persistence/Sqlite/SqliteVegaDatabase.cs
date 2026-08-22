@@ -31,6 +31,10 @@ public sealed class SqliteVegaDatabase : IVegaDatabase
             EnsureReady);
         Accounts = identities;
         Authorization = identities;
+        RoleLeases = new RelationalRoleLeaseService(
+            connections.Open,
+            async cancellationToken => await connections.OpenAsync(cancellationToken).ConfigureAwait(false),
+            EnsureReady);
         Regions = new RelationalRegionService(
             connections.Open,
             async cancellationToken => await connections.OpenAsync(cancellationToken).ConfigureAwait(false),
@@ -52,6 +56,8 @@ public sealed class SqliteVegaDatabase : IVegaDatabase
     public IAccountService Accounts { get; }
 
     public IAuthorizationService Authorization { get; }
+
+    public IRoleLeaseService RoleLeases { get; }
 
     public IRegionService Regions { get; }
 
@@ -93,6 +99,7 @@ public sealed class SqliteVegaDatabase : IVegaDatabase
                 .ConfigureAwait(false);
             Volatile.Write(ref schemaVersion, version);
             Authorization.SnapshotGroups();
+            RoleLeases.SnapshotActive(DateTimeOffset.UtcNow);
             Regions.SnapshotRegions(WorldId.Primary);
         }
         finally

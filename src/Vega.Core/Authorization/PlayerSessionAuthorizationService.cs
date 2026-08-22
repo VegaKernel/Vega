@@ -1,4 +1,5 @@
 using Vega.Contracts.Authorization;
+using Vega.Contracts.Accounts;
 using Vega.Contracts.Players;
 
 namespace Vega.Core.Authorization;
@@ -9,12 +10,16 @@ public sealed class PlayerSessionAuthorizationService :
 {
 	private readonly object sync = new();
 	private readonly IPlayerSessionLifecycle lifecycle;
+	private readonly TimeProvider timeProvider;
 	private readonly Dictionary<PlayerId, SessionPermissions> permissions = [];
 	private bool disposed;
 
-	public PlayerSessionAuthorizationService(IPlayerSessionLifecycle lifecycle)
+	public PlayerSessionAuthorizationService(
+		IPlayerSessionLifecycle lifecycle,
+		TimeProvider? timeProvider = null)
 	{
 		this.lifecycle = lifecycle ?? throw new ArgumentNullException(nameof(lifecycle));
+		this.timeProvider = timeProvider ?? TimeProvider.System;
 		lifecycle.Closed += OnClosed;
 	}
 
@@ -37,9 +42,16 @@ public sealed class PlayerSessionAuthorizationService :
 				return true;
 			}
 
-			return session.Authorization is not null && session.GroupName is not null &&
-				(IsGroupMarker(permission, session.GroupName, session.Authorization) ||
-				 session.Authorization.HasPermission(session.GroupName, permission));
+			if (session.Authorization is null || session.GroupName is null)
+			{
+				return false;
+			}
+
+			string effectiveGroup = session.AccountId is { } accountId && session.RoleLeases is not null
+				? session.RoleLeases.FindActive(accountId, timeProvider.GetUtcNow())?.GroupName ?? session.GroupName
+				: session.GroupName;
+			return IsGroupMarker(permission, effectiveGroup, session.Authorization) ||
+				session.Authorization.HasPermission(effectiveGroup, permission);
 		}
 	}
 
@@ -66,14 +78,16 @@ public sealed class PlayerSessionAuthorizationService :
 			if (granted.Count == 0 && denied.Count == 0)
 				permissions.Remove(playerId);
 			else
-				permissions[playerId] = new SessionPermissions(granted, denied, null, null);
+				permissions[playerId] = new SessionPermissions(granted, denied, null, null, null, null);
 		}
 	}
 
 	public void ReplaceAccountGroup(
 		PlayerId playerId,
 		string groupName,
-		IAuthorizationService authorization)
+		IAuthorizationService authorization,
+		AccountId? accountId = null,
+		IRoleLeaseService? roleLeases = null)
 	{
 		ArgumentException.ThrowIfNullOrWhiteSpace(groupName);
 		ArgumentNullException.ThrowIfNull(authorization);
@@ -84,7 +98,9 @@ public sealed class PlayerSessionAuthorizationService :
 				new HashSet<string>(StringComparer.OrdinalIgnoreCase),
 				new HashSet<string>(StringComparer.OrdinalIgnoreCase),
 				groupName,
-				authorization);
+				authorization,
+				accountId,
+				roleLeases);
 		}
 	}
 
@@ -140,5 +156,7 @@ public sealed class PlayerSessionAuthorizationService :
 		HashSet<string> Granted,
 		HashSet<string> Denied,
 		string? GroupName,
-		IAuthorizationService? Authorization);
+		IAuthorizationService? Authorization,
+		AccountId? AccountId,
+		IRoleLeaseService? RoleLeases);
 }

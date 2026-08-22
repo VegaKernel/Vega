@@ -130,6 +130,56 @@ public sealed class SqliteVegaDatabaseTests
     }
 
     [Test]
+    public async Task TemporaryRoleLeaseReplacesAtomicallyPersistsAndRejectsStaleRevocation()
+    {
+        DateTimeOffset now = DateTimeOffset.Parse("2026-08-23T12:00:00Z");
+        SqliteVegaDatabase database = await OpenAsync();
+        await database.Authorization.CreateGroupAsync("builder", "default", "Server");
+        await database.Authorization.CreateGroupAsync("moderator", "default", "Server");
+        var account = await database.Accounts.CreateAsync(
+            "Alice",
+            "correct horse battery staple",
+            "default",
+            "Server");
+
+        var first = await database.RoleLeases.GrantAsync(
+            account.After!.Id,
+            "builder",
+            now,
+            now.AddHours(1),
+            "Server");
+        var second = await database.RoleLeases.GrantAsync(
+            account.After.Id,
+            "moderator",
+            now.AddMinutes(1),
+            now.AddHours(2),
+            "Server");
+        RoleLeaseMutationResult stale = await database.RoleLeases.RevokeAsync(
+            first.After!.Id,
+            first.After.Revision,
+            "stale-expiry");
+
+        SqliteVegaDatabase reopened = await OpenAsync();
+        RoleLeaseSnapshot? restored = reopened.RoleLeases.FindActive(account.After.Id, now.AddMinutes(2));
+        RoleLeaseMutationResult revoked = await reopened.RoleLeases.RevokeAsync(
+            second.After!.Id,
+            second.After.Revision,
+            "Server");
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(first.Succeeded, Is.True);
+            Assert.That(second.Succeeded, Is.True);
+            Assert.That(stale.Code, Is.EqualTo("role-lease.revision-conflict"));
+            Assert.That(restored!.Id, Is.EqualTo(second.After.Id));
+            Assert.That(restored.GroupName, Is.EqualTo("moderator"));
+            Assert.That(reopened.RoleLeases.FindActive(account.After.Id, now.AddMinutes(2)), Is.Null);
+            Assert.That(revoked.Succeeded, Is.True);
+            Assert.That(reopened.RoleLeases.SnapshotActive(now.AddHours(3)), Is.Empty);
+        });
+    }
+
+    [Test]
     public async Task ReleasedSchemaOneDatabaseUpgradesIdempotentlyToCurrentSchema()
     {
         Directory.CreateDirectory(Path.GetDirectoryName(databasePath)!);
