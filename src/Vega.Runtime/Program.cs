@@ -183,8 +183,10 @@ int Start()
             return 1;
         }
 
+        using var packetRateLimits = new PacketRateLimitPolicy(playerBoundary);
         var playerPacketPolicies = new PacketProcessorPipeline<PacketView>(
         [
+            packetRateLimits,
             new NpcCoinPickupAuthorityPolicy(),
             new WorldItemSyncSanityPolicy(
                 TerrariaPacketSecurityLimits.ItemTypeCount,

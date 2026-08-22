@@ -251,7 +251,7 @@ Move server-wide invariants into Core/runtime, not the historical plugin impleme
 - [x] Reject protocol-325 deprecated item packets `145/148`; validate supported item packets `21/90/151/160` before Terraria indexes or applies their state.
 - [x] Decode through `TZ.Multiplicity`; no old raw-reader/packet-writer implementation enters Core.
 - [x] Use typed `Allow`, `Reject` and `Violation` outcomes end to end; add `Correct` only with the first real Terraria-side correction consumer instead of shipping an unused outcome.
-- [ ] Add narrowly scoped rate limits/deduplication only where a measured protocol abuse requires them.
+- [x] Add narrowly scoped rate limits/deduplication only where a measured protocol abuse requires them.
 - [x] Expose bounded per-reason security counters plus rejected/violation totals through the existing network metrics path; anomaly counts remain observability, not proof of cheating.
 
 ### Connection metadata from ClientPlatformDetector, SSCHealthFix and UuidGuardExtension
@@ -264,6 +264,8 @@ Move server-wide invariants into Core/runtime, not the historical plugin impleme
 - [x] Keep Dimensions disabled until ADR 0011 trust configuration and admission ordering are implemented and tested end to end.
 
 Protocol 325 reports `PlayerPlatformInfo` as packet 164 with a sender slot and platform byte. Vega records the reported value without the legacy PC fallback, accepts `ClientUUID` only once in the protocol-accepted phase, and rejects forged slots or phase changes before vanilla dispatch. Direct connections still retain separate transport/effective endpoint fields so a future trusted-forwarding adapter cannot overwrite provenance. Operations snapshots are redacted by default; the local administrative TUI requests sensitive connection fields explicitly. Rejections also enter a bounded structured signal stream whose endpoint fields require the same explicit sensitive exposure.
+
+The rate-limit slice intentionally carries only the observed TerraZ limits for expensive or state-transition packets already owned by Vega: chest open, chest placement, spectate, player death, liquid mutation and mass wiring. Counters are per connection and packet, use a one-second window, reset on disconnect and report ordinary rejection rather than declaring a client a cheater. The broad historical every-packet table is not copied into Core.
 
 ## Phase 14 — TerraZ-derived runtime and module operations
 
