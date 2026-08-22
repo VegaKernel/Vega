@@ -207,6 +207,23 @@ int Start()
             return 1;
         }
 
+        IVegaDatabase database;
+        try
+        {
+            VegaDatabaseOptions databaseOptions = VegaDatabaseOptionsStore.Load(
+                Path.Combine(AppContext.BaseDirectory, "config", "database.json"));
+            database = VegaDatabaseFactory.Create(databaseOptions, AppContext.BaseDirectory);
+        }
+        catch (Exception ex) when (ex is InvalidDataException or ArgumentException)
+        {
+            logger.Log(
+                OperationsLogLevel.Critical,
+                "persistence",
+                "Vega database configuration is invalid.",
+                ex);
+            return 1;
+        }
+
         GameplayEnforcementOptions gameplayOptions = GameplayEnforcementOptionsStore.Load(
             Path.Combine(AppContext.BaseDirectory, "config", "security.json"),
             logger);
@@ -220,6 +237,7 @@ int Start()
         [
             packetRateLimits,
             gameplayEnforcement,
+            new RegionBuildAuthorizationPolicy(database.Regions, playerBoundary, playerAuthorization),
             new NpcCoinPickupAuthorityPolicy(),
             new WorldItemSyncSanityPolicy(
                 TerrariaPacketSecurityLimits.ItemTypeCount,
@@ -246,22 +264,6 @@ int Start()
         ]);
         using IDisposable worldCleanCommandRegistration = commandDispatcher.Register(
             new AutoWorldCleanerCommand(autoWorldCleaner));
-        IVegaDatabase database;
-        try
-        {
-            VegaDatabaseOptions databaseOptions = VegaDatabaseOptionsStore.Load(
-                Path.Combine(AppContext.BaseDirectory, "config", "database.json"));
-            database = VegaDatabaseFactory.Create(databaseOptions, AppContext.BaseDirectory);
-        }
-        catch (Exception ex) when (ex is InvalidDataException or ArgumentException)
-        {
-            logger.Log(
-                OperationsLogLevel.Critical,
-                "persistence",
-                "Vega database configuration is invalid.",
-                ex);
-            return 1;
-        }
 
         var banService = new GlobalBanService(database.GlobalBans);
         using IDisposable banCommandRegistration = commandDispatcher.Register(

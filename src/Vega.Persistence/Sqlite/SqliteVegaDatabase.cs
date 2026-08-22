@@ -3,6 +3,7 @@ using Vega.Contracts.Runtime;
 using Vega.Contracts.Accounts;
 using Vega.Contracts.Authorization;
 using Vega.Contracts.Regions;
+using Vega.Contracts.Worlds;
 using Vega.Persistence.Relational;
 
 namespace Vega.Persistence.Sqlite;
@@ -91,6 +92,7 @@ public sealed class SqliteVegaDatabase : IVegaDatabase
                 .ApplyAsync(connections, cancellationToken)
                 .ConfigureAwait(false);
             Volatile.Write(ref schemaVersion, version);
+            Regions.SnapshotRegions(WorldId.Primary);
         }
         finally
         {

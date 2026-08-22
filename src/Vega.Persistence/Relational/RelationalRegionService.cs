@@ -1,3 +1,4 @@
+using System.Collections.Frozen;
 using System.Data.Common;
 using System.Globalization;
 using System.Security.Cryptography;
@@ -12,6 +13,8 @@ internal sealed class RelationalRegionService(
     Action ensureReady) : IRegionService
 {
     private readonly SemaphoreSlim mutations = new(1, 1);
+    private readonly object cacheSync = new();
+    private readonly Dictionary<WorldId, IReadOnlyList<RegionSnapshot>> regionCache = [];
 
     public IReadOnlyList<RegionSnapshot> SnapshotRegions() => SnapshotRegions(WorldId.Primary);
 
@@ -22,8 +25,17 @@ internal sealed class RelationalRegionService(
     {
         ValidateWorld(worldId);
         ensureReady();
-        using DbConnection connection = open();
-        return ReadRegions(connection, null, worldId);
+        lock (cacheSync)
+        {
+            if (!regionCache.TryGetValue(worldId, out IReadOnlyList<RegionSnapshot>? snapshot))
+            {
+                using DbConnection connection = open();
+                snapshot = ReadRegions(connection, null, worldId);
+                regionCache[worldId] = snapshot;
+            }
+
+            return snapshot;
+        }
     }
 
     public RegionSnapshot? FindTopRegion(WorldId worldId, int tileX, int tileY) =>
@@ -92,6 +104,7 @@ internal sealed class RelationalRegionService(
                 await WriteAuditAsync(connection, transaction, actor, "region.create", Target(worldId, normalizedName),
                         0, 1, cancellationToken).ConfigureAwait(false);
                 await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
+                Invalidate(worldId);
                 return new RegionMutationResult(true, "region.created", After: after);
             }
             catch
@@ -269,6 +282,7 @@ internal sealed class RelationalRegionService(
                         before.Revision, after?.Revision ?? checked(before.Revision + 1), cancellationToken)
                     .ConfigureAwait(false);
                 await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
+                Invalidate(worldId);
                 return new RegionMutationResult(true, operation, before, after);
             }
             catch
@@ -331,7 +345,14 @@ internal sealed class RelationalRegionService(
             }
         }
 
-        return regions.Values.ToArray();
+        return Array.AsReadOnly(regions.Values
+            .Select(static region => region with
+            {
+                Members = region.Members.ToFrozenSet(StringComparer.OrdinalIgnoreCase),
+                Groups = region.Groups.ToFrozenSet(StringComparer.OrdinalIgnoreCase),
+                Flags = region.Flags.ToFrozenDictionary(StringComparer.OrdinalIgnoreCase)
+            })
+            .ToArray());
     }
 
     private static void ReadSubjects(
@@ -508,4 +529,12 @@ internal sealed class RelationalRegionService(
     private static void ValidateActor(string actor) => ArgumentException.ThrowIfNullOrWhiteSpace(actor);
 
     private static string Target(WorldId worldId, string name) => $"{worldId.Value}:{name}";
+
+    private void Invalidate(WorldId worldId)
+    {
+        lock (cacheSync)
+        {
+            regionCache.Remove(worldId);
+        }
+    }
 }

@@ -2,6 +2,7 @@ using Vega.Contracts.Cluster.Events;
 using Vega.Contracts.Accounts;
 using Vega.Contracts.Authorization;
 using Vega.Contracts.Regions;
+using Vega.Contracts.Worlds;
 
 namespace Vega.Persistence.Relational;
 
@@ -75,6 +76,7 @@ public abstract class ExternalVegaDatabase : IVegaDatabase
 
             int version = await migrator.ApplyAsync(cancellationToken).ConfigureAwait(false);
             Volatile.Write(ref schemaVersion, version);
+            Regions.SnapshotRegions(WorldId.Primary);
         }
         finally
         {

@@ -168,8 +168,10 @@ public sealed class SqliteVegaDatabaseTests
         WorldId world = new("arena");
         RegionMutationResult outer = await database.Regions.CreateAsync(
             world, "outer", 0, 0, 100, 100, 1, "alice", "Server");
+        Assert.That(database.Regions.SnapshotRegions(world), Has.Count.EqualTo(1));
         RegionMutationResult inner = await database.Regions.CreateAsync(
             world, "inner", 10, 10, 20, 20, 5, "bob", "Server");
+        Assert.That(database.Regions.SnapshotRegions(world), Has.Count.EqualTo(2));
         RegionMutationResult member = await database.Regions.SetAccessAsync(
             world,
             "inner",
@@ -184,6 +186,7 @@ public sealed class SqliteVegaDatabaseTests
             new RegionUpdate(Flag: "build", FlagValue: false),
             member.After!.Revision,
             "Server");
+        RegionSnapshot? cachedTop = database.Regions.FindTopRegion(world, 15, 15);
         RegionMutationResult conflict = await database.Regions.UpdateAsync(
             world,
             "inner",
@@ -198,6 +201,8 @@ public sealed class SqliteVegaDatabaseTests
         {
             Assert.That(outer.Succeeded, Is.True);
             Assert.That(flagged.Succeeded, Is.True);
+            Assert.That(cachedTop!.Members, Does.Contain("alice"));
+            Assert.That(cachedTop.Flags["build"], Is.False);
             Assert.That(conflict.Code, Is.EqualTo("region.revision-conflict"));
             Assert.That(top!.Name, Is.EqualTo("inner"));
             Assert.That(top.Priority, Is.EqualTo(5));
