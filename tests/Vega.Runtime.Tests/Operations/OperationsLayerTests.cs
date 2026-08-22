@@ -936,4 +936,40 @@ public sealed class TerrariaStartupProgressTests
             Assert.That(eventArgs.HookReturnValue, Is.EqualTo("save"));
         });
     }
+
+    [Test]
+    public void TerminalConsoleOwnershipCapturesNativeOutputInBoundedOperationsLogs()
+    {
+        var store = new BoundedOperationsLogStore(8);
+        var logger = new StructuredOperationsLogger([store]);
+        using var progress = new TerrariaStartupProgress(logger);
+        progress.AcquireConsoleOwnership(uiThreadId: -1);
+        try
+        {
+            Console.Out.Write("Native ");
+            Console.Out.WriteLine("result");
+            Console.Error.WriteLine("Native warning");
+            Console.Out.Write(new string('x', 9_000));
+        }
+        finally
+        {
+            progress.ReleaseConsoleOwnership(restartDedicatedInput: false);
+        }
+
+        IReadOnlyList<OperationsLogRecord> records = store.Query(new OperationsLogFilter(Limit: 8));
+        Assert.Multiple(() =>
+        {
+            Assert.That(records.Select(static record => record.Source),
+                Is.All.EqualTo("terraria-console"));
+            Assert.That(records.Select(static record => record.Text),
+                Is.EqualTo(new[] { "Native result", "Native warning", $"{new string('x', 8_192)} ... [truncated]" }));
+            Assert.That(records.Select(static record => record.Level),
+                Is.EqualTo(new[]
+                {
+                    OperationsLogLevel.Information,
+                    OperationsLogLevel.Warning,
+                    OperationsLogLevel.Information
+                }));
+        });
+    }
 }

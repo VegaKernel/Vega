@@ -1,5 +1,6 @@
 using System.Collections.Concurrent;
 using System.Globalization;
+using System.Text;
 using System.Text.RegularExpressions;
 using Vega.Contracts.Operations;
 
@@ -18,6 +19,8 @@ public sealed class TerrariaStartupProgress :
         @"(?<value>[0-9]+(?:[.,][0-9]+)?)%",
         RegexOptions.Compiled | RegexOptions.CultureInvariant);
 
+    private readonly IOperationsLogger? logger;
+
     private StartupProgressSnapshot snapshot = new(
         "Preparing Terraria world",
         null,
@@ -31,6 +34,11 @@ public sealed class TerrariaStartupProgress :
     private UiOwnedTextWriter? ownedError;
     private readonly BlockingCollection<string> nativeCommands = new();
     private bool attached;
+
+    public TerrariaStartupProgress(IOperationsLogger? logger = null)
+    {
+        this.logger = logger;
+    }
 
     public void Attach(Func<bool> terminalUiActive)
     {
@@ -59,8 +67,14 @@ public sealed class TerrariaStartupProgress :
 
             originalOutput = Console.Out;
             originalError = Console.Error;
-            ownedOutput = new UiOwnedTextWriter(originalOutput, uiThreadId);
-            ownedError = new UiOwnedTextWriter(originalError, uiThreadId);
+            ownedOutput = new UiOwnedTextWriter(
+                originalOutput,
+                uiThreadId,
+                line => CaptureNativeOutput(OperationsLogLevel.Information, line));
+            ownedError = new UiOwnedTextWriter(
+                originalError,
+                uiThreadId,
+                line => CaptureNativeOutput(OperationsLogLevel.Warning, line));
             Console.SetOut(ownedOutput);
             Console.SetError(ownedError);
         }
@@ -68,8 +82,12 @@ public sealed class TerrariaStartupProgress :
 
     public void ReleaseConsoleOwnership(bool restartDedicatedInput)
     {
+        UiOwnedTextWriter? output;
+        UiOwnedTextWriter? error;
         lock (consoleSync)
         {
+            output = ownedOutput;
+            error = ownedError;
             if (ownedOutput is not null && ReferenceEquals(Console.Out, ownedOutput))
             {
                 Console.SetOut(originalOutput!);
@@ -85,6 +103,9 @@ public sealed class TerrariaStartupProgress :
             originalOutput = null;
             originalError = null;
         }
+
+        output?.FlushCaptured();
+        error?.FlushCaptured();
 
         if (restartDedicatedInput)
         {
@@ -172,16 +193,35 @@ public sealed class TerrariaStartupProgress :
         return string.IsNullOrWhiteSpace(activity) ? "Loading Terraria world" : activity;
     }
 
-    private sealed class UiOwnedTextWriter(TextWriter inner, int uiThreadId) : TextWriter
+    private void CaptureNativeOutput(OperationsLogLevel level, string line)
     {
-        public override System.Text.Encoding Encoding => inner.Encoding;
+        if (!string.IsNullOrWhiteSpace(line))
+        {
+            logger?.Log(level, "terraria-console", line);
+        }
+    }
+
+    private sealed class UiOwnedTextWriter(
+        TextWriter inner,
+        int uiThreadId,
+        Action<string> capture) : TextWriter
+    {
+        private const int MaxCapturedLineLength = 8_192;
+        private readonly object sync = new();
+        private readonly StringBuilder pending = new();
+        private bool truncated;
+
+        public override Encoding Encoding => inner.Encoding;
 
         public override void Write(char value)
         {
             if (Environment.CurrentManagedThreadId == uiThreadId)
             {
                 inner.Write(value);
+                return;
             }
+
+            Capture(value.ToString());
         }
 
         public override void Write(char[] buffer, int index, int count)
@@ -189,7 +229,10 @@ public sealed class TerrariaStartupProgress :
             if (Environment.CurrentManagedThreadId == uiThreadId)
             {
                 inner.Write(buffer, index, count);
+                return;
             }
+
+            Capture(new string(buffer, index, count));
         }
 
         public override void Write(string? value)
@@ -197,7 +240,10 @@ public sealed class TerrariaStartupProgress :
             if (Environment.CurrentManagedThreadId == uiThreadId)
             {
                 inner.Write(value);
+                return;
             }
+
+            Capture(value);
         }
 
         public override void WriteLine(string? value)
@@ -205,7 +251,11 @@ public sealed class TerrariaStartupProgress :
             if (Environment.CurrentManagedThreadId == uiThreadId)
             {
                 inner.WriteLine(value);
+                return;
             }
+
+            Capture(value);
+            Capture(Environment.NewLine);
         }
 
         public override void Flush()
@@ -213,7 +263,72 @@ public sealed class TerrariaStartupProgress :
             if (Environment.CurrentManagedThreadId == uiThreadId)
             {
                 inner.Flush();
+                return;
+            }
+
+            FlushCaptured();
+        }
+
+        public void FlushCaptured()
+        {
+            string? line = null;
+            lock (sync)
+            {
+                if (pending.Length > 0)
+                {
+                    line = CompleteLine();
+                    pending.Clear();
+                    truncated = false;
+                }
+            }
+
+            if (line is not null)
+            {
+                capture(line);
             }
         }
+
+        private void Capture(string? value)
+        {
+            if (string.IsNullOrEmpty(value))
+            {
+                return;
+            }
+
+            List<string>? lines = null;
+            lock (sync)
+            {
+                foreach (char character in value)
+                {
+                    if (character == '\n')
+                    {
+                        lines ??= [];
+                        lines.Add(CompleteLine());
+                        pending.Clear();
+                        truncated = false;
+                    }
+                    else if (character != '\r' && pending.Length < MaxCapturedLineLength)
+                    {
+                        pending.Append(character);
+                    }
+                    else if (character != '\r')
+                    {
+                        truncated = true;
+                    }
+                }
+            }
+
+            if (lines is not null)
+            {
+                foreach (string line in lines)
+                {
+                    capture(line);
+                }
+            }
+        }
+
+        private string CompleteLine() => truncated
+            ? $"{pending} ... [truncated]"
+            : pending.ToString();
     }
 }

@@ -71,6 +71,8 @@ Optional TPS-independent world time is configured in `config/world-clock.json`. 
 
 Enter a Vega command such as `serverinfo` or `kick <player> <reason>` in the palette to execute it through the normal `ICommandDispatcher` authorization and application boundary. Commands not owned by Vega are queued to Terraria's native server-console parser, so built-in operations such as `save`, `say`, `help` and `exit` remain available without a second thread reading terminal input.
 
+While the TUI owns the terminal, stdout and stderr emitted by Terraria/native commands are captured line-by-line in the bounded Operations log under source `terraria-console` (stderr is Warning). Individual unterminated lines are capped at 8192 characters. Plain mode continues writing directly to the traditional console.
+
 Local palette actions control only the view:
 
 ```text

@@ -359,7 +359,7 @@ int Start()
             commandDispatcher,
             localization,
             localization);
-        using var startupProgress = new TerrariaStartupProgress();
+        using var startupProgress = new TerrariaStartupProgress(logger);
         using var terminalUi = new TerminalUiHost(
             snapshots,
             operationsCommands,
