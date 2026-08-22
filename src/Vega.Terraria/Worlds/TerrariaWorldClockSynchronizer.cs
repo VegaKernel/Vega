@@ -1,4 +1,5 @@
 using Terraria.ID;
+using OTAPI;
 using Vega.Contracts.Operations;
 using Vega.Contracts.Worlds;
 
@@ -18,7 +19,8 @@ public sealed class TerrariaWorldClockSynchronizer(
             return;
         }
 
-        global::Terraria.Main.OnTickForThirdPartySoftwareOnly += OnTick;
+        HookEvents.Terraria.Main.Update += OnGameUpdate;
+        global::Terraria.Main.OnTickForThirdPartySoftwareOnly += OnIdleTick;
         attached = true;
         logger.Log(
             OperationsLogLevel.Information,
@@ -30,11 +32,24 @@ public sealed class TerrariaWorldClockSynchronizer(
     {
         if (attached)
         {
-            global::Terraria.Main.OnTickForThirdPartySoftwareOnly -= OnTick;
+            HookEvents.Terraria.Main.Update -= OnGameUpdate;
+            global::Terraria.Main.OnTickForThirdPartySoftwareOnly -= OnIdleTick;
             attached = false;
         }
 
         clock.Reset(WorldId.Primary);
+    }
+
+    private void OnGameUpdate(
+        global::Terraria.Main instance,
+        HookEvents.Terraria.Main.UpdateEventArgs args) => OnTick();
+
+    private void OnIdleTick()
+    {
+        if (!global::Terraria.Netplay.HasFullyConnectedClients)
+        {
+            OnTick();
+        }
     }
 
     private void OnTick()

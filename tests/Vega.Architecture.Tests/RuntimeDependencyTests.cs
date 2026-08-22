@@ -214,6 +214,30 @@ public sealed class RuntimeDependencyTests
     }
 
     [Test]
+    public void NativeGameThreadServicesContinueTickingWithoutConnectedPlayers()
+    {
+        string repositoryRoot = FindRepositoryRoot();
+        string[] adapters =
+        [
+            Path.Combine(repositoryRoot, "src", "Vega.Terraria", "Operations", "TerrariaOperationsState.cs"),
+            Path.Combine(repositoryRoot, "src", "Vega.Terraria", "Players", "TerrariaPlayerBoundary.cs"),
+            Path.Combine(repositoryRoot, "src", "Vega.Terraria", "Threading", "OtapiGameThreadDispatcher.cs"),
+            Path.Combine(repositoryRoot, "src", "Vega.Terraria", "Worlds", "TerrariaWorldClockSynchronizer.cs")
+        ];
+
+        Assert.Multiple(() =>
+        {
+            foreach (string adapter in adapters)
+            {
+                string source = File.ReadAllText(adapter);
+                Assert.That(source, Does.Contain("HookEvents.Terraria.Main.Update"), adapter);
+                Assert.That(source, Does.Contain("OnTickForThirdPartySoftwareOnly"), adapter);
+                Assert.That(source, Does.Contain("!global::Terraria.Netplay.HasFullyConnectedClients"), adapter);
+            }
+        });
+    }
+
+    [Test]
     public void PublishedRuntimeDeclaresAssembliesRequiredByOtapiTypePreloading()
     {
         var repositoryRoot = FindRepositoryRoot();

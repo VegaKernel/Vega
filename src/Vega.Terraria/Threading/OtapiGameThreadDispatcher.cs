@@ -67,6 +67,7 @@ public sealed class OtapiGameThreadDispatcher : IGameThreadDispatcher, IDisposab
         }
 
         HookEvents.Terraria.Main.Update += OnUpdate;
+        global::Terraria.Main.OnTickForThirdPartySoftwareOnly += OnIdleUpdate;
         attached = true;
     }
 
@@ -125,10 +126,24 @@ public sealed class OtapiGameThreadDispatcher : IGameThreadDispatcher, IDisposab
         }
 
         HookEvents.Terraria.Main.Update -= OnUpdate;
+        global::Terraria.Main.OnTickForThirdPartySoftwareOnly -= OnIdleUpdate;
         attached = false;
     }
 
     private void OnUpdate(global::Terraria.Main instance, HookEvents.Terraria.Main.UpdateEventArgs args)
+    {
+        RunTick();
+    }
+
+    private void OnIdleUpdate()
+    {
+        if (!global::Terraria.Netplay.HasFullyConnectedClients)
+        {
+            RunTick();
+        }
+    }
+
+    private void RunTick()
     {
         if (!TryCaptureGameThread())
         {

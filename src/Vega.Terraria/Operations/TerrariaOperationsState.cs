@@ -37,6 +37,7 @@ public sealed class TerrariaOperationsState : IServerRuntimeStateReader, IDispos
 
         tickRateMonitor.Reset();
         HookEvents.Terraria.Main.Update += OnGameUpdate;
+        global::Terraria.Main.OnTickForThirdPartySoftwareOnly += OnIdleGameUpdate;
         attached = true;
     }
 
@@ -49,11 +50,26 @@ public sealed class TerrariaOperationsState : IServerRuntimeStateReader, IDispos
         if (attached)
         {
             HookEvents.Terraria.Main.Update -= OnGameUpdate;
+            global::Terraria.Main.OnTickForThirdPartySoftwareOnly -= OnIdleGameUpdate;
             attached = false;
         }
     }
 
-    private void OnGameUpdate<TSender, TArgs>(TSender sender, TArgs args)
+    private void OnGameUpdate(
+        global::Terraria.Main instance,
+        HookEvents.Terraria.Main.UpdateEventArgs args) => Sample();
+
+    private void OnIdleGameUpdate()
+    {
+        // Dedicated Terraria skips Main.Update while no client is fully connected.
+        // Its third-party tick is the only callback that still runs once per server frame.
+        if (!global::Terraria.Netplay.HasFullyConnectedClients)
+        {
+            Sample();
+        }
+    }
+
+    private void Sample()
     {
         try
         {

@@ -52,6 +52,7 @@ public sealed class TerrariaPlayerBoundary :
 		}
 
 		HookEvents.Terraria.Main.Update += OnUpdate;
+		global::Terraria.Main.OnTickForThirdPartySoftwareOnly += OnIdleUpdate;
 		attached = true;
 	}
 
@@ -216,6 +217,7 @@ public sealed class TerrariaPlayerBoundary :
 		if (attached)
 		{
 			HookEvents.Terraria.Main.Update -= OnUpdate;
+			global::Terraria.Main.OnTickForThirdPartySoftwareOnly -= OnIdleUpdate;
 			attached = false;
 		}
 
@@ -242,6 +244,19 @@ public sealed class TerrariaPlayerBoundary :
 	}
 
 	private void OnUpdate(global::Terraria.Main instance, HookEvents.Terraria.Main.UpdateEventArgs args)
+	{
+		RefreshOnGameThread();
+	}
+
+	private void OnIdleUpdate()
+	{
+		if (!global::Terraria.Netplay.HasFullyConnectedClients)
+		{
+			RefreshOnGameThread();
+		}
+	}
+
+	private void RefreshOnGameThread()
 	{
 		try
 		{
