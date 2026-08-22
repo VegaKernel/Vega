@@ -291,7 +291,7 @@ The TimeSync migration replaces its background reads and TShock mutation with a 
 
 Each Core capability must land with the named first consumer in the same vertical slice. The user-facing behavior remains a `ServerPlugin` or Operations UI feature.
 
-1. [ ] **TempGroup / ControlGroupOption**: implement expiring role leases, stale-expiry protection, delegated grant limits and audit records; keep temporary-group commands modular.
+1. [x] **TempGroup / ControlGroupOption**: implement expiring role leases, stale-expiry protection, delegated grant limits and audit records; keep temporary-group commands modular.
 2. [ ] **InvSee / TSExt_UICommand**: implement immutable inventory snapshots, game-thread mutation operations and centralized redaction/authorization for IP, UUID and other sensitive fields; keep inspection commands/UI optional.
 3. [ ] **Wipe**: implement validated world-transition/reset orchestration with registered persistence participants, cancellation and observable state; keep destructive command policy and confirmation in an admin module/UI.
 4. [x] **AutoWorldCleaner**: implement world-scoped cancellable scheduling plus safe item/projectile snapshots and removal operations; keep cleanup thresholds and schedules in a module.
@@ -299,6 +299,8 @@ Each Core capability must land with the named first consumer in the same vertica
 6. [ ] **Mentions**: implement an ordered typed chat transformation pipeline separating content transformation, moderation and per-recipient rendering; keep mention behavior in a module.
 
 `Vega.Modules.AutoWorldCleaner` now owns cleanup scheduling and policy behind its own opt-in `config/auto-world-cleaner.json`. Contracts expose immutable world-scoped item/projectile snapshots plus guarded removal handles, while `Vega.Terraria` is only the game-thread adapter that reads and mutates Terraria arrays. Each run performs snapshot, selection and removal in one dispatched game-thread action; item age and projectile identity are revalidated before mutation to reject stale handles. The module supports cancellable scheduling, online-player gating, non-overlapping runs, `worldclean`/`cleanworld` administration and bounded Operations status/warnings. The current Terraria adapter owns `WorldId.Primary`; future world backends can implement the same contract independently.
+
+Temporary group assignment is now an account-scoped persistent role lease shared by SQLite, PostgreSQL and MySQL. Granting a lease atomically revokes the previous assignment, increments its revision and writes the administration audit before publishing the replacement to the in-memory authorization cache. Effective permissions resolve the active absolute expiry on demand, so no stale timer callback can revoke a newer lease. The built-in account administration adapter exposes bounded `temp`, `temp-clear` and `temp-list` operations and applies the same delegated-authority check as permanent group assignment.
 
 ### Explicitly outside Core
 
@@ -439,12 +441,12 @@ Vega 1.0 currently has the modern command/authorization boundaries and several r
 ### Accounts, groups and permissions
 
 - [x] Implement persistent account, group, inheritance and permission stores with stable identifiers, optimistic revisions and schema migrations; the current in-memory session authorization cache is not the source of truth.
-- [ ] Resolve effective permissions deterministically from account assignment, group inheritance, explicit grants/denials and active temporary role leases, with cycle detection and bounded caching. Persistent account sessions and live cached group projection are complete; temporary role leases remain open.
-- [ ] Add authorized commands for account lifecycle, group create/delete/list/show, parent assignment, permission grant/revoke, player group assignment and temporary group assignment. Permanent administration plus player `register`/`login`/`logout`/`password` are complete; temporary assignment remains open.
+- [x] Resolve effective permissions deterministically from account assignment, group inheritance, explicit grants/denials and active temporary role leases, with cycle detection and bounded caching.
+- [x] Add authorized commands for account lifecycle, group create/delete/list/show, parent assignment, permission grant/revoke, player group assignment and temporary group assignment.
 - [x] Enforce delegated-administration limits from ADR 0014 so an operator cannot grant a role or permission above their own authority.
 - [x] Persist every account/group/permission mutation and emit a structured audit record containing actor, target, before/after revision, reason and outcome.
 
-Schema 2 provides the same account/group tables through SQLite, PostgreSQL and MySQL, including case-normalized stable account identifiers, PBKDF2-SHA256 password verification, optimistic revisions, explicit grant/deny rows, cycle-bounded inheritance and an atomic administration audit row for every applied mutation. `account` and `group` commands use these services; the console can bootstrap the first administrator, while non-console delegation is bounded by the permissions the caller actually holds. Player account sessions project live group policy into command and region authorization, record last login, reject account bans and clear on logout/disconnect. Expiring role leases remain open in the next two items.
+Schema 2 provides the same account/group/role-lease tables through SQLite, PostgreSQL and MySQL, including case-normalized stable account identifiers, PBKDF2-SHA256 password verification, optimistic revisions, explicit grant/deny rows, cycle-bounded inheritance and an atomic administration audit row for every applied mutation. `account` and `group` commands use these services; the console can bootstrap the first administrator, while non-console delegation is bounded by the permissions the caller actually holds. Player account sessions project live base-group policy and the current account-scoped temporary-group override into command and region authorization, record last login, reject account bans and clear on logout/disconnect. Lease expiry is evaluated against absolute UTC time without player timers, and replacement revisions make stale expiry/revoke attempts harmless.
 
 ### Regions and world authorization
 
@@ -482,6 +484,47 @@ The native `lang` command and session-scoped guest preference are live for `en-U
 - [ ] Update English/Russian guides and the deployable archive only after command examples, generated configuration and persistence paths match the running server.
 
 ADR 0022 establishes the persistence boundary without reproducing TShock's generic database helpers. Domain contracts never expose SQL or `DbConnection`. SQLite and PostgreSQL use transactional schema upgrades; MySQL uses a database-scoped migration lock plus idempotent retryable DDL because its engine implicitly commits DDL. Schema 1 ban persistence and the schema 1-to-2 identity upgrade have clean/reopen/future-version/revision tests. The phase remains open for region, SSC and moderation product stores, backup/recovery guidance and real disposable PostgreSQL/MySQL contract tests in CI.
+
+## Phase 20 — in-process soft restart
+
+Provide an authorized operational restart of the Vega application/module graph while the Terraria process, loaded world, listener and canonical persistence remain alive. This is a bounded soft restart, not a promise that native runtime updates can be applied without replacing the process.
+
+### Restart boundary and lifecycle
+
+- [ ] Classify every runtime component as `PreservedInfrastructure`, `RestartableModule` or `ProcessRestartOnly`; keep Terraria/OTAPI, the loaded world, network listener, database connections/migrations, lifecycle coordinator and Operations control plane outside the restartable graph.
+- [ ] Replace one-shot static-module construction with explicit factories and owned registration scopes so every restartable module can quiesce, stop, remove hooks/commands/jobs and be recreated without retaining the previous generation.
+- [ ] Add a generation-aware module router and an exclusive restart barrier: reject concurrent restart requests, stop new module callbacks, drain bounded in-flight work, atomically swap the packet/event/command generation and then dispose the old graph.
+- [ ] Stop modules in reverse dependency order and start them in validated topological order with cancellation, per-module timeout and a total restart deadline.
+- [ ] Define session-state behavior explicitly: authenticated accounts, bans, regions and the world remain; module-owned temporary state is reset unless a module registers a versioned restart handoff contract.
+
+### Failure handling and operator surface
+
+- [ ] Validate and construct the replacement graph before quiescing the active one where ownership permits; on startup failure attempt one bounded rollback to a freshly recreated previous configuration and otherwise enter an observable degraded state requiring process restart.
+- [ ] Treat collectible `ServerPlugins` through their existing cleanup/unload verification path; an uncollected context, native hook leak or restart-only configuration change must return `ProcessRestartRequired` rather than claim success.
+- [ ] Add `softrestart` (aliases `restartmodules` and `modules restart`) behind `vega.server.soft-restart`, with optional module targeting, explicit confirmation for restarting all modules, structured audit and progress visible in plain console, TUI and logs.
+- [ ] Keep native Terraria `restart`/`exit` semantics distinct and document exactly which configuration changes require a process restart or a world reload.
+- [ ] Add integration tests for connected players during restart, packet/event traffic at the generation boundary, scheduler cancellation, command removal, dependency ordering, failed replacement, rollback failure and repeated restarts without handler/thread/ALC growth.
+- [ ] Benchmark restart latency, dropped/rejected work, allocations and retained objects over at least 100 restart cycles; do not enable the command by default until the lifetime tests are stable.
+
+## Phase 21 — Core cohesion and extraction audit
+
+Review whether `Vega.Core` still represents a cohesive application kernel or has accumulated independent product domains that should become separately owned modules. The goal is clearer ownership and smaller dependency surfaces, not a project-per-folder rewrite.
+
+### Evidence and decisions
+
+- [ ] Inventory every `Vega.Core` namespace by responsibility, dependencies, public contracts, runtime registrations, test ownership, change frequency and real consumers; identify cycles and unrelated reasons to change.
+- [ ] Evaluate regions first: compare keeping region command/authorization policy in Core with a `Vega.Regions` domain module that owns commands, ACL decisions and Operations projections while `Vega.Persistence` keeps relational storage and `Vega.Terraria` keeps game-state adapters.
+- [ ] Evaluate administration/identity commands, moderation, packet-security policies, GeoIP/update services and module lifecycle as separate candidates; record `Keep`, `Extract` or `Merge` with concrete dependency and consumer evidence.
+- [ ] Require an ADR for every extraction, including API owner, persistence owner, composition root, migration path, failure behavior and why the split improves cohesion without introducing a generic service locator or cross-module chatter.
+- [ ] Establish architecture tests for the accepted dependency direction: domain modules may depend on Contracts and narrow infrastructure abstractions, while Core must not become a transit dependency or a container for unrelated implementations.
+
+### Controlled extraction
+
+- [ ] Extract one complete vertical slice at a time with its tests and runtime registration; do not move only DTOs or create pass-through interfaces solely to reduce a project file count.
+- [ ] Preserve public `VegaKernel.*` compatibility where justified, or document and version intentional moves; avoid exposing Terraria, SQL, UI or plugin-host types through domain contracts.
+- [ ] Compare solution build time, server startup, package graph, packet hot-path cost and allocation/working-set baselines before and after each split; revert extractions that add indirection without measurable ownership benefit.
+- [ ] Update English/Russian architecture documentation, diagrams, module-author guidance and the migration ledger after each accepted ownership change.
+- [ ] Close the audit only when every Core namespace has one recorded owner/reason to remain and no extracted domain requires Core as a hidden mediator.
 
 ## Architectural guardrails
 
