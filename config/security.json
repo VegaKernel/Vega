@@ -1,0 +1,8 @@
+{
+  "enabled": false,
+  "rejectLivingGhost": true,
+  "restrictSpectateToDeadPlayers": true,
+  "minimumDeathIntervalMilliseconds": 500,
+  "maximumInteractionDistanceTiles": 20,
+  "bypassPermission": "vega.security.gameplay.bypass"
+}

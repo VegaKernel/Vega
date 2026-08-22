@@ -245,7 +245,7 @@ Move server-wide invariants into Core/runtime, not the historical plugin impleme
 ### Packet and state validation from PacketGuard, StateGuard, LeashedEntityGuard and NoCoinDupe
 
 - [x] Close the universal packet-safety slice: bounded/malformed payload rejection, supported item-sync indices/transforms/stack/type/prefix, projectile create/destroy ownership/index/type/finite transforms, player movement/world/inventory and portal bounds, tile/object/item-frame/chest bounds, chest resize/quick-stack indices, liquids, tile entities, gem locks, mass wiring, food/display placement, tile picking, leashed-entity anchors and the known coin-duplication path.
-- [ ] Keep configurable gameplay enforcement separate: repeated-death abuse policy, ghost/spectator restrictions, permission bypasses, proximity checks and corrective state synchronization require actual configuration/authority consumers rather than more universal packet guards.
+- [x] Keep configurable gameplay enforcement separate: repeated-death abuse policy, ghost/spectator restrictions, permission bypasses, proximity checks and corrective state synchronization require actual configuration/authority consumers rather than more universal packet guards.
 - [x] Reject the known overflowed high-damage `PlayerDeathV2` exploit and forged death player identities through the typed Multiplicity boundary.
 - [x] Route post-1.4.5 `TeamChangeFromUI` through native validation and reject a forged player identity.
 - [x] Reject protocol-325 deprecated item packets `145/148`; validate supported item packets `21/90/151/160` before Terraria indexes or applies their state.
@@ -266,6 +266,8 @@ Move server-wide invariants into Core/runtime, not the historical plugin impleme
 Protocol 325 reports `PlayerPlatformInfo` as packet 164 with a sender slot and platform byte. Vega records the reported value without the legacy PC fallback, accepts `ClientUUID` only once in the protocol-accepted phase, and rejects forged slots or phase changes before vanilla dispatch. Direct connections still retain separate transport/effective endpoint fields so a future trusted-forwarding adapter cannot overwrite provenance. Operations snapshots are redacted by default; the local administrative TUI requests sensitive connection fields explicitly. Rejections also enter a bounded structured signal stream whose endpoint fields require the same explicit sensitive exposure.
 
 The rate-limit slice intentionally carries only the observed TerraZ limits for expensive or state-transition packets already owned by Vega: chest open, chest placement, spectate, player death, liquid mutation and mass wiring. Counters are per connection and packet, use a one-second window, reset on disconnect and report ordinary rejection rather than declaring a client a cheater. The broad historical every-packet table is not copied into Core.
+
+Optional gameplay enforcement is isolated in `config/security.json` and remains disabled by default for vanilla compatibility. When enabled it covers living-ghost and spectate policy, repeated-death windows, bounded tile/chest/liquid/wiring proximity and the `vega.security.gameplay.bypass` authority check. Rejected client state never reaches Terraria; server-owned state therefore remains the corrective source instead of a second client-authored mutation path.
 
 ## Phase 14 — TerraZ-derived runtime and module operations
 

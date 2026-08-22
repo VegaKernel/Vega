@@ -183,10 +183,19 @@ int Start()
             return 1;
         }
 
+        GameplayEnforcementOptions gameplayOptions = GameplayEnforcementOptionsStore.Load(
+            Path.Combine(AppContext.BaseDirectory, "config", "security.json"),
+            logger);
+        using var gameplayEnforcement = new GameplayEnforcementPolicy(
+            gameplayOptions,
+            playerAuthorization,
+            playerBoundary,
+            playerBoundary);
         using var packetRateLimits = new PacketRateLimitPolicy(playerBoundary);
         var playerPacketPolicies = new PacketProcessorPipeline<PacketView>(
         [
             packetRateLimits,
+            gameplayEnforcement,
             new NpcCoinPickupAuthorityPolicy(),
             new WorldItemSyncSanityPolicy(
                 TerrariaPacketSecurityLimits.ItemTypeCount,
