@@ -4,6 +4,7 @@ using Terraria.ID;
 using Terraria.Localization;
 using Vega.Contracts.Players;
 using Vega.Contracts.Threading;
+using Vega.Contracts.Worlds;
 using Vega.Terraria.Networking;
 
 namespace Vega.Terraria.Players;
@@ -17,6 +18,7 @@ public sealed class TerrariaPlayerBoundary :
 	IPlayerOperations,
 	IPlayerMessenger,
 	IPlayerSessionLifecycle,
+	IWorldInteractionState,
 	IDisposable
 {
 	private readonly IGameThreadDispatcher dispatcher;
@@ -246,6 +248,46 @@ public sealed class TerrariaPlayerBoundary :
 	private void OnUpdate(global::Terraria.Main instance, HookEvents.Terraria.Main.UpdateEventArgs args)
 	{
 		RefreshOnGameThread();
+	}
+
+	public bool TryGetActiveChest(PlayerId playerId, out int chestId)
+	{
+		global::Terraria.Player[] players = global::Terraria.Main.player;
+		if ((uint)playerId.Slot >= (uint)players.Length || players[playerId.Slot] is not { active: true } player)
+		{
+			chestId = -1;
+			return false;
+		}
+
+		chestId = player.chest;
+		return chestId >= 0;
+	}
+
+	public bool TryGetChestPosition(int chestId, out WorldTilePosition position)
+	{
+		global::Terraria.Chest?[] chests = global::Terraria.Main.chest;
+		if ((uint)chestId >= (uint)chests.Length || chests[chestId] is not { } chest)
+		{
+			position = default;
+			return false;
+		}
+
+		position = new WorldTilePosition(chest.x, chest.y);
+		return true;
+	}
+
+	public bool TryGetTileEntityPosition(int tileEntityId, out WorldTilePosition position)
+	{
+		if (!global::Terraria.DataStructures.TileEntity.ByID.TryGetValue(
+				tileEntityId,
+				out global::Terraria.DataStructures.TileEntity? entity))
+		{
+			position = default;
+			return false;
+		}
+
+		position = new WorldTilePosition(entity.Position.X, entity.Position.Y);
+		return true;
 	}
 
 	private void OnIdleUpdate()

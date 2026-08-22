@@ -255,11 +255,14 @@ int Start()
         [
             packetRateLimits,
             gameplayEnforcement,
+            new ChestInteractionAuthorityPolicy(playerBoundary),
+            new TileEntityInteractionAuthorityPolicy(playerBoundary),
             new RegionBuildAuthorizationPolicy(
                 database.Regions,
                 playerBoundary,
                 playerAuthorization,
-                accountSessions),
+                accountSessions,
+                playerBoundary),
             new NpcCoinPickupAuthorityPolicy(),
             new WorldItemSyncSanityPolicy(
                 TerrariaPacketSecurityLimits.ItemTypeCount,
@@ -280,7 +283,8 @@ int Start()
                 TerrariaPacketSecurityLimits.TileTypeCount,
                 TerrariaPacketSecurityLimits.WallTypeCount,
                 TerrariaPacketSecurityLimits.ItemTypeCount,
-                TerrariaPacketSecurityLimits.PrefixCount),
+                TerrariaPacketSecurityLimits.PrefixCount,
+                TerrariaPacketSecurityLimits.PaintColorCount),
             new PlayerPacketOwnershipPolicy(),
             pvpModule.PacketProcessor
         ]);

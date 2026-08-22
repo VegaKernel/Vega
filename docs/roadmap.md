@@ -449,12 +449,12 @@ Schema 2 provides the same account/group tables through SQLite, PostgreSQL and M
 ### Regions and world authorization
 
 - [x] Implement the currently contract-only region service with persistent world-scoped region identity, bounds, priority, owner, members, groups and permission/flag ACLs.
-- [ ] Add game-thread-safe region admission/build/use checks through typed world/player contexts rather than module-specific tile hooks. Typed build mutations are enforced from a pre-warmed immutable region cache; chest/use admission remains open.
+- [x] Add game-thread-safe region admission/build/use checks through typed world/player contexts rather than module-specific tile hooks.
 - [x] Add authorized `region` create/delete/list/show/resize/priority/owner/member/group/flag commands with overlap and world validation.
 - [ ] Expose immutable region snapshots and authorized mutations to Operations/TUI so `HouseRegions`, `Region-Vision` and sandbox worlds share one source of truth.
 - [ ] Add migrations and regression tests for overlapping priorities, renamed/deleted worlds, offline owners, permission inheritance and concurrent edits.
 
-Schema 3 stores region identity by explicit `WorldId`, validates non-empty bounded rectangles, resolves overlaps by priority then smallest area and retains owners as offline-capable account names. Members, groups and boolean flags are versioned with the region; mutations use optimistic revisions and the shared administration audit. `region` commands always use `CommandInvocation.WorldId`, so identical names in different worlds do not collide. Runtime build packets now resolve protected regions from immutable per-world snapshots, use authenticated account/group identity, allow `vega.regions.bypass`, and invalidate the cache after committed mutations. Chest/use admission, Operations projections and lifecycle validation for renamed/deleted worlds remain open above.
+Schema 3 stores region identity by explicit `WorldId`, validates non-empty bounded rectangles, resolves overlaps by priority then smallest area and retains owners as offline-capable account names. Members, groups and boolean flags are versioned with the region; mutations use optimistic revisions and the shared administration audit. `region` commands always use `CommandInvocation.WorldId`, so identical names in different worlds do not collide. Runtime build, paint, door, sign, chest and tile-entity packets resolve protected regions from immutable per-world snapshots, use authenticated account/group identity, allow `vega.regions.bypass`, and invalidate the cache after committed mutations. Chest and tile-entity identifiers are resolved against Terraria-owned state before ACL evaluation, including active-chest ownership for item mutation. Operations projections and lifecycle validation for renamed/deleted worlds remain open above.
 
 ### Bans and moderation commands
 

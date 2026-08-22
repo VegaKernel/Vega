@@ -109,6 +109,11 @@ public sealed class GameplayEnforcementPolicy : IPacketProcessor<PacketView>, ID
         {
             PacketTypes.Tile => (packet.AsTileView().TileX, packet.AsTileView().TileY),
             PacketTypes.PlaceObject => (packet.AsPlaceObjectView().X, packet.AsPlaceObjectView().Y),
+            PacketTypes.DoorUse => (packet.AsDoorUseView().TileX, packet.AsDoorUseView().TileY),
+            PacketTypes.PaintTile => (packet.AsPaintTileView().X, packet.AsPaintTileView().Y),
+            PacketTypes.PaintWall => (packet.AsPaintWallView().X, packet.AsPaintWallView().Y),
+            PacketTypes.SignRead => (packet.AsSignReadView().X, packet.AsSignReadView().Y),
+            PacketTypes.SignNew => (packet.AsSignNewView().X, packet.AsSignNewView().Y),
             PacketTypes.PlaceChest => (packet.AsPlaceChestView().TileX, packet.AsPlaceChestView().TileY),
             PacketTypes.LiquidSet => (packet.AsLiquidSetView().X, packet.AsLiquidSetView().Y),
             PacketTypes.MassWireOperation =>

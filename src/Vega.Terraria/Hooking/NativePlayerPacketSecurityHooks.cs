@@ -210,6 +210,11 @@ internal sealed class NativePlayerPacketSecurityHooks : IDisposable
             (byte)PacketTypes.PlayerHurtV2 or
             (byte)PacketTypes.PlayerDeathV2 or
             (byte)PacketTypes.Tile or
+            (byte)PacketTypes.DoorUse or
+            (byte)PacketTypes.PaintTile or
+            (byte)PacketTypes.PaintWall or
+            (byte)PacketTypes.SignRead or
+            (byte)PacketTypes.SignNew or
             (byte)PacketTypes.PlaceObject or
             (byte)PacketTypes.PlaceItemFrame or
             (byte)PacketTypes.ChestGetContents or

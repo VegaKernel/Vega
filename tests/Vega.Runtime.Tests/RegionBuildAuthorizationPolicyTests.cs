@@ -100,7 +100,77 @@ public sealed class RegionBuildAuthorizationPolicyTests
     public void MassWireCrossingProtectedRegionIsRejected()
     {
         PacketProcessingDecision decision = Process(CreatePolicy(Region()),
-            new MassWireOperation { StartX = 1, StartY = 1, EndX = 12, EndY = 14 });
+            new MassWireOperation { StartX = 1, StartY = 14, EndX = 40, EndY = 14 });
+
+        Assert.That(decision.Reason, Is.EqualTo("packet.region.build_denied"));
+    }
+
+    [Test]
+    public void ProtectedRegionRejectsChestUseByDefault()
+    {
+        PacketProcessingDecision decision = Process(CreatePolicy(Region()),
+            new ChestOpen { ChestId = 1, ChestX = 12, ChestY = 14 });
+
+        Assert.That(decision.Reason, Is.EqualTo("packet.region.use_denied"));
+    }
+
+    [Test]
+    public void PublicUseFlagAllowsChestUseWithoutOpeningBuild()
+    {
+        RegionSnapshot region = Region() with
+        {
+            Flags = new Dictionary<string, bool>(StringComparer.OrdinalIgnoreCase)
+            {
+                ["protected"] = true,
+                ["use"] = true
+            }
+        };
+        RegionBuildAuthorizationPolicy policy = CreatePolicy(region);
+
+        PacketProcessingDecision chest = Process(policy,
+            new ChestGetContents { TileX = 12, TileY = 14 });
+        PacketProcessingDecision build = Process(policy,
+            new Tile { Action = TileAction.PlaceTile, TileX = 12, TileY = 14, Value = 1 });
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(chest.Kind, Is.EqualTo(PacketDecisionKind.Allow));
+            Assert.That(build.Reason, Is.EqualTo("packet.region.build_denied"));
+        });
+    }
+
+    [Test]
+    public void ChestItemUsesAuthoritativeChestPositionForRegionCheck()
+    {
+        RegionSnapshot region = Region();
+        var interactions = new FakeWorldInteractions(new WorldTilePosition(12, 14));
+        var policy = new RegionBuildAuthorizationPolicy(
+            new FakeRegions(region),
+            new FakeDirectory(),
+            new FakeAuthorization([]),
+            accountSessions: null,
+            interactions);
+
+        PacketProcessingDecision decision = Process(policy,
+            new ChestItem { ChestId = 3, ItemSlot = 1, ItemNetId = 1 });
+
+        Assert.That(decision.Reason, Is.EqualTo("packet.region.use_denied"));
+    }
+
+    [Test]
+    public void TileEntityInteractionUsesAuthoritativePositionForRegionCheck()
+    {
+        RegionSnapshot region = Region();
+        var interactions = new FakeWorldInteractions(new WorldTilePosition(12, 14));
+        var policy = new RegionBuildAuthorizationPolicy(
+            new FakeRegions(region),
+            new FakeDirectory(),
+            new FakeAuthorization([]),
+            accountSessions: null,
+            interactions);
+
+        PacketProcessingDecision decision = Process(policy,
+            new RequestTileEntityInteraction { TileEntityId = 8, PlayerId = 4 });
 
         Assert.That(decision.Reason, Is.EqualTo("packet.region.build_denied"));
     }
@@ -223,5 +293,26 @@ public sealed class RegionBuildAuthorizationPolicyTests
             PlayerId playerId,
             string? culture,
             CancellationToken cancellationToken = default) => ValueTask.FromResult(true);
+    }
+
+    private sealed class FakeWorldInteractions(WorldTilePosition chestPosition) : IWorldInteractionState
+    {
+        public bool TryGetActiveChest(PlayerId playerId, out int chestId)
+        {
+            chestId = 3;
+            return true;
+        }
+
+        public bool TryGetChestPosition(int chestId, out WorldTilePosition position)
+        {
+            position = chestPosition;
+            return chestId == 3;
+        }
+
+        public bool TryGetTileEntityPosition(int tileEntityId, out WorldTilePosition position)
+        {
+            position = chestPosition;
+            return tileEntityId == 8;
+        }
     }
 }

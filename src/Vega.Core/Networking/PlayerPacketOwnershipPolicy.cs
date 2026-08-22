@@ -32,6 +32,7 @@ public sealed class PlayerPacketOwnershipPolicy : IPacketProcessor<PacketView>
             PacketTypes.RequestTileEntityInteraction => context.Packet.AsRequestTileEntityInteractionView().PlayerId,
             PacketTypes.TileEntityHatRackItemSync => context.Packet.AsTileEntityHatRackItemSyncView().PlayerId,
             PacketTypes.SyncTilePicking => context.Packet.AsSyncTilePickingView().PlayerId,
+            PacketTypes.SignNew => context.Packet.AsSignNewView().PlayerId,
             PacketTypes.SyncProjectileTrackers => context.Packet.AsSyncProjectileTrackersView().PlayerId,
             _ => null
         };

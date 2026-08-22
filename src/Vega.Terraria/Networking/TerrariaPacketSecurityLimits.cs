@@ -17,6 +17,8 @@ public static class TerrariaPacketSecurityLimits
 
     public static int WallTypeCount => global::Terraria.ID.WallID.Count;
 
+    public static int PaintColorCount => global::Terraria.Main.numTileColors + 1;
+
     public static int WorldWidth => global::Terraria.Main.maxTilesX;
 
     public static int WorldHeight => global::Terraria.Main.maxTilesY;

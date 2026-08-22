@@ -28,6 +28,24 @@ public sealed class WorldMutationSanityPolicyTests
         "packet.object.type_out_of_range");
 
     [Test]
+    public void DoorActionOutsideProtocolEnumIsViolation() => AssertReason(
+        new DoorUse { Action = (DoorUseAction)99, TileX = 10, TileY = 10 },
+        PacketTypes.DoorUse,
+        "packet.door.action_out_of_range");
+
+    [Test]
+    public void PaintValueOutsideRegistryIsViolation() => AssertReason(
+        new PaintTile { X = 10, Y = 10, Color = 32 },
+        PacketTypes.PaintTile,
+        "packet.paint.value_out_of_range");
+
+    [Test]
+    public void SignOutsideWorldIsViolation() => AssertReason(
+        new SignNew { SignId = 1, X = 100, Y = 10, Text = "test", PlayerId = 7 },
+        PacketTypes.SignNew,
+        "packet.sign.position_out_of_world");
+
+    [Test]
     public void ChestResizeAboveFortySlotsIsViolation() => AssertReason(
         new SyncChestSize { ChestId = 2, NewSize = 41 },
         PacketTypes.SyncChestSize,

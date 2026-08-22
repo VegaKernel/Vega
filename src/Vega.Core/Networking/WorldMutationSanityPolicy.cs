@@ -15,7 +15,8 @@ public sealed class WorldMutationSanityPolicy(
     int tileTypeCount,
     int wallTypeCount,
     int itemTypeCount,
-    int prefixCount) : IPacketProcessor<PacketView>
+    int prefixCount,
+    int paintColorCount = 32) : IPacketProcessor<PacketView>
 {
     private const int MaximumChestSlots = 40;
     private const int MaximumStack = 9_999;
@@ -31,13 +32,28 @@ public sealed class WorldMutationSanityPolicy(
         {
             PacketTypes.Tile => ValidateTile(context.Packet.AsTileView()),
             PacketTypes.PlaceObject => ValidateObject(context.Packet.AsPlaceObjectView()),
+            PacketTypes.DoorUse => ValidateDoor(context.Packet.AsDoorUseView()),
+            PacketTypes.PaintTile => ValidatePaint(context.Packet.AsPaintTileView().X,
+                context.Packet.AsPaintTileView().Y, context.Packet.AsPaintTileView().Color,
+                context.Packet.AsPaintTileView().Coat),
+            PacketTypes.PaintWall => ValidatePaint(context.Packet.AsPaintWallView().X,
+                context.Packet.AsPaintWallView().Y, context.Packet.AsPaintWallView().Color,
+                context.Packet.AsPaintWallView().Coat),
+            PacketTypes.SignRead => ValidateCoordinates(
+                context.Packet.AsSignReadView().X,
+                context.Packet.AsSignReadView().Y,
+                "packet.sign.position_out_of_world"),
+            PacketTypes.SignNew => ValidateCoordinates(
+                context.Packet.AsSignNewView().X,
+                context.Packet.AsSignNewView().Y,
+                "packet.sign.position_out_of_world"),
             PacketTypes.PlaceItemFrame => ValidateItemFrame(context.Packet.AsPlaceItemFrameView()),
             PacketTypes.ChestGetContents => ValidateCoordinates(
                 context.Packet.AsChestGetContentsView().TileX,
                 context.Packet.AsChestGetContentsView().TileY,
                 "packet.chest.position_out_of_world"),
             PacketTypes.ChestItem => ValidateChestItem(context.Packet.AsChestItemView()),
-            PacketTypes.ChestOpen => ValidateChestOpen(context.Packet.AsChestOpenView()),
+            PacketTypes.ChestOpen => ValidateChestOpen(context.Packet),
             PacketTypes.PlaceChest => ValidatePlaceChest(context.Packet.AsPlaceChestView()),
             PacketTypes.SyncChestSize => ValidateChestSize(context.Packet.AsSyncChestSizeView()),
             PacketTypes.ChestName => ValidateChestName(context.Packet.AsChestNameView()),
@@ -125,6 +141,32 @@ public sealed class WorldMutationSanityPolicy(
             : PacketProcessingDecision.Allow;
     }
 
+    private PacketProcessingDecision ValidateDoor(DoorUseView value)
+    {
+        PacketProcessingDecision position = ValidateCoordinates(
+            value.TileX,
+            value.TileY,
+            "packet.door.position_out_of_world");
+        return position.Kind != PacketDecisionKind.Allow
+            ? position
+            : !Enum.IsDefined(value.Action)
+                ? PacketProcessingDecision.Violation("packet.door.action_out_of_range")
+                : PacketProcessingDecision.Allow;
+    }
+
+    private PacketProcessingDecision ValidatePaint(int x, int y, byte color, byte coat)
+    {
+        PacketProcessingDecision position = ValidateCoordinates(x, y, "packet.paint.position_out_of_world");
+        if (position.Kind != PacketDecisionKind.Allow)
+        {
+            return position;
+        }
+
+        return color >= paintColorCount || coat > 1
+            ? PacketProcessingDecision.Violation("packet.paint.value_out_of_range")
+            : PacketProcessingDecision.Allow;
+    }
+
     private PacketProcessingDecision ValidateItemFrame(PlaceItemFrameView value)
     {
         PacketProcessingDecision position = ValidateCoordinates(value.X, value.Y, "packet.item_frame.position_out_of_world");
@@ -176,17 +218,21 @@ public sealed class WorldMutationSanityPolicy(
             : PacketProcessingDecision.Allow;
     }
 
-    private PacketProcessingDecision ValidateChestOpen(ChestOpenView value)
+    private PacketProcessingDecision ValidateChestOpen(PacketView packet)
     {
-        PacketProcessingDecision position = ValidateCoordinates(value.ChestX, value.ChestY, "packet.chest.position_out_of_world");
+        var reader = packet.CreatePayloadReader();
+        int chestId = reader.ReadInt16();
+        int chestX = reader.ReadInt16();
+        int chestY = reader.ReadInt16();
+        PacketProcessingDecision position = ValidateCoordinates(chestX, chestY, "packet.chest.position_out_of_world");
         if (position.Kind != PacketDecisionKind.Allow)
         {
             return position;
         }
 
-        return value.ChestId < -1
+        return chestId < -1
             ? PacketProcessingDecision.Violation("packet.chest.id_out_of_range")
-            : value.ChestId >= 0 ? ValidateChestId(value.ChestId) : PacketProcessingDecision.Allow;
+            : chestId >= 0 ? ValidateChestId(chestId) : PacketProcessingDecision.Allow;
     }
 
     private PacketProcessingDecision ValidatePlaceChest(PlaceChestView value)
