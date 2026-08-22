@@ -1,4 +1,5 @@
 using Vega.Contracts.Operations;
+using Vega.Contracts.Networking;
 using Vega.Contracts.Players;
 using Vega.Contracts.Runtime;
 using Vega.Contracts.Worlds;
@@ -20,12 +21,30 @@ public sealed class OperationsSnapshotProvider(
     IModuleDirectoryStatusReader? moduleDirectory = null,
     IWorldClockReader? worldClocks = null,
     IWorldCleanupStatusReader? worldCleanup = null,
-    IWorldContextOperationsCatalog? worldContexts = null) : IOperationsSnapshotProvider
+    IWorldContextOperationsCatalog? worldContexts = null,
+    ISecuritySignalReader? securitySignals = null) : IOperationsSnapshotProvider
 {
-    public OperationsSnapshot Capture(OperationsLogFilter? logFilter = null)
+    public OperationsSnapshot Capture(
+        OperationsLogFilter? logFilter = null,
+        OperationsSnapshotExposure exposure = OperationsSnapshotExposure.Redacted)
     {
         ServerRuntimeStateSnapshot state = serverState.Read();
-        PlayerSnapshot[] playerSnapshots = players.SnapshotOnlinePlayers().ToArray();
+        PlayerSnapshot[] playerSnapshots = players.SnapshotOnlinePlayers()
+            .Select(player => exposure == OperationsSnapshotExposure.Sensitive
+                ? player
+                : player with
+                {
+                    RemoteEndpoint = null,
+                    Connection = player.Connection is null
+                        ? null
+                        : player.Connection with
+                        {
+                            TransportEndpoint = null,
+                            EffectiveEndpoint = null,
+                            ClientUuid = null
+                        }
+                })
+            .ToArray();
         ModuleOperationsSnapshot[] moduleSnapshots = modules
             .SnapshotModules()
             .Select(static module => module with
@@ -101,7 +120,12 @@ public sealed class OperationsSnapshotProvider(
                 .Where(static record => string.Equals(record.Source, "chat", StringComparison.OrdinalIgnoreCase))
                 .ToArray()),
             WorldContexts = Array.AsReadOnly(contexts),
-            CanMovePlayersBetweenWorlds = worldContexts?.CanMovePlayers == true
+            CanMovePlayersBetweenWorlds = worldContexts?.CanMovePlayers == true,
+            SecuritySignals = securitySignals?.Read(
+                exposure == OperationsSnapshotExposure.Sensitive
+                    ? SecuritySignalExposure.Sensitive
+                    : SecuritySignalExposure.Redacted) ??
+                Array.Empty<SecuritySignal>()
         };
     }
 

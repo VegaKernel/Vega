@@ -4,6 +4,7 @@ using Terraria.ID;
 using Terraria.Localization;
 using Vega.Contracts.Players;
 using Vega.Contracts.Threading;
+using Vega.Terraria.Networking;
 
 namespace Vega.Terraria.Players;
 
@@ -19,6 +20,7 @@ public sealed class TerrariaPlayerBoundary :
 	IDisposable
 {
 	private readonly IGameThreadDispatcher dispatcher;
+	private readonly TerrariaConnectionMetadataRegistry connectionMetadata;
 	private IReadOnlyList<PlayerSnapshot> onlinePlayers = Array.Empty<PlayerSnapshot>();
 	private IReadOnlyDictionary<PlayerId, PlayerCombatSnapshot> combatSnapshots =
 		new Dictionary<PlayerId, PlayerCombatSnapshot>();
@@ -28,9 +30,18 @@ public sealed class TerrariaPlayerBoundary :
 	private bool attached;
 
 	public TerrariaPlayerBoundary(IGameThreadDispatcher dispatcher)
+		: this(dispatcher, new TerrariaConnectionMetadataRegistry())
+	{
+	}
+
+	public TerrariaPlayerBoundary(
+		IGameThreadDispatcher dispatcher,
+		TerrariaConnectionMetadataRegistry connectionMetadata)
 	{
 		ArgumentNullException.ThrowIfNull(dispatcher);
+		ArgumentNullException.ThrowIfNull(connectionMetadata);
 		this.dispatcher = dispatcher;
+		this.connectionMetadata = connectionMetadata;
 	}
 
 	public void Attach()
@@ -281,6 +292,11 @@ public sealed class TerrariaPlayerBoundary :
 			}
 
 			var playerId = new PlayerId(slot);
+			string? remoteEndpoint = TryGetRemoteEndpoint(slot);
+			var connection = connectionMetadata.Snapshot(
+				slot,
+				remoteEndpoint,
+				GetConnectionState(slot));
 			snapshots[index++] = new PlayerSnapshot(
 				playerId,
 				player.name,
@@ -295,8 +311,9 @@ public sealed class TerrariaPlayerBoundary :
 			{
 				SessionId = sessionIds[slot],
 				ConnectedAt = sessionStartedAt[slot],
-				RemoteEndpoint = TryGetRemoteEndpoint(slot),
-				Platform = null
+				RemoteEndpoint = connection.EffectiveEndpoint,
+				Platform = connection.Platform,
+				Connection = connection
 			};
 
 			global::Terraria.Item heldItem = player.HeldItem;
@@ -346,8 +363,16 @@ public sealed class TerrariaPlayerBoundary :
 				sessionIds[slot] = null;
 				sessionNames[slot] = null;
 				sessionStartedAt[slot] = null;
+				connectionMetadata.Remove(slot);
 			}
 		}
+	}
+
+	private static TerrariaConnectionState GetConnectionState(int slot)
+	{
+		int state = global::Terraria.Netplay.Clients[slot]?.State ??
+			(int)TerrariaConnectionState.PasswordChallenge;
+		return (TerrariaConnectionState)state;
 	}
 
 	private static string? TryGetRemoteEndpoint(int slot)

@@ -122,7 +122,8 @@ int Start()
         Array.Empty<IEventMonitor<WorldHardmodeStarting>>());
 
     using var gameThreadDispatcher = new OtapiGameThreadDispatcher();
-    using var playerBoundary = new TerrariaPlayerBoundary(gameThreadDispatcher);
+    var connectionMetadata = new TerrariaConnectionMetadataRegistry();
+    using var playerBoundary = new TerrariaPlayerBoundary(gameThreadDispatcher, connectionMetadata);
     using var playerAuthorization = new PlayerSessionAuthorizationService(playerBoundary);
     using var updateChecker = new GitHubReleaseUpdateChecker();
     using var extensionState = new ExtensionStateStore();
@@ -142,6 +143,7 @@ int Start()
     using IDisposable aliasesCommandRegistration = commandDispatcher.Register(new AliasesCommand(commandDispatcher));
     var lifecycle = new RuntimeLifecycleTracker(processStartedAt);
     var networkMetrics = new NetworkMetricsCounter();
+    var securitySignals = new BoundedSecuritySignalStore();
     var logStore = new BoundedOperationsLogStore();
     var consoleSink = new ConsoleOperationsLogSink();
     JsonFileOperationsLogSink? fileSink = TryCreateFileSink();
@@ -277,7 +279,8 @@ int Start()
             worldImages,
             serverPlugins,
             worldClock,
-            autoWorldCleaner);
+            autoWorldCleaner,
+            securitySignals: securitySignals);
         var operationsCommands = new OperationsCommandService(commandDispatcher);
         using var startupProgress = new TerrariaStartupProgress();
         using var terminalUi = new TerminalUiHost(
@@ -330,8 +333,10 @@ int Start()
             hardmodeStarting,
             gameThreadDispatcher,
             playerBoundary,
+            connectionMetadata,
             operationsState,
             networkMetrics,
+            securitySignals,
             logger,
             worldImages,
             worldMaintenance,

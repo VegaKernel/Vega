@@ -14,19 +14,27 @@ namespace Vega.Terraria.Hooking;
 internal sealed class NativePlayerPacketSecurityHooks : IDisposable
 {
     private readonly IPacketProcessor<PacketView> packetProcessor;
+    private readonly TerrariaConnectionMetadataRegistry connectionMetadata;
     private readonly IOperationsLogger logger;
     private readonly INetworkMetricsRecorder metrics;
+    private readonly ISecuritySignalRecorder securitySignals;
     private bool attached;
 
     public NativePlayerPacketSecurityHooks(
         IPacketProcessor<PacketView> packetProcessor,
+        TerrariaConnectionMetadataRegistry connectionMetadata,
         IOperationsLogger logger,
-        INetworkMetricsRecorder metrics)
+        INetworkMetricsRecorder metrics,
+        ISecuritySignalRecorder securitySignals)
     {
         this.packetProcessor = packetProcessor ??
             throw new ArgumentNullException(nameof(packetProcessor));
+        this.connectionMetadata = connectionMetadata ??
+            throw new ArgumentNullException(nameof(connectionMetadata));
         this.logger = logger ?? throw new ArgumentNullException(nameof(logger));
         this.metrics = metrics ?? throw new ArgumentNullException(nameof(metrics));
+        this.securitySignals = securitySignals ??
+            throw new ArgumentNullException(nameof(securitySignals));
     }
 
     public void Attach()
@@ -60,6 +68,30 @@ internal sealed class NativePlayerPacketSecurityHooks : IDisposable
 
         int slot = args.Instance.whoAmI;
         TerrariaConnectionState connectionState = GetConnectionState(slot);
+        try
+        {
+            PacketProcessingDecision metadataDecision = connectionMetadata.ObserveInbound(
+                args.PacketId,
+                args.Instance.readBuffer.AsSpan(args.ReadOffset, args.Length),
+                slot,
+                connectionState);
+            if (metadataDecision.Kind != PacketDecisionKind.Allow)
+            {
+                RecordRejection(args, slot, metadataDecision);
+                return;
+            }
+        }
+        catch (Exception ex)
+        {
+            logger.Log(
+                OperationsLogLevel.Error,
+                "connection-metadata",
+                $"Connection metadata parsing failed for packet {args.PacketId}, slot {slot}; packet rejected.",
+                ex);
+            args.Result = HookResult.Cancel;
+            return;
+        }
+
         if (!ShouldApplySecurity(connectionState, args.PacketId))
         {
             return;
@@ -77,16 +109,13 @@ internal sealed class NativePlayerPacketSecurityHooks : IDisposable
                 packetProcessor,
                 DateTimeOffset.UtcNow);
 
-            metrics.RecordSecurityDecision(decision);
             if (decision.Kind != PacketDecisionKind.Allow)
             {
-                logger.Log(
-                    decision.Kind == PacketDecisionKind.Violation
-                        ? OperationsLogLevel.Warning
-                        : OperationsLogLevel.Debug,
-                    "packet-security",
-                    $"Inbound packet {args.PacketId} from slot {slot}: {decision.Kind} ({decision.Reason ?? "no-reason"}).");
-                args.Result = HookResult.Cancel;
+                RecordRejection(args, slot, decision);
+            }
+            else
+            {
+                metrics.RecordSecurityDecision(decision);
             }
         }
         catch (Exception ex)
@@ -98,6 +127,48 @@ internal sealed class NativePlayerPacketSecurityHooks : IDisposable
                 "packet-security",
                 $"Inbound packet security failed for packet {args.PacketId}, slot {slot}, state {connectionState}; vanilla processing continues.",
                 ex);
+        }
+    }
+
+    private void RecordRejection(
+        Hooks.MessageBuffer.GetDataEventArgs args,
+        int slot,
+        PacketProcessingDecision decision)
+    {
+        metrics.RecordSecurityDecision(decision);
+        ConnectionMetadataSnapshot connection = connectionMetadata.Snapshot(
+            slot,
+            TryGetRemoteEndpoint(args),
+            GetConnectionState(slot));
+        securitySignals.Record(new SecuritySignal(
+            DateTimeOffset.UtcNow,
+            new ConnectionId(slot),
+            args.PacketId,
+            decision.Kind,
+            decision.Reason ?? "packet.unspecified",
+            connection.TransportEndpoint,
+            connection.EffectiveEndpoint,
+            connection.ForwardingProvenance));
+        logger.Log(
+            decision.Kind == PacketDecisionKind.Violation
+                ? OperationsLogLevel.Warning
+                : OperationsLogLevel.Debug,
+            "packet-security",
+            $"Inbound packet {args.PacketId} from slot {slot}: {decision.Kind} ({decision.Reason ?? "no-reason"}).");
+        args.Result = HookResult.Cancel;
+    }
+
+    private static string? TryGetRemoteEndpoint(Hooks.MessageBuffer.GetDataEventArgs args)
+    {
+        try
+        {
+            return global::Terraria.Netplay.Clients[args.Instance.whoAmI]?.Socket?
+                .GetRemoteAddress()
+                .GetIdentifier();
+        }
+        catch (Exception)
+        {
+            return null;
         }
     }
 

@@ -491,7 +491,7 @@ internal sealed class OperationsDashboardView : IDisposable
         MessageBox.Query(
             playersList.App!,
             player.Name,
-            $"Slot: {player.Id.Slot}\nWorld: {player.WorldId}\nIP/endpoint: {player.RemoteEndpoint ?? "unknown"}\nPlatform: {player.Platform ?? "unknown"}\nSession: {connected}\nHP: {player.Life}/{player.MaxLife}\nMP: {player.Mana}/{player.MaxMana}",
+            $"Slot: {player.Id.Slot}\nWorld: {player.WorldId}\nIP/endpoint: {player.RemoteEndpoint ?? "unknown"}\nPlatform: {player.Platform.Kind}\nSession: {connected}\nHP: {player.Life}/{player.MaxLife}\nMP: {player.Mana}/{player.MaxMana}",
             "OK");
     }
 

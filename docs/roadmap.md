@@ -256,12 +256,14 @@ Move server-wide invariants into Core/runtime, not the historical plugin impleme
 
 ### Connection metadata from ClientPlatformDetector, SSCHealthFix and UuidGuardExtension
 
-- [ ] Model transport endpoint, effective forwarded endpoint and forwarding provenance separately before adding Dimensions support.
-- [ ] Parse `PlayerPlatformInfo` through the typed packet pipeline, enforce sender-slot ownership and represent missing data as `Unknown`, never as assumed PC.
-- [ ] Expose platform and connection provenance through immutable player/operations snapshots with explicit authorization for sensitive fields.
-- [ ] Define connection/login phases before SSC exists so authoritative server character state can reject stale queued client state later.
-- [ ] Expose transport-neutral structured security signals for external firewall automation; shell, nftables and provider-specific enforcement remain outside Core.
-- [ ] Keep Dimensions disabled until ADR 0011 trust configuration and admission ordering are implemented and tested end to end.
+- [x] Model transport endpoint, effective forwarded endpoint and forwarding provenance separately before adding Dimensions support.
+- [x] Parse `PlayerPlatformInfo` through the typed packet pipeline, enforce sender-slot ownership and represent missing data as `Unknown`, never as assumed PC.
+- [x] Expose platform and connection provenance through immutable player/operations snapshots with explicit authorization for sensitive fields.
+- [x] Define connection/login phases before SSC exists so authoritative server character state can reject stale queued client state later.
+- [x] Expose transport-neutral structured security signals for external firewall automation; shell, nftables and provider-specific enforcement remain outside Core.
+- [x] Keep Dimensions disabled until ADR 0011 trust configuration and admission ordering are implemented and tested end to end.
+
+Protocol 325 reports `PlayerPlatformInfo` as packet 164 with a sender slot and platform byte. Vega records the reported value without the legacy PC fallback, accepts `ClientUUID` only once in the protocol-accepted phase, and rejects forged slots or phase changes before vanilla dispatch. Direct connections still retain separate transport/effective endpoint fields so a future trusted-forwarding adapter cannot overwrite provenance. Operations snapshots are redacted by default; the local administrative TUI requests sensitive connection fields explicitly. Rejections also enter a bounded structured signal stream whose endpoint fields require the same explicit sensitive exposure.
 
 ## Phase 14 — TerraZ-derived runtime and module operations
 

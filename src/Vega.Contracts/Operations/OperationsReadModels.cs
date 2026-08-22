@@ -1,4 +1,5 @@
 using Vega.Contracts.Players;
+using Vega.Contracts.Networking;
 using Vega.Contracts.Runtime;
 using Vega.Contracts.Worlds;
 
@@ -208,9 +209,20 @@ public sealed record OperationsSnapshot(
         WorldCleanupStatusSnapshot.Disabled;
 
     public bool CanMovePlayersBetweenWorlds { get; init; }
+
+    public IReadOnlyList<SecuritySignal> SecuritySignals { get; init; } =
+        Array.Empty<SecuritySignal>();
 }
 
 public interface IOperationsSnapshotProvider
 {
-    OperationsSnapshot Capture(OperationsLogFilter? logFilter = null);
+    OperationsSnapshot Capture(
+        OperationsLogFilter? logFilter = null,
+        OperationsSnapshotExposure exposure = OperationsSnapshotExposure.Redacted);
+}
+
+public enum OperationsSnapshotExposure
+{
+    Redacted,
+    Sensitive
 }

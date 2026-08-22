@@ -119,7 +119,7 @@ These are behavior/test inputs. Their indentation, static globals, `TSPlayer` fi
 | `ExtendedBans` | Typed moderation identities, normalized IP/CIDR matching and authoritative admission | **Partial**, Phase 13/19 |
 | `PacketGuard`, `StateGuard`, `LeashedEntityGuard` | Typed deterministic packet/state rules plus separate telemetry | **Partial**, Phase 13 |
 | `NoCoinDupe` | Server-authoritative NPC coin-pickup policy | **Native**, Phase 9/13 |
-| `ClientPlatformDetector`, `SSCHealthFix`, `UuidGuardExtension` | Connection metadata, explicit login phases and structured external security signals | **Missing**, Phase 13 |
+| `ClientPlatformDetector`, `SSCHealthFix`, `UuidGuardExtension` | Connection metadata, explicit login phases and structured external security signals | **Native**, Phase 13 |
 | `TPSChecker` | Bounded tick-rate telemetry, percentiles, operations warning and `tps` command | **Native**, Phase 14 |
 | `TimeSync` | Optional per-world monotonic clock with game-thread correction and explicit-change re-anchoring | **Native**, Phase 14 |
 | `PluginLoader` | Optional administrative unload/replace with tracked cleanup, collectible isolation and restart fallback | **Native**, Phase 14 |

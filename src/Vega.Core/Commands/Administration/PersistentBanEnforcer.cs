@@ -52,7 +52,7 @@ public sealed class PersistentBanEnforcer : IDisposable
                 ? IPAddress.Parse(rawAddress!)
                 : null;
             BanSnapshot? ban = await bans.FindActiveBanAsync(
-                new BanIdentity(opened.PlayerName, null, null, address),
+                new BanIdentity(opened.PlayerName, null, player?.Connection?.ClientUuid, address),
                 shutdown.Token).ConfigureAwait(false);
             if (ban is null)
             {

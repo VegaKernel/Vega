@@ -70,7 +70,9 @@ public sealed class TerminalUiInteractionTests
     {
         public int CaptureCount { get; private set; }
 
-        public OperationsSnapshot Capture(OperationsLogFilter? logFilter = null)
+        public OperationsSnapshot Capture(
+            OperationsLogFilter? logFilter = null,
+            OperationsSnapshotExposure exposure = OperationsSnapshotExposure.Redacted)
         {
             CaptureCount++;
             DateTimeOffset sampledAt = DateTimeOffset.UtcNow.AddSeconds(CaptureCount);

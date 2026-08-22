@@ -151,7 +151,18 @@ public sealed class OperationsReadModelTests
             20,
             new PlayerPosition(10, 20),
             false,
-            1);
+            1)
+        {
+            RemoteEndpoint = "203.0.113.8:7777",
+            Connection = new ConnectionMetadataSnapshot(
+                new ConnectionId(4),
+                "203.0.113.8:7777",
+                "203.0.113.8:7777",
+                ConnectionForwardingProvenance.Direct,
+                new ClientPlatformInfo(ClientPlatformKind.Pc, 233),
+                "755a3c87-6f2b-4ec9-aed4-b8eeaf855c81",
+                ConnectionLoginPhase.FullyConnected)
+        };
         var playerDirectory = new MutablePlayerDirectory([player]);
         var modules = new StaticModuleOperationsCatalog([
             new ModuleOperationsSnapshot(
@@ -188,6 +199,8 @@ public sealed class OperationsReadModelTests
             new FixedNetworkMetrics());
 
         OperationsSnapshot snapshot = provider.Capture();
+        OperationsSnapshot sensitive = provider.Capture(
+            exposure: OperationsSnapshotExposure.Sensitive);
         playerDirectory.Players.Clear();
 
         Assert.Multiple(() =>
@@ -198,6 +211,10 @@ public sealed class OperationsReadModelTests
             Assert.That(snapshot.Server.TickRate.AverageOneMinute, Is.EqualTo(59));
             Assert.That(snapshot.Server.Warnings.Single(), Does.Contain("optional"));
             Assert.That(snapshot.Players.Single().Name, Is.EqualTo("VegaPlayer"));
+            Assert.That(snapshot.Players.Single().RemoteEndpoint, Is.Null);
+            Assert.That(snapshot.Players.Single().Connection?.ClientUuid, Is.Null);
+            Assert.That(sensitive.Players.Single().RemoteEndpoint, Is.EqualTo("203.0.113.8:7777"));
+            Assert.That(sensitive.Players.Single().Connection?.ClientUuid, Is.Not.Null);
             Assert.That(snapshot.Modules, Has.Count.EqualTo(2));
             Assert.That(snapshot.Logs.Single().Text, Is.EqualTo("ready"));
             Assert.That(snapshot.Runtime.ManagedMemoryBytes, Is.EqualTo(200));
@@ -754,7 +771,9 @@ public sealed class TerminalOperationsTests
 
         public OperationsLogFilter? LastFilter { get; private set; }
 
-        public OperationsSnapshot Capture(OperationsLogFilter? logFilter = null)
+        public OperationsSnapshot Capture(
+            OperationsLogFilter? logFilter = null,
+            OperationsSnapshotExposure exposure = OperationsSnapshotExposure.Redacted)
         {
             CaptureCount++;
             LastFilter = logFilter;

@@ -19,7 +19,9 @@ public sealed class OperationsDashboardViewModel(
 
     public OperationsSnapshot Refresh()
     {
-        OperationsSnapshot current = snapshots.Capture(logFilter);
+        OperationsSnapshot current = snapshots.Capture(
+            logFilter,
+            OperationsSnapshotExposure.Sensitive);
         if (IsFollowing)
         {
             pausedLogs = null;

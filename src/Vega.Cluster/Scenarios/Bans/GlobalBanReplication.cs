@@ -150,7 +150,7 @@ public sealed class GlobalBanCreatedHandler(
         {
             IPAddress? address = TryGetIpAddress(player.RemoteEndpoint);
             BanSnapshot? active = await bans.FindActiveBanAsync(
-                new BanIdentity(player.Name, null, null, address),
+                new BanIdentity(player.Name, null, player.Connection?.ClientUuid, address),
                 cancellationToken).ConfigureAwait(false);
             if (active?.Id == created.BanId)
             {

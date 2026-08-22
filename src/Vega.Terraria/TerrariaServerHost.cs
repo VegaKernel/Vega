@@ -11,6 +11,7 @@ using Vega.Contracts.Worlds;
 using Vega.Terraria.Hooking;
 using Vega.Terraria.Operations;
 using Vega.Terraria.Players;
+using Vega.Terraria.Networking;
 using Vega.Terraria.Threading;
 using Vega.Terraria.Worlds;
 
@@ -27,8 +28,10 @@ public static class TerrariaServerHost
         IEventPipeline<WorldHardmodeStarting> hardmodeStarting,
         OtapiGameThreadDispatcher gameThreadDispatcher,
         TerrariaPlayerBoundary playerBoundary,
+        TerrariaConnectionMetadataRegistry connectionMetadata,
         TerrariaOperationsState operationsState,
         INetworkMetricsRecorder networkMetrics,
+        ISecuritySignalRecorder securitySignals,
         IOperationsLogger logger,
         TerrariaWorldImageService worldImages,
         TerrariaWorldMaintenanceService worldMaintenance,
@@ -43,8 +46,10 @@ public static class TerrariaServerHost
         ArgumentNullException.ThrowIfNull(hardmodeStarting);
         ArgumentNullException.ThrowIfNull(gameThreadDispatcher);
         ArgumentNullException.ThrowIfNull(playerBoundary);
+        ArgumentNullException.ThrowIfNull(connectionMetadata);
         ArgumentNullException.ThrowIfNull(operationsState);
         ArgumentNullException.ThrowIfNull(networkMetrics);
+        ArgumentNullException.ThrowIfNull(securitySignals);
         ArgumentNullException.ThrowIfNull(logger);
         ArgumentNullException.ThrowIfNull(worldImages);
         ArgumentNullException.ThrowIfNull(worldMaintenance);
@@ -77,7 +82,12 @@ public static class TerrariaServerHost
         using var nativeLifecycleHooks = new NativeLifecycleHooks(lifecycle);
         using var networkMetricsHooks = new NativeNetworkMetricsHooks(networkMetrics);
         using var worldDecisionHooks = new NativeWorldDecisionHooks(hardmodeStarting);
-        using var playerPacketSecurityHooks = new NativePlayerPacketSecurityHooks(playerOwnershipSecurity, logger, networkMetrics);
+        using var playerPacketSecurityHooks = new NativePlayerPacketSecurityHooks(
+            playerOwnershipSecurity,
+            connectionMetadata,
+            logger,
+            networkMetrics,
+            securitySignals);
         using var consoleCommandHooks = new NativeConsoleCommandHooks(commandDispatcher);
         using var playerCommandHooks = new NativePlayerCommandHooks(
             commandDispatcher,
