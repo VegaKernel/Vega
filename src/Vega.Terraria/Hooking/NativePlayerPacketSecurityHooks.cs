@@ -95,7 +95,12 @@ internal sealed class NativePlayerPacketSecurityHooks : IDisposable
                 "connection-metadata",
                 $"Connection metadata parsing failed for packet {args.PacketId}, slot {slot}; packet rejected.",
                 ex);
-            args.Result = HookResult.Cancel;
+            RecordRejection(
+                args,
+                slot,
+                new PacketProcessingDecision(
+                    PacketDecisionKind.Reject,
+                    "connection_metadata.parse_failed"));
             return;
         }
 
@@ -142,11 +147,12 @@ internal sealed class NativePlayerPacketSecurityHooks : IDisposable
         int slot,
         PacketProcessingDecision decision)
     {
+        TerrariaConnectionState connectionState = GetConnectionState(slot);
         metrics.RecordSecurityDecision(decision);
         ConnectionMetadataSnapshot connection = connectionMetadata.Snapshot(
             slot,
             TryGetRemoteEndpoint(args),
-            GetConnectionState(slot));
+            connectionState);
         securitySignals.Record(new SecuritySignal(
             DateTimeOffset.UtcNow,
             new ConnectionId(slot),
@@ -163,6 +169,46 @@ internal sealed class NativePlayerPacketSecurityHooks : IDisposable
             "packet-security",
             $"Inbound packet {args.PacketId} from slot {slot}: {decision.Kind} ({decision.Reason ?? "no-reason"}).");
         args.Result = HookResult.Cancel;
+
+        if (ShouldTerminateConnection(connectionState, decision.Kind))
+        {
+            TerminateConnection(slot, decision.Reason);
+        }
+    }
+
+    private void TerminateConnection(int slot, string? reason)
+    {
+        if ((uint)slot >= (uint)global::Terraria.Netplay.Clients.Length)
+        {
+            return;
+        }
+
+        global::Terraria.RemoteClient? client = global::Terraria.Netplay.Clients[slot];
+        if (client is null || !client.IsConnected())
+        {
+            return;
+        }
+
+        try
+        {
+            global::Terraria.NetMessage.BootPlayer(
+                slot,
+                global::Terraria.Localization.NetworkText.FromLiteral("Invalid connection handshake."));
+            logger.Log(
+                OperationsLogLevel.Debug,
+                "packet-security",
+                $"Rejected pre-login connection from slot {slot} ({reason ?? "no-reason"}).");
+        }
+        catch (Exception ex)
+        {
+            client.PendingTermination = true;
+            client.PendingTerminationApproved = true;
+            logger.Log(
+                OperationsLogLevel.Warning,
+                "packet-security",
+                $"Failed to send disconnect packet to rejected pre-login slot {slot}; connection marked for termination.",
+                ex);
+        }
     }
 
     private static string? TryGetRemoteEndpoint(Hooks.MessageBuffer.GetDataEventArgs args)
@@ -181,6 +227,12 @@ internal sealed class NativePlayerPacketSecurityHooks : IDisposable
 
     internal static bool ShouldApplySecurity(TerrariaConnectionState connectionState, byte packetId) =>
         connectionState >= TerrariaConnectionState.FullyConnected && IsProcessedPacket(packetId);
+
+    internal static bool ShouldTerminateConnection(
+        TerrariaConnectionState connectionState,
+        PacketDecisionKind decisionKind) =>
+        connectionState < TerrariaConnectionState.FullyConnected &&
+        decisionKind is PacketDecisionKind.Reject or PacketDecisionKind.Violation;
 
     private static TerrariaConnectionState GetConnectionState(int slot)
     {

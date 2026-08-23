@@ -201,7 +201,10 @@ public sealed class TerrariaConnectionMetadataRegistry
         try
         {
             string value = packet.AsClientUUIDView().Uuid;
-            if (packet.PayloadSpan.Length != 37 || !Guid.TryParse(value, out Guid uuid))
+            if (string.IsNullOrWhiteSpace(value) ||
+                value.Length != 36 ||
+                packet.PayloadSpan.Length != 37 ||
+                !Guid.TryParseExact(value, "D", out Guid uuid))
             {
                 return Reject("connection_metadata.uuid_invalid");
             }

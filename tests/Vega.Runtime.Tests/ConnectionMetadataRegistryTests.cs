@@ -104,6 +104,28 @@ public sealed class ConnectionMetadataRegistryTests
         });
     }
 
+    [TestCase("")]
+    [TestCase("not-a-uuid")]
+    [TestCase("755a3c876f2b4ec9aed4b8eeaf855c81")]
+    [TestCase("755a3c87-6f2b-4ec9-aed4-b8eeaf855c8z")]
+    public void UuidRejectsEmptyAndNonCanonicalValues(string value)
+    {
+        var registry = new TerrariaConnectionMetadataRegistry();
+
+        PacketProcessingDecision decision = registry.ObserveInbound(
+            (byte)PacketTypes.ClientUUID,
+            EncodeString(value),
+            1,
+            TerrariaConnectionState.ProtocolAccepted);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(decision.Kind, Is.EqualTo(PacketDecisionKind.Reject));
+            Assert.That(decision.Reason, Is.EqualTo("connection_metadata.uuid_invalid"));
+            Assert.That(registry.Snapshot(1, null, TerrariaConnectionState.ProtocolAccepted).ClientUuid, Is.Null);
+        });
+    }
+
     [Test]
     public void UuidRejectsMalformedValueAndWrongLoginPhase()
     {
