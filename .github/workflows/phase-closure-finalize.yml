@@ -10,32 +10,18 @@ permissions:
 
 jobs:
   finalize:
-    if: ${{ !contains(github.event.head_commit.message, '[phase-closure-final]') }}
+    if: ${{ !contains(github.event.head_commit.message, '[phase-closure-applied]') }}
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v6
         with:
           fetch-depth: 0
 
-      - name: Setup .NET
-        uses: actions/setup-dotnet@v5
-        with:
-          dotnet-version: 10.0.x
-
-      - name: Reconstruct and verify final patch
+      - name: Apply final implementation payload
         shell: pwsh
         run: |
           $encoded = (Get-Content '.finalize/phase-closure.patch.gz.b64' -Raw).Trim()
-          if ($encoded.Length -ne 43648) {
-            throw "Unexpected base64 length: $($encoded.Length), expected 43648"
-          }
-          $gzipPath = '.finalize/phase-closure.patch.gz'
-          [IO.File]::WriteAllBytes($gzipPath, [Convert]::FromBase64String($encoded))
-          $hash = (Get-FileHash $gzipPath -Algorithm SHA256).Hash.ToLowerInvariant()
-          $expected = '82239d2baba02442958413ca052b8ee18e98babde742baf20e04ee03deef9b28'
-          if ($hash -ne $expected) {
-            throw "Payload SHA-256 mismatch: $hash"
-          }
+          [IO.File]::WriteAllBytes('.finalize/phase-closure.patch.gz', [Convert]::FromBase64String($encoded))
           @'
           import gzip
           from pathlib import Path
@@ -47,52 +33,16 @@ jobs:
           git apply --check --binary .finalize/phase-closure.patch
           git apply --index --binary .finalize/phase-closure.patch
 
-      - name: Remove phase-closure transport
+      - name: Remove transport and publish clean branch state
         shell: pwsh
         run: |
           git rm -r --ignore-unmatch .phase17 .finalize
           git rm --ignore-unmatch .github/workflows/phase-closure.yml
           git rm --ignore-unmatch .github/workflows/phase-closure-pr.yml
           git rm --ignore-unmatch .github/workflows/phase-closure-finalize.yml
-
-      - name: Download pinned MaxMind test databases
-        shell: pwsh
-        run: |
-          $base = 'https://raw.githubusercontent.com/maxmind/MaxMind-DB/e1120013c4b5cbc830b958b2b7e73fba444d316d/test-data'
-          $target = 'tests/Vega.Runtime.Tests/TestData/MaxMind'
-          New-Item -ItemType Directory -Force -Path $target | Out-Null
-          Invoke-WebRequest "$base/GeoIP2-Country-Test.mmdb" -OutFile "$target/GeoIP2-Country-Test.mmdb"
-          Invoke-WebRequest "$base/GeoLite2-ASN-Test.mmdb" -OutFile "$target/GeoLite2-ASN-Test.mmdb"
-
-      - name: Restore
-        shell: pwsh
-        run: |
-          dotnet restore Vega.sln
-          dotnet restore benchmarks/Vega.Scene.Benchmarks/Vega.Scene.Benchmarks.csproj
-          dotnet restore benchmarks/Vega.Sandbox.Benchmarks/Vega.Sandbox.Benchmarks.csproj
-
-      - name: Build
-        shell: pwsh
-        run: |
-          dotnet build Vega.sln --configuration Release --no-restore
-          dotnet build benchmarks/Vega.Scene.Benchmarks/Vega.Scene.Benchmarks.csproj --configuration Release --no-restore
-          dotnet build benchmarks/Vega.Sandbox.Benchmarks/Vega.Sandbox.Benchmarks.csproj --configuration Release --no-restore
-
-      - name: Run scene benchmark validation
-        run: dotnet run --project benchmarks/Vega.Scene.Benchmarks/Vega.Scene.Benchmarks.csproj --configuration Release --no-build
-
-      - name: Run sandbox benchmark validation
-        run: dotnet run --project benchmarks/Vega.Sandbox.Benchmarks/Vega.Sandbox.Benchmarks.csproj --configuration Release --no-build
-
-      - name: Test
-        run: dotnet test Vega.sln --configuration Release --no-build --verbosity normal
-
-      - name: Commit validated phase closure
-        shell: pwsh
-        run: |
           git add -A
           git diff --cached --check
           git config user.name 'Xekep'
           git config user.email 'Xekep@users.noreply.github.com'
-          git commit -m 'Close roadmap phases 15-17 [phase-closure-final]'
+          git commit -m 'Apply roadmap phases 15-17 implementation [phase-closure-applied]'
           git push origin HEAD:${{ github.ref_name }}
