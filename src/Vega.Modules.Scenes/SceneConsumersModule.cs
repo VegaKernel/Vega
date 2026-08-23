@@ -21,6 +21,7 @@ public sealed class SceneConsumersModule : IVegaModule
         RegionVision = new RegionVisionService(scenes);
         LobbyVisuals = new LobbyVisualService(scenes);
         Clustering = new FakeProviderClusteringService(visibility);
+        LobbyComposition = new LobbySceneCompositionService(LobbyVisuals, Clustering);
     }
 
     public VegaModuleDescriptor Descriptor { get; } = new(
@@ -36,6 +37,8 @@ public sealed class SceneConsumersModule : IVegaModule
     public LobbyVisualService LobbyVisuals { get; }
 
     public FakeProviderClusteringService Clustering { get; }
+
+    public LobbySceneCompositionService LobbyComposition { get; }
 
     public void Start()
     {
@@ -54,6 +57,7 @@ public sealed class SceneConsumersModule : IVegaModule
             started = false;
         }
 
+        LobbyComposition.Dispose();
         Clustering.Dispose();
         LobbyVisuals.Dispose();
         RegionVision.Dispose();
@@ -64,6 +68,7 @@ public sealed class SceneConsumersModule : IVegaModule
     {
         WorldEdit.Clear(closed.PlayerId);
         RegionVision.Clear(closed.PlayerId);
+        LobbyComposition.RemoveObserver(closed.PlayerId);
     }
 }
 
@@ -71,7 +76,13 @@ public sealed class FakeProviderClusteringService(ISceneVisibilityRuntime visibi
 {
     private readonly Dictionary<string, IVisibilityLayerLease> layers = new(StringComparer.OrdinalIgnoreCase);
 
-    public IVisibilityLayerLease CreateOrReplace(string name, IEnumerable<PlayerId> observers)
+    public IVisibilityLayerLease CreateOrReplace(string name, IEnumerable<PlayerId> observers) =>
+        CreateOrReplace(name, observers, []);
+
+    public IVisibilityLayerLease CreateOrReplace(
+        string name,
+        IEnumerable<PlayerId> observers,
+        IEnumerable<SceneEntity> entities)
     {
         Remove(name);
         IVisibilityLayerLease layer = visibility.CreateLayer(
@@ -79,8 +90,24 @@ public sealed class FakeProviderClusteringService(ISceneVisibilityRuntime visibi
             name,
             $"FakeProviderClustering:{name}",
             observers);
+        foreach (SceneEntity entity in entities)
+        {
+            layer.Assign(entity);
+        }
+
         layers[name] = layer;
         return layer;
+    }
+
+    public bool SetObservers(string name, IEnumerable<PlayerId> observers)
+    {
+        if (!layers.TryGetValue(name, out IVisibilityLayerLease? layer))
+        {
+            return false;
+        }
+
+        layer.SetObservers(observers);
+        return true;
     }
 
     public bool Remove(string name)
@@ -278,7 +305,7 @@ public sealed class RegionVisionService(ISceneRuntime scenes) : IDisposable
 
 public sealed class LobbyVisualService(ISceneRuntime scenes) : IDisposable
 {
-    private readonly Dictionary<string, ISceneLease> visuals = new(StringComparer.OrdinalIgnoreCase);
+    private readonly Dictionary<string, Visual> visuals = new(StringComparer.OrdinalIgnoreCase);
 
     public void Show(
         string name,
@@ -289,34 +316,143 @@ public sealed class LobbyVisualService(ISceneRuntime scenes) : IDisposable
     {
         Remove(name);
         ISceneLease scene = scenes.CreateScene(WorldId.Primary, $"lobby:{name}", $"LobbyVisuals:{name}");
-        scene.AddOverlay(new SceneOverlayDefinition(
+        OverlayId overlay = scene.AddOverlay(new SceneOverlayDefinition(
             default,
             name,
             bounds,
             order,
             observers is null ? SceneObserverScope.Global : SceneObserverScope.Personal(observers),
             content));
-        visuals[name] = scene;
+        visuals[name] = new Visual(scene, overlay);
     }
 
-    public bool Remove(string name)
+    public bool Update(
+        string name,
+        SceneBounds bounds,
+        SceneTileArea content,
+        IReadOnlyCollection<PlayerId>? observers = null,
+        int order = 300)
     {
-        if (!visuals.Remove(name, out ISceneLease? scene))
+        if (!visuals.TryGetValue(name, out Visual? visual))
         {
             return false;
         }
 
-        scene.Dispose();
+        return visual.Scene.UpdateOverlay(visual.Overlay, new SceneOverlayDefinition(
+            visual.Overlay,
+            name,
+            bounds,
+            order,
+            observers is null ? SceneObserverScope.Global : SceneObserverScope.Personal(observers),
+            content));
+    }
+
+    public void HidePortal(
+        string name,
+        SceneBounds bounds,
+        IReadOnlyCollection<PlayerId>? observers = null,
+        int order = 350)
+    {
+        Show(
+            name,
+            bounds,
+            new SceneTileArea(
+                bounds.Width,
+                bounds.Height,
+                Enumerable.Repeat(SceneTile.Air, checked(bounds.Width * bounds.Height)).ToArray()),
+            observers,
+            order);
+    }
+
+    public bool Remove(string name)
+    {
+        if (!visuals.Remove(name, out Visual? visual))
+        {
+            return false;
+        }
+
+        visual.Scene.Dispose();
         return true;
     }
 
     public void Dispose()
     {
-        foreach (ISceneLease scene in visuals.Values)
+        foreach (Visual visual in visuals.Values)
         {
-            scene.Dispose();
+            visual.Scene.Dispose();
         }
 
         visuals.Clear();
+    }
+
+    private sealed record Visual(ISceneLease Scene, OverlayId Overlay);
+}
+
+public sealed class LobbySceneCompositionService(
+    LobbyVisualService visuals,
+    FakeProviderClusteringService clustering) : IDisposable
+{
+    private readonly Dictionary<string, HashSet<PlayerId>> observers = new(StringComparer.OrdinalIgnoreCase);
+
+    public void ShowFrame(
+        string composition,
+        SceneBounds bounds,
+        SceneTileArea frame,
+        IEnumerable<PlayerId> visibleTo)
+    {
+        HashSet<PlayerId> scope = visibleTo.ToHashSet();
+        observers[composition] = scope;
+        if (!visuals.Update(composition, bounds, frame, scope))
+        {
+            visuals.Show(composition, bounds, frame, scope);
+        }
+    }
+
+    public void HidePortal(
+        string composition,
+        SceneBounds bounds,
+        IEnumerable<PlayerId> hiddenFor)
+    {
+        HashSet<PlayerId> scope = hiddenFor.ToHashSet();
+        observers[composition] = scope;
+        visuals.HidePortal(composition, bounds, scope);
+    }
+
+    public void SetCluster(
+        string composition,
+        IEnumerable<PlayerId> visibleTo,
+        IEnumerable<SceneEntity> entities)
+    {
+        HashSet<PlayerId> scope = visibleTo.ToHashSet();
+        observers[composition] = scope;
+        clustering.CreateOrReplace(composition, scope, entities);
+    }
+
+    public void RemoveObserver(PlayerId playerId)
+    {
+        foreach ((string name, HashSet<PlayerId> scope) in observers.ToArray())
+        {
+            if (!scope.Remove(playerId))
+            {
+                continue;
+            }
+
+            clustering.SetObservers(name, scope);
+        }
+    }
+
+    public void Remove(string composition)
+    {
+        observers.Remove(composition);
+        visuals.Remove(composition);
+        clustering.Remove(composition);
+    }
+
+    public void Dispose()
+    {
+        foreach (string composition in observers.Keys.ToArray())
+        {
+            Remove(composition);
+        }
     }
 }

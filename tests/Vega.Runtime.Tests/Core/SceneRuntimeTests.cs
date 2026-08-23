@@ -153,6 +153,53 @@ public sealed class SceneRuntimeTests
         });
     }
 
+    [Test]
+    public void LobbyAnimationReusesOverlayAndHiddenPortalIsAirScopedToObserver()
+    {
+        var runtime = new SceneRuntime();
+        using var visuals = new LobbyVisualService(runtime);
+        var observer = new PlayerId(5);
+        var bounds = new SceneBounds(30, 40, 2, 2);
+        var first = new SceneTileArea(2, 2, Enumerable.Repeat(new SceneTile(1, Flags: SceneTileFlags.Active), 4).ToArray());
+        var second = new SceneTileArea(2, 2, Enumerable.Repeat(new SceneTile(2, Flags: SceneTileFlags.Active), 4).ToArray());
+        visuals.Show("panel", bounds, first, [observer]);
+        SceneId scene = runtime.SnapshotScenes().Single().Id;
+
+        Assert.That(visuals.Update("panel", bounds, second, [observer]), Is.True);
+        Assert.That(runtime.SnapshotScenes().Single().Id, Is.EqualTo(scene));
+        Assert.That(runtime.TryResolveTile(WorldId.Primary, observer, 30, 40, out SceneTile updated, out _), Is.True);
+        Assert.That(updated.TileType, Is.EqualTo(2));
+
+        visuals.HidePortal("panel", bounds, [observer]);
+        Assert.That(runtime.TryResolveTile(WorldId.Primary, observer, 30, 40, out SceneTile hidden, out _), Is.True);
+        Assert.That(hidden, Is.EqualTo(SceneTile.Air));
+        Assert.That(runtime.TryResolveTile(WorldId.Primary, new PlayerId(6), 30, 40, out _, out _), Is.False);
+    }
+
+    [Test]
+    public void ClusteringConsumerAssignsPlayerNpcAndProjectileInOneTransition()
+    {
+        var visibility = new SceneVisibilityRuntime();
+        using var clustering = new FakeProviderClusteringService(visibility);
+        var observer = new PlayerId(1);
+        SceneEntity[] entities =
+        [
+            new(SceneEntityKind.Player, 2),
+            new(SceneEntityKind.Npc, 10),
+            new(SceneEntityKind.Projectile, 20)
+        ];
+
+        clustering.CreateOrReplace("lobby", [observer], entities);
+        VisibilityLayerSnapshot snapshot = visibility.SnapshotLayers().Single();
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(snapshot.Entities, Is.EquivalentTo(entities));
+            Assert.That(entities.All(entity => visibility.CanObserve(WorldId.Primary, observer, entity)), Is.True);
+            Assert.That(entities.All(entity => !visibility.CanObserve(WorldId.Primary, new PlayerId(3), entity)), Is.True);
+        });
+    }
+
     private static SceneOverlayDefinition Overlay(
         string name,
         ushort tileType,

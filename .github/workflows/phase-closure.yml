@@ -1,0 +1,101 @@
+name: Phase closure validation
+
+on:
+  push:
+    branches:
+      - agent/close-phases-15-17
+
+permissions:
+  contents: write
+
+jobs:
+  validate-and-commit:
+    if: ${{ !contains(github.event.head_commit.message, '[phase-closure-validated]') }}
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-dotnet@v5
+        with:
+          dotnet-version: 10.0.x
+      - name: Apply production wiring and cleanup temporary CI hook
+        shell: pwsh
+        run: |
+          @'
+          from pathlib import Path
+          import re
+
+          p = Path("src/Vega.Runtime/Program.cs")
+          text = p.read_text(encoding="utf-8-sig")
+          world_anchor = "        using var worldReset = new WorldResetOrchestrator("
+          if world_anchor not in text:
+              raise SystemExit("world reset wiring anchor not found")
+          text = text.replace(
+              world_anchor,
+              '        var regionReset = new BindableWorldResetParticipant("regions");\n' + world_anchor,
+              1)
+          participant_anchor = "            [],\n            logger);"
+          if participant_anchor not in text:
+              raise SystemExit("world reset participant anchor not found")
+          text = text.replace(participant_anchor, "            [regionReset],\n            logger);", 1)
+
+          database_anchor = "            database = VegaDatabaseFactory.Create(databaseOptions, AppContext.BaseDirectory);"
+          if database_anchor not in text:
+              raise SystemExit("database factory anchor not found")
+          text = text.replace(
+              database_anchor,
+              database_anchor + "\n            regionReset.Bind(new RegionWorldResetParticipant(database.Regions));",
+              1)
+
+          deps = '["Vega.Backups", "Vega.Cluster", "Vega.Core", "Vega.Modules.AutoWorldCleaner", "Vega.Modules.Pvp", "Vega.Operations", "Vega.Persistence", "Vega.Regions", "Vega.Sandboxes", "Vega.Terraria", "Vega.TerminalUI"]'
+          if deps not in text:
+              raise SystemExit("runtime module dependency anchor not found")
+          text = text.replace(
+              deps,
+              '["Vega.Backups", "Vega.Cluster", "Vega.Core", "Vega.Modules.Administration", "Vega.Modules.AutoWorldCleaner", "Vega.Modules.Pvp", "Vega.Operations", "Vega.Persistence", "Vega.Regions", "Vega.Sandboxes", "Vega.Terraria", "Vega.TerminalUI"]',
+              1)
+
+          module_anchor = '    Module("Vega.Core", typeof(CommandDispatcher).Assembly, ["Vega.Contracts"]),'
+          if module_anchor not in text:
+              raise SystemExit("module snapshot anchor not found")
+          text = text.replace(
+              module_anchor,
+              module_anchor + '\n    Module("Vega.Modules.Administration", typeof(AccountCommand).Assembly, ["Vega.Contracts"]),',
+              1)
+          p.write_text(text, encoding="utf-8")
+
+          ci = Path(".github/workflows/ci.yml")
+          ci_text = ci.read_text(encoding="utf-8")
+          ci_text, count = re.subn(
+              r"      - name: Upload source checkout\n        uses: actions/upload-artifact@v4\n        with:\n          name: vega-source-checkout\n          path: \.\n          include-hidden-files: true\n          retention-days: 1\n",
+              "",
+              ci_text,
+              count=1)
+          if count != 1:
+              raise SystemExit("temporary CI checkout upload anchor not found")
+          ci.write_text(ci_text, encoding="utf-8")
+          '@ | python -
+      - name: Download pinned MaxMind test databases
+        shell: pwsh
+        run: |
+          $base = "https://raw.githubusercontent.com/maxmind/MaxMind-DB/e1120013c4b5cbc830b958b2b7e73fba444d316d/test-data"
+          $target = "tests/Vega.Runtime.Tests/TestData/MaxMind"
+          New-Item -ItemType Directory -Force -Path $target | Out-Null
+          Invoke-WebRequest "$base/GeoIP2-Country-Test.mmdb" -OutFile "$target/GeoIP2-Country-Test.mmdb"
+          Invoke-WebRequest "$base/GeoLite2-ASN-Test.mmdb" -OutFile "$target/GeoLite2-ASN-Test.mmdb"
+      - name: Restore
+        run: dotnet restore Vega.sln
+      - name: Build
+        run: dotnet build Vega.sln --configuration Release --no-restore
+      - name: Test
+        run: dotnet test Vega.sln --configuration Release --no-build --verbosity normal
+      - name: Commit validated wiring
+        shell: pwsh
+        run: |
+          git rm .github/workflows/phase-closure.yml
+          git config user.name "Xekep"
+          git config user.email "Xekep@users.noreply.github.com"
+          git add src/Vega.Runtime/Program.cs .github/workflows/ci.yml
+          git commit -m "Close administration and scene phase gaps [phase-closure-validated]"
+          git push origin HEAD:${{ github.ref_name }}
