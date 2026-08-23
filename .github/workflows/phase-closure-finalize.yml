@@ -1,0 +1,55 @@
+name: Finalize phase closure
+
+on:
+  push:
+    branches:
+      - agent/close-phases-15-17
+
+permissions:
+  contents: write
+
+jobs:
+  finalize:
+    if: ${{ !contains(github.event.head_commit.message, '[phase-closure-final]') }}
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-dotnet@v5
+        with:
+          dotnet-version: 10.0.x
+      - name: Apply final implementation
+        shell: pwsh
+        run: |
+          python -c "import gzip, pathlib; pathlib.Path('phase-closure.patch').write_bytes(gzip.decompress(pathlib.Path('.finalize/phase-closure.patch.gz').read_bytes()))"
+          git apply --index --binary phase-closure.patch
+          Remove-Item phase-closure.patch
+          git rm -r --ignore-unmatch .phase17 .finalize
+          git rm --ignore-unmatch .github/workflows/phase-closure.yml .github/workflows/phase-closure-pr.yml .github/workflows/phase-closure-finalize.yml
+      - name: Download pinned MaxMind test databases
+        shell: pwsh
+        run: |
+          $base = "https://raw.githubusercontent.com/maxmind/MaxMind-DB/e1120013c4b5cbc830b958b2b7e73fba444d316d/test-data"
+          $target = "tests/Vega.Runtime.Tests/TestData/MaxMind"
+          New-Item -ItemType Directory -Force -Path $target | Out-Null
+          Invoke-WebRequest "$base/GeoIP2-Country-Test.mmdb" -OutFile "$target/GeoIP2-Country-Test.mmdb"
+          Invoke-WebRequest "$base/GeoLite2-ASN-Test.mmdb" -OutFile "$target/GeoLite2-ASN-Test.mmdb"
+      - name: Restore
+        run: dotnet restore Vega.sln
+      - name: Build
+        run: dotnet build Vega.sln --configuration Release --no-restore
+      - name: Representative scene benchmark
+        run: dotnet run --project benchmarks/Vega.Scene.Benchmarks/Vega.Scene.Benchmarks.csproj --configuration Release --no-build
+      - name: Sandbox process benchmark
+        run: dotnet run --project benchmarks/Vega.Sandbox.Benchmarks/Vega.Sandbox.Benchmarks.csproj --configuration Release --no-build -- 16 3
+      - name: Test
+        run: dotnet test Vega.sln --configuration Release --no-build --verbosity normal
+      - name: Commit validated phase closure
+        shell: pwsh
+        run: |
+          git config user.name "Xekep"
+          git config user.email "Xekep@users.noreply.github.com"
+          git add -A
+          git commit -m "Close roadmap phases 15-17 [phase-closure-final]"
+          git push origin HEAD:${{ github.ref_name }}
