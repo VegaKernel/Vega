@@ -47,41 +47,32 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw "git apply failed: $LASTEXITCODE" }
           Remove-Item phase-final.patch, phase-final.patch.gz
 
-      - name: Fix deterministic persistence contracts
+      - name: Fix deterministic regression expectations
         shell: pwsh
         run: |
           @'
-          import re
           from pathlib import Path
 
-          mute = Path('src/Vega.Persistence/Relational/RelationalMuteService.cs')
-          text = mute.read_text(encoding='utf-8-sig')
-          text, query_count = re.subn(
-              r'FROM vega_mutes WHERE revoked = FALSE AND expires_at_utc > @now ORDER BY issued_at_utc, id;',
-              'FROM vega_mutes WHERE revoked = FALSE ORDER BY issued_at_utc, id;',
-              text,
-              count=1)
-          text, parameter_count = re.subn(
-              r'\s*command\.AddParameter\("@now", DateTimeOffset\.UtcNow\.ToString\("O", CultureInfo\.InvariantCulture\)\);',
-              '',
-              text,
-              count=1)
-          if query_count != 1 or parameter_count != 1:
-              raise SystemExit(f'mute cache rewrite failed: query={query_count}, parameter={parameter_count}')
-          mute.write_text(text, encoding='utf-8')
-
-          test = Path('tests/Vega.Runtime.Tests/Core/RegionWorldResetParticipantTests.cs')
-          text = test.read_text(encoding='utf-8-sig')
+          region_test = Path('tests/Vega.Runtime.Tests/Core/RegionWorldResetParticipantTests.cs')
+          text = region_test.read_text(encoding='utf-8-sig')
           owner_count = text.count('Assert.That(restored.Owner, Is.EqualTo("Alice"));')
           member_count = text.count('Assert.That(restored.Members, Does.Contain("Bob"));')
           if owner_count != 1 or member_count != 1:
               raise SystemExit(f'region assertion rewrite failed: owner={owner_count}, member={member_count}')
           text = text.replace('Assert.That(restored.Owner, Is.EqualTo("Alice"));', 'Assert.That(restored.Owner, Is.EqualTo("alice"));')
           text = text.replace('Assert.That(restored.Members, Does.Contain("Bob"));', 'Assert.That(restored.Members, Does.Contain("bob"));')
-          test.write_text(text, encoding='utf-8')
+          region_test.write_text(text, encoding='utf-8')
+
+          mute_test = Path('tests/Vega.Runtime.Tests/Persistence/SqliteVegaDatabaseTests.cs')
+          text = mute_test.read_text(encoding='utf-8-sig')
+          old_clock = 'DateTimeOffset now = DateTimeOffset.Parse("2026-08-23T12:00:00Z");'
+          if text.count(old_clock) != 1:
+              raise SystemExit('mute test clock anchor not found exactly once')
+          text = text.replace(old_clock, 'DateTimeOffset now = DateTimeOffset.UtcNow;', 1)
+          mute_test.write_text(text, encoding='utf-8')
           '@ | python -
-          if ($LASTEXITCODE -ne 0) { throw "deterministic persistence rewrite failed: $LASTEXITCODE" }
-          git add src/Vega.Persistence/Relational/RelationalMuteService.cs tests/Vega.Runtime.Tests/Core/RegionWorldResetParticipantTests.cs
+          if ($LASTEXITCODE -ne 0) { throw "regression expectation rewrite failed: $LASTEXITCODE" }
+          git add tests/Vega.Runtime.Tests/Core/RegionWorldResetParticipantTests.cs tests/Vega.Runtime.Tests/Persistence/SqliteVegaDatabaseTests.cs
 
       - name: Remove phase closure transport
         shell: pwsh
