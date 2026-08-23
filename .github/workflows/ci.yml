@@ -80,7 +80,28 @@ jobs:
         with:
           dotnet-version: 10.0.x
       - name: Install provider dump tools
-        run: sudo apt-get update && sudo apt-get install -y postgresql-client default-mysql-client
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install -y curl ca-certificates
+          sudo install -d /usr/share/postgresql-common/pgdg
+          sudo curl --fail --show-error --silent \
+            -o /usr/share/postgresql-common/pgdg/apt.postgresql.org.asc \
+            https://www.postgresql.org/media/keys/ACCC4CF8.asc
+          . /etc/os-release
+          cat <<EOF | sudo tee /etc/apt/sources.list.d/pgdg.sources >/dev/null
+          Types: deb
+          URIs: https://apt.postgresql.org/pub/repos/apt
+          Suites: ${VERSION_CODENAME}-pgdg
+          Architectures: $(dpkg --print-architecture)
+          Components: main
+          Signed-By: /usr/share/postgresql-common/pgdg/apt.postgresql.org.asc
+          EOF
+          sudo apt-get update
+          sudo apt-get install -y postgresql-client-17 default-mysql-client
+          pg_dump --version
+          mysqldump --version
       - name: Restore persistence contracts
         run: dotnet restore tests/Vega.Runtime.Tests/Vega.Runtime.Tests.csproj
       - name: Run empty-provider and logical-dump contracts
