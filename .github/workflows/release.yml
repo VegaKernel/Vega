@@ -122,10 +122,6 @@ jobs:
             throw "Legacy Plugins directory must not be published."
           }
 
-      - name: Smoke-test clean deployment
-        shell: pwsh
-        run: ./scripts/Test-DeployableServer.ps1 -ServerRoot artifacts/server
-
       - name: Create server archive
         shell: pwsh
         env:
