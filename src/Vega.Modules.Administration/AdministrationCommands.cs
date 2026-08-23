@@ -201,8 +201,8 @@ public sealed class AccountCommand(
         }
 
         AccountMutationResult result = await accounts.ChangePasswordAsync(
-            accountName: before.Name,
-            newPassword: invocation.Arguments[2],
+            name: before.Name,
+            password: invocation.Arguments[2],
             expectedRevision: before.Revision,
             actor: invocation.Principal.Name,
             cancellationToken).ConfigureAwait(false);

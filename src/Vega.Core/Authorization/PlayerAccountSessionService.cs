@@ -47,6 +47,35 @@ public sealed class PlayerAccountSessionService : IPlayerAccountSessionService, 
         }
     }
 
+    public async ValueTask<bool> EstablishTrustedTransferAsync(
+        PlayerId playerId,
+        string accountId,
+        CancellationToken cancellationToken = default)
+    {
+        if (!int.TryParse(accountId, out int numericId) || numericId <= 0)
+        {
+            return false;
+        }
+
+        if (TryGetAccount(playerId, out AccountSnapshot? current) && current is not null)
+        {
+            return current.Id.Value == numericId;
+        }
+
+        AccountSnapshot? account = accounts.SnapshotAccounts()
+            .FirstOrDefault(candidate => candidate.Id.Value == numericId);
+        if (account is null)
+        {
+            return false;
+        }
+
+        PlayerAccountSessionResult established = await EstablishAsync(
+            playerId,
+            account,
+            cancellationToken).ConfigureAwait(false);
+        return established.Succeeded;
+    }
+
     public async ValueTask<bool> SetCultureAsync(
         PlayerId playerId,
         string? culture,

@@ -11,5 +11,6 @@
 
   <ItemGroup>
     <ProjectReference Include="..\..\src\Vega.Core\Vega.Core.csproj" />
+    <ProjectReference Include="..\..\src\Vega.Modules.Scenes\Vega.Modules.Scenes.csproj" />
   </ItemGroup>
 </Project>

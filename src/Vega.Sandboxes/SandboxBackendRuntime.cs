@@ -18,6 +18,8 @@ public sealed record SandboxBackendLaunchOptions(
     string StatusPath,
     byte[] AuthenticationKey,
     IReadOnlySet<string> EnabledModules,
+    SandboxSscMode SscMode,
+    string SscStorePath,
     IReadOnlyList<string> ServerArguments)
 {
     public static SandboxBackendLaunchOptions Parse(
@@ -30,12 +32,16 @@ public sealed record SandboxBackendLaunchOptions(
         string? instance = null;
         string? status = null;
         string? modules = null;
+        string? sscMode = null;
+        string? sscStore = null;
         foreach (string argument in arguments)
         {
             if (TryRead(argument, "--vega-backend-world-id", out string? value)) worldId = value;
             else if (TryRead(argument, "--vega-backend-instance", out value)) instance = value;
             else if (TryRead(argument, "--vega-backend-status", out value)) status = value;
             else if (TryRead(argument, "--vega-backend-modules", out value)) modules = value;
+            else if (TryRead(argument, "--vega-backend-ssc-mode", out value)) sscMode = value;
+            else if (TryRead(argument, "--vega-backend-ssc-store", out value)) sscStore = value;
             else remaining.Add(argument);
         }
 
@@ -43,11 +49,18 @@ public sealed record SandboxBackendLaunchOptions(
         if (!requested)
         {
             return new SandboxBackendLaunchOptions(
-                false, default, default, string.Empty, [], new HashSet<string>(), remaining);
+                false, default, default, string.Empty, [], new HashSet<string>(), SandboxSscMode.Disabled, string.Empty, remaining);
+        }
+
+        SandboxSscMode parsedSscMode = SandboxSscMode.Disabled;
+        if (sscMode is not null && !Enum.TryParse(sscMode, true, out parsedSscMode))
+        {
+            throw new ArgumentException("Vega sandbox backend SSC mode is invalid.");
         }
 
         if (string.IsNullOrWhiteSpace(worldId) || !Guid.TryParse(instance, out Guid instanceId) ||
             string.IsNullOrWhiteSpace(status) ||
+            parsedSscMode != SandboxSscMode.Disabled && string.IsNullOrWhiteSpace(sscStore) ||
             string.IsNullOrWhiteSpace(environment("VEGA_BACKEND_TOKEN")))
         {
             throw new ArgumentException("Incomplete authenticated Vega sandbox backend launch context.");
@@ -79,6 +92,8 @@ public sealed record SandboxBackendLaunchOptions(
             new HashSet<string>(
                 (modules ?? string.Empty).Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries),
                 StringComparer.OrdinalIgnoreCase),
+            parsedSscMode,
+            string.IsNullOrWhiteSpace(sscStore) ? string.Empty : Path.GetFullPath(sscStore),
             Array.AsReadOnly(remaining.ToArray()));
     }
 

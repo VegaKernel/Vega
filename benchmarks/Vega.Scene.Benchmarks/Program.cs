@@ -4,6 +4,7 @@ using Vega.Contracts.Players;
 using Vega.Contracts.Scenes;
 using Vega.Contracts.Worlds;
 using Vega.Core.Scenes;
+using Vega.Modules.Scenes;
 
 const int overlayCount = 64;
 const int lookupCount = 250_000;
@@ -62,13 +63,44 @@ Measurement personalOverlays = Measure("personal_overlay_create_16x16", 1_000, (
     personalLeases.Add(lease);
 });
 
+var consumerRuntime = new SceneRuntime();
+var consumerVisibility = new SceneVisibilityRuntime();
+using var worldEdit = new WorldEditPreviewService(consumerRuntime);
+using var lobbyVisuals = new LobbyVisualService(consumerRuntime);
+using var clustering = new FakeProviderClusteringService(consumerVisibility);
+using var lobby = new LobbySceneCompositionService(lobbyVisuals, clustering);
+var previewObserver = new PlayerId(17);
+var previewMask = new SceneTileArea(32, 32, Enumerable.Repeat(new SceneTile(2, Flags: SceneTileFlags.Active), 32 * 32).ToArray());
+worldEdit.Show(previewObserver, "large-copy", new SceneBounds(0, 0, 32, 32), area, previewMask);
+int previewMove = 0;
+Measurement worldEditMoves = Measure("worldedit_preview_move_with_mask", 10_000, () =>
+{
+    int x = previewMove++ & 127;
+    worldEdit.Move(previewObserver, new SceneBounds(x, 64, 32, 32), area, previewMask);
+});
+
+PlayerId[] lobbyObservers = Enumerable.Range(0, 200).Select(static slot => new PlayerId(slot)).ToArray();
+var entities = Enumerable.Range(0, 300)
+    .Select(static slot => new SceneEntity(SceneEntityKind.Npc, slot))
+    .ToArray();
+lobby.ShowFrame("spawn", new SceneBounds(96, 96, 32, 32), area, lobbyObservers);
+lobby.HidePortal("spawn", new SceneBounds(128, 96, 8, 12), lobbyObservers);
+lobby.SetCluster("spawn", lobbyObservers, entities);
+int churn = 0;
+Measurement lobbyChurn = Measure("lobby_composition_observer_churn_200x300", 2_000, () =>
+{
+    var removed = new PlayerId(churn++ % 200);
+    lobby.RemoveObserver(removed);
+    clustering.SetObservers("spawn:cluster", lobbyObservers);
+});
+
 Console.WriteLine(JsonSerializer.Serialize(
     new
     {
         Runtime = Environment.Version.ToString(),
         ProcessArchitecture = System.Runtime.InteropServices.RuntimeInformation.ProcessArchitecture.ToString(),
         OverlayCount = overlayCount,
-        Results = new[] { lookup, section, observerChanges, personalOverlays }
+        Results = new[] { lookup, section, observerChanges, personalOverlays, worldEditMoves, lobbyChurn }
     },
     new JsonSerializerOptions { WriteIndented = true }));
 

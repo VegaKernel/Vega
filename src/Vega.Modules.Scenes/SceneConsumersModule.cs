@@ -323,7 +323,7 @@ public sealed class LobbyVisualService(ISceneRuntime scenes) : IDisposable
             order,
             observers is null ? SceneObserverScope.Global : SceneObserverScope.Personal(observers),
             content));
-        visuals[name] = new Visual(scene, overlay);
+        visuals[name] = new Visual(scene, overlay, bounds, content, order);
     }
 
     public bool Update(
@@ -338,13 +338,35 @@ public sealed class LobbyVisualService(ISceneRuntime scenes) : IDisposable
             return false;
         }
 
-        return visual.Scene.UpdateOverlay(visual.Overlay, new SceneOverlayDefinition(
+        bool updated = visual.Scene.UpdateOverlay(visual.Overlay, new SceneOverlayDefinition(
             visual.Overlay,
             name,
             bounds,
             order,
             observers is null ? SceneObserverScope.Global : SceneObserverScope.Personal(observers),
             content));
+        if (updated)
+        {
+            visuals[name] = visual with { Bounds = bounds, Content = content, Order = order };
+        }
+
+        return updated;
+    }
+
+    public bool SetObservers(string name, IReadOnlyCollection<PlayerId> observers)
+    {
+        if (!visuals.TryGetValue(name, out Visual? visual))
+        {
+            return false;
+        }
+
+        return visual.Scene.UpdateOverlay(visual.Overlay, new SceneOverlayDefinition(
+            visual.Overlay,
+            name,
+            visual.Bounds,
+            visual.Order,
+            SceneObserverScope.Personal(observers),
+            visual.Content));
     }
 
     public void HidePortal(
@@ -385,7 +407,12 @@ public sealed class LobbyVisualService(ISceneRuntime scenes) : IDisposable
         visuals.Clear();
     }
 
-    private sealed record Visual(ISceneLease Scene, OverlayId Overlay);
+    private sealed record Visual(
+        ISceneLease Scene,
+        OverlayId Overlay,
+        SceneBounds Bounds,
+        SceneTileArea Content,
+        int Order);
 }
 
 public sealed class LobbySceneCompositionService(
@@ -402,9 +429,10 @@ public sealed class LobbySceneCompositionService(
     {
         HashSet<PlayerId> scope = visibleTo.ToHashSet();
         observers[composition] = scope;
-        if (!visuals.Update(composition, bounds, frame, scope))
+        string visualName = VisualName(composition, "frame");
+        if (!visuals.Update(visualName, bounds, frame, scope))
         {
-            visuals.Show(composition, bounds, frame, scope);
+            visuals.Show(visualName, bounds, frame, scope);
         }
     }
 
@@ -415,7 +443,7 @@ public sealed class LobbySceneCompositionService(
     {
         HashSet<PlayerId> scope = hiddenFor.ToHashSet();
         observers[composition] = scope;
-        visuals.HidePortal(composition, bounds, scope);
+        visuals.HidePortal(VisualName(composition, "portal"), bounds, scope);
     }
 
     public void SetCluster(
@@ -425,7 +453,7 @@ public sealed class LobbySceneCompositionService(
     {
         HashSet<PlayerId> scope = visibleTo.ToHashSet();
         observers[composition] = scope;
-        clustering.CreateOrReplace(composition, scope, entities);
+        clustering.CreateOrReplace(ClusterName(composition), scope, entities);
     }
 
     public void RemoveObserver(PlayerId playerId)
@@ -437,15 +465,18 @@ public sealed class LobbySceneCompositionService(
                 continue;
             }
 
-            clustering.SetObservers(name, scope);
+            visuals.SetObservers(VisualName(name, "frame"), scope);
+            visuals.SetObservers(VisualName(name, "portal"), scope);
+            clustering.SetObservers(ClusterName(name), scope);
         }
     }
 
     public void Remove(string composition)
     {
         observers.Remove(composition);
-        visuals.Remove(composition);
-        clustering.Remove(composition);
+        visuals.Remove(VisualName(composition, "frame"));
+        visuals.Remove(VisualName(composition, "portal"));
+        clustering.Remove(ClusterName(composition));
     }
 
     public void Dispose()
@@ -455,4 +486,8 @@ public sealed class LobbySceneCompositionService(
             Remove(composition);
         }
     }
+
+    private static string VisualName(string composition, string role) => $"{composition}:{role}";
+
+    private static string ClusterName(string composition) => $"{composition}:cluster";
 }

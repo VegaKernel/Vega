@@ -80,6 +80,8 @@ public sealed class SandboxControlTests
                 $"--vega-backend-instance={Guid.NewGuid():D}",
                 "--vega-backend-status=status.json",
                 "--vega-backend-modules=WorldEdit,RegionVision",
+                "--vega-backend-ssc-mode=Isolated",
+                $"--vega-backend-ssc-store={Path.Combine(Path.GetTempPath(), "ssc.json")}",
                 "-world",
                 "arena.wld"
             ],
@@ -90,6 +92,8 @@ public sealed class SandboxControlTests
             Assert.That(launch.IsBackend, Is.True);
             Assert.That(launch.WorldId, Is.EqualTo(new WorldId("arena")));
             Assert.That(launch.EnabledModules, Is.EquivalentTo(new[] { "WorldEdit", "RegionVision" }));
+            Assert.That(launch.SscMode, Is.EqualTo(SandboxSscMode.Isolated));
+            Assert.That(launch.SscStorePath, Is.Not.Empty);
             Assert.That(launch.ServerArguments, Is.EqualTo(new[] { "-world", "arena.wld" }));
         });
     }
@@ -112,6 +116,159 @@ public sealed class SandboxControlTests
                 Assert.That(tickets.ValidateAndConsume(ticket, new WorldId("arena"), DateTimeOffset.UtcNow),
                     Is.EqualTo(SandboxTransferValidationStatus.Replayed));
             });
+        }
+        finally
+        {
+            if (Directory.Exists(root)) Directory.Delete(root, true);
+        }
+    }
+
+
+    [Test]
+    public void SscStorePersistsCopyOnEnterAndRejectsStaleWrites()
+    {
+        string root = Path.Combine(Path.GetTempPath(), "vega-sandbox-ssc-tests", Guid.NewGuid().ToString("N"));
+        string path = Path.Combine(root, "ssc.json");
+        try
+        {
+            var store = new SandboxSscStore(path);
+            SandboxSscWriteResult primary = store.Save(
+                "account", WorldId.Primary, SandboxSscMode.Inherit, "primary-v1", 0, DateTimeOffset.UtcNow);
+            Assert.That(primary.IsSuccess, Is.True);
+
+            SandboxSscTransferPreparation enter = store.PrepareTransfer(
+                "account", WorldId.Primary, new WorldId("arena"),
+                SandboxSscMode.Inherit, SandboxSscMode.CopyOnEnter,
+                DateTimeOffset.UtcNow, TimeSpan.FromSeconds(30));
+            Assert.That(enter.Accepted, Is.True);
+            Assert.That(enter.Lease, Is.Not.Null);
+            Assert.That(store.StageTransferState(
+                enter.Lease!.LeaseId, "account", "primary-v1", DateTimeOffset.UtcNow).Accepted, Is.True);
+            Assert.That(store.CommitTransfer(
+                enter.Lease.LeaseId, "account", new WorldId("arena"), DateTimeOffset.UtcNow).Accepted, Is.True);
+
+            SandboxSscStateSnapshot copied = store.Read(
+                "account", new WorldId("arena"), SandboxSscMode.CopyOnEnter)!;
+            Assert.That(copied.Payload, Is.EqualTo("primary-v1"));
+
+            SandboxSscWriteResult sandbox = store.Save(
+                "account", new WorldId("arena"), SandboxSscMode.CopyOnEnter,
+                "arena-v2", copied.Revision, DateTimeOffset.UtcNow);
+            Assert.That(sandbox.IsSuccess, Is.True);
+            Assert.That(store.Save(
+                "account", new WorldId("arena"), SandboxSscMode.CopyOnEnter,
+                "stale", copied.Revision, DateTimeOffset.UtcNow).Status,
+                Is.EqualTo(SandboxSscWriteStatus.Conflict));
+
+            SandboxSscTransferPreparation leave = store.PrepareTransfer(
+                "account", new WorldId("arena"), WorldId.Primary,
+                SandboxSscMode.CopyOnEnter, SandboxSscMode.Inherit,
+                DateTimeOffset.UtcNow, TimeSpan.FromSeconds(30));
+            Assert.That(store.StageTransferState(
+                leave.Lease!.LeaseId, "account", "arena-v2", DateTimeOffset.UtcNow).Accepted, Is.True);
+            Assert.That(store.CommitTransfer(
+                leave.Lease.LeaseId, "account", WorldId.Primary, DateTimeOffset.UtcNow).Accepted, Is.True);
+
+            var reopened = new SandboxSscStore(path);
+            SandboxSscStateSnapshot restored = reopened.Read(
+                "account", WorldId.Primary, SandboxSscMode.Inherit)!;
+            Assert.That(restored.Payload, Is.EqualTo("primary-v1"));
+        }
+        finally
+        {
+            if (Directory.Exists(root)) Directory.Delete(root, true);
+        }
+    }
+
+    [Test]
+    public void TransferAdmissionBindsTrustedIdentityAndIsSingleUse()
+    {
+        string root = Path.Combine(Path.GetTempPath(), "vega-sandbox-admission-tests", Guid.NewGuid().ToString("N"));
+        try
+        {
+            Directory.CreateDirectory(root);
+            var tickets = new SandboxTransferTicketService(Path.Combine(root, "control.key"));
+            var admissions = new SandboxTransferAdmissionService(Path.Combine(root, "admissions.json"), tickets);
+            var target = new WorldId("arena");
+            SandboxTransferTicket ticket = tickets.Issue("account", WorldId.Primary, target);
+            const string uuid = "755a3c87-6f2b-4ec9-aed4-b8eeaf855c81";
+
+            Assert.That(admissions.Register(ticket, "203.0.113.9", uuid, DateTimeOffset.UtcNow).Accepted, Is.True);
+            Assert.That(admissions.Consume(target, "203.0.113.10", uuid, DateTimeOffset.UtcNow).Accepted, Is.False);
+            SandboxTransferAdmissionResult accepted = admissions.Consume(
+                target, "203.0.113.9", uuid, DateTimeOffset.UtcNow);
+            Assert.Multiple(() =>
+            {
+                Assert.That(accepted.Accepted, Is.True);
+                Assert.That(accepted.Ticket?.AccountId, Is.EqualTo("account"));
+            });
+            SandboxTransferAdmissionResult replay = admissions.Consume(
+                target, "203.0.113.9", uuid, DateTimeOffset.UtcNow);
+            Assert.Multiple(() =>
+            {
+                Assert.That(replay.Accepted, Is.False);
+                Assert.That(replay.ErrorCode, Is.EqualTo("sandbox.transfer.admission_required"));
+            });
+        }
+        finally
+        {
+            if (Directory.Exists(root)) Directory.Delete(root, true);
+        }
+    }
+
+    [Test]
+    public void SscStoreCoordinatesConcurrentProcessesAndPreservesIsolatedTarget()
+    {
+        string root = Path.Combine(Path.GetTempPath(), "vega-sandbox-ssc-concurrency", Guid.NewGuid().ToString("N"));
+        string path = Path.Combine(root, "ssc.json");
+        try
+        {
+            var first = new SandboxSscStore(path);
+            var second = new SandboxSscStore(path);
+            SandboxSscWriteResult seeded = first.Save(
+                "account", new WorldId("arena"), SandboxSscMode.Isolated, "isolated-v1", 0, DateTimeOffset.UtcNow);
+            Assert.That(seeded.IsSuccess, Is.True);
+
+            SandboxSscWriteResult stale = second.Save(
+                "account", new WorldId("arena"), SandboxSscMode.Isolated, "stale", 0, DateTimeOffset.UtcNow);
+            Assert.That(stale.Status, Is.EqualTo(SandboxSscWriteStatus.Conflict));
+
+            SandboxSscTransferPreparation transfer = first.PrepareTransfer(
+                "account", WorldId.Primary, new WorldId("arena"),
+                SandboxSscMode.Disabled, SandboxSscMode.Isolated,
+                DateTimeOffset.UtcNow, TimeSpan.FromSeconds(30));
+            Assert.That(transfer.Accepted, Is.True);
+            Assert.That(first.StageTransferState(
+                transfer.Lease!.LeaseId, "account", "client-current", DateTimeOffset.UtcNow).Accepted, Is.True);
+            Assert.That(second.CommitTransfer(
+                transfer.Lease.LeaseId, "account", new WorldId("arena"), DateTimeOffset.UtcNow).Accepted, Is.True);
+
+            SandboxSscStateSnapshot preserved = first.Read(
+                "account", new WorldId("arena"), SandboxSscMode.Isolated)!;
+            Assert.That(preserved.Payload, Is.EqualTo("isolated-v1"));
+        }
+        finally
+        {
+            if (Directory.Exists(root)) Directory.Delete(root, true);
+        }
+    }
+
+    [Test]
+    public void ResetDeletesOnlyWorldScopedSscState()
+    {
+        string root = Path.Combine(Path.GetTempPath(), "vega-sandbox-ssc-reset", Guid.NewGuid().ToString("N"));
+        string path = Path.Combine(root, "ssc.json");
+        try
+        {
+            var store = new SandboxSscStore(path);
+            Assert.That(store.Save(
+                "account", WorldId.Primary, SandboxSscMode.Inherit, "shared", 0, DateTimeOffset.UtcNow).IsSuccess, Is.True);
+            Assert.That(store.Save(
+                "account", new WorldId("arena"), SandboxSscMode.Isolated, "isolated", 0, DateTimeOffset.UtcNow).IsSuccess, Is.True);
+
+            Assert.That(store.DeleteWorldState(new WorldId("arena")), Is.EqualTo(1));
+            Assert.That(store.Read("account", new WorldId("arena"), SandboxSscMode.Isolated), Is.Null);
+            Assert.That(store.Read("account", WorldId.Primary, SandboxSscMode.Inherit)?.Payload, Is.EqualTo("shared"));
         }
         finally
         {
@@ -146,7 +303,7 @@ public sealed class SandboxControlTests
                 8,
                 new SandboxAccessPolicy(SandboxAccessMode.Public),
                 TimeSpan.FromMinutes(30),
-                SandboxSscMode.Disabled,
+                SandboxSscMode.Isolated,
                 new HashSet<string>()))).IsSuccess, Is.True);
 
             SandboxOperationResult started = await control.StartAsync(new WorldId("ready"));
@@ -159,6 +316,168 @@ public sealed class SandboxControlTests
 
             SandboxOperationResult stopped = await control.StopAsync(new WorldId("ready"));
             Assert.That(stopped.Sandbox?.State, Is.EqualTo(SandboxLifecycleState.Stopped));
+        }
+        finally
+        {
+            Directory.Delete(root, true);
+        }
+    }
+
+    [Test]
+    public async Task LowDiskRejectsMaterializationWithoutDamagingSource()
+    {
+        string root = Path.Combine(Path.GetTempPath(), "vega-sandbox-low-disk", Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(root);
+        string source = Path.Combine(root, "template.wld");
+        await File.WriteAllBytesAsync(source, [1, 2, 3]);
+        try
+        {
+            using var control = new SandboxControlService(
+                root,
+                SandboxOptions.Default,
+                new RecordingLogger(),
+                FindTestBackend(),
+                availableFreeSpace: _ => 0);
+            SandboxOperationResult created = await control.CreateAsync(new SandboxCreateRequest(
+                "disk",
+                "Disk",
+                source,
+                SandboxPersistenceMode.Temporary,
+                8,
+                new SandboxAccessPolicy(SandboxAccessMode.Public),
+                TimeSpan.FromMinutes(30),
+                SandboxSscMode.Disabled,
+                new HashSet<string>()));
+
+            byte[] preserved = await File.ReadAllBytesAsync(source);
+            Assert.Multiple(() =>
+            {
+                Assert.That(created.IsSuccess, Is.False);
+                Assert.That(created.ErrorCode, Is.EqualTo("sandbox.create_failed"));
+                Assert.That(preserved, Is.EqualTo(new byte[] { 1, 2, 3 }));
+            });
+        }
+        finally
+        {
+            Directory.Delete(root, true);
+        }
+    }
+
+    [Test]
+    public async Task SimultaneousStartsRespectGlobalActiveBudget()
+    {
+        string root = Path.Combine(Path.GetTempPath(), "vega-sandbox-simultaneous", Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(root);
+        string source = Path.Combine(root, "template.wld");
+        await File.WriteAllBytesAsync(source, [1, 2, 3]);
+        try
+        {
+            SandboxOptions options = SandboxOptions.Default with
+            {
+                MaximumActiveWorlds = 1,
+                StartTimeoutSeconds = 10,
+                GracefulStopTimeoutSeconds = 5
+            };
+            using var control = new SandboxControlService(root, options, new RecordingLogger(), FindTestBackend());
+            foreach (string id in new[] { "one", "two" })
+            {
+                Assert.That((await control.CreateAsync(new SandboxCreateRequest(
+                    id, id, source, SandboxPersistenceMode.Temporary, 8,
+                    new SandboxAccessPolicy(SandboxAccessMode.Public), TimeSpan.FromMinutes(30),
+                    SandboxSscMode.Disabled, new HashSet<string>()))).IsSuccess, Is.True);
+            }
+
+            SandboxOperationResult[] results = await Task.WhenAll(
+                control.StartAsync(new WorldId("one")).AsTask(),
+                control.StartAsync(new WorldId("two")).AsTask());
+
+            Assert.Multiple(() =>
+            {
+                Assert.That(results.Count(static result => result.IsSuccess), Is.EqualTo(1));
+                Assert.That(results.Count(static result => result.ErrorCode == "sandbox.admission_budget"), Is.EqualTo(1));
+                Assert.That(control.Snapshot().Count(static status => status.State == SandboxLifecycleState.Ready), Is.EqualTo(1));
+            });
+        }
+        finally
+        {
+            Directory.Delete(root, true);
+        }
+    }
+
+    [Test]
+    public async Task ControlPlaneRestartReconcilesSignedRunningBackend()
+    {
+        string root = Path.Combine(Path.GetTempPath(), "vega-sandbox-reconcile", Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(root);
+        string source = Path.Combine(root, "template.wld");
+        await File.WriteAllBytesAsync(source, [1, 2, 3]);
+        SandboxControlService? first = null;
+        SandboxControlService? second = null;
+        try
+        {
+            SandboxOptions options = SandboxOptions.Default with
+            {
+                MaximumAutomaticRestarts = 0,
+                StartTimeoutSeconds = 10,
+                GracefulStopTimeoutSeconds = 5
+            };
+            first = new SandboxControlService(root, options, new RecordingLogger(), FindTestBackend());
+            Assert.That((await first.CreateAsync(new SandboxCreateRequest(
+                "reconcile", "Reconcile", source, SandboxPersistenceMode.Temporary, 8,
+                new SandboxAccessPolicy(SandboxAccessMode.Public), TimeSpan.FromMinutes(30),
+                SandboxSscMode.Disabled, new HashSet<string>()))).IsSuccess, Is.True);
+            SandboxOperationResult started = await first.StartAsync(new WorldId("reconcile"));
+            Assert.That(started.IsSuccess, Is.True, started.Message);
+            int processId = started.Sandbox!.ProcessId!.Value;
+
+            second = new SandboxControlService(root, options, new RecordingLogger(), FindTestBackend());
+            SandboxStatus reconciled = second.Snapshot().Single();
+            Assert.Multiple(() =>
+            {
+                Assert.That(reconciled.State, Is.EqualTo(SandboxLifecycleState.Ready));
+                Assert.That(reconciled.ProcessId, Is.EqualTo(processId));
+            });
+
+            Assert.That((await second.StopAsync(new WorldId("reconcile"))).IsSuccess, Is.True);
+        }
+        finally
+        {
+            second?.Dispose();
+            first?.Dispose();
+            Directory.Delete(root, true);
+        }
+    }
+
+    [Test]
+    public async Task CrashLoopStopsAtRestartBudget()
+    {
+        string root = Path.Combine(Path.GetTempPath(), "vega-sandbox-crash-loop", Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(root);
+        string source = Path.Combine(root, "template.wld");
+        await File.WriteAllBytesAsync(source, [1, 2, 3]);
+        try
+        {
+            SandboxOptions options = SandboxOptions.Default with
+            {
+                MaximumAutomaticRestarts = 1,
+                RestartBackoffSeconds = 1,
+                StartTimeoutSeconds = 5
+            };
+            using var control = new SandboxControlService(root, options, new RecordingLogger(), FindTestBackend());
+            Assert.That((await control.CreateAsync(new SandboxCreateRequest(
+                "crash-loop", "Crash", source, SandboxPersistenceMode.Temporary, 8,
+                new SandboxAccessPolicy(SandboxAccessMode.Public), TimeSpan.FromMinutes(30),
+                SandboxSscMode.Disabled, new HashSet<string>()))).IsSuccess, Is.True);
+
+            SandboxOperationResult firstStart = await control.StartAsync(new WorldId("crash-loop"));
+            Assert.That(firstStart.IsSuccess, Is.True, firstStart.Message);
+            await Task.Delay(TimeSpan.FromSeconds(6));
+            SandboxStatus status = control.Snapshot().Single();
+            Assert.Multiple(() =>
+            {
+                Assert.That(status.RestartCount, Is.EqualTo(1));
+                Assert.That(status.State, Is.EqualTo(SandboxLifecycleState.Failed));
+            });
         }
         finally
         {

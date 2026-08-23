@@ -2,6 +2,8 @@ using System.Text;
 using Multiplicity.Packets;
 using NUnit.Framework;
 using Vega.Contracts.Networking;
+using Vega.Contracts.Sandboxes;
+using Vega.Contracts.Worlds;
 using Vega.Terraria.Networking;
 
 namespace Vega.Runtime.Tests;
@@ -195,6 +197,134 @@ public sealed class ConnectionMetadataRegistryTests
             Assert.That(registry.Snapshot(5, "198.51.100.2:40000", TerrariaConnectionState.ProtocolAccepted)
                 .EffectiveEndpoint, Is.EqualTo("198.51.100.2:40000"));
         });
+    }
+
+    [Test]
+    public void SandboxBackendConsumesAdmissionAfterTrustedForwardingAndUuid()
+    {
+        var admission = new RecordingAdmissionService();
+        var registry = new TerrariaConnectionMetadataRegistry();
+        registry.ConfigureDimensions(true, ["127.0.0.1"]);
+        registry.ConfigureSandboxAdmission(admission, new WorldId("arena"), required: true);
+
+        ConnectionMetadataObservation forwarded = registry.ObserveInboundDetailed(
+            (byte)PacketTypes.Placeholder,
+            EncodeDimensions(0, "203.0.113.9"),
+            5,
+            TerrariaConnectionState.ProtocolAccepted,
+            "127.0.0.1:40000");
+        PacketProcessingDecision uuid = registry.ObserveInbound(
+            (byte)PacketTypes.ClientUUID,
+            EncodeString("755a3c87-6f2b-4ec9-aed4-b8eeaf855c81"),
+            5,
+            TerrariaConnectionState.ProtocolAccepted);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(forwarded.Decision.Kind, Is.EqualTo(PacketDecisionKind.Allow));
+            Assert.That(uuid.Kind, Is.EqualTo(PacketDecisionKind.Allow));
+            Assert.That(admission.ConsumeCount, Is.EqualTo(1));
+            Assert.That(admission.WorldId, Is.EqualTo(new WorldId("arena")));
+            Assert.That(admission.EffectiveEndpoint, Is.EqualTo("203.0.113.9"));
+            Assert.That(admission.ClientUuid, Is.EqualTo("755a3c87-6f2b-4ec9-aed4-b8eeaf855c81"));
+            Assert.That(registry.Snapshot(5, null, TerrariaConnectionState.ProtocolAccepted).TrustedTransferAccountId,
+                Is.EqualTo("42"));
+        });
+    }
+
+    [Test]
+    public void PrimaryAllowsOrdinaryDimensionsJoinWhenNoTransferAdmissionExists()
+    {
+        var admission = new RecordingAdmissionService
+        {
+            ConsumeResult = new SandboxTransferAdmissionResult(
+                false,
+                "sandbox.transfer.admission_required",
+                "No transfer is pending.")
+        };
+        var registry = new TerrariaConnectionMetadataRegistry();
+        registry.ConfigureDimensions(true, ["127.0.0.1"]);
+        registry.ConfigureSandboxAdmission(admission, WorldId.Primary, required: false);
+        registry.ObserveInboundDetailed(
+            (byte)PacketTypes.Placeholder,
+            EncodeDimensions(0, "203.0.113.9"),
+            5,
+            TerrariaConnectionState.ProtocolAccepted,
+            "127.0.0.1:40000");
+
+        PacketProcessingDecision decision = registry.ObserveInbound(
+            (byte)PacketTypes.ClientUUID,
+            EncodeString("755a3c87-6f2b-4ec9-aed4-b8eeaf855c81"),
+            5,
+            TerrariaConnectionState.ProtocolAccepted);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(decision.Kind, Is.EqualTo(PacketDecisionKind.Allow));
+            Assert.That(admission.ConsumeCount, Is.EqualTo(1));
+            Assert.That(registry.Snapshot(5, null, TerrariaConnectionState.ProtocolAccepted).TrustedTransferAccountId, Is.Null);
+        });
+    }
+
+    [Test]
+    public void SandboxBackendRejectsUuidWithoutTrustedTransferAdmission()
+    {
+        var registry = new TerrariaConnectionMetadataRegistry();
+        registry.ConfigureSandboxAdmission(new RecordingAdmissionService(), new WorldId("arena"), required: true);
+
+        PacketProcessingDecision decision = registry.ObserveInbound(
+            (byte)PacketTypes.ClientUUID,
+            EncodeString("755a3c87-6f2b-4ec9-aed4-b8eeaf855c81"),
+            5,
+            TerrariaConnectionState.ProtocolAccepted);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(decision.Kind, Is.EqualTo(PacketDecisionKind.Reject));
+            Assert.That(decision.Reason, Is.EqualTo("sandbox.transfer.admission_required"));
+        });
+    }
+
+    private sealed class RecordingAdmissionService : ISandboxTransferAdmissionService
+    {
+        public SandboxTransferAdmissionResult? ConsumeResult { get; init; }
+        public int ConsumeCount { get; private set; }
+        public WorldId WorldId { get; private set; }
+        public string? EffectiveEndpoint { get; private set; }
+        public string? ClientUuid { get; private set; }
+
+        public SandboxTransferAdmissionResult Register(
+            SandboxTransferTicket ticket,
+            string effectiveEndpoint,
+            string clientUuid,
+            DateTimeOffset now) => new(true);
+
+        public SandboxTransferAdmissionResult Consume(
+            WorldId receivingWorldId,
+            string effectiveEndpoint,
+            string clientUuid,
+            DateTimeOffset now)
+        {
+            ConsumeCount++;
+            WorldId = receivingWorldId;
+            EffectiveEndpoint = effectiveEndpoint;
+            ClientUuid = clientUuid;
+            if (ConsumeResult is not null)
+            {
+                return ConsumeResult;
+            }
+
+            var ticket = new SandboxTransferTicket(
+                Guid.NewGuid(),
+                "42",
+                WorldId.Primary,
+                receivingWorldId,
+                now,
+                now + TimeSpan.FromSeconds(30),
+                "nonce",
+                "signature");
+            return new SandboxTransferAdmissionResult(true, Ticket: ticket);
+        }
     }
 
     private static byte[] EncodeString(string value)

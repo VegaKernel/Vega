@@ -177,6 +177,42 @@ public sealed class SceneRuntimeTests
     }
 
     [Test]
+    public void LobbyCompositionKeepsFramePortalAndClusterIndependentAndRemovesObserverEverywhere()
+    {
+        var runtime = new SceneRuntime();
+        var visibility = new SceneVisibilityRuntime();
+        using var visuals = new LobbyVisualService(runtime);
+        using var clustering = new FakeProviderClusteringService(visibility);
+        using var composition = new LobbySceneCompositionService(visuals, clustering);
+        var first = new PlayerId(1);
+        var second = new PlayerId(2);
+        var frameBounds = new SceneBounds(10, 10, 2, 2);
+        var portalBounds = new SceneBounds(20, 20, 2, 2);
+        var frame = new SceneTileArea(2, 2, Enumerable.Repeat(new SceneTile(4, Flags: SceneTileFlags.Active), 4).ToArray());
+        var npc = new SceneEntity(SceneEntityKind.Npc, 7);
+
+        composition.ShowFrame("spawn", frameBounds, frame, [first, second]);
+        composition.HidePortal("spawn", portalBounds, [first, second]);
+        composition.SetCluster("spawn", [first, second], [npc]);
+
+        Assert.That(runtime.SnapshotScenes(), Has.Count.EqualTo(2));
+        Assert.That(visibility.CanObserve(WorldId.Primary, first, npc), Is.True);
+        composition.RemoveObserver(first);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(runtime.TryResolveTile(WorldId.Primary, first, 10, 10, out _, out _), Is.False);
+            Assert.That(runtime.TryResolveTile(WorldId.Primary, second, 10, 10, out SceneTile frameTile, out _), Is.True);
+            Assert.That(frameTile.TileType, Is.EqualTo(4));
+            Assert.That(runtime.TryResolveTile(WorldId.Primary, first, 20, 20, out _, out _), Is.False);
+            Assert.That(runtime.TryResolveTile(WorldId.Primary, second, 20, 20, out SceneTile portalTile, out _), Is.True);
+            Assert.That(portalTile, Is.EqualTo(SceneTile.Air));
+            Assert.That(visibility.CanObserve(WorldId.Primary, first, npc), Is.False);
+            Assert.That(visibility.CanObserve(WorldId.Primary, second, npc), Is.True);
+        });
+    }
+
+    [Test]
     public void ClusteringConsumerAssignsPlayerNpcAndProjectileInOneTransition()
     {
         var visibility = new SceneVisibilityRuntime();

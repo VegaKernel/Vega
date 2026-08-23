@@ -207,7 +207,7 @@ public sealed class SqliteVegaDatabaseTests
     [Test]
     public async Task AccountMutePersistsMatchesExpiresAndRevokesWithAudit()
     {
-        DateTimeOffset now = DateTimeOffset.Parse("2026-08-23T12:00:00Z");
+        DateTimeOffset now = DateTimeOffset.UtcNow;
         var mute = new MuteSnapshot(
             MuteId.New(),
             MuteSubjectKind.Account,

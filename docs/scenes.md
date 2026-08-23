@@ -38,8 +38,11 @@ Run `dotnet run --project benchmarks/Vega.Scene.Benchmarks -c Release`. On the x
 | replace 200 observers, 1,000 times | 27.1 us/op | 13.0 MB total |
 | create 1,000 personal 32x32 overlays sharing immutable tile data | 2.69 us/op | 1.36 MB total |
 
-These are regression baselines, not hardware-independent guarantees. Actual network
-serialization and socket cost must also be measured during a production-like soak.
+These are regression baselines, not hardware-independent guarantees. The harness now
+also executes WorldEdit preview movement with a mask and a 200-observer/300-entity lobby
+composition churn workload; CI runs it as a regression gate and reports elapsed time plus
+managed allocation for every workload. Socket throughput under real clients remains a
+deployment-qualification measurement rather than a scene-runtime implementation gate.
 The hot tile lookup performs no per-call LINQ materialization. Monitoring takes sampled
 immutable snapshots and never performs per-tick cross-process or full-world work.
 

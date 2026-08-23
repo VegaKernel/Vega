@@ -228,23 +228,33 @@ int Start()
         var logger = new StructuredOperationsLogger(sinks);
         SandboxOptions sandboxOptions = SandboxOptionsStore.Load(
             Path.Combine(AppContext.BaseDirectory, "config", "sandboxes.json"));
+        string sandboxDataRoot = Path.Combine(AppContext.BaseDirectory, "data", "sandboxes");
+        string sandboxSscPath = backendLaunch.IsBackend && !string.IsNullOrWhiteSpace(backendLaunch.SscStorePath)
+            ? backendLaunch.SscStorePath
+            : Path.Combine(sandboxDataRoot, "ssc.json");
+        var sandboxSscStore = new SandboxSscStore(sandboxSscPath);
+        var sandboxCharacterAdapter = new TerrariaSandboxSscCharacterAdapter(gameThreadDispatcher);
         using var sandboxControl = backendLaunch.IsBackend
             ? null
-            : new SandboxControlService(AppContext.BaseDirectory, sandboxOptions, logger);
-        var transferTickets = sandboxControl is null
-            ? null
-            : new SandboxTransferTicketService(
-                Path.Combine(AppContext.BaseDirectory, "data", "sandboxes", "control.key"));
-        var sandboxRouting = sandboxControl is null || transferTickets is null
-            ? null
-            : new SandboxRoutingService(
-                sandboxControl,
-                transferTickets,
-                new SandboxEndpoint(
-                    "127.0.0.1",
-                    int.TryParse(serverConfiguration.Current.Values["port"].DisplayValue, out int primaryPort)
-                        ? primaryPort
-                        : 7777));
+            : new SandboxControlService(
+                AppContext.BaseDirectory, sandboxOptions, logger, sscStore: sandboxSscStore);
+        ISandboxDirectory sandboxDirectory = sandboxControl is null
+            ? new SandboxSharedDirectory(AppContext.BaseDirectory)
+            : sandboxControl;
+        var transferTickets = new SandboxTransferTicketService(Path.Combine(sandboxDataRoot, "control.key"));
+        var sandboxAdmissions = new SandboxTransferAdmissionService(
+            Path.Combine(sandboxDataRoot, "admissions.json"),
+            transferTickets,
+            sandboxSscStore);
+        var sandboxRouting = new SandboxRoutingService(
+            sandboxDirectory,
+            transferTickets,
+            new SandboxEndpoint(
+                "127.0.0.1",
+                int.TryParse(serverConfiguration.Current.Values["port"].DisplayValue, out int primaryPort)
+                    ? primaryPort
+                    : 7777),
+            sandboxSscStore);
         using var sceneRenderer = new TerrariaSceneRenderSink(
             gameThreadDispatcher,
             playerBoundary,
@@ -263,9 +273,10 @@ int Start()
             worldMaintenance,
             gameThreadDispatcher,
             logger);
+        var regionReset = new BindableWorldResetParticipant("regions");
         using var worldReset = new WorldResetOrchestrator(
             new FileWorldResetBackend(),
-            [],
+            [regionReset],
             logger);
         AutoWorldCleanerOptions cleanerOptions = AutoWorldCleanerOptionsStore.Load(
             Path.Combine(AppContext.BaseDirectory, "config", "auto-world-cleaner.json"),
@@ -351,6 +362,7 @@ int Start()
             VegaDatabaseOptions databaseOptions = VegaDatabaseOptionsStore.Load(
                 Path.Combine(AppContext.BaseDirectory, "config", "database.json"));
             database = VegaDatabaseFactory.Create(databaseOptions, AppContext.BaseDirectory);
+            regionReset.Bind(new RegionWorldResetParticipant(database.Regions));
         }
         catch (Exception ex) when (ex is InvalidDataException or ArgumentException)
         {
@@ -399,12 +411,27 @@ int Start()
             connectionMetadata.ConfigureDimensions(
                 gameplayOptions.EnableDimensionsPacket,
                 gameplayOptions.DimensionsTrustedProxies);
+            connectionMetadata.ConfigureSandboxAdmission(
+                sandboxAdmissions,
+                runtimeWorldId,
+                backendLaunch.IsBackend);
         }
         catch (InvalidDataException ex)
         {
             logger.Log(OperationsLogLevel.Critical, "connection-metadata", "Dimensions trust configuration is invalid.", ex);
             return 2;
         }
+        using var sandboxSscSessions = new SandboxSscSessionCoordinator(
+            playerBoundary,
+            playerBoundary,
+            accountSessions,
+            playerBoundary,
+            sandboxSscStore,
+            sandboxCharacterAdapter,
+            runtimeWorldId,
+            backendLaunch.IsBackend ? backendLaunch.SscMode : SandboxSscMode.Inherit,
+            logger);
+
         using var gameplayEnforcement = new GameplayEnforcementPolicy(
             gameplayOptions,
             playerAuthorization,
@@ -450,18 +477,21 @@ int Start()
             new PlayerPacketOwnershipPolicy(),
             moduleRouter
         ]);
-        using IDisposable? sandboxCommandRegistration = sandboxControl is null || sandboxRouting is null
+        using IDisposable? sandboxCommandRegistration = sandboxControl is null
             ? null
             : commandDispatcher.Register(new SandboxCommand(sandboxControl, sandboxRouting, logger));
-        using IDisposable? sandboxTransferCommandRegistration = sandboxControl is null || sandboxRouting is null
-            ? null
-            : commandDispatcher.Register(new SandboxPlayerTransferCommand(
-                sandboxControl,
-                sandboxRouting,
-                new TerrariaSandboxPlayerTransfer(gameThreadDispatcher, connectionMetadata),
-                playerBoundary,
-                playerAuthorization,
-                accountSessions));
+        using IDisposable sandboxTransferCommandRegistration = commandDispatcher.Register(new SandboxPlayerTransferCommand(
+            sandboxDirectory,
+            sandboxRouting,
+            new TerrariaSandboxPlayerTransfer(
+                gameThreadDispatcher,
+                connectionMetadata,
+                sandboxAdmissions,
+                sandboxSscStore,
+                sandboxCharacterAdapter),
+            playerBoundary,
+            playerAuthorization,
+            accountSessions));
 
         using IDisposable banCommandRegistration = commandDispatcher.Register(
             new BanCommand(playerBoundary, playerBoundary, banService));
@@ -671,9 +701,10 @@ IReadOnlyList<ModuleOperationsSnapshot> CreateModuleSnapshots(IModuleOperationsC
     Module(
         "Vega.Runtime",
         Assembly.GetExecutingAssembly(),
-        ["Vega.Backups", "Vega.Cluster", "Vega.Core", "Vega.Modules.AutoWorldCleaner", "Vega.Modules.Pvp", "Vega.Operations", "Vega.Persistence", "Vega.Regions", "Vega.Sandboxes", "Vega.Terraria", "Vega.TerminalUI"]),
+        ["Vega.Backups", "Vega.Cluster", "Vega.Core", "Vega.Modules.Administration", "Vega.Modules.AutoWorldCleaner", "Vega.Modules.Pvp", "Vega.Operations", "Vega.Persistence", "Vega.Regions", "Vega.Sandboxes", "Vega.Terraria", "Vega.TerminalUI"]),
     Module("Vega.Backups", typeof(DeploymentBackupService).Assembly, ["Vega.Contracts"]),
     Module("Vega.Core", typeof(CommandDispatcher).Assembly, ["Vega.Contracts"]),
+    Module("Vega.Modules.Administration", typeof(AccountCommand).Assembly, ["Vega.Contracts"]),
     Module("Vega.Cluster", typeof(UnavailableClusterClient).Assembly, ["Vega.Contracts"]),
     Module("Vega.Operations", typeof(OperationsSnapshotProvider).Assembly, ["Vega.Contracts"]),
     Module("Vega.Persistence", typeof(IVegaDatabase).Assembly, ["Vega.Contracts", "System.Data.Common"]),

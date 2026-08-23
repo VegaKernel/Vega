@@ -20,7 +20,7 @@ public sealed class SandboxTransferTicketService : ISandboxTransferTicketService
         this.lifetime = lifetime ?? TimeSpan.FromSeconds(30);
     }
 
-    public SandboxTransferTicket Issue(string accountId, WorldId originWorldId, WorldId targetWorldId)
+    public SandboxTransferTicket Issue(string accountId, WorldId originWorldId, WorldId targetWorldId, Guid? sscLeaseId = null)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(accountId);
         DateTimeOffset issued = DateTimeOffset.UtcNow;
@@ -32,7 +32,8 @@ public sealed class SandboxTransferTicketService : ISandboxTransferTicketService
             issued,
             issued + lifetime,
             Convert.ToHexString(RandomNumberGenerator.GetBytes(16)).ToLowerInvariant(),
-            string.Empty);
+            string.Empty,
+            sscLeaseId);
         return unsigned with { Signature = Sign(unsigned) };
     }
 
@@ -90,7 +91,8 @@ public sealed class SandboxTransferTicketService : ISandboxTransferTicketService
             ticket.TargetWorldId.Value,
             ticket.IssuedAt.UtcTicks.ToString(CultureInfo.InvariantCulture),
             ticket.ExpiresAt.UtcTicks.ToString(CultureInfo.InvariantCulture),
-            ticket.Nonce);
+            ticket.Nonce,
+            ticket.SscLeaseId?.ToString("N") ?? string.Empty);
         return Convert.ToHexString(HMACSHA256.HashData(key, Encoding.UTF8.GetBytes(canonical))).ToLowerInvariant();
     }
 

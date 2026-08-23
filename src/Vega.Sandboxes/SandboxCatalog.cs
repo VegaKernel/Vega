@@ -136,7 +136,10 @@ internal sealed class SandboxCatalog
     }
 }
 
-internal sealed class SandboxMaterializer(string instancesRoot, int maximumInstanceMegabytes)
+internal sealed class SandboxMaterializer(
+    string instancesRoot,
+    int maximumInstanceMegabytes,
+    Func<string, long>? availableFreeSpace = null)
 {
     private readonly string root = EnsureRoot(instancesRoot);
     private readonly long maximumBytes = checked((long)maximumInstanceMegabytes * 1024 * 1024);
@@ -208,7 +211,8 @@ internal sealed class SandboxMaterializer(string instancesRoot, int maximumInsta
 
         string targetRoot = Path.GetPathRoot(Path.GetFullPath(target))!;
         long requiredFreeSpace = checked(sourceInfo.Length + 64L * 1024 * 1024);
-        if (new DriveInfo(targetRoot).AvailableFreeSpace < requiredFreeSpace)
+        long freeSpace = availableFreeSpace?.Invoke(targetRoot) ?? new DriveInfo(targetRoot).AvailableFreeSpace;
+        if (freeSpace < requiredFreeSpace)
         {
             throw new IOException(
                 $"Insufficient free space to stage sandbox world; {requiredFreeSpace} bytes are required.");

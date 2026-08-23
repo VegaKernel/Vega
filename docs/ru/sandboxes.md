@@ -29,18 +29,20 @@ capacity, public/permission/allow-list access, idle TTL, SSC policy, набор 
 базовые permissions используют общую БД, а регионы и policy модулей остаются
 world-scoped.
 
-SSC задаётся явно: `Inherit` использует общую запись account, `CopyOnEnter` копирует её
-и при disconnect/failure выбирает последнюю зафиксированную revision, `Isolated`
-разделяет state по account и `WorldId`, `Disabled` оставляет character клиенту. Пока
-полный SSC store остаётся задачей persistence-фазы, backend обязан отклонить
-неподдерживаемый режим, а не незаметно выбрать другой.
+SSC policy полностью подключена. `Inherit` использует общий primary-scope аккаунта,
+`CopyOnEnter` создаёт world-local копию и не перезаписывает primary baseline при возврате,
+`Isolated` хранит отдельный character по `WorldId`, а `Disabled` оставляет character
+клиенту. Межпроцессное хранилище использует file lock, revisions и transfer leases;
+Terraria-адаптер сохраняет и восстанавливает inventory, экипировку, банки, loadout'ы,
+life/mana, spawn, внешний вид и постоянные character-флаги. Revision conflict закрывается
+fail-closed без перезаписи более нового состояния.
 
 ## Lifecycle и команды
 
 ```text
 sandbox list
 sandbox status <id>
-sandbox create <id> <name> <template.wld> <temporary|persistent|external> <capacity> [port]
+sandbox create <id> <name> <template.wld> <temporary|persistent|external> <capacity> [disabled|inherit|copyonenter|isolated] [port]
 sandbox start|stop|restart <id>
 sandbox reset <id> [replacement.wld] confirm
 sandbox destroy <id> confirm
@@ -61,10 +63,12 @@ PID подхватывается; orphan instance каталог показыв�
 
 ## Routing и безопасность
 
-Перед transfer проверяются readiness, capacity и access. Затем выдаётся 30-секундный
-HMAC ticket, привязанный к account, origin, target, nonce и ticket ID. Ticket одноразовый;
-replay, expiry, неверный target или потеря backend возвращают безопасный fallback в
-origin. Identity и bans общие для сервера.
+Перед transfer проверяются readiness, capacity и access, затем выдаётся 30-секундный
+HMAC ticket, привязанный к account, origin, target, nonce и ticket ID. Dimensions
+packet 67/type 3 передаёт только host и port, поэтому ticket клиенту не раскрывается:
+source записывает короткоживущий rendezvous, связанный с trusted forwarded IP и
+каноническим UUID. Принимающий sandbox после trusted type-0 и packet 68 обязан атомарно
+поглотить rendezvous. Replay, expiry и неверный target закрываются fail-closed. Identity и bans общие для сервера.
 
 Dimensions по умолчанию выключен в `config/security.json`. Packet 67/type 0 принимается
 только от точного IP из `dimensionsTrustedProxies`; transport peer и effective client IP

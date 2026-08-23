@@ -55,10 +55,10 @@ public sealed class RegionWorldResetParticipantTests
             {
                 Assert.That(result.Succeeded, Is.False);
                 Assert.That(restored.Name, Is.EqualTo("spawn"));
-                Assert.That(restored.Owner, Is.EqualTo("Alice"));
+                Assert.That(restored.Owner, Is.EqualTo("alice"));
                 Assert.That(restored.Priority, Is.EqualTo(7));
                 Assert.That(restored.Flags["protected"], Is.True);
-                Assert.That(restored.Members, Does.Contain("Bob"));
+                Assert.That(restored.Members, Does.Contain("bob"));
                 Assert.That(restored.Groups, Does.Contain("builder"));
             });
         }

@@ -9,6 +9,12 @@ using var reporter = new SandboxBackendReporter(
     new ReadyLifecycle(),
     new ReadyServer(),
     new EmptyPlayers());
+if (launch.WorldId.Value.StartsWith("crash", StringComparison.OrdinalIgnoreCase))
+{
+    await Task.Delay(750);
+    return;
+}
+
 while (await Console.In.ReadLineAsync() is { } line)
 {
     if (line.StartsWith("shutdown", StringComparison.OrdinalIgnoreCase)) break;
