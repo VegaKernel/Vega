@@ -1,4 +1,4 @@
-FROM --platform=${BUILDPLATFORM} mcr.microsoft.com/dotnet/sdk:10.0 AS builder
+FROM --platform=${BUILDPLATFORM} mcr.microsoft.com/dotnet/sdk:11.0-preview AS builder
 RUN apt-get update && apt-get install -y gettext
 WORKDIR /Vega
 COPY . ./
@@ -11,10 +11,10 @@ RUN case "${TARGETPLATFORM}" in \
     "linux/arm/v7") export ARCH="linux-arm" ;; \
     "windows/amd64") export ARCH="win-x64" ;; \
     *) echo "Error: Unsupported platform ${TARGETPLATFORM}" && exit 1 ;; \
-  esac && dotnet publish -o output/ -r "${ARCH}" -v m -f net10.0 -c Release -p:PublishSingleFile=true --self-contained false
+  esac && dotnet publish -o output/ -r "${ARCH}" -v m -f net11.0 -c Release -p:PublishSingleFile=true --self-contained false
 
-FROM mcr.microsoft.com/dotnet/runtime:10.0 AS linux_base
-FROM mcr.microsoft.com/dotnet/runtime:10.0-nanoserver-ltsc2022 AS windows_base
+FROM mcr.microsoft.com/dotnet/runtime:11.0-preview AS linux_base
+FROM mcr.microsoft.com/dotnet/runtime:11.0-preview-nanoserver-ltsc2025 AS windows_base
 FROM ${TARGETOS}_base AS final
 WORKDIR /server
 COPY --from=builder /Vega/src/Vega.Runtime/output ./
