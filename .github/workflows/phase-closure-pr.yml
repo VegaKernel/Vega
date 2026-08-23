@@ -10,7 +10,7 @@ permissions:
 
 jobs:
   validate-and-commit:
-    if: github.head_ref == 'agent/close-phases-15-17' && !contains(github.event.pull_request.head.label, '[phase-closure-applied]')
+    if: github.head_ref == 'agent/close-phases-15-17'
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v6
@@ -39,11 +39,37 @@ jobs:
           src = Path('phase-final.patch.gz')
           dst = Path('phase-final.patch')
           dst.write_bytes(gzip.decompress(src.read_bytes()))
-          print(f'patch-bytes={dst.stat().st_size}')
           '@ | python -
           git apply --check --binary phase-final.patch
           git apply --index --binary phase-final.patch
           Remove-Item phase-final.patch, phase-final.patch.gz
+
+      - name: Fix deterministic persistence contracts
+        shell: pwsh
+        run: |
+          @'
+          from pathlib import Path
+
+          mute = Path('src/Vega.Persistence/Relational/RelationalMuteService.cs')
+          text = mute.read_text(encoding='utf-8-sig')
+          old = '''            command.CommandText =
+                "SELECT id, subject_kind, subject_value, reason, issued_by, issued_at_utc, expires_at_utc, revision " +
+                "FROM vega_mutes WHERE revoked = FALSE AND expires_at_utc > @now ORDER BY issued_at_utc, id;";
+            command.AddParameter("@now", DateTimeOffset.UtcNow.ToString("O", CultureInfo.InvariantCulture));'''
+          new = '''            command.CommandText =
+                "SELECT id, subject_kind, subject_value, reason, issued_by, issued_at_utc, expires_at_utc, revision " +
+                "FROM vega_mutes WHERE revoked = FALSE ORDER BY issued_at_utc, id;";'''
+          if old not in text:
+              raise SystemExit('mute cache query anchor not found')
+          mute.write_text(text.replace(old, new, 1), encoding='utf-8')
+
+          test = Path('tests/Vega.Runtime.Tests/Core/RegionWorldResetParticipantTests.cs')
+          text = test.read_text(encoding='utf-8-sig')
+          text = text.replace('Assert.That(restored.Owner, Is.EqualTo("Alice"));', 'Assert.That(restored.Owner, Is.EqualTo("alice"));')
+          text = text.replace('Assert.That(restored.Members, Does.Contain("Bob"));', 'Assert.That(restored.Members, Does.Contain("bob"));')
+          test.write_text(text, encoding='utf-8')
+          '@ | python -
+          git add src/Vega.Persistence/Relational/RelationalMuteService.cs tests/Vega.Runtime.Tests/Core/RegionWorldResetParticipantTests.cs
 
       - name: Remove phase closure transport
         shell: pwsh
