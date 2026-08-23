@@ -10,39 +10,61 @@ permissions:
 
 jobs:
   finalize:
-    if: ${{ !contains(github.event.head_commit.message, '[phase-closure-applied]') }}
+    if: ${{ !contains(github.event.head_commit.message, '[phase-closure-applied]') && !contains(github.event.head_commit.message, '[phase-closure-diagnostic]') }}
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v6
         with:
           fetch-depth: 0
 
-      - name: Apply final implementation payload
+      - name: Apply or publish diagnostic
         shell: pwsh
         run: |
-          $encoded = (Get-Content '.finalize/phase-closure.patch.gz.b64' -Raw).Trim()
-          [IO.File]::WriteAllBytes('.finalize/phase-closure.patch.gz', [Convert]::FromBase64String($encoded))
-          @'
+          $ErrorActionPreference = 'Stop'
+          try {
+            $encoded = (Get-Content '.finalize/phase-closure.patch.gz.b64' -Raw).Trim()
+            $bytes = [Convert]::FromBase64String($encoded)
+            [IO.File]::WriteAllBytes('.finalize/phase-closure.patch.gz', $bytes)
+            $hash = (Get-FileHash '.finalize/phase-closure.patch.gz' -Algorithm SHA256).Hash.ToLowerInvariant()
+            @'
           import gzip
           from pathlib import Path
           source = Path('.finalize/phase-closure.patch.gz')
           target = Path('.finalize/phase-closure.patch')
           target.write_bytes(gzip.decompress(source.read_bytes()))
-          print(f'patch-bytes={target.stat().st_size}')
           '@ | python -
-          git apply --check --binary .finalize/phase-closure.patch
-          git apply --index --binary .finalize/phase-closure.patch
-
-      - name: Remove transport and publish clean branch state
-        shell: pwsh
-        run: |
-          git rm -r --ignore-unmatch .phase17 .finalize
-          git rm --ignore-unmatch .github/workflows/phase-closure.yml
-          git rm --ignore-unmatch .github/workflows/phase-closure-pr.yml
-          git rm --ignore-unmatch .github/workflows/phase-closure-finalize.yml
-          git add -A
-          git diff --cached --check
-          git config user.name 'Xekep'
-          git config user.email 'Xekep@users.noreply.github.com'
-          git commit -m 'Apply roadmap phases 15-17 implementation [phase-closure-applied]'
-          git push origin HEAD:${{ github.ref_name }}
+            if ($LASTEXITCODE -ne 0) { throw "gzip decode exited $LASTEXITCODE" }
+            git apply --check --binary .finalize/phase-closure.patch
+            if ($LASTEXITCODE -ne 0) { throw "git apply --check exited $LASTEXITCODE" }
+            git apply --index --binary .finalize/phase-closure.patch
+            if ($LASTEXITCODE -ne 0) { throw "git apply exited $LASTEXITCODE" }
+            git rm -r --ignore-unmatch .phase17 .finalize
+            git rm --ignore-unmatch .github/workflows/phase-closure.yml
+            git rm --ignore-unmatch .github/workflows/phase-closure-pr.yml
+            git rm --ignore-unmatch .github/workflows/phase-closure-finalize.yml
+            git add -A
+            git diff --cached --check
+            git config user.name 'Xekep'
+            git config user.email 'Xekep@users.noreply.github.com'
+            git commit -m 'Apply roadmap phases 15-17 implementation [phase-closure-applied]'
+            git push origin HEAD:${{ github.ref_name }}
+          }
+          catch {
+            $encoded = (Get-Content '.finalize/phase-closure.patch.gz.b64' -Raw).Trim()
+            $hash = '<decode-failed>'
+            try {
+              $bytes = [Convert]::FromBase64String($encoded)
+              [IO.File]::WriteAllBytes('.finalize/diagnostic-payload.gz', $bytes)
+              $hash = (Get-FileHash '.finalize/diagnostic-payload.gz' -Algorithm SHA256).Hash.ToLowerInvariant()
+            } catch {}
+            @(
+              "base64-length=$($encoded.Length)",
+              "sha256=$hash",
+              "error=$($_.Exception.Message)"
+            ) | Set-Content '.finalize/diagnostic.txt'
+            git config user.name 'Xekep'
+            git config user.email 'Xekep@users.noreply.github.com'
+            git add .finalize/diagnostic.txt
+            git commit -m 'Record phase closure payload diagnostic [phase-closure-diagnostic]'
+            git push origin HEAD:${{ github.ref_name }}
+          }
