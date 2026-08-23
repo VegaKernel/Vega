@@ -2,7 +2,7 @@
 
 ## Status
 
-Accepted; amended by ADR 0016.
+Superseded for active development by ADR 0024; retained as the .NET 10 production, benchmark and rollback baseline.
 
 ## Context
 
