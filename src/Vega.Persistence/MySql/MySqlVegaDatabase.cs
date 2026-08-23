@@ -45,6 +45,7 @@ public sealed class MySqlVegaDatabase : ExternalVegaDatabase
                 "--routines",
                 "--events",
                 "--hex-blob",
+                "--no-tablespaces",
                 $"--result-file={Path.GetFullPath(destinationPath)}",
                 value.Database
             ],
