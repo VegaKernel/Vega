@@ -10,25 +10,25 @@ permissions:
 
 jobs:
   finalize:
-    if: ${{ !contains(github.event.head_commit.message, '[phase-closure-applied]') }}
+    if: ${{ !contains(github.event.head_commit.message, '[phase-closure-applied]') && !contains(github.event.head_commit.message, '[chunk-diagnostic]') }}
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v6
         with:
           fetch-depth: 0
-      - name: Apply final implementation payload
+      - name: Apply final implementation or record diagnostic
         shell: pwsh
         run: |
-          $encoded = ''
-          0..6 | ForEach-Object {
-            $encoded += (Get-Content ('.payload2/p{0}.b64' -f $_) -Raw).Trim()
-          }
-          if ($encoded.Length -ne 48104) { throw "payload length $($encoded.Length), expected 48104" }
-          $bytes = [Convert]::FromBase64String($encoded)
-          [IO.File]::WriteAllBytes('.payload2/phase-final.patch.gz', $bytes)
-          $hash = (Get-FileHash '.payload2/phase-final.patch.gz' -Algorithm SHA256).Hash.ToLowerInvariant()
-          if ($hash -ne 'a3e0464f7d3ad79e062527b55e6eb0ea7d6d50668a00e747fe8c072d07618850') { throw "payload hash mismatch: $hash" }
-          @'
+          $ErrorActionPreference = 'Stop'
+          try {
+            $encoded = ''
+            0..6 | ForEach-Object { $encoded += (Get-Content ('.payload2/p{0}.b64' -f $_) -Raw).Trim() }
+            if ($encoded.Length -ne 48104) { throw "payload length $($encoded.Length), expected 48104" }
+            $bytes = [Convert]::FromBase64String($encoded)
+            [IO.File]::WriteAllBytes('.payload2/phase-final.patch.gz', $bytes)
+            $hash = (Get-FileHash '.payload2/phase-final.patch.gz' -Algorithm SHA256).Hash.ToLowerInvariant()
+            if ($hash -ne 'a3e0464f7d3ad79e062527b55e6eb0ea7d6d50668a00e747fe8c072d07618850') { throw "payload hash mismatch: $hash" }
+            @'
           import gzip
           from pathlib import Path
           src = Path('.payload2/phase-final.patch.gz')
@@ -36,18 +36,39 @@ jobs:
           dst.write_bytes(gzip.decompress(src.read_bytes()))
           print(f'patch-bytes={dst.stat().st_size}')
           '@ | python -
-          git apply --check --binary .payload2/phase-final.patch
-          git apply --index --binary .payload2/phase-final.patch
-      - name: Publish clean branch state
-        shell: pwsh
-        run: |
-          git rm -r --ignore-unmatch .phase17 .finalize .payload2
-          git rm --ignore-unmatch .github/workflows/phase-closure.yml
-          git rm --ignore-unmatch .github/workflows/phase-closure-pr.yml
-          git rm --ignore-unmatch .github/workflows/phase-closure-finalize.yml
-          git add -A
-          git diff --cached --check
-          git config user.name 'Xekep'
-          git config user.email 'Xekep@users.noreply.github.com'
-          git commit -m 'Apply roadmap phases 15-17 implementation [phase-closure-applied]'
-          git push origin HEAD:${{ github.ref_name }}
+            if ($LASTEXITCODE -ne 0) { throw "gzip step exited $LASTEXITCODE" }
+            git apply --check --binary .payload2/phase-final.patch 2>&1 | Tee-Object -Variable applyCheck
+            if ($LASTEXITCODE -ne 0) { throw "git apply check failed: $($applyCheck -join ' ')" }
+            git apply --index --binary .payload2/phase-final.patch
+            if ($LASTEXITCODE -ne 0) { throw "git apply failed with $LASTEXITCODE" }
+            git rm -r --ignore-unmatch .phase17 .finalize .payload2
+            git rm --ignore-unmatch .github/workflows/phase-closure.yml
+            git rm --ignore-unmatch .github/workflows/phase-closure-pr.yml
+            git rm --ignore-unmatch .github/workflows/phase-closure-finalize.yml
+            git add -A
+            git diff --cached --check
+            git config user.name 'Xekep'
+            git config user.email 'Xekep@users.noreply.github.com'
+            git commit -m 'Apply roadmap phases 15-17 implementation [phase-closure-applied]'
+            git push origin HEAD:${{ github.ref_name }}
+          }
+          catch {
+            $encoded = ''
+            0..6 | ForEach-Object { $encoded += (Get-Content ('.payload2/p{0}.b64' -f $_) -Raw).Trim() }
+            $hash = '<unavailable>'
+            try {
+              $bytes = [Convert]::FromBase64String($encoded)
+              [IO.File]::WriteAllBytes('.payload2/check.gz', $bytes)
+              $hash = (Get-FileHash '.payload2/check.gz' -Algorithm SHA256).Hash.ToLowerInvariant()
+            } catch {}
+            @(
+              "length=$($encoded.Length)",
+              "sha256=$hash",
+              "error=$($_.Exception.Message)"
+            ) | Set-Content '.payload2/diagnostic.txt'
+            git config user.name 'Xekep'
+            git config user.email 'Xekep@users.noreply.github.com'
+            git add .payload2/diagnostic.txt
+            git commit -m 'Record chunked phase payload diagnostic [chunk-diagnostic]'
+            git push origin HEAD:${{ github.ref_name }}
+          }
