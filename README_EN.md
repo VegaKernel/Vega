@@ -24,6 +24,7 @@ flowchart TB
     Runtime --> Operations["Vega.Operations<br/>logs + metrics + read models"]
     Runtime --> Cluster["Vega.Cluster<br/>optional inter-server scenarios"]
     Runtime --> Persistence["Vega.Persistence<br/>domain stores + schema baseline"]
+    Runtime --> Regions["Vega.Regions<br/>region commands + ACL"]
     Runtime --> Sandboxes["Vega.Sandboxes<br/>isolated worlds + supervisor"]
     Runtime --> Backups["Vega.Backups<br/>world + database archives"]
     Runtime -. "explicit registration" .-> Modules["ServerPlugins<br/>Vega.Modules.*"]
@@ -33,6 +34,7 @@ flowchart TB
     Operations --> Contracts
     Cluster --> Contracts
     Persistence --> Contracts
+    Regions --> Contracts
     Sandboxes --> Contracts
     Backups --> Contracts
     Modules --> Contracts
@@ -79,7 +81,7 @@ dotnet publish src/Vega.Runtime/Vega.Runtime.csproj `
 
 The launcher stays at the publish root, shared dependencies live in `libs/`, and bundled server modules live in `ServerPlugins/`.
 
-Hot replacement for external unload-safe `IHotReloadableVegaModule` plugins in `ServerPlugins/` is available but disabled by default in `config/modules.json`. When enabled, the watcher automatically handles DLL creation, change, deletion, and rename; bundled `IVegaModule` revisions still require restart.
+Hot replacement for external unload-safe `IHotReloadableVegaModule` plugins in `ServerPlugins/` is available but disabled by default in `config/modules.json`. Bundled `IVegaModule` instances use the separate, also disabled-by-default `config/soft-restart.json` generation boundary; Terraria, the world, players, and persistence stay alive.
 
 ## Run
 
@@ -97,6 +99,7 @@ Supported modes are `auto`, `tui`, `plain`, and `headless`. Enable the world-ima
 - [Operations API and Terminal UI](docs/operations.md)
 - [Isolated sandbox worlds](docs/sandboxes.md)
 - [Deployment backups](docs/backups.md)
+- [In-process soft restart](docs/soft-restart.md)
 - [Cluster messaging](docs/cluster.md)
 - [Persistence and database providers](docs/persistence.md)
 - [World images](docs/world-images.md)
@@ -106,7 +109,7 @@ Supported modes are `auto`, `tui`, `plain`, and `headless`. Enable the world-ima
 
 ## Status
 
-The roadmap records completed capabilities and remaining production work. Dimensions-compatible forwarding and supervised sandbox backends are implemented but disabled or bounded by conservative defaults; persistent SSC modes, soft restart, scheduled backups, and the .NET 11 migration remain future work.
+The roadmap records completed capabilities and the intentionally deferred .NET 11 migration. Dimensions forwarding, sandbox backends, scheduled backups and soft restart are implemented but risky operational modes stay disabled or conservatively bounded by default. Authoritative SSC, legacy whitelist/warps and TShock REST compatibility are explicit non-goals for Vega 1.0.
 
 ## License
 

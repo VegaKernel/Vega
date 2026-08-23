@@ -26,6 +26,7 @@ Vega не загружает плагины TShock или TSAPI и не сохр
 | `src/Vega.TerminalUI` | Опциональная Terminal.Gui-панель и command palette |
 | `src/Vega.Cluster` | Опциональные типизированные межсерверные сценарии и in-memory reference transport |
 | `src/Vega.Persistence` | Доменное хранение, базовая схема Vega 1.0 и провайдеры SQLite/PostgreSQL/MySQL |
+| `src/Vega.Regions` | Команды и packet ACL регионов; SQL-хранение остаётся в Persistence |
 | `src/Vega.Modules.Pvp` | PvP authority, projectile attribution, death windows и session state |
 | `src/Vega.Modules.CustomItems` | Типизированные custom items и адресная доставка через Terraria |
 | `tests/Vega.Architecture.Tests` | Проверки зависимостей и границ владения |
@@ -46,6 +47,7 @@ Vega.Runtime ───────→ Vega.TerminalUI
    ├──→ Vega.Core          ↓
    ├──→ Vega.Cluster   Vega.Contracts
    ├──→ Vega.Persistence   ↑
+   ├──→ Vega.Regions       ↑
    └──→ Server modules ────↑
 ```
 
@@ -187,6 +189,8 @@ ProcessStart → Bootstrap → RuntimeReady → ModulesRegistered
 
 Модуль должен зависеть от минимально необходимой capability. Модули не должны менять `Terraria.Main`, удерживать изменяемые player objects, создавать конкурирующий packet codec или прятать бизнес-логику в глобальных helpers. Временный extension state привязан к конкретной player session и детерминированно удаляется при disconnect.
 
+Самостоятельные продуктовые домены подчиняются тому же правилу. `Vega.Regions` владеет полным application-срезом команд и ACL и напрямую использует Contracts; Persistence владеет SQL, а Terraria — адаптерами изменяемого игрового состояния. Новый доменный проект должен переносить вертикальный срез целиком и не использовать Core как service locator или транзитную зависимость. См. [аудит связности Core](../core-cohesion-audit.md) и ADR 0023.
+
 Внешний горячо загружаемый плагин напрямую реализует `IHotReloadableVegaModule` и имеет одну публичную точку входа без параметров. Административная функция включается в `config/modules.json`, после чего watcher автоматически применяет create/change/delete/rename. Для явного управления есть `plugin list`, `plugin reload <name-or-dll>` и `plugin unload <name-or-dll>`. Команды и хуки плагина должны регистрироваться через переданный `IHotModuleContext`: хост снимает их до утилизации модуля и проверяет сборку изолированного load context. Ошибка очистки требует перезапуска. Для встроенных ревизий `IVegaModule` всегда нужен перезапуск.
 
 ## 10. Operations и cluster behavior
@@ -196,6 +200,8 @@ ProcessStart → Bootstrap → RuntimeReady → ModulesRegistered
 `Vega.Sandboxes` управляет изолированными процессами `Vega.Server` для дополнительных миров. Для жизненного цикла служат `sandbox create/start/stop/restart/reset/destroy`, а `worldtransfer` работает через доверенный Dimensions-forwarder. Descriptor, лимиты и TTL находятся в `config/sandboxes.json`; forwarding по умолчанию отключён в `config/security.json`. Accounts и bans остаются общесерверными, а команды и регионы получают явный `WorldId` backend-процесса. Подробности приведены в [руководстве по sandbox-мирам](sandboxes.md).
 
 `Vega.Backups` создаёт согласованные deploy-local архивы мира и базы. В `config/backups.json` находятся только `enabled`, `interval` и `retainedBackups`; команда `backup` запускает ручной архив, а `backup status` показывает прогресс. Сервис использует world-save/`.vworld` barrier, provider-owned SQLite/`pg_dump`/`mysqldump` snapshot, очищает конфигурацию от секретов и атомарно публикует проверенный ZIP в `backups/`. См. [резервное копирование и восстановление](backups.md).
+
+Встроенные модули можно пересоздать внутри процесса через выключенную по умолчанию границу `config/soft-restart.json`. `softrestart confirm` сохраняет Terraria, загруженный мир, подключённых игроков и БД, заменяя маршрутизируемое поколение модулей. Нативные/runtime-изменения и небезопасно выгруженный плагин всё равно требуют перезапуска процесса. См. [мягкий перезапуск](soft-restart.md).
 
 Cluster support опционален. Текущий transport — in-memory reference implementation для детерминированных тестов и локальной композиции. Standalone server использует `UnavailableClusterClient` и остаётся работоспособным. Текущий ADR не выбирает production transport на Redis, NATS, RabbitMQ, HTTP или WebSocket.
 
@@ -210,7 +216,8 @@ Cluster support опционален. Текущий transport — in-memory ref
 ## 12. Текущие ограничения
 
 - Dimensions forwarding и перенос игрока требуют явно доверенного proxy и по умолчанию отключены;
-- SSC-режимы кроме `Disabled` отклоняются до появления постоянного character-state store;
+- Vega 1.0 намеренно поддерживает только `Disabled` SSC; авторитетное хранение персонажей не является compatibility promise;
+- legacy whitelist, команды warp/home/tpa/clan и REST routes TShock не входят в базовый сервер; доступ задаётся паролем, банами и правами, а удалённое администрирование требует отдельного современного security design;
 - горячая замена поддерживает только unload-safe контракт Vega и выключена по умолчанию; legacy и встроенные DLL требуют перезапуска;
 - для cluster-сценариев не выбран production transport;
 - `.vworld` остаётся экспериментальным и выключен по умолчанию;

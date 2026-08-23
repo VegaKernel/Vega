@@ -290,6 +290,48 @@ public sealed class SqliteVegaDatabaseTests
     }
 
     [Test]
+    public async Task RegionLifecycleKeepsStableWorldIdentityOfflineOwnerAndConcurrentRevision()
+    {
+        SqliteVegaDatabase database = await OpenAsync();
+        WorldId stableWorld = new("world-42");
+        WorldId deletedWorld = new("world-to-delete");
+        RegionMutationResult outer = await database.Regions.CreateAsync(
+            stableWorld, "spawn", 0, 0, 100, 100, 1, "OfflineOwner", "Server");
+        RegionMutationResult inner = await database.Regions.CreateAsync(
+            stableWorld, "vip", 10, 10, 10, 10, 1, null, "Server");
+        RegionMutationResult group = await database.Regions.SetAccessAsync(
+            stableWorld, "vip", RegionAccessKind.Group, "builders", true,
+            inner.After!.Revision, "Server");
+        RegionMutationResult disposable = await database.Regions.CreateAsync(
+            deletedWorld, "spawn", 0, 0, 20, 20, 1, null, "Server");
+
+        Task<RegionMutationResult>[] competing =
+        [
+            database.Regions.UpdateAsync(stableWorld, "spawn", new RegionUpdate(Flag: "edit-a", FlagValue: true),
+                outer.After!.Revision, "operator-a").AsTask(),
+            database.Regions.UpdateAsync(stableWorld, "spawn", new RegionUpdate(Flag: "edit-b", FlagValue: true),
+                outer.After!.Revision, "operator-b").AsTask()
+        ];
+        RegionMutationResult[] edits = await Task.WhenAll(competing);
+        RegionMutationResult deleted = await database.Regions.DeleteAsync(
+            deletedWorld, "spawn", disposable.After!.Revision, "Server");
+        SqliteVegaDatabase reopened = await OpenAsync();
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(edits.Count(static edit => edit.Succeeded), Is.EqualTo(1));
+            Assert.That(edits.Count(static edit => edit.Code == "region.revision-conflict"), Is.EqualTo(1));
+            Assert.That(deleted.Succeeded, Is.True);
+            Assert.That(reopened.Regions.SnapshotRegions(deletedWorld), Is.Empty);
+            Assert.That(reopened.Regions.SnapshotRegions(stableWorld), Has.Count.EqualTo(2));
+            Assert.That(reopened.Regions.SnapshotRegions(stableWorld).Single(region => region.Name == "spawn").Owner,
+                Is.EqualTo("offlineowner"));
+            Assert.That(reopened.Regions.FindTopRegion(stableWorld, 12, 12)!.Name, Is.EqualTo("vip"));
+            Assert.That(group.After!.Groups, Does.Contain("builders"));
+        });
+    }
+
+    [Test]
     public void DomainStoreCannotRunBeforeRequiredRuntimeInitialization()
     {
         SqliteVegaDatabase database = SqliteVegaDatabase.Create(

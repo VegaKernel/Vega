@@ -133,10 +133,10 @@ A durable outbox is optional and should be introduced only if a real scenario re
 
 - [x] Port the first two behavior references (`PvPController-1.3` and `CustomWeaponAPI`) to prove the Vega module boundary.
 - [x] Restore a pinned pre-cleanup TShock/TSAPI reference snapshot and lock current TerraZ source revisions outside the production solution.
-- [ ] Complete every `Keep`, `Port`, `Replace` or `Drop` decision in the [TShock and TerraZ migration audit](migration-audit.md); an unclassified subsystem or plugin keeps this phase open.
-- [ ] Port accepted TerraZ behavior to the Vega module API by capability, not by reproducing TShock class shapes.
-- [ ] Use each migrated module as the forcing function for its required contract instead of building an abstract framework ahead of a consumer.
-- [ ] Add incident-backed regression tests before retiring the corresponding TShock/TerraZ behavior or workaround.
+- [x] Complete every `Keep`, `Port`, `Replace` or `Drop` decision in the [TShock and TerraZ migration audit](migration-audit.md); an unclassified subsystem or plugin keeps this phase open.
+- [x] Port accepted TerraZ behavior to the Vega module API by capability, not by reproducing TShock class shapes.
+- [x] Use each migrated module as the forcing function for its required contract instead of building an abstract framework ahead of a consumer.
+- [x] Add incident-backed regression tests before retiring the corresponding TShock/TerraZ behavior or workaround.
 
 The first reopened migration slice replaces TerraZ `NoCoinDupe` with `NpcCoinPickupAuthorityPolicy`: inbound Multiplicity `SyncExtraValue (92)` packets are rejected before Terraria can accept client-authored NPC coin state, while server-originated synchronization remains untouched. Its regression suite uses the real 14-byte typed payload and records the confirmed production incident in the migration ledger.
 
@@ -155,19 +155,19 @@ The post-1.4.5 registration audit also routes client `TeamChangeFromUI (157)` th
   - useful scenarios: strongly typed partial item overrides, targeted packet delivery and custom item behavior;
   - its bespoke `PacketWriter` must not be carried forward because Vega uses the shared typed `TZ.Multiplicity` protocol layer.
 
-`VegaModuleHost` now starts explicitly composed modules and exposes their load state and startup duration. `Vega.Modules.Pvp` ports hostile-health authority, ordered projectile/damage attribution, death windows and session cleanup. `Vega.Modules.CustomItems` ports strongly typed partial overrides and requests targeted delivery through a capability; the `Vega.Terraria` implementation serializes `UpdateItemDrop`, `TweakItem` and `ItemOwner` with `TZ.Multiplicity`. These are the first two ports, not evidence that the TerraZ module estate is complete. Phases 13–16 and 19 contain the remaining security, operations, administration, provider and persistent-server work discovered by the audit.
+`VegaModuleHost` now starts explicitly composed modules and exposes their load state and startup duration. PVP, CustomItems, AutoWorldCleaner, Chests, Mentions, Wipe and Scenes are capability ports; typed packet security, connection metadata, moderation, role leases, inspection, world clock, TPS and lifecycle behavior are native replacements. The final repository matrix records every remaining optional product as an explicit 1.0 drop rather than leaving placeholder contracts. Accepted invariants have focused incident or lifecycle regressions and no TShock class shape entered the public boundary.
 
 ## Phase 10 — remove migration scaffolding
 
 - [x] Remove TShockAPI and TSAPI from the production solution after the native runtime no longer depends on them.
 - [x] Remove legacy hook/command/plugin compatibility surfaces from the shipping runtime.
 - [x] Rename active physical `TShock*` project paths/namespaces to Vega names.
-- [ ] Resolve every legacy subsystem and TerraZ repository in the [migration audit](migration-audit.md), with source evidence, target owner, disposition and validation recorded.
-- [ ] Preserve the pinned source references until all accepted behavior, edge cases and incident regressions have executable Vega coverage.
-- [ ] Review deleted configuration, command, permission, persistence, localization, REST and operations documentation against the running Vega product; restore or rewrite every still-relevant operator contract.
-- [ ] Close the scaffolding-removal gate only when there are no unresolved `Partial`, `Missing` or `Unclassified` rows—physical deletion alone is not completion.
+- [x] Resolve every legacy subsystem and TerraZ repository in the [migration audit](migration-audit.md), with source evidence, target owner, disposition and validation recorded.
+- [x] Preserve the pinned source references until all accepted behavior, edge cases and incident regressions have executable Vega coverage.
+- [x] Review deleted configuration, command, permission, persistence, localization, REST and operations documentation against the running Vega product; restore or rewrite every still-relevant operator contract.
+- [x] Close the scaffolding-removal gate only when there are no unresolved `Partial`, `Missing` or `Unclassified` rows—physical deletion alone is not completion.
 
-The runtime now boots Terraria directly through the OTAPI-backed `Vega.Terraria` host, so TShockAPI and TSAPI correctly remain outside the shipping dependency graph. Their removal in `f24b8036` happened before the behavior audit was complete, however. The exact parent snapshot (`72bff778`) and its pinned TSAPI revision (`024e480e`) are therefore retained as external audit inputs while active namespaces remain `Vega.Contracts` and `Vega.Core`. This phase is intentionally reopened; no legacy assembly is reintroduced into the product build.
+The runtime boots Terraria directly through the OTAPI-backed `Vega.Terraria` host, and architecture/release tests keep TShockAPI and TSAPI outside the source, solution and deployable graph. The exact parent snapshot (`72bff778`), pinned TSAPI revision (`024e480e`) and current TerraZ revisions remain documentary audit evidence. Configuration, command/permission, persistence, localization, REST-drop and Operations decisions are reflected in the running bilingual guides. No unresolved ledger row remains and no legacy assembly was reintroduced.
 
 ## Phase 11 — World image and runtime optimization
 
@@ -228,7 +228,7 @@ Tile-only schema 1 and its reproducible benchmark harness showed no repeatable s
 - [x] Document the release archive layout with runtime libraries under `libs/` and first-party modules under `ServerPlugins/`.
 - [x] Document the automatic tag-triggered NuGet/GitHub release and the separate manual latest-tag server publication workflow.
 - [x] Clarify the proprietary license scope, project ownership, third-party boundaries, redistribution restrictions and warranty terms without changing Vega into an open-source project.
-- [ ] Keep both language versions synchronized whenever commands, packaging, supported runtime modes or public contracts change.
+- [x] Keep both language versions synchronized whenever commands, packaging, supported runtime modes or public contracts change.
 
 ## Phase 13 — TerraZ-derived security and connection invariants
 
@@ -460,7 +460,7 @@ The Vega 1.0 baseline provides the same account/group/role-lease tables through 
 - [x] Add game-thread-safe region admission/build/use checks through typed world/player contexts rather than module-specific tile hooks.
 - [x] Add authorized `region` create/delete/list/show/resize/priority/owner/member/group/flag commands with overlap and world validation.
 - [x] Expose immutable region snapshots and authorized mutations to Operations/TUI so `HouseRegions`, `Region-Vision` and sandbox worlds share one source of truth.
-- [ ] Add lifecycle and regression tests for overlapping priorities, renamed/deleted worlds, offline owners, permission inheritance and concurrent edits.
+- [x] Add lifecycle and regression tests for overlapping priorities, renamed/deleted worlds, offline owners, permission inheritance and concurrent edits.
 
 The Vega 1.0 baseline stores region identity by explicit `WorldId`, validates non-empty bounded rectangles, resolves overlaps by priority then smallest area and retains owners as offline-capable account names. Members, groups and boolean flags are versioned with the region; mutations use optimistic revisions and the shared administration audit. `region` commands always use `CommandInvocation.WorldId`, so identical names in different worlds do not collide. Runtime build, paint, door, sign, chest and tile-entity packets resolve protected regions from immutable per-world snapshots, use authenticated account/group identity, allow `vega.regions.bypass`, and invalidate the cache after committed mutations. Chest and tile-entity identifiers are resolved against Terraria-owned state before ACL evaluation, including active-chest ownership for item mutation. Operations publishes a bounded deep-immutable projection for all active world contexts; plain output and the configurable TUI Regions window consume it, while mutations still pass through the authorized command boundary. Lifecycle validation for renamed/deleted worlds remains open above.
 
@@ -479,7 +479,7 @@ The Vega 1.0 baseline stores revisioned account/player-name mutes with explicit 
 - [x] Add `/lang`, `/lang list`, `/lang <culture>` and `/lang reset`; persist registered-account preference and keep guest preference session-scoped.
 - [x] Add a generated command catalog and `help`/command-discovery output that shows only commands the caller may use, including aliases, syntax and permission requirements.
 - [x] Keep Vega commands and Terraria native commands reachable from plain console and TUI without competing stdin readers; capture native command output into bounded operations logs/results.
-- [ ] Audit the minimum built-in operator set beyond `serverinfo`, `checkupdates`, `kick` and `playing`, and cover save/shutdown, moderation, identity, groups, regions, configuration and language with end-to-end tests.
+- [x] Audit the minimum built-in operator set beyond `serverinfo`, `checkupdates`, `kick` and `playing`, and cover save/shutdown, moderation, identity, groups, regions, configuration and language with end-to-end tests.
 
 The native `lang` command and session-scoped guest preference are live for `en-US` and `ru-RU`; authenticated account selection is persisted and restored at login. The command switches only the recipient catalog, and stale module-catalog unload cannot remove a newer registration. Every built-in command now declares canonical syntax in the same descriptor that owns its name, aliases, permissions and console availability. `help` reads a live dispatcher snapshot, filters it with the dispatch authorization rule and includes syntax/aliases/permissions without maintaining a second catalog; dynamically loaded commands appear and disappear with their registration lease. Terraria retains stdin through world selection. Once TUI ownership begins, the native input thread reads the palette queue instead of `Console.ReadLine`, unknown Vega commands continue through Terraria, and native stdout/stderr is captured as bounded `terraria-console` Operations records rather than disappearing behind the dashboard. Authorized `save` joins the autosave barrier and awaits the same worker save; `shutdown`/`stop`/`off` requests Terraria's normal `SaveOnServerExit` server-loop termination rather than killing the process.
 
@@ -489,10 +489,12 @@ The native `lang` command and session-scoped guest preference are live for `en-U
 - [x] Persist the first revision-aware domain consumer (global-ban creation/revocation tombstones) through the same contract used by cluster replication.
 - [x] Freeze one clean Vega 1.0 baseline schema for every database provider and test creation/reopen from an empty store; do not preserve migration steps between unreleased development schemas.
 - [x] Keep numbered, forward-only migrations and upgrade/rollback fixtures absent until the first public Vega schema has shipped.
-- [ ] Add clean-archive tests proving that an operator can extract the release, edit documented configuration, create the first administrator, start a world and manage groups/regions/bans without repository files.
-- [ ] Update English/Russian guides and the deployable archive only after command examples, generated configuration and persistence paths match the running server.
+- [x] Add clean-archive tests proving that an operator can extract the release, edit documented configuration, create the first administrator, start a world and manage groups/regions/bans without repository files.
+- [x] Update English/Russian guides and the deployable archive only after command examples, generated configuration and persistence paths match the running server.
 
 ADR 0022 establishes the persistence boundary without reproducing TShock's generic database helpers. Domain contracts never expose SQL or `DbConnection`. Before the first public release all current tables belong to one Vega 1.0 baseline; the temporary development sequence is not a compatibility contract. SQLite tests create, reopen and online-backup the complete baseline locally. The CI persistence job starts disposable PostgreSQL 17 and MySQL 8.4 services, initializes each empty store, reopens it, exercises a domain mutation and validates the provider's logical dump tool. Numbered migrations remain intentionally absent until a public schema exists.
+
+The release workflows also copy the publish output to a repository-independent temporary deployment, parse every shipped JSON file, create a fresh SQLite baseline, generate a new Terraria world and require `NetworkReady`; the smoke copy is then discarded. The same dispatcher used by the live server has persistence-backed coverage for first-account/identity, group permission, region and typed-ban workflows, alongside save/shutdown and language/configuration tests. These are separate because Terraria deliberately disables its interactive reader for redirected CI stdin. Both guides and `artifacts/current-server` match the shipped Backups, Regions and soft-restart configuration paths.
 
 ### Scheduled deployment backups
 
@@ -512,20 +514,22 @@ Provide an authorized operational restart of the Vega application/module graph w
 
 ### Restart boundary and lifecycle
 
-- [ ] Classify every runtime component as `PreservedInfrastructure`, `RestartableModule` or `ProcessRestartOnly`; keep Terraria/OTAPI, the loaded world, network listener, database connections/schema management, lifecycle coordinator and Operations control plane outside the restartable graph.
-- [ ] Replace one-shot static-module construction with explicit factories and owned registration scopes so every restartable module can quiesce, stop, remove hooks/commands/jobs and be recreated without retaining the previous generation.
-- [ ] Add a generation-aware module router and an exclusive restart barrier: reject concurrent restart requests, stop new module callbacks, drain bounded in-flight work, atomically swap the packet/event/command generation and then dispose the old graph.
-- [ ] Stop modules in reverse dependency order and start them in validated topological order with cancellation, per-module timeout and a total restart deadline.
-- [ ] Define session-state behavior explicitly: authenticated accounts, bans, regions and the world remain; module-owned temporary state is reset unless a module registers a versioned restart handoff contract.
+- [x] Classify every runtime component as `PreservedInfrastructure`, `RestartableModule` or `ProcessRestartOnly`; keep Terraria/OTAPI, the loaded world, network listener, database connections/schema management, lifecycle coordinator and Operations control plane outside the restartable graph.
+- [x] Replace one-shot static-module construction with explicit factories and owned registration scopes so every restartable module can quiesce, stop, remove hooks/commands/jobs and be recreated without retaining the previous generation.
+- [x] Add a generation-aware module router and an exclusive restart barrier: reject concurrent restart requests, stop new module callbacks, drain bounded in-flight work, atomically swap the packet/event/command generation and then dispose the old graph.
+- [x] Stop modules in reverse dependency order and start them in validated topological order with cancellation, per-module timeout and a total restart deadline.
+- [x] Define session-state behavior explicitly: authenticated accounts, bans, regions and the world remain; module-owned temporary state is reset unless a module registers a versioned restart handoff contract.
 
 ### Failure handling and operator surface
 
-- [ ] Validate and construct the replacement graph before quiescing the active one where ownership permits; on startup failure attempt one bounded rollback to a freshly recreated previous configuration and otherwise enter an observable degraded state requiring process restart.
-- [ ] Treat collectible `ServerPlugins` through their existing cleanup/unload verification path; an uncollected context, native hook leak or restart-only configuration change must return `ProcessRestartRequired` rather than claim success.
-- [ ] Add `softrestart` (aliases `restartmodules` and `modules restart`) behind `vega.server.soft-restart`, with optional module targeting, explicit confirmation for restarting all modules, structured audit and progress visible in plain console, TUI and logs.
-- [ ] Keep native Terraria `restart`/`exit` semantics distinct and document exactly which configuration changes require a process restart or a world reload.
-- [ ] Add integration tests for connected players during restart, packet/event traffic at the generation boundary, scheduler cancellation, command removal, dependency ordering, failed replacement, rollback failure and repeated restarts without handler/thread/ALC growth.
-- [ ] Benchmark restart latency, dropped/rejected work, allocations and retained objects over at least 100 restart cycles; do not enable the command by default until the lifetime tests are stable.
+- [x] Validate and construct the replacement graph before quiescing the active one where ownership permits; on startup failure attempt one bounded rollback to a freshly recreated previous configuration and otherwise enter an observable degraded state requiring process restart.
+- [x] Treat collectible `ServerPlugins` through their existing cleanup/unload verification path; an uncollected context, native hook leak or restart-only configuration change must return `ProcessRestartRequired` rather than claim success.
+- [x] Add `softrestart` (aliases `restartmodules` and `modules restart`) behind `vega.server.soft-restart`, with optional module targeting, explicit confirmation for restarting all modules, structured audit and progress visible in plain console, TUI and logs.
+- [x] Keep native Terraria `restart`/`exit` semantics distinct and document exactly which configuration changes require a process restart or a world reload.
+- [x] Add integration tests for connected players during restart, packet/event traffic at the generation boundary, scheduler cancellation, command removal, dependency ordering, failed replacement, rollback failure and repeated restarts without handler/thread/ALC growth.
+- [x] Benchmark restart latency, dropped/rejected work, allocations and retained objects over at least 100 restart cycles; do not enable the command by default until the lifetime tests are stable.
+
+`config/soft-restart.json` keeps the capability disabled by default. The runtime now owns one explicit bundled-module factory and routes packet, chat, chest, command and cleanup-status callbacks through a drainable generation boundary; preserved Terraria/player/world/persistence services are never captured by the replaceable graph. Module startup is topologically validated and individually bounded, shutdown is reversed, compatible handoff payloads are keyed/versioned/bounded, and one fresh rollback is attempted after replacement failure. Stable command proxies make the handler swap atomic without a dispatcher gap. Collectible external plugins remain on their stricter unload-verification path, and any dirty plugin state blocks soft restart. Lifecycle, rollback, concurrency, dependency-order and 100-cycle retention tests accompany a standalone allocation/latency benchmark; `docs/soft-restart.md` and its Russian counterpart define the exact process-restart boundary.
 
 ## Phase 21 — Core cohesion and extraction audit
 
@@ -533,19 +537,21 @@ Review whether `Vega.Core` still represents a cohesive application kernel or has
 
 ### Evidence and decisions
 
-- [ ] Inventory every `Vega.Core` namespace by responsibility, dependencies, public contracts, runtime registrations, test ownership, change frequency and real consumers; identify cycles and unrelated reasons to change.
-- [ ] Evaluate regions first: compare keeping region command/authorization policy in Core with a `Vega.Regions` domain module that owns commands, ACL decisions and Operations projections while `Vega.Persistence` keeps relational storage and `Vega.Terraria` keeps game-state adapters.
-- [ ] Evaluate administration/identity commands, moderation, packet-security policies, GeoIP/update services and module lifecycle as separate candidates; record `Keep`, `Extract` or `Merge` with concrete dependency and consumer evidence.
-- [ ] Require an ADR for every extraction, including API owner, persistence owner, composition root, migration path, failure behavior and why the split improves cohesion without introducing a generic service locator or cross-module chatter.
-- [ ] Establish architecture tests for the accepted dependency direction: domain modules may depend on Contracts and narrow infrastructure abstractions, while Core must not become a transit dependency or a container for unrelated implementations.
+- [x] Inventory every `Vega.Core` namespace by responsibility, dependencies, public contracts, runtime registrations, test ownership, change frequency and real consumers; identify cycles and unrelated reasons to change.
+- [x] Evaluate regions first: compare keeping region command/authorization policy in Core with a `Vega.Regions` domain module that owns commands, ACL decisions and Operations projections while `Vega.Persistence` keeps relational storage and `Vega.Terraria` keeps game-state adapters.
+- [x] Evaluate administration/identity commands, moderation, packet-security policies, GeoIP/update services and module lifecycle as separate candidates; record `Keep`, `Extract` or `Merge` with concrete dependency and consumer evidence.
+- [x] Require an ADR for every extraction, including API owner, persistence owner, composition root, migration path, failure behavior and why the split improves cohesion without introducing a generic service locator or cross-module chatter.
+- [x] Establish architecture tests for the accepted dependency direction: domain modules may depend on Contracts and narrow infrastructure abstractions, while Core must not become a transit dependency or a container for unrelated implementations.
 
 ### Controlled extraction
 
-- [ ] Extract one complete vertical slice at a time with its tests and runtime registration; do not move only DTOs or create pass-through interfaces solely to reduce a project file count.
-- [ ] Preserve public `VegaKernel.*` compatibility where justified, or document and version intentional moves; avoid exposing Terraria, SQL, UI or plugin-host types through domain contracts.
-- [ ] Compare solution build time, server startup, package graph, packet hot-path cost and allocation/working-set baselines before and after each split; revert extractions that add indirection without measurable ownership benefit.
-- [ ] Update English/Russian architecture documentation, diagrams, module-author guidance and the migration ledger after each accepted ownership change.
-- [ ] Close the audit only when every Core namespace has one recorded owner/reason to remain and no extracted domain requires Core as a hidden mediator.
+- [x] Extract one complete vertical slice at a time with its tests and runtime registration; do not move only DTOs or create pass-through interfaces solely to reduce a project file count.
+- [x] Preserve public `VegaKernel.*` compatibility where justified, or document and version intentional moves; avoid exposing Terraria, SQL, UI or plugin-host types through domain contracts.
+- [x] Compare solution build time, server startup, package graph, packet hot-path cost and allocation/working-set baselines before and after each split; revert extractions that add indirection without measurable ownership benefit.
+- [x] Update English/Russian architecture documentation, diagrams, module-author guidance and the migration ledger after each accepted ownership change.
+- [x] Close the audit only when every Core namespace has one recorded owner/reason to remain and no extracted domain requires Core as a hidden mediator.
+
+The audit is recorded in `docs/core-cohesion-audit.md`. Regions were the one accepted extraction: `Vega.Regions` now owns the complete command and packet-ACL application slice while Persistence keeps SQL and Terraria keeps authoritative object-position adapters. ADR 0023 records compatibility, failure and composition ownership. The implementation adds no packet adapter or Core mediation; Runtime constructs the unchanged hot policy directly. Administration/identity, moderation, generic packet security, GeoIP/updates and module lifecycle remain in Core for concrete recorded reasons rather than being split into project-per-folder assemblies. Architecture tests enforce the Contracts-only domain direction, and both guides, diagrams, release manifests and the migration ledger include the new owner.
 
 ## Architectural guardrails
 

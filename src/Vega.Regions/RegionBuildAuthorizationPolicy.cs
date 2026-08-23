@@ -7,7 +7,7 @@ using Vega.Contracts.Players;
 using Vega.Contracts.Regions;
 using Vega.Contracts.Worlds;
 
-namespace Vega.Core.Networking;
+namespace Vega.Regions;
 
 public sealed class RegionBuildAuthorizationPolicy(
     IRegionService regions,

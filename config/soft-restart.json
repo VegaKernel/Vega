@@ -1,0 +1,6 @@
+{
+  "enabled": false,
+  "drainTimeoutSeconds": 5,
+  "moduleTimeoutSeconds": 10,
+  "totalTimeoutSeconds": 60
+}

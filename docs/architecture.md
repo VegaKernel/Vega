@@ -17,6 +17,7 @@ Vega.Runtime ------------+------------------+
      +-> Vega.Sandboxes ---------------------+
      +-> Vega.Backups -----------------------+
      +-> Vega.Core --------------------------+
+     +-> Vega.Regions -----------------------+
      `-> Vega.Modules -----------------------+
 ```
 
@@ -66,6 +67,10 @@ mutable integration globals
 ```
 
 World/player state enters Core through explicit contracts, immutable snapshots and scheduled capabilities.
+
+### Vega.Regions
+
+Owns the complete region application slice above persistence: the authorized command surface and hot-path packet ACL decisions. It depends on `Vega.Contracts` and typed Multiplicity packet views, not Core, SQL, Terraria, Operations or UI. `Vega.Persistence` retains relational storage and baseline-schema ownership; `Vega.Terraria` retains chest/tile-entity position adapters; Operations consumes immutable region contracts directly.
 
 ### Vega.Operations
 

@@ -16,7 +16,7 @@ public class TestSetup
 	{
 		ChatInitializer.Load();
 
-		Program.SavePath = "";
+		global::Terraria.Program.SavePath = "";
 		LanguageManager.Instance.SetLanguage(GameCulture.DefaultCulture);
 		Lang.InitializeLegacyLocalization();
 	}

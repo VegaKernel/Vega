@@ -24,6 +24,7 @@ flowchart TB
     Runtime --> Operations["Vega.Operations<br/>логи + метрики + read models"]
     Runtime --> Cluster["Vega.Cluster<br/>опциональные межсерверные сценарии"]
     Runtime --> Persistence["Vega.Persistence<br/>доменные хранилища + schema baseline"]
+    Runtime --> Regions["Vega.Regions<br/>команды + ACL регионов"]
     Runtime --> Sandboxes["Vega.Sandboxes<br/>изолированные миры + supervisor"]
     Runtime --> Backups["Vega.Backups<br/>world + database archives"]
     Runtime -. "явная регистрация" .-> Modules["ServerPlugins<br/>Vega.Modules.*"]
@@ -33,6 +34,7 @@ flowchart TB
     Operations --> Contracts
     Cluster --> Contracts
     Persistence --> Contracts
+    Regions --> Contracts
     Sandboxes --> Contracts
     Backups --> Contracts
     Modules --> Contracts
@@ -79,7 +81,7 @@ dotnet publish src/Vega.Runtime/Vega.Runtime.csproj `
 
 После публикации launcher остаётся в корне, общие зависимости находятся в `libs/`, а встроенные серверные модули — в `ServerPlugins/`.
 
-Горячая замена внешних unload-safe плагинов в `ServerPlugins/` доступна через `IHotReloadableVegaModule`, но выключена по умолчанию в `config/modules.json`. При включении watcher автоматически обрабатывает создание, изменение, удаление и переименование DLL; встроенные `IVegaModule` по-прежнему требуют перезапуска.
+Горячая замена внешних unload-safe плагинов в `ServerPlugins/` доступна через `IHotReloadableVegaModule`, но выключена по умолчанию в `config/modules.json`. Встроенные `IVegaModule` пересоздаются отдельным поколением через также выключенный по умолчанию `config/soft-restart.json`; Terraria, мир, игроки и БД при этом остаются живы.
 
 ## Запуск
 
@@ -97,6 +99,7 @@ artifacts/server/Vega.Server.exe --vega-ui=plain
 - [Operations API и Terminal UI](docs/operations.md)
 - [Изолированные sandbox-миры](docs/ru/sandboxes.md)
 - [Резервные копии](docs/ru/backups.md)
+- [Мягкий перезапуск](docs/ru/soft-restart.md)
 - [Cluster messaging](docs/cluster.md)
 - [Хранение и провайдеры баз данных](docs/ru/persistence.md)
 - [World image](docs/world-images.md)
@@ -106,7 +109,7 @@ artifacts/server/Vega.Server.exe --vega-ui=plain
 
 ## Статус
 
-Roadmap фиксирует завершённые возможности и оставшуюся production-работу. Dimensions-совместимый forwarding и управляемые sandbox-процессы реализованы, но выключены или ограничены консервативными настройками; постоянные SSC-режимы, soft restart, резервное копирование по расписанию и переход на .NET 11 остаются дальнейшей работой.
+Roadmap фиксирует завершённые возможности и намеренно отложенный переход на .NET 11. Dimensions-forwarding, sandbox-процессы, мягкий перезапуск и резервное копирование реализованы, но опасные operational-возможности выключены консервативными настройками. Авторитетный SSC, legacy whitelist/warps и совместимость с TShock REST не входят в цели Vega 1.0.
 
 ## Лицензия
 

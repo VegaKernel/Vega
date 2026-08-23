@@ -6,6 +6,33 @@ namespace Vega.Architecture.Tests;
 public sealed class RuntimeDependencyTests
 {
     [Test]
+    public void RegionsIsACompleteContractsOnlyVerticalSlice()
+    {
+        string repositoryRoot = FindRepositoryRoot();
+        string project = File.ReadAllText(Path.Combine(repositoryRoot, "src", "Vega.Regions", "Vega.Regions.csproj"));
+        string[] regionSources = Directory.EnumerateFiles(
+                Path.Combine(repositoryRoot, "src", "Vega.Regions"), "*.cs", SearchOption.AllDirectories)
+            .Select(File.ReadAllText)
+            .ToArray();
+        string[] coreSources = Directory.EnumerateFiles(
+                Path.Combine(repositoryRoot, "src", "Vega.Core"), "*.cs", SearchOption.AllDirectories)
+            .Select(File.ReadAllText)
+            .ToArray();
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(project, Does.Contain("Vega.Contracts"));
+            Assert.That(project, Does.Not.Contain("Vega.Core"));
+            Assert.That(project, Does.Not.Contain("Vega.Persistence"));
+            Assert.That(project, Does.Not.Contain("Vega.Terraria"));
+            Assert.That(regionSources.Any(source => source.Contains("class RegionCommand", StringComparison.Ordinal)), Is.True);
+            Assert.That(regionSources.Any(source => source.Contains("class RegionBuildAuthorizationPolicy", StringComparison.Ordinal)), Is.True);
+            Assert.That(coreSources.Any(source => source.Contains("class RegionCommand", StringComparison.Ordinal)), Is.False);
+            Assert.That(coreSources.Any(source => source.Contains("class RegionBuildAuthorizationPolicy", StringComparison.Ordinal)), Is.False);
+        });
+    }
+
+    [Test]
     public void BackupOrchestrationRemainsAnIndependentContractsOnlyDomain()
     {
         string repositoryRoot = FindRepositoryRoot();

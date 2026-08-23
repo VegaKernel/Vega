@@ -41,6 +41,7 @@ using Vega.Operations.Logging;
 using Vega.Operations.Metrics;
 using Vega.Operations.ReadModels;
 using Vega.Persistence;
+using Vega.Regions;
 using Vega.Sandboxes;
 using Vega.TerminalUI;
 using Vega.Terraria;
@@ -51,6 +52,7 @@ using Vega.Terraria.Operations;
 using Vega.Terraria.Threading;
 using Vega.Terraria.Scenes;
 using Vega.Terraria.Worlds;
+using Vega.Runtime;
 
 var processStartedAt = Stopwatch.GetTimestamp();
 
@@ -190,9 +192,7 @@ int Start()
     using var updateChecker = new GitHubReleaseUpdateChecker();
     using var extensionState = new ExtensionStateStore();
     using var operationsState = new TerrariaOperationsState();
-    var pvpModule = new PvpModule(extensionState, playerBoundary, playerBoundary, playerBoundary);
-    var customItemsModule = new CustomItemsModule(new TerrariaCustomItemDelivery(gameThreadDispatcher));
-    var mentionsModule = new MentionRenderer();
+    var moduleRouter = new RuntimeModuleGenerationRouter();
     ICommandHandler[] commandHandlers =
     [
         new ServerInfoCommand(new ProcessHostMetricsReader()),
@@ -252,7 +252,6 @@ int Start()
         var scenes = new SceneRuntime(sceneRenderer);
         var visibility = new SceneVisibilityRuntime();
         sceneRenderer.Attach(scenes, playerBoundary);
-        var sceneConsumers = new SceneConsumersModule(scenes, visibility, playerBoundary);
         WorldMaintenanceOptions worldMaintenanceOptions = WorldMaintenanceOptionsStore.Load(
             Path.Combine(AppContext.BaseDirectory, "config", "world-maintenance.json"),
             logger);
@@ -268,10 +267,6 @@ int Start()
             new FileWorldResetBackend(),
             [],
             logger);
-        var wipeModule = new WipeModule(
-            worldReset,
-            serverControl,
-            configuredWorldPath.StartsWith('<') ? null : configuredWorldPath);
         AutoWorldCleanerOptions cleanerOptions = AutoWorldCleanerOptionsStore.Load(
             Path.Combine(AppContext.BaseDirectory, "config", "auto-world-cleaner.json"),
             logger);
@@ -281,40 +276,74 @@ int Start()
             chestBackend,
             new AsyncEventPipeline<ChestChanging>([]),
             new AsyncEventPipeline<ChestChanged>([]));
-        var chestModule = new ChestPolicyModule(
-            chestService,
-            logger,
-            Path.Combine(AppContext.BaseDirectory, "data", "chest-templates.json"));
-        var autoWorldCleaner = new AutoWorldCleanerModule(
-            cleanerOptions,
-            worldEntities,
-            lifecycle,
-            gameThreadDispatcher,
-            playerBoundary,
-            logger);
-        IVegaModule[] configuredModules =
-            [pvpModule, customItemsModule, autoWorldCleaner, mentionsModule, chestModule, wipeModule, sceneConsumers];
-        if (backendLaunch.IsBackend && backendLaunch.EnabledModules.Count > 0)
+        SoftRestartOptions softRestartOptions = SoftRestartOptionsStore.Load(
+            Path.Combine(AppContext.BaseDirectory, "config", "soft-restart.json"));
+        RestartableModuleGraph CreateRestartableGraph(IReadOnlySet<string>? requested)
         {
-            configuredModules = configuredModules.Where(module =>
-            {
-                string name = module.Descriptor.Name;
-                string shortName = name[(name.LastIndexOf('.') + 1)..];
-                return backendLaunch.EnabledModules.Contains(name) || backendLaunch.EnabledModules.Contains(shortName);
-            }).ToArray();
+            var pvp = new PvpModule(extensionState, playerBoundary, playerBoundary, playerBoundary);
+            var customItems = new CustomItemsModule(new TerrariaCustomItemDelivery(gameThreadDispatcher));
+            var cleaner = new AutoWorldCleanerModule(
+                cleanerOptions,
+                worldEntities,
+                lifecycle,
+                gameThreadDispatcher,
+                playerBoundary,
+                logger);
+            var mentions = new MentionRenderer();
+            var chests = new ChestPolicyModule(
+                chestService,
+                logger,
+                Path.Combine(AppContext.BaseDirectory, "data", "chest-templates.json"));
+            var wipe = new WipeModule(
+                worldReset,
+                serverControl,
+                configuredWorldPath.StartsWith('<') ? null : configuredWorldPath);
+            var sceneConsumers = new SceneConsumersModule(scenes, visibility, playerBoundary);
+            IVegaModule[] candidates = [pvp, customItems, cleaner, mentions, chests, wipe, sceneConsumers];
+            IVegaModule[] configured = backendLaunch.IsBackend && backendLaunch.EnabledModules.Count > 0
+                ? candidates.Where(module =>
+                {
+                    string name = module.Descriptor.Name;
+                    string shortName = name[(name.LastIndexOf('.') + 1)..];
+                    return backendLaunch.EnabledModules.Contains(name) || backendLaunch.EnabledModules.Contains(shortName);
+                }).ToArray()
+                : candidates;
+            foreach (IVegaModule excluded in candidates.Except(configured)) excluded.Dispose();
+            bool Enabled(IVegaModule module) => configured.Contains(module);
+            var moduleCommands = new List<ICommandHandler>();
+            if (Enabled(cleaner)) moduleCommands.Add(new AutoWorldCleanerCommand(cleaner));
+            if (Enabled(chests)) moduleCommands.Add(new ChestPolicyCommand(chests));
+            if (Enabled(wipe)) moduleCommands.Add(new WipeCommand(wipe));
+            if (Enabled(sceneConsumers)) moduleCommands.Add(new SceneCommand(sceneConsumers, scenes, playerBoundary));
+            IReadOnlyDictionary<string, ICommandHandler> commands = moduleCommands.ToDictionary(
+                static command => command.Descriptor.Name,
+                StringComparer.OrdinalIgnoreCase);
+            var host = new VegaModuleHost(configured);
+            return new RestartableModuleGraph(
+                host,
+                configured.Select(static module => module.Descriptor.Name).ToArray(),
+                () => moduleRouter.Activate(new RuntimeModuleGeneration(
+                    Enabled(pvp) ? pvp.PacketProcessor : null,
+                    Enabled(mentions) ? mentions : null,
+                    Enabled(chests) ? chests : null,
+                    Enabled(cleaner) ? cleaner : null,
+                    commands)));
         }
 
-        bool ModuleEnabled(IVegaModule module) => configuredModules.Contains(module);
-        using var moduleHost = new VegaModuleHost(configuredModules);
+        SoftRestartCoordinator? startedModules;
         try
         {
-            moduleHost.Start();
+            startedModules = new SoftRestartCoordinator(softRestartOptions, CreateRestartableGraph, logger);
         }
         catch (Exception ex)
         {
             logger.Log(OperationsLogLevel.Critical, "modules", "Vega module startup failed.", ex);
             return 1;
         }
+
+        using var softRestart = startedModules;
+        moduleRouter.Attach(softRestart);
+        using IDisposable moduleCommandRegistrations = moduleRouter.RegisterCommands(commandDispatcher);
 
         IVegaDatabase database;
         try
@@ -360,7 +389,7 @@ int Start()
             new InventoryCommand(playerBoundary, inventoryService));
         var chat = new ChatPipeline(
             moderation: [new MuteChatModerationRule(accountSessions, database.Mutes)],
-            renderers: ModuleEnabled(mentionsModule) ? [mentionsModule] : []);
+            renderers: [moduleRouter]);
 
         GameplayEnforcementOptions gameplayOptions = GameplayEnforcementOptionsStore.Load(
             Path.Combine(AppContext.BaseDirectory, "config", "security.json"),
@@ -419,22 +448,8 @@ int Start()
                 TerrariaPacketSecurityLimits.PrefixCount,
                 TerrariaPacketSecurityLimits.PaintColorCount),
             new PlayerPacketOwnershipPolicy(),
-            ModuleEnabled(pvpModule)
-                ? pvpModule.PacketProcessor
-                : new PacketProcessorPipeline<PacketView>([])
+            moduleRouter
         ]);
-        using IDisposable? worldCleanCommandRegistration = ModuleEnabled(autoWorldCleaner)
-            ? commandDispatcher.Register(new AutoWorldCleanerCommand(autoWorldCleaner))
-            : null;
-        using IDisposable? chestPolicyCommandRegistration = ModuleEnabled(chestModule)
-            ? commandDispatcher.Register(new ChestPolicyCommand(chestModule))
-            : null;
-        using IDisposable? wipeCommandRegistration = ModuleEnabled(wipeModule)
-            ? commandDispatcher.Register(new WipeCommand(wipeModule))
-            : null;
-        using IDisposable? sceneCommandRegistration = ModuleEnabled(sceneConsumers)
-            ? commandDispatcher.Register(new SceneCommand(sceneConsumers, scenes, playerBoundary))
-            : null;
         using IDisposable? sandboxCommandRegistration = sandboxControl is null || sandboxRouting is null
             ? null
             : commandDispatcher.Register(new SandboxCommand(sandboxControl, sandboxRouting, logger));
@@ -490,7 +505,7 @@ int Start()
             Path.Combine(AppContext.BaseDirectory, "config", "world-clock.json"),
             logger);
         var worldClock = new MonotonicWorldClock(worldClockOptions);
-        var staticModules = new StaticModuleOperationsCatalog(CreateModuleSnapshots(moduleHost));
+        var staticModules = new StaticModuleOperationsCatalog(CreateModuleSnapshots(softRestart));
         ServerPluginHotReloadOptions hotReloadOptions = ServerPluginHotReloadOptionsStore.Load(
             Path.Combine(AppContext.BaseDirectory, "config", "modules.json"),
             logger);
@@ -500,6 +515,11 @@ int Start()
             commandDispatcher,
             logger);
         serverPlugins.Start();
+        softRestart.SetProcessRestartGuard(() => serverPlugins.Read().IsRestartRequired
+            ? "ServerPlugins contains a change or cleanup failure that requires a process restart."
+            : null);
+        using IDisposable softRestartCommandRegistration = commandDispatcher.Register(
+            new SoftRestartCommand(softRestart, logger));
         using IDisposable pluginCommandRegistration = commandDispatcher.Register(
             new ServerPluginCommand(serverPlugins));
         var modules = new CompositeModuleOperationsCatalog(
@@ -519,7 +539,7 @@ int Start()
             worldImages,
             serverPlugins,
             worldClock,
-            autoWorldCleaner,
+            moduleRouter,
             worldContexts: sandboxControl is null
                 ? null
                 : new SandboxWorldContextCatalog(sandboxControl, operationsState, playerBoundary),
@@ -605,7 +625,7 @@ int Start()
             accountSessions,
             database.Mutes,
             chat,
-            chestModule,
+            moduleRouter,
             scenes,
             visibility,
             sceneRenderer,
@@ -646,17 +666,18 @@ JsonFileOperationsLogSink? TryCreateFileSink(SandboxBackendLaunchOptions backend
     }
 }
 
-IReadOnlyList<ModuleOperationsSnapshot> CreateModuleSnapshots(VegaModuleHost moduleHost) =>
+IReadOnlyList<ModuleOperationsSnapshot> CreateModuleSnapshots(IModuleOperationsCatalog moduleHost) =>
 [
     Module(
         "Vega.Runtime",
         Assembly.GetExecutingAssembly(),
-        ["Vega.Backups", "Vega.Cluster", "Vega.Core", "Vega.Modules.AutoWorldCleaner", "Vega.Modules.Pvp", "Vega.Operations", "Vega.Persistence", "Vega.Sandboxes", "Vega.Terraria", "Vega.TerminalUI"]),
+        ["Vega.Backups", "Vega.Cluster", "Vega.Core", "Vega.Modules.AutoWorldCleaner", "Vega.Modules.Pvp", "Vega.Operations", "Vega.Persistence", "Vega.Regions", "Vega.Sandboxes", "Vega.Terraria", "Vega.TerminalUI"]),
     Module("Vega.Backups", typeof(DeploymentBackupService).Assembly, ["Vega.Contracts"]),
     Module("Vega.Core", typeof(CommandDispatcher).Assembly, ["Vega.Contracts"]),
     Module("Vega.Cluster", typeof(UnavailableClusterClient).Assembly, ["Vega.Contracts"]),
     Module("Vega.Operations", typeof(OperationsSnapshotProvider).Assembly, ["Vega.Contracts"]),
     Module("Vega.Persistence", typeof(IVegaDatabase).Assembly, ["Vega.Contracts", "System.Data.Common"]),
+    Module("Vega.Regions", typeof(RegionCommand).Assembly, ["Vega.Contracts", "Multiplicity"]),
     Module("Vega.Sandboxes", typeof(SandboxControlService).Assembly, ["Vega.Contracts"]),
     Module("Vega.Terraria", typeof(TerrariaServerHost).Assembly, ["Vega.Contracts", "OTAPI", "Multiplicity"]),
     Module("Vega.TerminalUI", typeof(TerminalUiHost).Assembly, ["Vega.Contracts", "Terminal.Gui"]),

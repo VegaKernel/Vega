@@ -3,7 +3,7 @@ using Vega.Contracts.Commands;
 using Vega.Contracts.Messaging;
 using Vega.Contracts.Regions;
 
-namespace Vega.Core.Commands.Administration;
+namespace Vega.Regions;
 
 public sealed class RegionCommand(IRegionService regions) : ICommandHandler
 {

@@ -69,29 +69,29 @@ Current TerraZ repositories were freshly read on 2026-08-20. These revisions are
 
 ## TShock capability ledger
 
-The restored source contains substantially more than a bootstrap bridge. Fresh TerraZ TShock registers 95 built-in command definitions and 42 REST routes. Vega currently owns nine canonical base/admin commands (`serverinfo`, `tps`, `checkupdates`, `kick`, `playing`, `ban`, `plugin`, `help` and `aliases`) with aliases discovered from the live catalog. Terraria console passthrough is still not a replacement for account/group/region/warp/SSC command families whose backing capabilities do not yet exist.
+The restored source contains substantially more than a bootstrap bridge. Fresh TerraZ TShock registers 95 built-in command definitions and 42 REST routes. Vega deliberately does not clone that catalog: the live dispatcher exposes the implemented server, identity, moderation, group, region, configuration, language, persistence, sandbox, backup, module and shutdown capabilities, while Terraria-native commands remain passthrough and every omitted legacy family has an explicit disposition below.
 
 | Capability | Legacy evidence | Vega state | Required disposition and validation |
 | --- | --- | --- | --- |
 | Bootstrap, lifecycle and native console | `TShock.cs`, TSAPI hooks, launcher and CLI parser | **Native** for runtime/readiness and console ownership | Retain native host; audit every still-relevant CLI/config precedence rule in Phase 19. |
-| Commands, aliases, help and selectors | `Commands.cs`, `PaginationTools.cs`, 95 registrations | **Partial**: native base/admin surface with nine canonical commands, live help/alias discovery and authorization tests | Remaining legacy command families follow their backing capabilities; classify each as built-in, `ServerPlugin`, Terraria passthrough or explicit drop instead of cloning `Commands.cs`. |
+| Commands, aliases, help and selectors | `Commands.cs`, `PaginationTools.cs`, 95 registrations | **Native**: live authorized catalog covers the implemented base/admin product and preserves Terraria passthrough | Warp/home/tpa/clan/whitelist/legacy REST families are explicit 1.0 drops below, not phantom commands. Dispatcher and persistence-backed administration tests validate the retained surface. |
 | Accounts and login | `UserManager`, login/register/logout/password/account commands | **Native**: schema-2 account store, PBKDF2 credentials, optimistic revisions, audit, bootstrap administration, account-ban checks and authenticated permission/culture projection | Keep gameplay-specific SSC and temporary-role policy outside the identity session primitive. |
 | Groups and permissions | `Group`, `GroupManager`, `Permissions`, temporary groups | **Native**: schema-2 inheritance, explicit grant/deny, persistent replacing role leases, delegated administration, audit, commands and live authenticated-session projection | Keep optional legacy command aliases outside Core; stale expiry is revision-protected and active permissions use the bounded in-memory lease snapshot. |
-| Bans, mutes and whitelist | `BanManager`, `Whitelist`, command and connection checks | **Partial**: native typed ban identity/CIDR persistence, admission, commands and persistent account/name chat mutes with redacted Operations views | Decide whitelist policy explicitly; do not conflate it with bans or silently enable it without a bootstrap-safe operator flow. |
-| Regions and build authorization | `RegionManager`, `RegionHandler`, region commands and Bouncer checks | **Partial**: native schema-3 world-scoped persistence, priorities, owner/member/group/flag ACL state, commands and cached typed build/chest/tile-entity admission | Expose authorized immutable views through Operations in Phase 19. |
-| Warps and teleport administration | `WarpsManager`, warp/home/spawn/tp command families | **Missing** except low-level player operation | Decide base commands versus modules; preserve range/section-load and mounted-player edge cases. |
-| SSC and character persistence | `CharacterManager`, `PlayerData`, `NetItem`, research and remembered positions | **Missing** | Model login phases and authoritative character state before sandbox transfer; reproduce loadout, CC, slot and disconnect regressions. |
-| Database/schema providers | `DbBuilder`, SQL query builders and all domain managers | **Partial**: native domain persistence, schema history, SQLite/PostgreSQL/MySQL providers and first ban repository | Add the remaining account/group/region/SSC stores by domain and real external-provider contract tests in Phase 19. No generic legacy DAL or SQL surface enters Core. |
+| Bans, mutes and whitelist | `BanManager`, `Whitelist`, command and connection checks | **Native / Drop**: typed ban identity/CIDR persistence, admission and persistent mutes are native; legacy whitelist is dropped | Password, bans and permission-based admission avoid whitelist bootstrap lockout. A future allow-list must be designed as an access-policy module, not revived implicitly. |
+| Regions and build authorization | `RegionManager`, `RegionHandler`, region commands and Bouncer checks | **Complete**: `Vega.Regions` owns world-scoped commands and typed build/use ACL admission; `Vega.Persistence` owns the baseline store/cache and Operations exposes immutable views | Lifecycle, overlap, offline-owner, inheritance, authoritative object-position and concurrent-revision regressions are executable. |
+| Warps and teleport administration | `WarpsManager`, warp/home/spawn/tp command families | **Drop from Vega 1.0 base** | The typed game-thread teleport operation is retained; named homes, warps and requests are optional gameplay modules. No legacy table/command alias is shipped without that consumer. |
+| SSC and character persistence | `CharacterManager`, `PlayerData`, `NetItem`, research and remembered positions | **Drop from Vega 1.0 base** | Account/auth phases and stale-pre-auth packet classification are retained, but sandbox descriptors reject non-disabled SSC modes. A future authoritative character product requires a new domain store and packet/login design, not the legacy schema. |
+| Database/schema providers | `DbBuilder`, SQL query builders and all domain managers | **Native**: clean baseline schema plus SQLite/PostgreSQL/MySQL providers for accounts, groups, permissions, leases, regions, bans, mutes and audit | External-provider CI initializes/reopens/mutates/dumps each provider. SSC tables are intentionally absent because SSC is not a 1.0 capability. |
 | Server configuration | `TShockConfig`, `ServerSideConfig`, config docs and CLI overrides | **Native** | Typed `config/` layout, CLI/environment/file/default precedence, validation, provenance, restart-only reload reporting and bilingual operator docs in Phase 19. |
-| Localization | `I18n`, English resource, PO catalogs and language docs | **Partial**: native per-recipient catalogs, module namespaces, deterministic fallback and session `/lang` | Persist and restore registered-account culture after the account store is connected; continue expanding bilingual message catalogs by migrated command/module. |
-| Packet/state validation | `GetDataHandlers`, `Bouncer`, specialized handlers | **Partial**: typed boundary, 15 player-slot ownership packet families, universal item/projectile/player/world/chest sanity policies and authority checks | Universal bounds are native; configurable ghost/spectator/death/proximity/correction policy remains Phase 13/19 work in the appropriate owner. |
-| Item/projectile/tile restrictions | `ItemBans`, `ItemManager`, `ProjectileManager`, `TileManager` | **Partial**: crash/index/type/world-bound invariants are native | Gameplay bans, per-item policy, region/build permissions, proximity and permission exceptions remain separate persisted/configurable behavior. |
-| Save, backup and world lifecycle | `SaveManager`, `BackupManager`, world hooks | **Partial**: configurable autosave plus save-coupled `.vworld` refresh | Add controlled backup/reset orchestration, failure recovery and registered persistence participants. |
-| REST administration | `Rest/*`, secure tokens and 42 routes | **Missing** | Decide a Vega management API independently of legacy route compatibility; preserve authorization/redaction requirements. |
-| GeoIP and connection identity | `GeoIPCountry` and connection handling | **Partial**: MMDB provider exists | Complete forwarded endpoint/provenance, sensitive-field authorization and platform metadata in Phase 13. |
+| Localization | `I18n`, English resource, PO catalogs and language docs | **Native**: recipient catalogs, module namespaces, deterministic fallback, session `/lang` and persisted account culture | English/Russian guides and migrated command fallbacks are synchronized; process-global culture mutation is absent. |
+| Packet/state validation | `GetDataHandlers`, `Bouncer`, specialized handlers | **Native**: typed ownership, rate, gameplay, item/projectile/player/world/chest/region and authoritative-object policies | Incident regressions cover the accepted universal invariants. Optional server rules remain configuration/module policy rather than unresolved Bouncer compatibility. |
+| Item/projectile/tile restrictions | `ItemBans`, `ItemManager`, `ProjectileManager`, `TileManager` | **Native / Drop**: universal crash/index/type/world bounds and region ACL are native; TShock gameplay ban lists are dropped from base | Per-item progression rules are optional gameplay policy and cannot weaken the always-on protocol invariants. |
+| Save, backup and world lifecycle | `SaveManager`, `BackupManager`, world hooks | **Native**: configurable autosave, save-coupled `.vworld`, reset orchestration and scheduled/manual consistent deployment backups | Failure, cancellation, integrity, retention and restore drills are executable and documented. |
+| REST administration | `Rest/*`, secure tokens and 42 routes | **Drop from Vega 1.0** | Console/TUI use the same authorized command/read-model boundaries. A future remote management API must define modern authentication, CSRF/replay, audit and redaction rather than preserve legacy routes/tokens. |
+| GeoIP and connection identity | `GeoIPCountry` and connection handling | **Native**: MMDB lookup, forwarded provenance/trust, platform metadata and sensitive Operations redaction | Pinned MMDB, spoofed-forwarding, replay/admission-order and redaction tests own the behavior. |
 | Plugin/module lifecycle | TSAPI plugin host, `ModuleManager`, plugin installer | **Native**: explicit first-party host plus opt-in unload-safe plugin host | Keep built-ins restart-only; collectible plugins must use tracked cleanup and pass unload verification. |
-| Logs, metrics and operational state | text/SQL logs and server-info/status surfaces | **Partial**: structured bounded logs, tick percentiles, sampled process/network state and bounded per-reason security counters | Add remaining persistence/connection diagnostics without unbounded hot-path work. |
-| Chat and moderation pipeline | chat hooks, mute/whisper/broadcast/MOTD/rules | **Missing** except cluster chat DTOs | Typed ordered transformation/moderation/rendering, commands and per-recipient localization; optional community policy stays modular. |
+| Logs, metrics and operational state | text/SQL logs and server-info/status surfaces | **Native**: structured bounded logs, tick percentiles, process/network/GC/world/module/persistence/security projections and configurable TUI | Sampling and immutable snapshot tests prevent unbounded hot-path work. SQL log storage is intentionally dropped in favor of deploy-local JSONL and backup capture. |
+| Chat and moderation pipeline | chat hooks, mute/whisper/broadcast/MOTD/rules | **Native / passthrough**: ordered moderation/render pipeline, persistent mutes, Mentions and cluster chat are native | Terraria retains native whisper/broadcast/MOTD commands; server-specific rules and ChatGuard policy are optional modules, not Core behavior. |
 
 ## TerraZ TShock delta over upstream
 
@@ -110,13 +110,15 @@ The fresh `TerraZ-Team/TShock` branch is not merely an upstream mirror. At pinne
 
 These are behavior/test inputs. Their indentation, static globals, `TSPlayer` fields and TShock hook shapes are not migration targets.
 
+The accepted universal parts of that delta are covered by the serialized tile/object/projectile/item bounds suites, the lock-based per-session PVP attribution state, the game-thread AutoWorldCleaner snapshot/removal tests, configured packet-rate/gameplay enforcement and the finite item-position/range checks. Command parsing is cached at the dispatcher boundary rather than reusing the legacy log-caller path. The two SSC appearance/loadout fixes are closed as **Drop with SSC for 1.0**; there is no fake character restore to patch. Legacy client chat-tag rewriting is also **Drop**: Vega moderates structured inbound text and leaves Terraria's current native tag handling intact instead of copying a version-specific sanitizer.
+
 ## TerraZ repository dispositions
 
 ### Core/runtime invariants
 
 | Sources | Target | Current state |
 | --- | --- | --- |
-| `ExtendedBans` | Typed moderation identities, normalized IP/CIDR matching and authoritative admission | **Partial**, Phase 13/19 |
+| `ExtendedBans` | Typed moderation identities, normalized IP/CIDR matching and authoritative admission | **Native**, Phase 13/19 |
 | `PacketGuard`, `StateGuard`, `LeashedEntityGuard` | Typed deterministic packet/state rules plus separate telemetry | **Native**, Phase 13 |
 | `NoCoinDupe` | Server-authoritative NPC coin-pickup policy | **Native**, Phase 9/13 |
 | `ClientPlatformDetector`, `SSCHealthFix`, `UuidGuardExtension` | Connection metadata, explicit login phases and structured external security signals | **Native**, Phase 13 |
@@ -129,17 +131,53 @@ These are behavior/test inputs. Their indentation, static globals, `TSPlayer` fi
 
 | Sources | Core capability | User-facing owner |
 | --- | --- | --- |
-| `TempGroup`, `ControlGroupOption` | Expiring role leases, delegated grants and audit | Administration `ServerPlugin`/UI |
-| `InvSee`, `TSExt_UICommand` | Inventory snapshots/mutation and sensitive-field redaction | Administration `ServerPlugin`/UI |
-| `Wipe` | Validated world transition/reset and persistence participants | Destructive admin `ServerPlugin`/UI |
+| `TempGroup`, `ControlGroupOption` | Expiring role leases, delegated grants and audit | Native `account temp*` / group administration |
+| `InvSee`, `TSExt_UICommand` | Inventory snapshots/mutation and sensitive-field redaction | Native `userinfo` / `invsee` commands and Operations |
+| `Wipe` | Validated world transition/reset and persistence participants | `Vega.Modules.Wipe` |
 | `AutoWorldCleaner` | **Native** world-scoped immutable entity snapshots, guarded game-thread removal and cancellable scheduler | `Vega.Modules.AutoWorldCleaner` with `config/auto-world-cleaner.json` |
-| `InfChests`, `ChestRegen` | Stable chest identity, versioned snapshots, transactional mutation and ACL hooks | Chest-policy `ServerPlugins` |
-| `Mentions` | Ordered typed chat transformation pipeline | Community `ServerPlugin` |
-| `Region-Vision` | Private overlays with matching inbound interaction filtering | Region visualization `ServerPlugin` |
+| `InfChests`, `ChestRegen` | Stable chest identity, versioned snapshots, transactional mutation and ACL hooks | `Vega.Modules.Chests` |
+| `Mentions` | Ordered typed chat transformation pipeline | `Vega.Modules.Mentions` |
+| `Region-Vision` | Private overlays with matching inbound interaction filtering | `Vega.Modules.Scenes` |
 
 ### Optional behavior that must not inflate Core
 
-`Homes`, `HouseRegions`, `TpaRequest`, `Clans`, `SealedDressers`, `ChatAboveHeads` and `ChatGuard` remain `ServerPlugin` candidates. Their required world, region, teleport, identity, chat and scheduler primitives may enter Contracts/Core only alongside a real port. Their commands, schemas, timers and server-specific policy do not become base-server behavior automatically.
+`Homes`, `HouseRegions`, `TpaRequest`, `Clans`, `SealedDressers` and `ChatAboveHeads` are explicit **Drop from Vega 1.0 base** decisions: they are optional community/gameplay products, and shipping empty contracts or legacy schemas would violate the consumer-first boundary. `ChatGuard` is **Replace at the infrastructure boundary**: persistent mute moderation and the ordered chat pipeline are native, while its server-specific word/rule policy is dropped. Authors can later build any of these as ordinary Vega modules using the existing player, region, chat, scene and scheduler capabilities without reopening TShock compatibility.
+
+### Final repository disposition matrix
+
+The pinned revision table above is the source evidence for every row. “Drop” means no 1.0 product behavior is promised; it is a completed scope decision, not an unfinished compatibility port.
+
+| Repository/source | Disposition | Vega owner and executable evidence |
+| --- | --- | --- |
+| `AutoWorldCleaner` | **Port** | `Vega.Modules.AutoWorldCleaner`; schedule, game-thread snapshot/removal, cancellation and thresholds tests |
+| `ChatAboveHeads` | **Drop** | optional presentation policy; scene/chat primitives remain available |
+| `ChatGuard` | **Replace/Drop policy** | Core chat moderation + persistent mutes; moderation tests; word-list policy omitted |
+| `ChestRegen`, `InfChests` | **Port** | `Vega.Modules.Chests`; transactional chest backend, regeneration/cancellation and command tests |
+| `Clans` | **Drop** | optional social product; no legacy schema or permission aliases |
+| `ClientPlatformDetector`, `UuidGuardExtension` | **Replace** | connection metadata/provenance and bounded security signals; admission/redaction tests |
+| `ControlGroupOption`, `TempGroup` | **Port** | native authorization/role-lease store and commands; revision/expiry/delegation tests |
+| `ExtendedBans` | **Replace** | typed account/name/UUID/IP/CIDR bans, admission and Operations; matcher/persistence tests |
+| `FakeProvider` | **Replace** | typed scene/visibility contracts, Core compositor and Terraria adapter; scene tests/benchmark |
+| `Homes`, `TpaRequest` | **Drop** | optional teleport gameplay; only safe game-thread teleport capability retained |
+| `HouseRegions` | **Drop** | optional rent/house policy; `Vega.Regions` owns generic region ACL only |
+| `InvSee`, `TSExt_UICommand` | **Port** | immutable inspection/inventory mutation and redaction; command/game-thread tests |
+| `LeashedEntityGuard` | **Replace** | typed leashed-anchor world-bound policy; serialized packet regressions |
+| `LobbyServer`, `MiniLobby`, `WorldScene` | **Replace/Drop composition** | Sandboxes + Scenes own isolation/overlay primitives; legacy lobby gameplay/config omitted |
+| `Mentions` | **Port** | `Vega.Modules.Mentions`; per-recipient ordered renderer tests |
+| `NoCoinDupe` | **Replace** | `NpcCoinPickupAuthorityPolicy`; real packet-92 incident regression |
+| `PacketGuard`, `StateGuard` | **Replace** | native typed security pipeline and configured gameplay enforcement; packet boundary tests |
+| `PluginLoader` | **Replace** | opt-in collectible plugin host plus first-party soft restart; unload/generation lifetime tests |
+| `Region-Vision` | **Port capability** | `Vega.Modules.Scenes` personal borders and symmetric interaction filtering tests |
+| `SealedDressers` | **Drop** | optional item-key gameplay policy; region/chest access hooks remain generic |
+| `SSCHealthFix` | **Replace sequencing / Drop SSC** | explicit login phases and stale packet rejection; no 1.0 authoritative character store |
+| `TimeSync` | **Replace** | monotonic per-world clock and game-thread synchronizer; rollover/drift tests |
+| `TPSChecker` | **Replace** | sampled TPS/percentiles, command and Operations/TUI; deterministic timing tests |
+| `TUI` | **Replace** | `Vega.TerminalUI`; async immutable snapshots, configurable tiled layout and interaction tests |
+| `Wipe` | **Port** | `Vega.Modules.Wipe` + atomic reset orchestrator; confirmation/recovery tests |
+| `WorldEdit` | **Port preview capability / Drop editor product** | Scenes owns clipboard/mask preview lifetime; a full editor is not a base-server promise |
+| `TShock`, `TSAPI` | **Reference then remove** | exact source revisions retained for this audit; architecture tests prove no shipping dependency |
+| `PvPController-1.3` | **Port behavior** | `Vega.Modules.Pvp`; projectile/damage/session regressions |
+| `CustomWeaponAPI` | **Port behavior** | `Vega.Modules.CustomItems` + Terraria typed delivery; override/serialization tests |
 
 ### Verified FakeProvider consumers
 
@@ -169,7 +207,7 @@ WorldEdit remains the first complete Phase 16 consumer because it exercises the 
 - **Evidence:** TerraZ `StateGuard` revision `2c3963b3ed14ceb6b6580053d8cf31c443093604`, `Handlers/SpectateHandler.cs`.
 - **Disposition:** `Port to Core` for the packet identity rule only. `PlayerPacketOwnershipPolicy` now rejects a `SpectatePlayer (150)` payload whose typed `PlayerId` differs from the connection slot.
 - **Validation:** the existing table-driven ownership suite covers matching and forged spectate identities through `SpectatePlayerView`.
-- **Remaining behavior:** disabling spectate, ghost suppression, forced character difficulty, border mutation policy, bypass authorization, corrective synchronization and warning throttling remain unresolved. They require configuration and Terraria correction capabilities rather than more branches in this packet policy.
+- **Closure:** `GameplayEnforcementPolicy` now provides disabled-by-default living-ghost, alive-spectate, repeated-death and interaction-distance rules with one bypass permission and bounded session cleanup. Forced character difficulty, physical border mutation and legacy corrective packet spam are explicit drops: SSC is absent, canonical world bounds already reject invalid coordinates, and rejection telemetry replaces client-state correction races.
 - **Boundary check:** the rule uses `TZ.Multiplicity`; no StateGuard/TShock types or permission model entered Vega Core.
 
 ### TerraZ TShock Bouncer — unsigned PlayerDeathV2 damage
@@ -236,4 +274,4 @@ For every TShock subsystem and TerraZ repository, the final ledger must record:
 5. configuration, migration and documentation impact;
 6. confirmation that no copied TShock/TSAPI type or hidden runtime dependency crossed into Contracts/Core.
 
-Phase 9 closes only after all accepted module behavior has been ported and validated. Phase 10 closes only after this ledger contains no unresolved **Partial**, **Missing** or unclassified entry. The external audit checkouts can then be archived; they never need to return to the production solution.
+The Phase 9/10 gate is closed: every accepted behavior has a native/port/replace owner and executable evidence, while every omitted product has an explicit drop rationale and operator impact. No capability or repository row remains partial, missing or unclassified. The pinned source revisions stay in this document for reproducibility; external audit checkouts may be archived and never return to the production solution.

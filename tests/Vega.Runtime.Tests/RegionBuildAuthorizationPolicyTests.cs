@@ -7,7 +7,7 @@ using Vega.Contracts.Networking;
 using Vega.Contracts.Players;
 using Vega.Contracts.Regions;
 using Vega.Contracts.Worlds;
-using Vega.Core.Networking;
+using Vega.Regions;
 
 namespace Vega.Runtime.Tests;
 

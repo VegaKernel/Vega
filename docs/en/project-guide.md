@@ -26,6 +26,7 @@ Vega does not load TShock or TSAPI plugins and does not preserve their API shape
 | `src/Vega.TerminalUI` | Optional Terminal.Gui dashboard and command palette |
 | `src/Vega.Cluster` | Optional typed inter-server scenarios and the in-memory reference transport |
 | `src/Vega.Persistence` | Domain persistence, Vega 1.0 baseline schema, and SQLite/PostgreSQL/MySQL providers |
+| `src/Vega.Regions` | World-scoped region commands and packet ACL decisions; storage remains in Persistence |
 | `src/Vega.Modules.Pvp` | PvP authority, projectile attribution, death windows, and per-session state |
 | `src/Vega.Modules.CustomItems` | Typed custom-item definitions and targeted Terraria delivery |
 | `tests/Vega.Architecture.Tests` | Dependency and ownership guardrails |
@@ -46,6 +47,7 @@ Vega.Runtime ───────→ Vega.TerminalUI
    ├──→ Vega.Core          ↓
    ├──→ Vega.Cluster   Vega.Contracts
    ├──→ Vega.Persistence   ↑
+   ├──→ Vega.Regions       ↑
    └──→ Server modules ────↑
 ```
 
@@ -187,6 +189,8 @@ Bundled modules implement `IVegaModule` and are created by the runtime compositi
 
 Modules should depend on the narrowest capability they need. They must not mutate `Terraria.Main`, retain mutable player objects, introduce a competing packet codec, or hide business behavior in global helpers. Temporary extension state is scoped to a concrete player session and removed deterministically on disconnect.
 
+Independent product domains follow the same rule. `Vega.Regions` owns its command and ACL application slice while consuming Contracts directly; Persistence owns SQL and Terraria owns mutable game adapters. A new domain project must move a complete vertical slice and must not use Core as a service locator or transit dependency. See [the Core cohesion audit](../core-cohesion-audit.md) and ADR 0023.
+
 An external hot-loadable plugin directly implements `IHotReloadableVegaModule` and has one public parameterless entry point. Enable the administrative function in `config/modules.json`; the filesystem watcher then applies create/change/delete/rename events automatically. `plugin list`, `plugin reload <name-or-dll>` and `plugin unload <name-or-dll>` provide explicit control. Commands and hooks must be registered through the supplied `IHotModuleContext`; the host removes them before disposal and verifies collection of the isolated load context. Failed cleanup requires restart. Bundled `IVegaModule` revisions always require restart.
 
 ## 10. Operations and cluster behavior
@@ -196,6 +200,8 @@ An external hot-loadable plugin directly implements `IHotReloadableVegaModule` a
 `Vega.Sandboxes` supervises isolated `Vega.Server` backend processes for additional worlds. Use `sandbox create/start/stop/restart/reset/destroy`, and use `worldtransfer` through a trusted Dimensions forwarder. Descriptors, limits and TTL live in `config/sandboxes.json`; forwarding is disabled by default in `config/security.json`. Accounts and bans remain server-wide while command and region contexts carry the backend's explicit `WorldId`. See [the sandbox operations guide](../sandboxes.md).
 
 `Vega.Backups` creates consistent deploy-local world/database archives. `config/backups.json` contains only `enabled`, `interval` and `retainedBackups`; `backup` starts an authorized manual run and `backup status` exposes progress. The service joins the world-save and `.vworld` barrier, uses provider-owned SQLite/`pg_dump`/`mysqldump` capture, redacts configuration secrets and atomically publishes verified archives beneath `backups/`. See [backup and restore](../backups.md).
+
+Bundled modules can be recreated in-process through the disabled-by-default `config/soft-restart.json` boundary. `softrestart confirm` preserves Terraria, the loaded world, connected players and persistence while replacing the generation-routed module graph. Native/runtime changes and unsafe plugin cleanup still require a process restart. See [in-process soft restart](../soft-restart.md).
 
 Cluster support is optional. The current transport is an in-memory reference implementation for deterministic tests and local composition. A standalone server uses `UnavailableClusterClient` and remains functional. No production Redis, NATS, RabbitMQ, HTTP, or WebSocket transport is selected by the current ADR.
 
@@ -210,7 +216,8 @@ The separate `Publish Manual` workflow selects the newest valid tag and only reb
 ## 12. Current limitations
 
 - Dimensions forwarding and player transfer require an explicitly trusted proxy and remain disabled by default;
-- SSC modes other than `Disabled` are rejected until their persistent character-state stores are delivered;
+- Vega 1.0 intentionally supports only `Disabled` SSC; authoritative character persistence is not a compatibility promise;
+- legacy whitelist, named warp/home/tpa/clan commands and TShock REST routes are not part of the base server; access uses password/bans/permissions and remote administration remains a future independently secured product;
 - hot replacement supports only the unload-safe Vega contract and is disabled by default; legacy or bundled module DLLs require restart;
 - cluster scenarios have no selected production transport;
 - `.vworld` is experimental and disabled by default;

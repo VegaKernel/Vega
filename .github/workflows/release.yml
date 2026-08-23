@@ -86,6 +86,7 @@ jobs:
             'Vega.Cluster.dll',
             'Vega.Operations.dll',
             'Vega.Persistence.dll',
+            'Vega.Regions.dll',
             'Vega.Sandboxes.dll',
             'Vega.Terraria.dll',
             'Vega.TerminalUI.dll',
@@ -120,6 +121,10 @@ jobs:
           if (Test-Path -LiteralPath "$root/Plugins" -PathType Container) {
             throw "Legacy Plugins directory must not be published."
           }
+
+      - name: Smoke-test clean deployment
+        shell: pwsh
+        run: ./scripts/Test-DeployableServer.ps1 -ServerRoot artifacts/server
 
       - name: Create server archive
         shell: pwsh

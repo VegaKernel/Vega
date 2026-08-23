@@ -15,6 +15,10 @@
 	</PropertyGroup>
 
 	<ItemGroup>
+		<InternalsVisibleTo Include="Vega.Runtime.Tests" />
+	</ItemGroup>
+
+	<ItemGroup>
 		<ProjectReference Include="..\Vega.Core\Vega.Core.csproj" />
 		<ProjectReference Include="..\Vega.Backups\Vega.Backups.csproj" />
 		<ProjectReference Include="..\Vega.Cluster\Vega.Cluster.csproj" />
@@ -27,6 +31,7 @@
 		<ProjectReference Include="..\Vega.Modules.Wipe\Vega.Modules.Wipe.csproj" />
 		<ProjectReference Include="..\Vega.Operations\Vega.Operations.csproj" />
 		<ProjectReference Include="..\Vega.Persistence\Vega.Persistence.csproj" />
+		<ProjectReference Include="..\Vega.Regions\Vega.Regions.csproj" />
 		<ProjectReference Include="..\Vega.Sandboxes\Vega.Sandboxes.csproj" />
 		<ProjectReference Include="..\Vega.Terraria\Vega.Terraria.csproj" />
 		<ProjectReference Include="..\Vega.TerminalUI\Vega.TerminalUI.csproj" />
@@ -66,6 +71,10 @@
 			<CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
 		</Content>
 		<Content Include="..\..\config\backups.json" Link="config\backups.json">
+			<CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+			<CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
+		</Content>
+		<Content Include="..\..\config\soft-restart.json" Link="config\soft-restart.json">
 			<CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
 			<CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
 		</Content>
