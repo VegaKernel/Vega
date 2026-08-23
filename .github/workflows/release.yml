@@ -26,13 +26,20 @@ jobs:
           $tag = git tag --list --sort=-version:refname |
             Where-Object { $_ -match '^v[0-9]+\.[0-9]+\.[0-9]+$' } |
             Select-Object -First 1
-          if ([string]::IsNullOrWhiteSpace($tag)) { throw "No vMAJOR.MINOR.PATCH release tag exists." }
+          if ([string]::IsNullOrWhiteSpace($tag)) {
+            throw "No vMAJOR.MINOR.PATCH release tag exists."
+          }
+
           git checkout --detach $tag
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
           $version = $tag.Substring(1)
           [xml] $props = Get-Content -LiteralPath Directory.Build.props -Raw
           $projectVersion = [string] $props.Project.PropertyGroup.VersionPrefix
-          if ($version -ne $projectVersion) { throw "Latest tag version '$version' does not match VersionPrefix '$projectVersion'." }
+          if ($version -ne $projectVersion) {
+            throw "Latest tag version '$version' does not match VersionPrefix '$projectVersion'."
+          }
+
           "tag=$tag" >> $env:GITHUB_OUTPUT
           "version=$version" >> $env:GITHUB_OUTPUT
 
@@ -43,28 +50,77 @@ jobs:
 
       - name: Restore server
         run: dotnet restore src/Vega.Runtime/Vega.Runtime.csproj
+
       - name: Publish deployable server
         shell: pwsh
         run: |
-          dotnet publish src/Vega.Runtime/Vega.Runtime.csproj --configuration Release --no-restore --output artifacts/server
+          dotnet publish src/Vega.Runtime/Vega.Runtime.csproj `
+            --configuration Release `
+            --no-restore `
+            --output artifacts/server
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          Copy-Item -LiteralPath LICENSE, README.md, README_EN.md -Destination artifacts/server/
-          Set-Content -LiteralPath artifacts/server/VERSION -Value '${{ steps.tag.outputs.version }}' -Encoding ascii
+
+          Copy-Item -LiteralPath LICENSE, README.md, README_EN.md `
+            -Destination artifacts/server/
+          Set-Content -LiteralPath artifacts/server/VERSION `
+            -Value '${{ steps.tag.outputs.version }}' -Encoding ascii
 
       - name: Verify deployment layout
         shell: pwsh
         run: |
           $root = 'artifacts/server'
-          $requiredRoot = @('Vega.Server.exe','Vega.Server.dll','Vega.Server.deps.json','Vega.Server.runtimeconfig.json','LICENSE','README.md','README_EN.md','VERSION')
-          $requiredLibraries = @('Vega.Contracts.dll','Vega.Backups.dll','Vega.Core.dll','Vega.Cluster.dll','Vega.Operations.dll','Vega.Persistence.dll','Vega.Regions.dll','Vega.Sandboxes.dll','Vega.Terraria.dll','Vega.TerminalUI.dll','OTAPI.dll','OTAPI.Runtime.dll','ModFramework.dll')
-          $requiredPlugins = @('Vega.Modules.AutoWorldCleaner.dll','Vega.Modules.Chests.dll','Vega.Modules.Mentions.dll','Vega.Modules.Pvp.dll','Vega.Modules.CustomItems.dll','Vega.Modules.Scenes.dll','Vega.Modules.Wipe.dll')
+          $requiredRoot = @(
+            'Vega.Server.exe',
+            'Vega.Server.dll',
+            'Vega.Server.deps.json',
+            'Vega.Server.runtimeconfig.json',
+            'LICENSE',
+            'README.md',
+            'README_EN.md',
+            'VERSION'
+          )
+          $requiredLibraries = @(
+            'Vega.Contracts.dll',
+            'Vega.Backups.dll',
+            'Vega.Core.dll',
+            'Vega.Cluster.dll',
+            'Vega.Operations.dll',
+            'Vega.Persistence.dll',
+            'Vega.Regions.dll',
+            'Vega.Sandboxes.dll',
+            'Vega.Terraria.dll',
+            'Vega.TerminalUI.dll',
+            'OTAPI.dll',
+            'OTAPI.Runtime.dll',
+            'ModFramework.dll'
+          )
+          $requiredPlugins = @(
+            'Vega.Modules.AutoWorldCleaner.dll',
+            'Vega.Modules.Chests.dll',
+            'Vega.Modules.Mentions.dll',
+            'Vega.Modules.Pvp.dll',
+            'Vega.Modules.CustomItems.dll',
+            'Vega.Modules.Scenes.dll',
+            'Vega.Modules.Wipe.dll'
+          )
+
           $missing = @()
-          $missing += $requiredRoot | Where-Object { -not (Test-Path -LiteralPath (Join-Path $root $_) -PathType Leaf) }
-          $missing += $requiredLibraries | Where-Object { -not (Test-Path -LiteralPath (Join-Path "$root/libs" $_) -PathType Leaf) }
-          $missing += $requiredPlugins | Where-Object { -not (Test-Path -LiteralPath (Join-Path "$root/ServerPlugins" $_) -PathType Leaf) }
-          if ($missing.Count -ne 0) { throw "Deployment layout is incomplete: $($missing -join ', ')." }
-          if (Test-Path -LiteralPath "$root/bin" -PathType Container) { throw "Legacy bin directory must not be published." }
-          if (Test-Path -LiteralPath "$root/Plugins" -PathType Container) { throw "Legacy Plugins directory must not be published." }
+          $missing += $requiredRoot |
+            Where-Object { -not (Test-Path -LiteralPath (Join-Path $root $_) -PathType Leaf) }
+          $missing += $requiredLibraries |
+            Where-Object { -not (Test-Path -LiteralPath (Join-Path "$root/libs" $_) -PathType Leaf) }
+          $missing += $requiredPlugins |
+            Where-Object { -not (Test-Path -LiteralPath (Join-Path "$root/ServerPlugins" $_) -PathType Leaf) }
+
+          if ($missing.Count -ne 0) {
+            throw "Deployment layout is incomplete: $($missing -join ', ')."
+          }
+          if (Test-Path -LiteralPath "$root/bin" -PathType Container) {
+            throw "Legacy bin directory must not be published."
+          }
+          if (Test-Path -LiteralPath "$root/Plugins" -PathType Container) {
+            throw "Legacy Plugins directory must not be published."
+          }
 
       - name: Create server archive
         shell: pwsh
@@ -74,8 +130,10 @@ jobs:
           New-Item -ItemType Directory -Force -Path artifacts/release | Out-Null
           $archive = "artifacts/release/Vega.Server-$env:RELEASE_VERSION.zip"
           Compress-Archive -Path artifacts/server/* -DestinationPath $archive
+
           $hash = (Get-FileHash -LiteralPath $archive -Algorithm SHA256).Hash.ToLowerInvariant()
-          "$hash *$(Split-Path $archive -Leaf)" | Set-Content -LiteralPath "$archive.sha256" -Encoding ascii
+          "$hash *$(Split-Path $archive -Leaf)" |
+            Set-Content -LiteralPath "$archive.sha256" -Encoding ascii
 
       - name: Publish GitHub release
         shell: pwsh
@@ -85,6 +143,15 @@ jobs:
           RELEASE_VERSION: ${{ steps.tag.outputs.version }}
         run: |
           gh release view $env:RELEASE_TAG --repo $env:GITHUB_REPOSITORY *> $null
-          if ($LASTEXITCODE -eq 0) { gh release upload $env:RELEASE_TAG artifacts/release/* --repo $env:GITHUB_REPOSITORY --clobber }
-          else { gh release create $env:RELEASE_TAG artifacts/release/* --repo $env:GITHUB_REPOSITORY --verify-tag --title "Vega $env:RELEASE_VERSION" --generate-notes }
+          if ($LASTEXITCODE -eq 0) {
+            gh release upload $env:RELEASE_TAG artifacts/release/* `
+              --repo $env:GITHUB_REPOSITORY --clobber
+          }
+          else {
+            gh release create $env:RELEASE_TAG artifacts/release/* `
+              --repo $env:GITHUB_REPOSITORY `
+              --verify-tag `
+              --title "Vega $env:RELEASE_VERSION" `
+              --generate-notes
+          }
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }

@@ -39,17 +39,50 @@
 	</ItemGroup>
 
 	<ItemGroup>
-		<Content Include="..\..\config\tui.json" Link="config\tui.json"><CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory><CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory></Content>
-		<Content Include="..\..\config\modules.json" Link="config\modules.json"><CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory><CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory></Content>
-		<Content Include="..\..\config\database.json" Link="config\database.json"><CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory><CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory></Content>
-		<Content Include="..\..\config\world-clock.json" Link="config\world-clock.json"><CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory><CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory></Content>
-		<Content Include="..\..\config\auto-world-cleaner.json" Link="config\auto-world-cleaner.json"><CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory><CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory></Content>
-		<Content Include="..\..\config\world-maintenance.json" Link="config\world-maintenance.json"><CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory><CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory></Content>
-		<Content Include="..\..\config\security.json" Link="config\security.json"><CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory><CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory></Content>
-		<Content Include="..\..\config\sandboxes.json" Link="config\sandboxes.json"><CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory><CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory></Content>
-		<Content Include="..\..\config\backups.json" Link="config\backups.json"><CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory><CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory></Content>
-		<Content Include="..\..\config\soft-restart.json" Link="config\soft-restart.json"><CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory><CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory></Content>
-		<Content Include="..\..\config\server.json" Link="config\server.json"><CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory><CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory></Content>
+		<Content Include="..\..\config\tui.json" Link="config\tui.json">
+			<CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+			<CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
+		</Content>
+		<Content Include="..\..\config\modules.json" Link="config\modules.json">
+			<CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+			<CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
+		</Content>
+		<Content Include="..\..\config\database.json" Link="config\database.json">
+			<CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+			<CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
+		</Content>
+		<Content Include="..\..\config\world-clock.json" Link="config\world-clock.json">
+			<CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+			<CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
+		</Content>
+		<Content Include="..\..\config\auto-world-cleaner.json" Link="config\auto-world-cleaner.json">
+			<CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+			<CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
+		</Content>
+		<Content Include="..\..\config\world-maintenance.json" Link="config\world-maintenance.json">
+			<CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+			<CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
+		</Content>
+		<Content Include="..\..\config\security.json" Link="config\security.json">
+			<CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+			<CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
+		</Content>
+		<Content Include="..\..\config\sandboxes.json" Link="config\sandboxes.json">
+			<CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+			<CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
+		</Content>
+		<Content Include="..\..\config\backups.json" Link="config\backups.json">
+			<CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+			<CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
+		</Content>
+		<Content Include="..\..\config\soft-restart.json" Link="config\soft-restart.json">
+			<CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+			<CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
+		</Content>
+		<Content Include="..\..\config\server.json" Link="config\server.json">
+			<CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+			<CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
+		</Content>
 	</ItemGroup>
 
 	<ItemGroup>
@@ -59,23 +92,51 @@
 		<PackageReference Include="System.Configuration.ConfigurationManager" Version="10.0.10" />
 		<PackageReference Include="System.Drawing.Common" Version="10.0.2" />
 
-		<None Include="$(PkgOTAPI_Upcoming)\lib\$(TargetFramework)\OTAPI.dll" Condition="Exists('$(PkgOTAPI_Upcoming)\lib\$(TargetFramework)\OTAPI.dll')"><CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory><ExcludeFromSingleFile>true</ExcludeFromSingleFile></None>
-		<None Include="$(PkgOTAPI_Upcoming)\lib\$(TargetFramework)\OTAPI.Runtime.dll" Condition="Exists('$(PkgOTAPI_Upcoming)\lib\$(TargetFramework)\OTAPI.Runtime.dll')"><CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory><ExcludeFromSingleFile>true</ExcludeFromSingleFile></None>
-		<None Include="$(PkgModFramework)\lib\$(TargetFramework)\ModFramework.dll" Condition="Exists('$(PkgModFramework)\lib\$(TargetFramework)\ModFramework.dll')"><CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory><ExcludeFromSingleFile>true</ExcludeFromSingleFile></None>
-		<None Include="$(PkgOTAPI_Upcoming)\lib\**\OTAPI.dll" Condition="!Exists('$(PkgOTAPI_Upcoming)\lib\$(TargetFramework)\OTAPI.dll')"><Link>OTAPI.dll</Link><CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory><ExcludeFromSingleFile>true</ExcludeFromSingleFile></None>
-		<None Include="$(PkgOTAPI_Upcoming)\lib\**\OTAPI.Runtime.dll" Condition="!Exists('$(PkgOTAPI_Upcoming)\lib\$(TargetFramework)\OTAPI.Runtime.dll')"><Link>OTAPI.Runtime.dll</Link><CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory><ExcludeFromSingleFile>true</ExcludeFromSingleFile></None>
-		<None Include="$(PkgModFramework)\lib\**\ModFramework.dll" Condition="!Exists('$(PkgModFramework)\lib\$(TargetFramework)\ModFramework.dll')"><Link>ModFramework.dll</Link><CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory><ExcludeFromSingleFile>true</ExcludeFromSingleFile></None>
+		<None Include="$(PkgOTAPI_Upcoming)\lib\$(TargetFramework)\OTAPI.dll" Condition="Exists('$(PkgOTAPI_Upcoming)\lib\$(TargetFramework)\OTAPI.dll')">
+			<CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+			<ExcludeFromSingleFile>true</ExcludeFromSingleFile>
+		</None>
+		<None Include="$(PkgOTAPI_Upcoming)\lib\$(TargetFramework)\OTAPI.Runtime.dll" Condition="Exists('$(PkgOTAPI_Upcoming)\lib\$(TargetFramework)\OTAPI.Runtime.dll')">
+			<CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+			<ExcludeFromSingleFile>true</ExcludeFromSingleFile>
+		</None>
+		<None Include="$(PkgModFramework)\lib\$(TargetFramework)\ModFramework.dll" Condition="Exists('$(PkgModFramework)\lib\$(TargetFramework)\ModFramework.dll')">
+			<CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+			<ExcludeFromSingleFile>true</ExcludeFromSingleFile>
+		</None>
+
+		<None Include="$(PkgOTAPI_Upcoming)\lib\**\OTAPI.dll" Condition="!Exists('$(PkgOTAPI_Upcoming)\lib\$(TargetFramework)\OTAPI.dll')">
+			<Link>OTAPI.dll</Link>
+			<CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+			<ExcludeFromSingleFile>true</ExcludeFromSingleFile>
+		</None>
+		<None Include="$(PkgOTAPI_Upcoming)\lib\**\OTAPI.Runtime.dll" Condition="!Exists('$(PkgOTAPI_Upcoming)\lib\$(TargetFramework)\OTAPI.Runtime.dll')">
+			<Link>OTAPI.Runtime.dll</Link>
+			<CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+			<ExcludeFromSingleFile>true</ExcludeFromSingleFile>
+		</None>
+		<None Include="$(PkgModFramework)\lib\**\ModFramework.dll" Condition="!Exists('$(PkgModFramework)\lib\$(TargetFramework)\ModFramework.dll')">
+			<Link>ModFramework.dll</Link>
+			<CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+			<ExcludeFromSingleFile>true</ExcludeFromSingleFile>
+		</None>
 	</ItemGroup>
 
 	<Target Name="ArrangeDevRuntime" AfterTargets="PostBuildEvent">
-		<ItemGroup><DevServerPlugins Include="$(OutDir)Vega.Modules.*" /><DevLibraries Include="$(OutDir)*" Exclude="$(OutDir)Vega.Server*;$(OutDir)Vega.Modules.*" /></ItemGroup>
+		<ItemGroup>
+			<DevServerPlugins Include="$(OutDir)Vega.Modules.*" />
+			<DevLibraries Include="$(OutDir)*" Exclude="$(OutDir)Vega.Server*;$(OutDir)Vega.Modules.*" />
+		</ItemGroup>
 		<MakeDir Directories="$(OutDir)libs;$(OutDir)ServerPlugins" />
 		<Move SourceFiles="@(DevServerPlugins)" DestinationFolder="$(OutDir)ServerPlugins" />
 		<Move SourceFiles="@(DevLibraries)" DestinationFolder="$(OutDir)libs" />
 	</Target>
 
 	<Target Name="ArrangePublishedRuntime" AfterTargets="Publish">
-		<ItemGroup><PublishedServerPlugins Include="$(PublishDir)Vega.Modules.*" /><PublishedLibraries Include="$(PublishDir)*" Exclude="$(PublishDir)Vega.Server*;$(PublishDir)Vega.Modules.*" /></ItemGroup>
+		<ItemGroup>
+			<PublishedServerPlugins Include="$(PublishDir)Vega.Modules.*" />
+			<PublishedLibraries Include="$(PublishDir)*" Exclude="$(PublishDir)Vega.Server*;$(PublishDir)Vega.Modules.*" />
+		</ItemGroup>
 		<MakeDir Directories="$(PublishDir)libs;$(PublishDir)ServerPlugins" />
 		<Move SourceFiles="@(PublishedServerPlugins)" DestinationFolder="$(PublishDir)ServerPlugins" />
 		<Move SourceFiles="@(PublishedLibraries)" DestinationFolder="$(PublishDir)libs" />
