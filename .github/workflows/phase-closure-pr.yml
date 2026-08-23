@@ -10,7 +10,7 @@ permissions:
 
 jobs:
   validate-and-commit:
-    if: github.head_ref == 'agent/close-phases-15-17'
+    if: github.head_ref == 'agent/close-phases-15-17' && !contains(github.event.pull_request.head.label, '[phase-closure-applied]')
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v6
@@ -20,38 +20,77 @@ jobs:
       - uses: actions/setup-dotnet@v5
         with:
           dotnet-version: 10.0.x
-      - name: Apply Phase 17 implementation
+
+      - name: Apply final Phase 15-17 implementation
         shell: pwsh
         run: |
+          $encoded = ''
+          0..6 | ForEach-Object {
+            $encoded += (Get-Content ('.payload2/p{0}.b64' -f $_) -Raw).Trim()
+          }
+          if ($encoded.Length -ne 48104) { throw "payload length $($encoded.Length), expected 48104" }
+          $bytes = [Convert]::FromBase64String($encoded)
+          [IO.File]::WriteAllBytes('phase-final.patch.gz', $bytes)
+          $hash = (Get-FileHash 'phase-final.patch.gz' -Algorithm SHA256).Hash.ToLowerInvariant()
+          if ($hash -ne 'a3e0464f7d3ad79e062527b55e6eb0ea7d6d50668a00e747fe8c072d07618850') { throw "payload hash mismatch: $hash" }
           @'
-          import base64, gzip
+          import gzip
           from pathlib import Path
-          payload = ''.join(Path(f'.phase17/part{i}.b64').read_text(encoding='utf-8') for i in range(1, 5))
-          Path('phase17.patch').write_bytes(gzip.decompress(base64.b64decode(payload)))
+          src = Path('phase-final.patch.gz')
+          dst = Path('phase-final.patch')
+          dst.write_bytes(gzip.decompress(src.read_bytes()))
+          print(f'patch-bytes={dst.stat().st_size}')
           '@ | python -
-          git apply --index phase17.patch
-          Remove-Item phase17.patch
+          git apply --check --binary phase-final.patch
+          git apply --index --binary phase-final.patch
+          Remove-Item phase-final.patch, phase-final.patch.gz
+
+      - name: Remove phase closure transport
+        shell: pwsh
+        run: |
+          git rm -r --ignore-unmatch .phase17 .finalize .payload2
+          git rm --ignore-unmatch .github/workflows/phase-closure.yml
+          git rm --ignore-unmatch .github/workflows/phase-closure-finalize.yml
+
       - name: Download pinned MaxMind test databases
         shell: pwsh
         run: |
-          $base = "https://raw.githubusercontent.com/maxmind/MaxMind-DB/e1120013c4b5cbc830b958b2b7e73fba444d316d/test-data"
-          $target = "tests/Vega.Runtime.Tests/TestData/MaxMind"
+          $base = 'https://raw.githubusercontent.com/maxmind/MaxMind-DB/e1120013c4b5cbc830b958b2b7e73fba444d316d/test-data'
+          $target = 'tests/Vega.Runtime.Tests/TestData/MaxMind'
           New-Item -ItemType Directory -Force -Path $target | Out-Null
           Invoke-WebRequest "$base/GeoIP2-Country-Test.mmdb" -OutFile "$target/GeoIP2-Country-Test.mmdb"
           Invoke-WebRequest "$base/GeoLite2-ASN-Test.mmdb" -OutFile "$target/GeoLite2-ASN-Test.mmdb"
+
       - name: Restore
-        run: dotnet restore Vega.sln
+        shell: pwsh
+        run: |
+          dotnet restore Vega.sln
+          dotnet restore benchmarks/Vega.Scene.Benchmarks/Vega.Scene.Benchmarks.csproj
+          dotnet restore benchmarks/Vega.Sandbox.Benchmarks/Vega.Sandbox.Benchmarks.csproj
+
       - name: Build
-        run: dotnet build Vega.sln --configuration Release --no-restore
+        shell: pwsh
+        run: |
+          dotnet build Vega.sln --configuration Release --no-restore
+          dotnet build benchmarks/Vega.Scene.Benchmarks/Vega.Scene.Benchmarks.csproj --configuration Release --no-restore
+          dotnet build benchmarks/Vega.Sandbox.Benchmarks/Vega.Sandbox.Benchmarks.csproj --configuration Release --no-restore
+
+      - name: Run scene benchmark validation
+        run: dotnet run --project benchmarks/Vega.Scene.Benchmarks/Vega.Scene.Benchmarks.csproj --configuration Release --no-build
+
+      - name: Run sandbox benchmark validation
+        run: dotnet run --project benchmarks/Vega.Sandbox.Benchmarks/Vega.Sandbox.Benchmarks.csproj --configuration Release --no-build -- 16 3
+
       - name: Test
         run: dotnet test Vega.sln --configuration Release --no-build --verbosity normal
+
       - name: Commit validated phase closure
         shell: pwsh
         run: |
-          git rm .github/workflows/phase-closure.yml .github/workflows/phase-closure-pr.yml
-          git rm -r .phase17
-          git config user.name "Xekep"
-          git config user.email "Xekep@users.noreply.github.com"
+          git rm --ignore-unmatch .github/workflows/phase-closure-pr.yml
           git add -A
-          git commit -m "Close Phase 17 sandbox SSC and transfer admission [phase-closure-validated]"
+          git diff --cached --check
+          git config user.name 'Xekep'
+          git config user.email 'Xekep@users.noreply.github.com'
+          git commit -m 'Close roadmap phases 15-17 [phase-closure-applied]'
           git push origin HEAD:${{ github.head_ref }}
