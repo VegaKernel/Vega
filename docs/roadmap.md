@@ -553,6 +553,164 @@ Review whether `Vega.Core` still represents a cohesive application kernel or has
 
 The audit is recorded in `docs/core-cohesion-audit.md`. Regions were the one accepted extraction: `Vega.Regions` now owns the complete command and packet-ACL application slice while Persistence keeps SQL and Terraria keeps authoritative object-position adapters. ADR 0023 records compatibility, failure and composition ownership. The implementation adds no packet adapter or Core mediation; Runtime constructs the unchanged hot policy directly. Administration/identity, moderation, generic packet security, GeoIP/updates and module lifecycle remain in Core for concrete recorded reasons rather than being split into project-per-folder assemblies. Architecture tests enforce the Contracts-only domain direction, and both guides, diagrams, release manifests and the migration ledger include the new owner.
 
+## Phase 22 — parallel packet pipeline and game-thread budgeting
+
+Reduce game-thread packet cost and tail latency by moving only pure, order-safe work off the authoritative Terraria thread. This is an internal runtime optimization: ordinary plugin authors must continue to see a simple typed, game-thread-safe API rather than worker lanes, buffer ownership or scheduling primitives.
+
+### Baseline and packet classification
+
+- [ ] Add `Vega.PacketPipeline.Benchmarks` and record the current synchronous zero-copy baseline for packets/sec, ns/packet, allocations, CPU, GC, context switches and packet/tick p50/p95/p99/max.
+- [ ] Audit every inbound packet family as `GameThreadOnly`, `PartiallyOffloadable` or `PureBeforeApply`, and separately record whether it is order-sensitive, world-state-sensitive, latency-sensitive and safely coalescable.
+- [ ] Start with player movement/state, projectile spawn/update/destroy and tile/world interaction; do not redesign the complete protocol before one measured vertical proves the model.
+- [ ] Keep `TZ.Multiplicity` as the protocol representation layer and preserve the existing zero-copy synchronous ingress for framing and typed views.
+
+### Owned intents and worker lanes
+
+- [ ] Never enqueue `IncomingPacket`, `Span<T>`, `ReadOnlySpan<T>` or references to a reusable receive buffer. Convert offloaded work into small owned immutable requests/intents before the receive-buffer lifetime ends; use explicit pooled-memory ownership only where a payload cannot be normalized immediately.
+- [ ] Use a fixed, bounded packet-worker pool instead of `Task.Run` per packet, with bounded global and per-session queues and explicit overload/backpressure behavior.
+- [ ] Preserve logical ordering within a player/session lane while allowing independent sessions to execute in parallel. Queue identity must include a stable session/generation token, not only a reusable Terraria player slot.
+- [ ] Allow worker stages to perform only pure structural/protocol validation, normalization and CPU-heavy calculations that do not read or mutate Terraria-owned mutable state.
+- [ ] Cancel or discard stale queued work on disconnect/reconnect, world transition, shutdown, soft restart or relevant module-generation replacement.
+
+### Authoritative game-thread apply
+
+- [ ] Convert successful worker output into typed domain intents/game commands and return only those bounded intents to the authoritative game thread.
+- [ ] Perform all validation that depends on current player/NPC/projectile/item/chest/tile/world state immediately before mutation on the game thread; a background result is never proof that world state is still current.
+- [ ] Keep ordinary gameplay/plugin hooks on the authoritative game thread at a documented before/after-mutation point so normal plugin code does not need synchronization knowledge.
+- [ ] Add a configurable per-tick packet-apply budget so backlog cannot monopolize a tick; expose queue age/depth, worker utilization, apply time, drops, coalesces and overload actions through Operations telemetry.
+- [ ] Permit packet-type-aware coalescing only when intermediate states are semantically disposable. Never coalesce independent actions such as tile mutations, item use or chest operations merely to improve throughput.
+
+### Plugin API boundary
+
+- [ ] Keep the standard module/plugin surface synchronous-looking, typed and game-thread-safe by default: commands, gameplay hooks, player operations and ordinary domain events must not expose `Channel`, worker lanes, buffer lifetime, generation routing or manual thread switching.
+- [ ] If a low-level ingress validator API is required, make it a separate opt-in advanced surface with explicit `PURE / NO TERRARIA MUTABLE STATE / NO BLOCKING I/O / MAY RUN CONCURRENTLY` semantics.
+- [ ] Provide one narrow supported mechanism for genuinely asynchronous plugin I/O and return-to-game-thread application rather than requiring every plugin to invent its own synchronization scheme.
+
+### Validation and rollout
+
+- [ ] Compare at least synchronous zero-copy, queued single-worker, ordered multi-worker and ordered multi-worker plus safe coalescing variants under representative concurrent-player and packet-flood loads.
+- [ ] Add regression/stress coverage for per-session ordering, stale intents, reconnect slot reuse, entity/world changes between validation and apply, queue overflow, pooled-memory lifetime, cancellation, shutdown, soft restart and malicious bursts.
+- [ ] Roll out packet families incrementally with shadow/diagnostic instrumentation first where useful; retain the synchronous path for any family whose queueing, cache or synchronization overhead exceeds the measured gain.
+- [ ] Mark the phase successful only when production-like measurements reduce game-thread CPU and/or p95/p99 tick latency without increasing correctness failures or unacceptable packet latency.
+
+Packet-pipeline invariant:
+
+```text
+network/worker threads = pure preparation of owned packet intents
+game thread             = current-state authority, plugin gameplay hooks and mutation
+```
+
+## Phase 23 — selective NativeAOT and runtime process specialization
+
+Use NativeAOT where a component is naturally a small isolated executable with a fixed dependency graph. Do not force the main Vega server or its dynamic plugin ecosystem into NativeAOT merely for startup or footprint gains.
+
+### CoreCLR server boundary
+
+- [ ] Keep `Vega.Server` on CoreCLR with tiered JIT/dynamic PGO and optional ReadyToRun unless measurements and a future architecture explicitly justify changing the plugin model.
+- [ ] Keep the Phase 22 packet hot path in-process on CoreCLR; do not add IPC, serialization and extra context switches solely to place packet workers in a NativeAOT process.
+- [ ] Preserve managed `ServerPlugins`, collectible `AssemblyLoadContext`, hot reload and soft-restart generation boundaries as first-class server capabilities.
+
+### NativeAOT candidates
+
+- [ ] Audit isolated executables in this order: launcher/bootstrapper, updater, crash reporter, standalone admin/world tools, sandbox supervisor, backup/world workers and cluster relay/gateway.
+- [ ] NativeAOT-enable a component only if it has no requirement for arbitrary managed plugin loading/runtime code generation and its trimming/AOT dependency graph is clean.
+- [ ] Compare CoreCLR self-contained, ReadyToRun and NativeAOT variants for startup, working set/private memory, publish size, CPU, throughput/latency and operational/build complexity before selecting a deployment mode.
+- [ ] Keep an ordinary CoreCLR variant when NativeAOT creates dependency, diagnostics, platform or maintenance costs that outweigh measured startup/footprint benefits.
+
+### AOT-compatible library boundaries
+
+- [ ] Enable AOT/trimming compatibility analyzers for pure libraries where useful, starting with contracts and protocol/domain utility layers, even when those libraries still execute inside the CoreCLR server.
+- [ ] Remove accidental reflection/dynamic/runtime-code-generation patterns from those layers only when doing so improves their architecture or enables a real NativeAOT consumer; do not contort dynamic server/plugin boundaries for analyzer purity.
+- [ ] Add architecture and packaging tests so AOT-oriented helpers cannot pull Terraria mutable state, plugin-host implementation or UI concerns into otherwise isolated executables.
+
+### Rollout
+
+- [ ] Stabilize and benchmark Phase 22 independently before attributing server performance changes to NativeAOT work; do not combine both optimizations into one unmeasurable migration.
+- [ ] Ship the first NativeAOT executable as a narrow operational component, validate clean-machine deployment and crash/diagnostic behavior, then expand only from measured evidence.
+- [ ] Document per-component runtime mode and fallback behavior in both English and Russian deployment guides.
+
+Runtime invariant:
+
+```text
+Vega.Server                         = CoreCLR + JIT/PGO + dynamic plugins
+small isolated fixed-function tools = NativeAOT when benchmarked and compatible
+```
+
+## Phase 24 — plugin API ergonomics and anti-framework audit
+
+Make Vega's external plugin-development experience no harder than TShock for ordinary server extensions while preserving Vega's internal ownership, threading and capability boundaries. Architectural complexity is allowed inside the runtime; it is not allowed to become mandatory knowledge for authors who only need commands, gameplay hooks, player operations, configuration or ordinary persistence.
+
+Ergonomic parity with TShock is a product requirement, not API compatibility: Vega does not reproduce `TShockAPI`, Terraria globals or legacy class shapes merely to make examples look familiar.
+
+### Golden-path plugin surface
+
+- [ ] Define one obvious public entry path for an ordinary plugin and keep startup/lifecycle boilerplate minimal. Evaluate a small `VegaPlugin`-style facade or equivalent only if it measurably reduces author complexity without becoming a service locator.
+- [ ] Make the common surfaces immediately discoverable: command registration, typed gameplay hooks, player lookup/messaging/operations, permissions, logging, configuration, scheduling and plugin-scoped persistence where a real consumer requires it.
+- [ ] Hide registration leases, generation routing, collectible `AssemblyLoadContext`, worker lanes, packet-buffer ownership, game-thread queues and cleanup bookkeeping behind the host for ordinary plugins.
+- [ ] Track commands, hooks, scheduled work and other registrations automatically within the plugin lifetime so normal unload/reload does not require hand-written reverse-registration code.
+- [ ] Keep ordinary hooks game-thread-safe and synchronous-looking by default. A plugin handling join/chat/build/projectile/gameplay events must not manually marshal back to the Terraria thread.
+- [ ] Provide one documented async-I/O pattern for database/HTTP/file work with a narrow supported way to apply the result on the game thread; do not require plugin authors to understand `SynchronizationContext` or internal scheduler topology.
+- [ ] Keep low-level packet ingress, concurrent validators and other dangerous/high-performance surfaces in an explicitly separate advanced API rather than making their constraints infect normal hooks.
+
+### Representative plugin usability suite
+
+Create small real plugins that compile and run against the public SDK and use them as API tests, not merely documentation snippets:
+
+1. [ ] one command with permission, aliases and reply;
+2. [ ] player join/leave hook with messaging;
+3. [ ] cancellable build/gameplay hook;
+4. [ ] player lookup plus kick/teleport/message operation;
+5. [ ] JSON configuration with reload/validation appropriate to plugin scope;
+6. [ ] small persistent plugin state without direct access to Vega's internal database connection;
+7. [ ] scheduled/repeating gameplay task with deterministic cancellation on unload;
+8. [ ] asynchronous external I/O followed by a safe game-state action;
+9. [ ] hot reload/unload with no leaked commands, hooks, timers, tasks or load context;
+10. [ ] one advanced typed-packet validator demonstrating the deliberately higher-complexity opt-in path.
+
+- [ ] Compare each ordinary sample against an equivalent TShock plugin for boilerplate lines, number of framework concepts, required lifetime-management calls and documentation steps. Vega may use different APIs, but a common plugin should not require materially more ceremony.
+- [ ] Add compile-time CI fixtures for the golden-path samples so public API refactors cannot silently turn simple plugin scenarios into architecture exercises.
+- [ ] Add at least one out-of-repository clean consumer build against published/local NuGet packages to prove plugin development does not depend on Vega source-tree internals.
+
+### SDK, templates and documentation
+
+- [ ] Define the minimal public package set needed to write plugins; a simple plugin should not reference runtime implementation, Terraria, OTAPI, persistence providers or UI assemblies.
+- [ ] Provide a maintained `dotnet new` plugin template or equally direct starter project that builds immediately and contains one command plus one typed hook.
+- [ ] Publish a short "first plugin" guide before the deep architecture guide. The first successful command should not require reading ADRs, runtime composition documentation or packet internals.
+- [ ] Document advanced concepts separately: background work, low-level packet validation, custom lifecycle behavior, hot-reload restrictions and performance-sensitive APIs.
+- [ ] Keep XML documentation and IDE completion useful enough that common command/hook/player operations are discoverable without opening Vega source.
+- [ ] Provide migration examples from representative TShock plugin patterns while explicitly mapping behavior rather than promising source or binary compatibility.
+
+### Anti-framework audit
+
+- [ ] Audit the public plugin-facing contracts for speculative abstractions, pass-through interfaces, giant context objects and concepts exposed only because the runtime needs them internally; remove or internalize them when no external consumer needs them.
+- [ ] Do not expose a universal `IServer`/service-locator object that hands every subsystem to every plugin. Prefer small curated convenience surfaces backed by narrow capabilities.
+- [ ] Do not introduce Ninject/Orion-style global service replacement where one plugin can silently replace a core implementation for unrelated consumers. Extensibility must use explicit owned extension points.
+- [ ] Avoid reflection-heavy mandatory registration. Attributes or source generation may be offered as convenience only when explicit registration remains understandable, testable and cheap.
+- [ ] Keep snapshots and capability separation internally meaningful, but add ergonomic facade methods where repeated ordinary plugin code otherwise has to compose several low-level services for one obvious action.
+- [ ] Treat "technically pure but miserable to use" as an API defect. Do not preserve an abstraction solely because it makes the dependency diagram prettier.
+
+### Performance and compatibility guardrails
+
+- [ ] Benchmark the convenience facade and standard hook/command path against the underlying native contracts. Ergonomics must not add material packet/tick allocations, reflection scanning or hidden blocking work.
+- [ ] Keep the simple API as a thin facade over the same authoritative services used by Core/runtime; do not create a second behavioral implementation for plugins.
+- [ ] Preserve explicit world/session identity where correctness requires it, but provide sensible primary-world/current-session conveniences only where their semantics are unambiguous.
+- [ ] Version the public plugin SDK deliberately and add API compatibility checks once the first supported external SDK surface is declared stable.
+
+### Exit criteria
+
+- [ ] A developer unfamiliar with Vega internals can create, build, install and run the template plugin using the public documentation without reading the source tree.
+- [ ] The ordinary sample plugins require no knowledge of `Channel`, packet lanes, buffer lifetimes, module generations, `AssemblyLoadContext`, Terraria globals or manual thread affinity.
+- [ ] Commands and ordinary gameplay hooks are approximately TShock-class in authoring complexity while remaining typed and safe by default.
+- [ ] Advanced APIs remain available for packet/security/runtime specialists without contaminating the golden path.
+- [ ] Complete the phase only after a public-surface review removes accidental framework complexity revealed by the sample plugins.
+
+Plugin API invariant:
+
+```text
+Vega runtime internals may be complex.
+Ordinary Vega plugins must not be.
+```
+
 ## Architectural guardrails
 
 These apply across all phases:
@@ -564,5 +722,10 @@ These apply across all phases:
 - Do not add async merely because the language supports it; use it only across genuine asynchronous boundaries.
 - Local business logic stays local. Cluster networking extends capabilities instead of becoming a hidden dependency.
 - Operations/TUI consumes safe read models and application commands; it never owns authoritative game state.
+- Packet workers may prepare owned immutable intents, but only the authoritative game thread may validate current Terraria mutable state and apply gameplay mutations.
+- Packet-pipeline concurrency is an internal runtime detail; ordinary plugin/module APIs remain typed and game-thread-safe without exposing queues, lanes, buffer ownership or manual synchronization.
+- Keep the main dynamic server on CoreCLR; use NativeAOT selectively for isolated fixed-function executables only when compatibility and benchmarks justify it.
+- Plugin developer ergonomics is an architectural release criterion: ordinary commands/hooks/gameplay plugins must not require knowledge of runtime scheduling, buffer ownership, generation routing or internal composition.
+- Do not expose a universal plugin service locator or global replaceable-service model merely to reduce constructor parameters; prefer curated convenience surfaces over hidden runtime magic.
 - `.vworld` is a cache, not a hidden second source of truth or mandatory persistence path.
 - Prefer one working vertical slice over ten unused abstractions.
