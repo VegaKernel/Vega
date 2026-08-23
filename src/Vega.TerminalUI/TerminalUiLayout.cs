@@ -41,7 +41,7 @@ public sealed record TerminalUiLayoutOptions(
     ];
 
     public static TerminalUiLayoutOptions Default { get; } = new(
-        750,
+        250,
         120,
         new Dictionary<string, TerminalUiPanelLayout>(StringComparer.OrdinalIgnoreCase)
         {

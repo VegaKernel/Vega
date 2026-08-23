@@ -26,6 +26,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\Vega.HotReload.TestPlugin\Vega.HotReload.TestPlugin.csproj" ReferenceOutputAssembly="false" />
+    <ProjectReference Include="..\Vega.Sandbox.TestBackend\Vega.Sandbox.TestBackend.csproj" ReferenceOutputAssembly="false" />
     <ProjectReference Include="..\..\src\Vega.Runtime\Vega.Runtime.csproj" />
     <ProjectReference Include="..\..\src\Vega.Core\Vega.Core.csproj" />
     <ProjectReference Include="..\..\src\Vega.Cluster\Vega.Cluster.csproj" />
@@ -38,12 +39,14 @@
     <ProjectReference Include="..\..\src\Vega.Modules.Wipe\Vega.Modules.Wipe.csproj" />
     <ProjectReference Include="..\..\src\Vega.Operations\Vega.Operations.csproj" />
     <ProjectReference Include="..\..\src\Vega.Persistence\Vega.Persistence.csproj" />
+    <ProjectReference Include="..\..\src\Vega.Sandboxes\Vega.Sandboxes.csproj" />
     <ProjectReference Include="..\..\src\Vega.Terraria\Vega.Terraria.csproj" />
     <ProjectReference Include="..\..\src\Vega.TerminalUI\Vega.TerminalUI.csproj" />
   </ItemGroup>
 
   <ItemGroup>
     <None Include="TestData\MaxMind\*.mmdb" CopyToOutputDirectory="PreserveNewest" />
+    <None Include="..\..\config\security.json" Link="config\security.json" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 
 </Project>

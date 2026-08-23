@@ -1,5 +1,5 @@
 {
-  "refreshIntervalMilliseconds": 750,
+  "refreshIntervalMilliseconds": 250,
   "historySamples": 120,
   "windows": {
     "overview": {

@@ -6,6 +6,7 @@ using Vega.Contracts.Runtime;
 using Vega.Contracts.Regions;
 using Vega.Contracts.Worlds;
 using Vega.Contracts.Scenes;
+using Vega.Contracts.Sandboxes;
 
 namespace Vega.Contracts.Operations;
 
@@ -111,7 +112,10 @@ public sealed record WorldContextSnapshot(
     IReadOnlyList<PlayerId> PlayerIds,
     int WorldEpoch,
     string Ruleset,
-    TimeSpan TimeToLiveRemaining);
+    TimeSpan TimeToLiveRemaining)
+{
+    public SandboxStatus? Sandbox { get; init; }
+}
 
 public interface IWorldContextOperationsCatalog
 {

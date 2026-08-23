@@ -193,6 +193,8 @@ ProcessStart → Bootstrap → RuntimeReady → ModulesRegistered
 
 `Vega.Operations` предоставляет неизменяемые server/player/module/log/metric projections. Terminal UI является только потребителем; административные действия проходят через обычные command и authorization boundaries.
 
+`Vega.Sandboxes` управляет изолированными процессами `Vega.Server` для дополнительных миров. Для жизненного цикла служат `sandbox create/start/stop/restart/reset/destroy`, а `worldtransfer` работает через доверенный Dimensions-forwarder. Descriptor, лимиты и TTL находятся в `config/sandboxes.json`; forwarding по умолчанию отключён в `config/security.json`. Accounts и bans остаются общесерверными, а команды и регионы получают явный `WorldId` backend-процесса. Подробности приведены в [руководстве по sandbox-мирам](sandboxes.md).
+
 Cluster support опционален. Текущий transport — in-memory reference implementation для детерминированных тестов и локальной композиции. Standalone server использует `UnavailableClusterClient` и остаётся работоспособным. Текущий ADR не выбирает production transport на Redis, NATS, RabbitMQ, HTTP или WebSocket.
 
 ## 11. Пакеты и релизы
@@ -205,12 +207,12 @@ Cluster support опционален. Текущий transport — in-memory ref
 
 ## 12. Текущие ограничения
 
-- Dimensions packet forwarding не реализован;
-- sandbox backends и управление multi-world процессами не реализованы;
+- Dimensions forwarding и перенос игрока требуют явно доверенного proxy и по умолчанию отключены;
+- SSC-режимы кроме `Disabled` отклоняются до появления постоянного character-state store;
 - горячая замена поддерживает только unload-safe контракт Vega и выключена по умолчанию; legacy и встроенные DLL требуют перезапуска;
 - для cluster-сценариев не выбран production transport;
 - `.vworld` остаётся экспериментальным и выключен по умолчанию;
-- расширенные inventory, chest, overlay и world-reset примитивы остаются дальнейшей работой.
+- single-process multi-world остаётся исследовательским backend; production sandbox использует отдельный процесс на активный мир.
 
 [Roadmap](../roadmap.md) фиксирует завершённые этапы. [ADR](../decisions/) являются нормативными архитектурными решениями, но принятые future-facing требования не означают автоматически завершённую реализацию.
 

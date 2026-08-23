@@ -1,0 +1,101 @@
+# Изолированные sandbox-миры
+
+Каждый активный sandbox Vega запускает как отдельный контролируемый процесс
+`Vega.Server`. Глобальное состояние Terraria, game thread, entity и изменения мира
+остаются внутри backend-процесса. Основной процесс управляет только descriptor,
+файлами, lifecycle и периодическими immutable status. Backend не запускает дочерний
+control plane.
+
+## Конфигурация и данные
+
+`config/sandboxes.json` задаёт лимиты допуска и отказов. По умолчанию разрешено восемь
+активных backend, старты выполняются последовательно, readiness ожидается 60 секунд,
+heartbeat считается устаревшим через 15 секунд, graceful shutdown получает 15 секунд,
+а crash-loop ограничен тремя рестартами с паузой пять секунд. CPU, working set и размер
+мира ограничены. Для временного мира idle TTL по умолчанию равен 30 минутам.
+
+Descriptor атомарно сохраняются в `data/sandboxes/catalog.json`. Сгенерированный
+256-битный `data/sandboxes/control.key` подписывает heartbeat и transfer ticket, поэтому
+это секрет. Управляемые миры находятся в
+`data/sandboxes/instances/<WorldId>/world.wld`. При создании/reset неизменяемый `.wld`
+копируется во staging, сбрасывается на диск и атомарно подменяет instance. Исходный
+template не меняется; неудачный reset сохраняет прежний instance и `.previous` backup.
+Миры `external` Vega никогда не сбрасывает и не удаляет.
+
+Descriptor содержит `WorldId`, имя, пути, режим temporary/persistent/external,
+capacity, public/permission/allow-list access, idle TTL, SSC policy, набор встроенных
+модулей, port, revision и hash template. Пустой набор модулей означает все встроенные.
+Команды и регионы backend получают настоящий sandbox `WorldId`; accounts, bans и
+базовые permissions используют общую БД, а регионы и policy модулей остаются
+world-scoped.
+
+SSC задаётся явно: `Inherit` использует общую запись account, `CopyOnEnter` копирует её
+и при disconnect/failure выбирает последнюю зафиксированную revision, `Isolated`
+разделяет state по account и `WorldId`, `Disabled` оставляет character клиенту. Пока
+полный SSC store остаётся задачей persistence-фазы, backend обязан отклонить
+неподдерживаемый режим, а не незаметно выбрать другой.
+
+## Lifecycle и команды
+
+```text
+sandbox list
+sandbox status <id>
+sandbox create <id> <name> <template.wld> <temporary|persistent|external> <capacity> [port]
+sandbox start|stop|restart <id>
+sandbox reset <id> [replacement.wld] confirm
+sandbox destroy <id> confirm
+sandbox rolling-update confirm
+worldtransfer <точное-имя-игрока> <target-world>
+```
+
+Повтор create/start/stop идемпотентен. Reset и destroy требуют `confirm`. При остановке
+сначала отправляется штатная команда `shutdown`; kill применяется только после
+deadline. Readiness и heartbeat раз в две секунды подписаны HMAC и связаны с `WorldId`,
+PID, instance, state и version. Потеря heartbeat, exit, превышение ресурсов и несовпадение
+версии дают явный degraded/failed status. После рестарта control plane живой подписанный
+PID подхватывается; orphan instance каталог показывается в логах и не удаляется.
+
+Временный backend выключается после idle TTL. Persistent-файлы не удаляются, а
+остановка control plane завершает процессы без удаления миров. Rolling update
+перезапускает миры по одному и прекращается при первой ошибке readiness.
+
+## Routing и безопасность
+
+Перед transfer проверяются readiness, capacity и access. Затем выдаётся 30-секундный
+HMAC ticket, привязанный к account, origin, target, nonce и ticket ID. Ticket одноразовый;
+replay, expiry, неверный target или потеря backend возвращают безопасный fallback в
+origin. Identity и bans общие для сервера.
+
+Dimensions по умолчанию выключен в `config/security.json`. Packet 67/type 0 принимается
+только от точного IP из `dimensionsTrustedProxies`; transport peer и effective client IP
+хранятся отдельно. Подделка и битый payload отклоняются. `worldtransfer` отправляет
+Dimensions packet 67/type 3 только соединению с trusted-forwarder provenance — прямой
+клиент не получает привилегированную команду переключения.
+
+## Operations и базовая производительность
+
+Operations/TUI показывает lifecycle, endpoint, PID, players, timestamps, TPS, CPU,
+working set, размер instance, restart count, revision template и TTL. stdout/stderr
+backend попадает в bounded-логи родителя, а отдельный JSONL хранится в
+`logs/sandboxes/<WorldId>/`.
+
+Регрессионный запуск:
+`dotnet run --project benchmarks/Vega.Sandbox.Benchmarks -c Release -- 32 4`. На x64,
+.NET 10.0.11 четыре тестовых backend и template 32 МиБ дали:
+
+| Нагрузка | Результат |
+| --- | ---: |
+| materialization | 113,2 мс/мир |
+| подписанный process readiness | 269,8 мс/процесс |
+| Operations snapshot четырёх миров | 206 мкс/snapshot |
+| graceful shutdown | 23,3 мс/процесс |
+
+Это измерение control plane, а не симуляция Terraria. Отдельный smoke-тест опубликованной
+сборки использовал настоящий мир Terraria 1.4.5.7 размером 4200x1200: контролируемый
+backend достиг `WorldReady` за 3,804 с (загрузка Terraria — 2,062 с), открыл назначенный
+порт, показал 536 МиБ working set через `sandbox status` и корректно завершился по
+graceful-stop handshake. Перед увеличением лимитов нужно
+проверить реальные `.wld`, NPC/player load, tick p95/p99, GC, disk I/O и transfer
+latency на целевом сервере. Snapshot bounded и sampled; per-tick IPC и сериализации мира
+нет. Много миров Terraria в одном процессе остаются отдельным research-проектом, а не
+обещанием совместимости.

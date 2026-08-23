@@ -2,6 +2,7 @@ using OTAPI;
 using Vega.Contracts.Commands;
 using Vega.Contracts.Messaging;
 using Vega.Contracts.Localization;
+using Vega.Contracts.Worlds;
 
 namespace Vega.Terraria.Hooking;
 
@@ -14,16 +15,19 @@ internal sealed class NativeConsoleCommandHooks : IDisposable
     private readonly ICommandDispatcher dispatcher;
     private readonly ILocalizationService localization;
     private readonly IPlayerCultureService cultures;
+    private readonly WorldId worldId;
     private bool attached;
 
     public NativeConsoleCommandHooks(
         ICommandDispatcher dispatcher,
         ILocalizationService localization,
-        IPlayerCultureService cultures)
+        IPlayerCultureService cultures,
+        WorldId worldId)
     {
         this.dispatcher = dispatcher ?? throw new ArgumentNullException(nameof(dispatcher));
         this.localization = localization ?? throw new ArgumentNullException(nameof(localization));
         this.cultures = cultures ?? throw new ArgumentNullException(nameof(cultures));
+        this.worldId = worldId;
     }
 
     public void Attach()
@@ -72,7 +76,10 @@ internal sealed class NativeConsoleCommandHooks : IDisposable
                 command.Arguments,
                 ServerCommandPrincipal.Instance,
                 ConsoleCommandOutput.Instance,
-                command.Silent);
+                command.Silent)
+            {
+                WorldId = worldId
+            };
 
             var result = await dispatcher.DispatchAsync(invocation).ConfigureAwait(false);
             WriteResult(result);

@@ -1,6 +1,12 @@
 # ADR 0011: Built-in Dimensions protocol compatibility
 
-Status: Planned
+Status: Accepted and implemented
+
+Vega now decodes packet 67 through a bounded Multiplicity `PacketView`/`PacketReader`,
+accepts type 0 only from exact IPs in `config/security.json` when explicitly enabled,
+and preserves transport and effective endpoints with trusted-forwarder provenance. The
+Phase 17 routing service adds target-bound, expiring single-use HMAC tickets and sends
+Dimensions type 3 switches only to connections carrying that trusted provenance.
 
 ## Context
 

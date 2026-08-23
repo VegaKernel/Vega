@@ -23,7 +23,8 @@ flowchart TB
     Runtime --> Core["Vega.Core<br/>server behavior"]
     Runtime --> Operations["Vega.Operations<br/>logs + metrics + read models"]
     Runtime --> Cluster["Vega.Cluster<br/>optional inter-server scenarios"]
-    Runtime --> Persistence["Vega.Persistence<br/>domain stores + migrations"]
+    Runtime --> Persistence["Vega.Persistence<br/>domain stores + schema baseline"]
+    Runtime --> Sandboxes["Vega.Sandboxes<br/>isolated worlds + supervisor"]
     Runtime -. "explicit registration" .-> Modules["ServerPlugins<br/>Vega.Modules.*"]
 
     TerrariaAdapter --> Contracts["Vega.Contracts<br/>contracts + snapshots"]
@@ -31,6 +32,7 @@ flowchart TB
     Operations --> Contracts
     Cluster --> Contracts
     Persistence --> Contracts
+    Sandboxes --> Contracts
     Modules --> Contracts
 
     TerminalUI["Vega.TerminalUI"] --> Operations
@@ -91,6 +93,7 @@ Supported modes are `auto`, `tui`, `plain`, and `headless`. Enable the world-ima
 - [Полное руководство на русском](docs/ru/project-guide.md)
 - [Architecture](docs/architecture.md)
 - [Operations API and Terminal UI](docs/operations.md)
+- [Isolated sandbox worlds](docs/sandboxes.md)
 - [Cluster messaging](docs/cluster.md)
 - [Persistence and database providers](docs/persistence.md)
 - [World images](docs/world-images.md)
@@ -100,7 +103,7 @@ Supported modes are `auto`, `tui`, `plain`, and `headless`. Enable the world-ima
 
 ## Status
 
-The roadmap through Phase 12 establishes the Vega 1.0 foundation; it does not mean that every future-facing ADR requirement is complete. Per-player localization, Dimensions, sandbox backends, and several advanced Core primitives remain future work.
+The roadmap records completed capabilities and remaining production work. Dimensions-compatible forwarding and supervised sandbox backends are implemented but disabled or bounded by conservative defaults; persistent SSC modes, soft restart, scheduled backups, and the .NET 11 migration remain future work.
 
 ## License
 

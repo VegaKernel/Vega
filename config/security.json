@@ -4,5 +4,10 @@
   "restrictSpectateToDeadPlayers": true,
   "minimumDeathIntervalMilliseconds": 500,
   "maximumInteractionDistanceTiles": 20,
-  "bypassPermission": "vega.security.gameplay.bypass"
+  "bypassPermission": "vega.security.gameplay.bypass",
+  "enableDimensionsPacket": false,
+  "dimensionsTrustedProxies": [
+    "127.0.0.1",
+    "::1"
+  ]
 }

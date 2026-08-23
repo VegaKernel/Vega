@@ -1,0 +1,16 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0</TargetFramework>
+    <RootNamespace>Vega.Sandbox.Benchmarks</RootNamespace>
+    <AssemblyName>Vega.Sandbox.Benchmarks</AssemblyName>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <IsPackable>false</IsPackable>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\Vega.Contracts\Vega.Contracts.csproj" />
+    <ProjectReference Include="..\..\src\Vega.Sandboxes\Vega.Sandboxes.csproj" />
+  </ItemGroup>
+</Project>

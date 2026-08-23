@@ -70,14 +70,21 @@ internal sealed class NativePlayerPacketSecurityHooks : IDisposable
         TerrariaConnectionState connectionState = GetConnectionState(slot);
         try
         {
-            PacketProcessingDecision metadataDecision = connectionMetadata.ObserveInbound(
+            ConnectionMetadataObservation metadata = connectionMetadata.ObserveInboundDetailed(
                 args.PacketId,
                 args.Instance.readBuffer.AsSpan(args.ReadOffset, args.Length),
                 slot,
-                connectionState);
-            if (metadataDecision.Kind != PacketDecisionKind.Allow)
+                connectionState,
+                TryGetRemoteEndpoint(args));
+            if (metadata.Decision.Kind != PacketDecisionKind.Allow)
             {
-                RecordRejection(args, slot, metadataDecision);
+                RecordRejection(args, slot, metadata.Decision);
+                return;
+            }
+
+            if (metadata.Consumed)
+            {
+                args.Result = HookResult.Cancel;
                 return;
             }
         }

@@ -14,6 +14,7 @@ Vega.Runtime ------------+------------------+
      |                    |                  ^
      +-> Vega.TerminalUI -> Vega.Operations-+
      +-> Vega.Cluster -----------------------+
+     +-> Vega.Sandboxes ---------------------+
      +-> Vega.Core --------------------------+
      `-> Vega.Modules -----------------------+
 ```
@@ -76,6 +77,10 @@ Owns the optional Terminal.Gui host, rendering and view state. Terminal.Gui type
 ### Vega.Cluster
 
 Owns optional cluster dispatch, duplicate detection, observability, reference transport infrastructure and scenario adapters. Typed message contracts live in `Vega.Contracts`; concrete transports do not. A standalone runtime composes an unavailable client and keeps local operation independent from remote availability. See ADR 0019 and [`docs/cluster.md`](cluster.md).
+
+### Vega.Sandboxes
+
+Owns the primary-process catalog, immutable template materialization, lifecycle supervisor, signed backend heartbeat and transfer-ticket routing for isolated worlds. Each active sandbox runs a complete `Vega.Server` backend with its own Terraria state and game thread; only typed commands and sampled immutable status cross the process boundary. A backend never creates another control plane. See [`docs/sandboxes.md`](sandboxes.md).
 
 ### Vega modules
 

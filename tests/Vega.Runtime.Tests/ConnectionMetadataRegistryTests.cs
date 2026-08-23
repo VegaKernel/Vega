@@ -127,10 +127,68 @@ public sealed class ConnectionMetadataRegistryTests
         });
     }
 
+    [Test]
+    public void TrustedDimensionsPeerEstablishesEffectiveAddressAndConsumesPacket()
+    {
+        var registry = new TerrariaConnectionMetadataRegistry();
+        registry.ConfigureDimensions(true, ["127.0.0.1"]);
+
+        ConnectionMetadataObservation observation = registry.ObserveInboundDetailed(
+            (byte)PacketTypes.Placeholder,
+            EncodeDimensions(0, "203.0.113.9"),
+            5,
+            TerrariaConnectionState.ProtocolAccepted,
+            "127.0.0.1:40000");
+        ConnectionMetadataSnapshot snapshot = registry.Snapshot(
+            5,
+            "127.0.0.1:40000",
+            TerrariaConnectionState.ProtocolAccepted);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(observation.Decision.Kind, Is.EqualTo(PacketDecisionKind.Allow));
+            Assert.That(observation.Consumed, Is.True);
+            Assert.That(snapshot.TransportEndpoint, Is.EqualTo("127.0.0.1:40000"));
+            Assert.That(snapshot.EffectiveEndpoint, Is.EqualTo("203.0.113.9"));
+            Assert.That(snapshot.ForwardingProvenance, Is.EqualTo(ConnectionForwardingProvenance.TrustedForwarder));
+        });
+    }
+
+    [Test]
+    public void PublicClientCannotForgeDimensionsAddress()
+    {
+        var registry = new TerrariaConnectionMetadataRegistry();
+        registry.ConfigureDimensions(true, ["127.0.0.1"]);
+
+        ConnectionMetadataObservation observation = registry.ObserveInboundDetailed(
+            (byte)PacketTypes.Placeholder,
+            EncodeDimensions(0, "203.0.113.9"),
+            5,
+            TerrariaConnectionState.ProtocolAccepted,
+            "198.51.100.2:40000");
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(observation.Decision.Reason, Is.EqualTo("connection_metadata.dimensions_untrusted_peer"));
+            Assert.That(registry.Snapshot(5, "198.51.100.2:40000", TerrariaConnectionState.ProtocolAccepted)
+                .EffectiveEndpoint, Is.EqualTo("198.51.100.2:40000"));
+        });
+    }
+
     private static byte[] EncodeString(string value)
     {
         using var stream = new MemoryStream();
         using var writer = new BinaryWriter(stream, Encoding.UTF8, leaveOpen: true);
+        writer.Write(value);
+        writer.Flush();
+        return stream.ToArray();
+    }
+
+    private static byte[] EncodeDimensions(short type, string value)
+    {
+        using var stream = new MemoryStream();
+        using var writer = new BinaryWriter(stream, Encoding.UTF8, leaveOpen: true);
+        writer.Write(type);
         writer.Write(value);
         writer.Flush();
         return stream.ToArray();

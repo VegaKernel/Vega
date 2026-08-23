@@ -26,6 +26,7 @@
 		<ProjectReference Include="..\Vega.Modules.Wipe\Vega.Modules.Wipe.csproj" />
 		<ProjectReference Include="..\Vega.Operations\Vega.Operations.csproj" />
 		<ProjectReference Include="..\Vega.Persistence\Vega.Persistence.csproj" />
+		<ProjectReference Include="..\Vega.Sandboxes\Vega.Sandboxes.csproj" />
 		<ProjectReference Include="..\Vega.Terraria\Vega.Terraria.csproj" />
 		<ProjectReference Include="..\Vega.TerminalUI\Vega.TerminalUI.csproj" />
 	</ItemGroup>
@@ -56,6 +57,10 @@
 			<CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
 		</Content>
 		<Content Include="..\..\config\security.json" Link="config\security.json">
+			<CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+			<CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
+		</Content>
+		<Content Include="..\..\config\sandboxes.json" Link="config\sandboxes.json">
 			<CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
 			<CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
 		</Content>

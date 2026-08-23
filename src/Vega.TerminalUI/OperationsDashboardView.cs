@@ -684,7 +684,10 @@ internal sealed class OperationsDashboardView : IDisposable
                 .Where(player => player.WorldId == context.Id)
                 .OrderBy(static player => player.Name, StringComparer.OrdinalIgnoreCase)
                 .ToArray();
-            rows.Add(new PlayerListRow(RenderWorldHeader(context, members.Length), null, context));
+            rows.Add(new PlayerListRow(
+                RenderWorldHeader(context, context.Sandbox?.OnlinePlayers ?? members.Length),
+                null,
+                context));
             rows.AddRange(members.Select(player => new PlayerListRow($"  {RenderPlayer(player)}", player, null)));
         }
 
@@ -706,7 +709,10 @@ internal sealed class OperationsDashboardView : IDisposable
         string ttl = context.Kind == WorldContextKind.Sandbox && context.TimeToLiveRemaining > TimeSpan.Zero
             ? $" · ttl {FormatDuration(context.TimeToLiveRemaining)}"
             : string.Empty;
-        return $"◆ {context.DisplayName} [{kind}] · {playerCount}p · {context.SimulationState}{ttl}";
+        string backend = context.Sandbox is { } sandbox
+            ? $" · {sandbox.State} · :{sandbox.Descriptor.ListenerPort} · {sandbox.TicksPerSecond:F1} TPS · {sandbox.Resources.WorkingSetBytes / 1024 / 1024} MiB"
+            : string.Empty;
+        return $"◆ {context.DisplayName} [{kind}] · {playerCount}p · {context.SimulationState}{backend}{ttl}";
     }
 
     private void UpdateModuleList(OperationsSnapshot snapshot)

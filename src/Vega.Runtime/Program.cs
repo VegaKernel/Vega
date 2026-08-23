@@ -3,7 +3,9 @@ using System.Reflection;
 using Multiplicity.Packets.Views;
 using Vega.Contracts.Commands;
 using Vega.Contracts.Operations;
+using Vega.Contracts.Sandboxes;
 using Vega.Contracts.Localization;
+using Vega.Contracts.Modules;
 using Vega.Core.Commands;
 using Vega.Core.Commands.Administration;
 using Vega.Core.Commands.Players;
@@ -38,6 +40,7 @@ using Vega.Operations.Logging;
 using Vega.Operations.Metrics;
 using Vega.Operations.ReadModels;
 using Vega.Persistence;
+using Vega.Sandboxes;
 using Vega.TerminalUI;
 using Vega.Terraria;
 using Vega.Terraria.Items;
@@ -103,12 +106,23 @@ Assembly? ResolveFromRuntimeDirectories(System.Runtime.Loader.AssemblyLoadContex
 
 int Start()
 {
+    SandboxBackendLaunchOptions backendLaunch;
+    try
+    {
+        backendLaunch = SandboxBackendLaunchOptions.Parse(args);
+    }
+    catch (ArgumentException ex)
+    {
+        Console.Error.WriteLine(ex.Message);
+        return 2;
+    }
+
     VegaServerConfigurationState serverConfiguration;
     try
     {
         serverConfiguration = new VegaServerConfigurationState(
             Path.Combine(AppContext.BaseDirectory, "config", "server.json"),
-            args);
+            backendLaunch.ServerArguments);
     }
     catch (Exception ex) when (
         ex is InvalidDataException or IOException or UnauthorizedAccessException)
@@ -168,8 +182,9 @@ int Start()
         Array.Empty<IEventMonitor<WorldHardmodeStarting>>());
 
     using var gameThreadDispatcher = new OtapiGameThreadDispatcher();
+    WorldId runtimeWorldId = backendLaunch.IsBackend ? backendLaunch.WorldId : WorldId.Primary;
     var connectionMetadata = new TerrariaConnectionMetadataRegistry();
-    using var playerBoundary = new TerrariaPlayerBoundary(gameThreadDispatcher, connectionMetadata);
+    using var playerBoundary = new TerrariaPlayerBoundary(gameThreadDispatcher, connectionMetadata, runtimeWorldId);
     using var playerAuthorization = new PlayerSessionAuthorizationService(playerBoundary);
     using var updateChecker = new GitHubReleaseUpdateChecker();
     using var extensionState = new ExtensionStateStore();
@@ -195,7 +210,7 @@ int Start()
     var securitySignals = new BoundedSecuritySignalStore();
     var logStore = new BoundedOperationsLogStore();
     var consoleSink = new ConsoleOperationsLogSink();
-    JsonFileOperationsLogSink? fileSink = TryCreateFileSink();
+    JsonFileOperationsLogSink? fileSink = TryCreateFileSink(backendLaunch);
     var sinks = new List<IOperationsLogSink> { logStore };
     if (uiOptions.EffectiveMode == OperationsUiMode.Plain)
     {
@@ -210,6 +225,25 @@ int Start()
     using (fileSink)
     {
         var logger = new StructuredOperationsLogger(sinks);
+        SandboxOptions sandboxOptions = SandboxOptionsStore.Load(
+            Path.Combine(AppContext.BaseDirectory, "config", "sandboxes.json"));
+        using var sandboxControl = backendLaunch.IsBackend
+            ? null
+            : new SandboxControlService(AppContext.BaseDirectory, sandboxOptions, logger);
+        var transferTickets = sandboxControl is null
+            ? null
+            : new SandboxTransferTicketService(
+                Path.Combine(AppContext.BaseDirectory, "data", "sandboxes", "control.key"));
+        var sandboxRouting = sandboxControl is null || transferTickets is null
+            ? null
+            : new SandboxRoutingService(
+                sandboxControl,
+                transferTickets,
+                new SandboxEndpoint(
+                    "127.0.0.1",
+                    int.TryParse(serverConfiguration.Current.Values["port"].DisplayValue, out int primaryPort)
+                        ? primaryPort
+                        : 7777));
         using var sceneRenderer = new TerrariaSceneRenderSink(
             gameThreadDispatcher,
             playerBoundary,
@@ -257,8 +291,20 @@ int Start()
             gameThreadDispatcher,
             playerBoundary,
             logger);
-        using var moduleHost = new VegaModuleHost(
-            [pvpModule, customItemsModule, autoWorldCleaner, mentionsModule, chestModule, wipeModule, sceneConsumers]);
+        IVegaModule[] configuredModules =
+            [pvpModule, customItemsModule, autoWorldCleaner, mentionsModule, chestModule, wipeModule, sceneConsumers];
+        if (backendLaunch.IsBackend && backendLaunch.EnabledModules.Count > 0)
+        {
+            configuredModules = configuredModules.Where(module =>
+            {
+                string name = module.Descriptor.Name;
+                string shortName = name[(name.LastIndexOf('.') + 1)..];
+                return backendLaunch.EnabledModules.Contains(name) || backendLaunch.EnabledModules.Contains(shortName);
+            }).ToArray();
+        }
+
+        bool ModuleEnabled(IVegaModule module) => configuredModules.Contains(module);
+        using var moduleHost = new VegaModuleHost(configuredModules);
         try
         {
             moduleHost.Start();
@@ -313,11 +359,22 @@ int Start()
             new InventoryCommand(playerBoundary, inventoryService));
         var chat = new ChatPipeline(
             moderation: [new MuteChatModerationRule(accountSessions, database.Mutes)],
-            renderers: [mentionsModule]);
+            renderers: ModuleEnabled(mentionsModule) ? [mentionsModule] : []);
 
         GameplayEnforcementOptions gameplayOptions = GameplayEnforcementOptionsStore.Load(
             Path.Combine(AppContext.BaseDirectory, "config", "security.json"),
             logger);
+        try
+        {
+            connectionMetadata.ConfigureDimensions(
+                gameplayOptions.EnableDimensionsPacket,
+                gameplayOptions.DimensionsTrustedProxies);
+        }
+        catch (InvalidDataException ex)
+        {
+            logger.Log(OperationsLogLevel.Critical, "connection-metadata", "Dimensions trust configuration is invalid.", ex);
+            return 2;
+        }
         using var gameplayEnforcement = new GameplayEnforcementPolicy(
             gameplayOptions,
             playerAuthorization,
@@ -361,16 +418,34 @@ int Start()
                 TerrariaPacketSecurityLimits.PrefixCount,
                 TerrariaPacketSecurityLimits.PaintColorCount),
             new PlayerPacketOwnershipPolicy(),
-            pvpModule.PacketProcessor
+            ModuleEnabled(pvpModule)
+                ? pvpModule.PacketProcessor
+                : new PacketProcessorPipeline<PacketView>([])
         ]);
-        using IDisposable worldCleanCommandRegistration = commandDispatcher.Register(
-            new AutoWorldCleanerCommand(autoWorldCleaner));
-        using IDisposable chestPolicyCommandRegistration = commandDispatcher.Register(
-            new ChestPolicyCommand(chestModule));
-        using IDisposable wipeCommandRegistration = commandDispatcher.Register(
-            new WipeCommand(wipeModule));
-        using IDisposable sceneCommandRegistration = commandDispatcher.Register(
-            new SceneCommand(sceneConsumers, scenes, playerBoundary));
+        using IDisposable? worldCleanCommandRegistration = ModuleEnabled(autoWorldCleaner)
+            ? commandDispatcher.Register(new AutoWorldCleanerCommand(autoWorldCleaner))
+            : null;
+        using IDisposable? chestPolicyCommandRegistration = ModuleEnabled(chestModule)
+            ? commandDispatcher.Register(new ChestPolicyCommand(chestModule))
+            : null;
+        using IDisposable? wipeCommandRegistration = ModuleEnabled(wipeModule)
+            ? commandDispatcher.Register(new WipeCommand(wipeModule))
+            : null;
+        using IDisposable? sceneCommandRegistration = ModuleEnabled(sceneConsumers)
+            ? commandDispatcher.Register(new SceneCommand(sceneConsumers, scenes, playerBoundary))
+            : null;
+        using IDisposable? sandboxCommandRegistration = sandboxControl is null || sandboxRouting is null
+            ? null
+            : commandDispatcher.Register(new SandboxCommand(sandboxControl, sandboxRouting, logger));
+        using IDisposable? sandboxTransferCommandRegistration = sandboxControl is null || sandboxRouting is null
+            ? null
+            : commandDispatcher.Register(new SandboxPlayerTransferCommand(
+                sandboxControl,
+                sandboxRouting,
+                new TerrariaSandboxPlayerTransfer(gameThreadDispatcher, connectionMetadata),
+                playerBoundary,
+                playerAuthorization,
+                accountSessions));
 
         using IDisposable banCommandRegistration = commandDispatcher.Register(
             new BanCommand(playerBoundary, playerBoundary, banService));
@@ -429,12 +504,18 @@ int Start()
             serverPlugins,
             worldClock,
             autoWorldCleaner,
+            worldContexts: sandboxControl is null
+                ? null
+                : new SandboxWorldContextCatalog(sandboxControl, operationsState, playerBoundary),
             securitySignals: securitySignals,
             regions: database.Regions,
             bans: banService,
             mutes: database.Mutes,
             scenes: scenes,
             visibility: visibility);
+        using var backendReporter = backendLaunch.IsBackend
+            ? new SandboxBackendReporter(backendLaunch, lifecycle, operationsState, playerBoundary)
+            : null;
 
         var operationsCommands = new OperationsCommandService(
             commandDispatcher,
@@ -487,6 +568,7 @@ int Start()
 
         return TerrariaServerHost.Run(
             serverArgs,
+            runtimeWorldId,
             lifecycle,
             hardmodeStarting,
             gameThreadDispatcher,
@@ -531,11 +613,14 @@ IDisposable RegisterCoreRussianCatalog(ILocalizationService localization) =>
             ["command.not_found"] = "Неизвестная команда."
         });
 
-JsonFileOperationsLogSink? TryCreateFileSink()
+JsonFileOperationsLogSink? TryCreateFileSink(SandboxBackendLaunchOptions backendLaunch)
 {
     try
     {
-        return new JsonFileOperationsLogSink(Path.Combine("logs", "vega-operations.jsonl"));
+        string path = backendLaunch.IsBackend
+            ? Path.Combine("logs", "sandboxes", backendLaunch.WorldId.Value, "vega-operations.jsonl")
+            : Path.Combine("logs", "vega-operations.jsonl");
+        return new JsonFileOperationsLogSink(path);
     }
     catch (Exception ex)
     {
@@ -549,11 +634,12 @@ IReadOnlyList<ModuleOperationsSnapshot> CreateModuleSnapshots(VegaModuleHost mod
     Module(
         "Vega.Runtime",
         Assembly.GetExecutingAssembly(),
-        ["Vega.Cluster", "Vega.Core", "Vega.Modules.AutoWorldCleaner", "Vega.Modules.Pvp", "Vega.Operations", "Vega.Persistence", "Vega.Terraria", "Vega.TerminalUI"]),
+        ["Vega.Cluster", "Vega.Core", "Vega.Modules.AutoWorldCleaner", "Vega.Modules.Pvp", "Vega.Operations", "Vega.Persistence", "Vega.Sandboxes", "Vega.Terraria", "Vega.TerminalUI"]),
     Module("Vega.Core", typeof(CommandDispatcher).Assembly, ["Vega.Contracts"]),
     Module("Vega.Cluster", typeof(UnavailableClusterClient).Assembly, ["Vega.Contracts"]),
     Module("Vega.Operations", typeof(OperationsSnapshotProvider).Assembly, ["Vega.Contracts"]),
     Module("Vega.Persistence", typeof(IVegaDatabase).Assembly, ["Vega.Contracts", "System.Data.Common"]),
+    Module("Vega.Sandboxes", typeof(SandboxControlService).Assembly, ["Vega.Contracts"]),
     Module("Vega.Terraria", typeof(TerrariaServerHost).Assembly, ["Vega.Contracts", "OTAPI", "Multiplicity"]),
     Module("Vega.TerminalUI", typeof(TerminalUiHost).Assembly, ["Vega.Contracts", "Terminal.Gui"]),
     .. moduleHost.SnapshotModules()

@@ -1,6 +1,7 @@
 using Multiplicity.Packets;
 using Multiplicity.Packets.Views;
 using Vega.Contracts.Networking;
+using System.Net;
 
 namespace Vega.Terraria.Networking;
 
@@ -8,12 +9,43 @@ public sealed class TerrariaConnectionMetadataRegistry
 {
     private readonly object sync = new();
     private readonly Dictionary<int, MutableMetadata> connections = [];
+    private bool dimensionsEnabled;
+    private HashSet<IPAddress> trustedDimensionsPeers = [];
+
+    public void ConfigureDimensions(bool enabled, IEnumerable<string> trustedPeers)
+    {
+        ArgumentNullException.ThrowIfNull(trustedPeers);
+        var parsed = new HashSet<IPAddress>();
+        foreach (string value in trustedPeers)
+        {
+            if (!IPAddress.TryParse(value, out IPAddress? address) || address.IsIPv6Multicast)
+            {
+                throw new InvalidDataException($"Dimensions trusted proxy '{value}' is not a valid IP address.");
+            }
+
+            parsed.Add(address.MapToIPv6());
+        }
+
+        lock (sync)
+        {
+            dimensionsEnabled = enabled;
+            trustedDimensionsPeers = parsed;
+        }
+    }
 
     public PacketProcessingDecision ObserveInbound(
         byte rawPacketId,
         ReadOnlySpan<byte> payload,
         int senderSlot,
-        TerrariaConnectionState connectionState)
+        TerrariaConnectionState connectionState) =>
+        ObserveInboundDetailed(rawPacketId, payload, senderSlot, connectionState, null).Decision;
+
+    public ConnectionMetadataObservation ObserveInboundDetailed(
+        byte rawPacketId,
+        ReadOnlySpan<byte> payload,
+        int senderSlot,
+        TerrariaConnectionState connectionState,
+        string? transportEndpoint)
     {
         if (rawPacketId == (byte)PacketTypes.ConnectRequest)
         {
@@ -22,13 +54,17 @@ public sealed class TerrariaConnectionMetadataRegistry
                 connections.Remove(senderSlot);
             }
 
-            return Allow();
+            return new ConnectionMetadataObservation(Allow(), false);
         }
 
-        if (rawPacketId is not ((byte)PacketTypes.ClientUUID) and
-            not ((byte)PacketTypes.PlayerPlatformInfo))
+        if (rawPacketId == (byte)PacketTypes.Placeholder)
         {
-            return Allow();
+            return ObserveDimensions(payload, senderSlot, transportEndpoint);
+        }
+
+        if (rawPacketId is not ((byte)PacketTypes.ClientUUID) and not ((byte)PacketTypes.PlayerPlatformInfo))
+        {
+            return new ConnectionMetadataObservation(Allow(), false);
         }
 
         PacketView packet = PacketView.FromPayload(rawPacketId, payload);
@@ -41,9 +77,10 @@ public sealed class TerrariaConnectionMetadataRegistry
                 connections.Add(senderSlot, metadata);
             }
 
-            return packet.PacketType == PacketTypes.ClientUUID
+            PacketProcessingDecision decision = packet.PacketType == PacketTypes.ClientUUID
                 ? ObserveUuid(packet, connectionState, metadata)
                 : ObservePlatform(packet, senderSlot, connectionState, metadata);
+            return new ConnectionMetadataObservation(decision, false);
         }
     }
 
@@ -58,12 +95,89 @@ public sealed class TerrariaConnectionMetadataRegistry
             return new ConnectionMetadataSnapshot(
                 new ConnectionId(slot),
                 transportEndpoint,
-                transportEndpoint,
-                ConnectionForwardingProvenance.Direct,
+                metadata?.EffectiveEndpoint ?? transportEndpoint,
+                metadata?.ForwardingProvenance ?? ConnectionForwardingProvenance.Direct,
                 metadata?.Platform ?? ClientPlatformInfo.Unknown,
                 metadata?.ClientUuid,
                 ToLoginPhase(state));
         }
+    }
+
+    private ConnectionMetadataObservation ObserveDimensions(
+        ReadOnlySpan<byte> payload,
+        int senderSlot,
+        string? transportEndpoint)
+    {
+        lock (sync)
+        {
+            if (!dimensionsEnabled)
+            {
+                return new ConnectionMetadataObservation(Allow(), false);
+            }
+
+            if (!TryGetAddress(transportEndpoint, out IPAddress? peer) || peer is null ||
+                !trustedDimensionsPeers.Contains(peer.MapToIPv6()))
+            {
+                return new ConnectionMetadataObservation(
+                    Reject("connection_metadata.dimensions_untrusted_peer"),
+                    true);
+            }
+
+            try
+            {
+                PacketView packet = PacketView.FromPayload(PacketTypes.Placeholder, payload);
+                PacketReader reader = packet.CreatePayloadReader();
+                short joinType = reader.ReadInt16();
+                if (joinType != 0)
+                {
+                    return new ConnectionMetadataObservation(Allow(), true);
+                }
+
+                string forwarded = reader.ReadStringUtf8();
+                reader.EnsureEnd();
+                if (!IPAddress.TryParse(forwarded, out IPAddress? effective) ||
+                    effective.Equals(IPAddress.Any) || effective.Equals(IPAddress.IPv6Any) ||
+                    effective.IsIPv6Multicast)
+                {
+                    return new ConnectionMetadataObservation(
+                        Reject("connection_metadata.dimensions_invalid_address"),
+                        true);
+                }
+
+                if (!connections.TryGetValue(senderSlot, out MutableMetadata? metadata))
+                {
+                    metadata = new MutableMetadata();
+                    connections.Add(senderSlot, metadata);
+                }
+
+                metadata.EffectiveEndpoint = effective.ToString();
+                metadata.ForwardingProvenance = ConnectionForwardingProvenance.TrustedForwarder;
+                return new ConnectionMetadataObservation(Allow(), true);
+            }
+            catch (Exception ex) when (ex is InvalidDataException or EndOfStreamException or FormatException)
+            {
+                return new ConnectionMetadataObservation(
+                    Reject("connection_metadata.dimensions_malformed"),
+                    true);
+            }
+        }
+    }
+
+    private static bool TryGetAddress(string? endpoint, out IPAddress? address)
+    {
+        if (IPAddress.TryParse(endpoint, out address))
+        {
+            return true;
+        }
+
+        if (endpoint is not null && IPEndPoint.TryParse(endpoint, out IPEndPoint? parsed))
+        {
+            address = parsed.Address;
+            return true;
+        }
+
+        address = null;
+        return false;
     }
 
     public void Remove(int slot)
@@ -162,5 +276,11 @@ public sealed class TerrariaConnectionMetadataRegistry
         public ClientPlatformInfo Platform { get; set; } = ClientPlatformInfo.Unknown;
 
         public string? ClientUuid { get; set; }
+        public string? EffectiveEndpoint { get; set; }
+        public ConnectionForwardingProvenance ForwardingProvenance { get; set; } = ConnectionForwardingProvenance.Direct;
     }
 }
+
+public readonly record struct ConnectionMetadataObservation(
+    PacketProcessingDecision Decision,
+    bool Consumed);

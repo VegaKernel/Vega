@@ -130,6 +130,7 @@ jobs:
             'Vega.Cluster.dll',
             'Vega.Operations.dll',
             'Vega.Persistence.dll',
+            'Vega.Sandboxes.dll',
             'Vega.Terraria.dll',
             'Vega.TerminalUI.dll',
             'OTAPI.dll',
@@ -137,8 +138,13 @@ jobs:
             'ModFramework.dll'
           )
           $requiredPlugins = @(
+            'Vega.Modules.AutoWorldCleaner.dll',
+            'Vega.Modules.Chests.dll',
+            'Vega.Modules.Mentions.dll',
             'Vega.Modules.Pvp.dll',
-            'Vega.Modules.CustomItems.dll'
+            'Vega.Modules.CustomItems.dll',
+            'Vega.Modules.Scenes.dll',
+            'Vega.Modules.Wipe.dll'
           )
 
           $missing = @()

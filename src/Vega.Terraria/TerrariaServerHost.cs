@@ -29,6 +29,7 @@ public static class TerrariaServerHost
 {
     public static int Run(
         string[] args,
+        WorldId runtimeWorldId,
         IRuntimeLifecycleController lifecycle,
         IEventPipeline<WorldHardmodeStarting> hardmodeStarting,
         OtapiGameThreadDispatcher gameThreadDispatcher,
@@ -114,7 +115,8 @@ public static class TerrariaServerHost
         using var consoleCommandHooks = new NativeConsoleCommandHooks(
             commandDispatcher,
             localization,
-            cultures);
+            cultures,
+            runtimeWorldId);
         using var playerCommandHooks = new NativePlayerCommandHooks(
             commandDispatcher,
             playerAuthorization,

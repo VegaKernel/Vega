@@ -9,6 +9,7 @@ using Vega.Contracts.Localization;
 using Vega.Contracts.Players;
 using Vega.Contracts.Operations;
 using Vega.Contracts.Moderation;
+using Vega.Contracts.Worlds;
 
 namespace Vega.Terraria.Hooking;
 
@@ -105,7 +106,7 @@ internal sealed class NativePlayerCommandHooks : IDisposable
             // This synchronous OTAPI hook only claims commands already owned by Vega.
             // Execution and game-thread message delivery continue asynchronously without blocking packet processing.
             args.Result = HookResult.Cancel;
-            _ = ExecuteAsync(playerId, player.Name, command);
+            _ = ExecuteAsync(playerId, player.Name, player.WorldId, command);
             return;
         }
 
@@ -182,6 +183,7 @@ internal sealed class NativePlayerCommandHooks : IDisposable
     private async Task ExecuteAsync(
         PlayerId playerId,
         string playerName,
+        WorldId worldId,
         ParsedCommandText command)
     {
         try
@@ -193,7 +195,10 @@ internal sealed class NativePlayerCommandHooks : IDisposable
                 command.Arguments,
                 new PlayerCommandPrincipal(playerName, playerId, authorization, account),
                 output,
-                command.Silent);
+                command.Silent)
+            {
+                WorldId = worldId
+            };
 
             CommandExecutionResult result = await dispatcher
                 .DispatchAsync(invocation)

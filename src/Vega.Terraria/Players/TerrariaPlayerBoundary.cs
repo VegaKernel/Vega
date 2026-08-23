@@ -23,6 +23,7 @@ public sealed class TerrariaPlayerBoundary :
 {
 	private readonly IGameThreadDispatcher dispatcher;
 	private readonly TerrariaConnectionMetadataRegistry connectionMetadata;
+	private readonly WorldId worldId;
 	private IReadOnlyList<PlayerSnapshot> onlinePlayers = Array.Empty<PlayerSnapshot>();
 	private IReadOnlyDictionary<PlayerId, PlayerCombatSnapshot> combatSnapshots =
 		new Dictionary<PlayerId, PlayerCombatSnapshot>();
@@ -32,18 +33,20 @@ public sealed class TerrariaPlayerBoundary :
 	private bool attached;
 
 	public TerrariaPlayerBoundary(IGameThreadDispatcher dispatcher)
-		: this(dispatcher, new TerrariaConnectionMetadataRegistry())
+		: this(dispatcher, new TerrariaConnectionMetadataRegistry(), WorldId.Primary)
 	{
 	}
 
 	public TerrariaPlayerBoundary(
 		IGameThreadDispatcher dispatcher,
-		TerrariaConnectionMetadataRegistry connectionMetadata)
+		TerrariaConnectionMetadataRegistry connectionMetadata,
+		WorldId? worldId = null)
 	{
 		ArgumentNullException.ThrowIfNull(dispatcher);
 		ArgumentNullException.ThrowIfNull(connectionMetadata);
 		this.dispatcher = dispatcher;
 		this.connectionMetadata = connectionMetadata;
+		this.worldId = worldId ?? WorldId.Primary;
 	}
 
 	public void Attach()
@@ -366,6 +369,7 @@ public sealed class TerrariaPlayerBoundary :
 				player.hostile,
 				player.team)
 			{
+				WorldId = worldId,
 				SessionId = sessionIds[slot],
 				ConnectedAt = sessionStartedAt[slot],
 				RemoteEndpoint = connection.EffectiveEndpoint,

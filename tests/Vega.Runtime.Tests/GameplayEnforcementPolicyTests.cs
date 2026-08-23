@@ -3,6 +3,7 @@ using Multiplicity.Packets.Views;
 using NUnit.Framework;
 using Vega.Contracts.Authorization;
 using Vega.Contracts.Networking;
+using Vega.Contracts.Operations;
 using Vega.Contracts.Players;
 using Vega.Core.Networking;
 
@@ -11,6 +12,20 @@ namespace Vega.Runtime.Tests;
 [TestFixture]
 public sealed class GameplayEnforcementPolicyTests
 {
+    [Test]
+    public void PublishedSecurityConfigurationDeserializesWithDimensionsSettings()
+    {
+        string path = Path.Combine(TestContext.CurrentContext.TestDirectory, "config", "security.json");
+
+        GameplayEnforcementOptions options = GameplayEnforcementOptionsStore.Load(path, new RecordingLogger());
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(options.EnableDimensionsPacket, Is.False);
+            Assert.That(options.DimensionsTrustedProxies, Is.EquivalentTo(new[] { "127.0.0.1", "::1" }));
+        });
+    }
+
     [Test]
     public void DisabledConfigurationDoesNotChangeVanillaGameplay()
     {
@@ -163,6 +178,18 @@ public sealed class GameplayEnforcementPolicyTests
     private sealed class FakeAuthorization(bool bypass) : IPlayerAuthorizationService
     {
         public bool HasPermission(PlayerId playerId, string permission) => bypass;
+    }
+
+    private sealed class RecordingLogger : IOperationsLogger
+    {
+        public void Log(
+            OperationsLogLevel level,
+            string source,
+            string text,
+            Exception? exception = null,
+            string? correlationId = null)
+        {
+        }
     }
 
     private sealed class FakeDirectory(PlayerSnapshot player) : IPlayerDirectory

@@ -29,7 +29,7 @@ The TUI uses separate high-contrast tiled windows instead of repainting one larg
 - **Modules**: version, load state, dependencies, startup duration and failures;
 - **Logs**: recent structured records and degraded-capability warnings.
 
-The default refresh interval is 750 ms, which avoids the full-screen 150 ms document replacement that made some Windows terminals flicker. Snapshot capture runs off the UI thread with at most one request in flight, so slow metrics or persistence reads cannot queue up or block keyboard and mouse input. Static labels are updated only when their text changes; graph and log history is bounded.
+The default refresh interval is 250 ms. Snapshot capture runs off the UI thread with at most one request in flight, so slow metrics or persistence reads cannot queue up or block keyboard and mouse input. Static labels are updated only when their text changes; graph and log history is bounded. Dragging a shared panel edge grows one tile while shrinking its neighbour, and dragging a title onto another tile swaps their positions instead of leaving overlapping floating windows.
 
 ### Window layout
 

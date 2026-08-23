@@ -1,0 +1,15 @@
+{
+  "enabled": true,
+  "basePort": 7780,
+  "maximumActiveWorlds": 8,
+  "maximumConcurrentStarts": 1,
+  "startTimeoutSeconds": 60,
+  "heartbeatTimeoutSeconds": 15,
+  "gracefulStopTimeoutSeconds": 15,
+  "maximumAutomaticRestarts": 3,
+  "restartBackoffSeconds": 5,
+  "maximumCpuPercent": 100,
+  "maximumWorkingSetMegabytes": 2048,
+  "maximumInstanceMegabytes": 4096,
+  "defaultIdleTtlMinutes": 30
+}

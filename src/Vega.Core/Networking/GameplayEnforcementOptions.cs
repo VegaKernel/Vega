@@ -1,23 +1,48 @@
 using System.Text.Json;
+using System.Text.Json.Serialization;
 using Vega.Contracts.Operations;
 
 namespace Vega.Core.Networking;
 
+[method: JsonConstructor]
 public sealed record GameplayEnforcementOptions(
     bool Enabled,
     bool RejectLivingGhost,
     bool RestrictSpectateToDeadPlayers,
     int MinimumDeathIntervalMilliseconds,
     int MaximumInteractionDistanceTiles,
-    string BypassPermission)
+    string BypassPermission,
+    bool EnableDimensionsPacket,
+    IReadOnlyList<string> DimensionsTrustedProxies)
 {
+    public GameplayEnforcementOptions(
+        bool enabled,
+        bool rejectLivingGhost,
+        bool restrictSpectateToDeadPlayers,
+        int minimumDeathIntervalMilliseconds,
+        int maximumInteractionDistanceTiles,
+        string bypassPermission)
+        : this(
+            enabled,
+            rejectLivingGhost,
+            restrictSpectateToDeadPlayers,
+            minimumDeathIntervalMilliseconds,
+            maximumInteractionDistanceTiles,
+            bypassPermission,
+            false,
+            ["127.0.0.1", "::1"])
+    {
+    }
+
     public static GameplayEnforcementOptions Default { get; } = new(
         false,
         true,
         true,
         500,
         20,
-        "vega.security.gameplay.bypass");
+        "vega.security.gameplay.bypass",
+        false,
+        ["127.0.0.1", "::1"]);
 
     public static GameplayEnforcementOptions Normalize(GameplayEnforcementOptions? candidate) =>
         new(
@@ -34,7 +59,13 @@ public sealed record GameplayEnforcementOptions(
                 200),
             string.IsNullOrWhiteSpace(candidate?.BypassPermission)
                 ? Default.BypassPermission
-                : candidate.BypassPermission.Trim());
+                : candidate.BypassPermission.Trim(),
+            candidate?.EnableDimensionsPacket ?? Default.EnableDimensionsPacket,
+            Array.AsReadOnly((candidate?.DimensionsTrustedProxies ?? Default.DimensionsTrustedProxies)
+                .Where(static value => !string.IsNullOrWhiteSpace(value))
+                .Select(static value => value.Trim())
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .ToArray()));
 }
 
 public static class GameplayEnforcementOptionsStore

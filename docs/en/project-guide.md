@@ -193,6 +193,8 @@ An external hot-loadable plugin directly implements `IHotReloadableVegaModule` a
 
 `Vega.Operations` exposes immutable server, player, module, log, and metric projections. The Terminal UI is only a consumer; administrative actions still use the normal command and authorization boundaries.
 
+`Vega.Sandboxes` supervises isolated `Vega.Server` backend processes for additional worlds. Use `sandbox create/start/stop/restart/reset/destroy`, and use `worldtransfer` through a trusted Dimensions forwarder. Descriptors, limits and TTL live in `config/sandboxes.json`; forwarding is disabled by default in `config/security.json`. Accounts and bans remain server-wide while command and region contexts carry the backend's explicit `WorldId`. See [the sandbox operations guide](../sandboxes.md).
+
 Cluster support is optional. The current transport is an in-memory reference implementation for deterministic tests and local composition. A standalone server uses `UnavailableClusterClient` and remains functional. No production Redis, NATS, RabbitMQ, HTTP, or WebSocket transport is selected by the current ADR.
 
 ## 11. Packages and releases
@@ -205,12 +207,12 @@ The separate `Publish Manual` workflow selects the newest valid tag and only reb
 
 ## 12. Current limitations
 
-- Dimensions packet forwarding is not implemented;
-- sandbox backends and multi-world process management are not implemented;
+- Dimensions forwarding and player transfer require an explicitly trusted proxy and remain disabled by default;
+- SSC modes other than `Disabled` are rejected until their persistent character-state stores are delivered;
 - hot replacement supports only the unload-safe Vega contract and is disabled by default; legacy or bundled module DLLs require restart;
 - cluster scenarios have no selected production transport;
 - `.vworld` is experimental and disabled by default;
-- several advanced inventory, chest, overlay, and world-reset primitives remain roadmap work.
+- single-process multi-world virtualization is research-only; production sandboxes use one process per active world.
 
 The [roadmap](../roadmap.md) records delivered phases. The [ADRs](../decisions/) are normative design records, but accepted future-facing requirements are not automatically claims of completed implementation.
 
