@@ -31,6 +31,7 @@
     <ProjectReference Include="..\..\src\Vega.Backups\Vega.Backups.csproj" />
     <ProjectReference Include="..\..\src\Vega.Core\Vega.Core.csproj" />
     <ProjectReference Include="..\..\src\Vega.Cluster\Vega.Cluster.csproj" />
+    <ProjectReference Include="..\..\src\Vega.Modules.Administration\Vega.Modules.Administration.csproj" />
     <ProjectReference Include="..\..\src\Vega.Modules.AutoWorldCleaner\Vega.Modules.AutoWorldCleaner.csproj" />
     <ProjectReference Include="..\..\src\Vega.Modules.Chests\Vega.Modules.Chests.csproj" />
     <ProjectReference Include="..\..\src\Vega.Modules.CustomItems\Vega.Modules.CustomItems.csproj" />

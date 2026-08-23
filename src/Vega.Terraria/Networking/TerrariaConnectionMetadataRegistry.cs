@@ -1,6 +1,8 @@
 using Multiplicity.Packets;
 using Multiplicity.Packets.Views;
 using Vega.Contracts.Networking;
+using Vega.Contracts.Sandboxes;
+using Vega.Contracts.Worlds;
 using System.Net;
 
 namespace Vega.Terraria.Networking;
@@ -11,6 +13,9 @@ public sealed class TerrariaConnectionMetadataRegistry
     private readonly Dictionary<int, MutableMetadata> connections = [];
     private bool dimensionsEnabled;
     private HashSet<IPAddress> trustedDimensionsPeers = [];
+    private ISandboxTransferAdmissionService? sandboxAdmission;
+    private WorldId sandboxAdmissionWorldId = WorldId.Primary;
+    private bool sandboxAdmissionRequired;
 
     public void ConfigureDimensions(bool enabled, IEnumerable<string> trustedPeers)
     {
@@ -30,6 +35,19 @@ public sealed class TerrariaConnectionMetadataRegistry
         {
             dimensionsEnabled = enabled;
             trustedDimensionsPeers = parsed;
+        }
+    }
+
+    public void ConfigureSandboxAdmission(
+        ISandboxTransferAdmissionService? admission,
+        WorldId receivingWorldId,
+        bool required)
+    {
+        lock (sync)
+        {
+            sandboxAdmission = admission;
+            sandboxAdmissionWorldId = receivingWorldId;
+            sandboxAdmissionRequired = required;
         }
     }
 
@@ -80,6 +98,15 @@ public sealed class TerrariaConnectionMetadataRegistry
             PacketProcessingDecision decision = packet.PacketType == PacketTypes.ClientUUID
                 ? ObserveUuid(packet, connectionState, metadata)
                 : ObservePlatform(packet, senderSlot, connectionState, metadata);
+            if (decision.Kind == PacketDecisionKind.Allow &&
+                packet.PacketType == PacketTypes.ClientUUID &&
+                sandboxAdmission is not null &&
+                (sandboxAdmissionRequired ||
+                 metadata.ForwardingProvenance == ConnectionForwardingProvenance.TrustedForwarder))
+            {
+                decision = ConsumeSandboxAdmission(metadata, sandboxAdmissionRequired);
+            }
+
             return new ConnectionMetadataObservation(decision, false);
         }
     }
@@ -99,7 +126,10 @@ public sealed class TerrariaConnectionMetadataRegistry
                 metadata?.ForwardingProvenance ?? ConnectionForwardingProvenance.Direct,
                 metadata?.Platform ?? ClientPlatformInfo.Unknown,
                 metadata?.ClientUuid,
-                ToLoginPhase(state));
+                ToLoginPhase(state))
+            {
+                TrustedTransferAccountId = metadata?.TrustedTransferAccountId
+            };
         }
     }
 
@@ -248,6 +278,37 @@ public sealed class TerrariaConnectionMetadataRegistry
         return Allow();
     }
 
+
+    private PacketProcessingDecision ConsumeSandboxAdmission(MutableMetadata metadata, bool required)
+    {
+        if (sandboxAdmission is null ||
+            string.IsNullOrWhiteSpace(metadata.EffectiveEndpoint) ||
+            string.IsNullOrWhiteSpace(metadata.ClientUuid))
+        {
+            return required
+                ? Reject("sandbox.transfer.admission_required")
+                : Allow();
+        }
+
+        SandboxTransferAdmissionResult result = sandboxAdmission.Consume(
+            sandboxAdmissionWorldId,
+            metadata.EffectiveEndpoint,
+            metadata.ClientUuid,
+            DateTimeOffset.UtcNow);
+        if (!result.Accepted)
+        {
+            if (!required && result.ErrorCode == "sandbox.transfer.admission_required")
+            {
+                return Allow();
+            }
+
+            return Reject(result.ErrorCode ?? "sandbox.transfer.admission_rejected");
+        }
+
+        metadata.TrustedTransferAccountId = result.Ticket?.AccountId;
+        return Allow();
+    }
+
     private static ClientPlatformKind ToPlatform(byte value) => value switch
     {
         0 => ClientPlatformKind.Mobile,
@@ -281,6 +342,7 @@ public sealed class TerrariaConnectionMetadataRegistry
         public string? ClientUuid { get; set; }
         public string? EffectiveEndpoint { get; set; }
         public ConnectionForwardingProvenance ForwardingProvenance { get; set; } = ConnectionForwardingProvenance.Direct;
+        public string? TrustedTransferAccountId { get; set; }
     }
 }
 

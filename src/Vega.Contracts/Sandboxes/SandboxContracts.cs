@@ -114,9 +114,13 @@ public sealed record SandboxOperationResult(
     public bool IsSuccess => Status is SandboxOperationStatus.Applied or SandboxOperationStatus.AlreadyInDesiredState;
 }
 
-public interface ISandboxControlService : IDisposable
+public interface ISandboxDirectory
 {
     IReadOnlyList<SandboxStatus> Snapshot();
+}
+
+public interface ISandboxControlService : ISandboxDirectory, IDisposable
+{
 
     ValueTask<SandboxOperationResult> CreateAsync(
         SandboxCreateRequest request,
@@ -144,7 +148,8 @@ public sealed record SandboxTransferTicket(
     DateTimeOffset IssuedAt,
     DateTimeOffset ExpiresAt,
     string Nonce,
-    string Signature);
+    string Signature,
+    Guid? SscLeaseId = null);
 
 public enum SandboxTransferValidationStatus
 {
@@ -157,7 +162,7 @@ public enum SandboxTransferValidationStatus
 
 public interface ISandboxTransferTicketService
 {
-    SandboxTransferTicket Issue(string accountId, WorldId originWorldId, WorldId targetWorldId);
+    SandboxTransferTicket Issue(string accountId, WorldId originWorldId, WorldId targetWorldId, Guid? sscLeaseId = null);
 
     SandboxTransferValidationStatus ValidateAndConsume(
         SandboxTransferTicket ticket,
@@ -190,6 +195,125 @@ public interface ISandboxRoutingService
         WorldId targetWorldId);
 
     SandboxTransferResult AcceptTransfer(SandboxTransferTicket ticket, WorldId receivingWorldId);
+}
+
+
+public sealed record SandboxSscStateSnapshot(
+    string AccountId,
+    WorldId ScopeWorldId,
+    long Revision,
+    string Payload,
+    DateTimeOffset UpdatedAt);
+
+public enum SandboxSscWriteStatus
+{
+    Applied,
+    Conflict,
+    Rejected
+}
+
+public sealed record SandboxSscWriteResult(
+    SandboxSscWriteStatus Status,
+    SandboxSscStateSnapshot? State = null,
+    string? ErrorCode = null,
+    string? Message = null)
+{
+    public bool IsSuccess => Status == SandboxSscWriteStatus.Applied;
+}
+
+public sealed record SandboxSscTransferLease(
+    Guid LeaseId,
+    string AccountId,
+    WorldId OriginWorldId,
+    WorldId TargetWorldId,
+    SandboxSscMode OriginMode,
+    SandboxSscMode TargetMode,
+    DateTimeOffset ExpiresAt);
+
+public sealed record SandboxSscTransferPreparation(
+    bool Accepted,
+    SandboxSscTransferLease? Lease = null,
+    string? ErrorCode = null,
+    string? Message = null);
+
+public interface ISandboxSscStore
+{
+    bool Supports(SandboxSscMode mode);
+
+    SandboxSscStateSnapshot? Read(string accountId, WorldId worldId, SandboxSscMode mode);
+
+    SandboxSscWriteResult Save(
+        string accountId,
+        WorldId worldId,
+        SandboxSscMode mode,
+        string payload,
+        long expectedRevision,
+        DateTimeOffset now);
+
+    SandboxSscTransferPreparation PrepareTransfer(
+        string accountId,
+        WorldId originWorldId,
+        WorldId targetWorldId,
+        SandboxSscMode originMode,
+        SandboxSscMode targetMode,
+        DateTimeOffset now,
+        TimeSpan lifetime);
+
+    SandboxSscTransferPreparation StageTransferState(
+        Guid leaseId,
+        string accountId,
+        string payload,
+        DateTimeOffset now);
+
+    SandboxSscTransferPreparation CommitTransfer(
+        Guid leaseId,
+        string accountId,
+        WorldId receivingWorldId,
+        DateTimeOffset now);
+
+    int DeleteWorldState(WorldId worldId);
+}
+
+public sealed record SandboxSscCharacterCaptureResult(
+    bool Succeeded,
+    string? Payload = null,
+    string? ErrorCode = null);
+
+public sealed record SandboxSscCharacterApplyResult(
+    bool Succeeded,
+    string? ErrorCode = null);
+
+public interface ISandboxSscCharacterAdapter
+{
+    ValueTask<SandboxSscCharacterCaptureResult> CaptureAsync(
+        PlayerId playerId,
+        CancellationToken cancellationToken = default);
+
+    ValueTask<SandboxSscCharacterApplyResult> ApplyAsync(
+        PlayerId playerId,
+        string payload,
+        CancellationToken cancellationToken = default);
+}
+
+public sealed record SandboxTransferAdmissionResult(
+    bool Accepted,
+    string? ErrorCode = null,
+    string? Message = null,
+    SandboxTransferTicket? Ticket = null);
+
+public interface ISandboxTransferAdmissionService
+{
+    SandboxTransferAdmissionResult Register(
+        SandboxTransferTicket ticket,
+        string effectiveEndpoint,
+        string clientUuid,
+        DateTimeOffset now);
+
+    SandboxTransferAdmissionResult Consume(
+        WorldId receivingWorldId,
+        string effectiveEndpoint,
+        string clientUuid,
+        DateTimeOffset now);
 }
 
 public sealed record SandboxPlayerTransferResult(bool Applied, string? ErrorCode = null);

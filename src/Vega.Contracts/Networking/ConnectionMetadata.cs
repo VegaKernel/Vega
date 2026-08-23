@@ -43,4 +43,11 @@ public sealed record ConnectionMetadataSnapshot(
     ConnectionForwardingProvenance ForwardingProvenance,
     ClientPlatformInfo Platform,
     string? ClientUuid,
-    ConnectionLoginPhase LoginPhase);
+    ConnectionLoginPhase LoginPhase)
+{
+    /// <summary>
+    /// Server-authenticated account identity carried by a consumed sandbox transfer admission.
+    /// Never populated from client-provided metadata.
+    /// </summary>
+    public string? TrustedTransferAccountId { get; init; }
+}

@@ -3,7 +3,7 @@ using NUnit.Framework;
 using Vega.Contracts.Accounts;
 using Vega.Contracts.Authorization;
 using Vega.Contracts.Commands;
-using Vega.Core.Commands.Administration;
+using Vega.Modules.Administration;
 using Vega.Persistence.Sqlite;
 
 namespace Vega.Runtime.Tests.Core;
@@ -25,7 +25,7 @@ public sealed class AccountCommandTests
     }
 
     [Test]
-    public async Task TemporaryGroupCommandsGrantListAndRevokePersistentLease()
+    public async Task TemporaryGroupCommandsGrantListAndRevokePersistentLeaseFromModule()
     {
         DateTimeOffset now = DateTimeOffset.Parse("2026-08-23T12:00:00Z");
         var time = new FixedTimeProvider(now);

@@ -8,9 +8,12 @@ namespace Vega.Terraria.Networking;
 
 public sealed class TerrariaSandboxPlayerTransfer(
     IGameThreadDispatcher dispatcher,
-    TerrariaConnectionMetadataRegistry connections) : ISandboxPlayerTransferBoundary
+    TerrariaConnectionMetadataRegistry connections,
+    ISandboxTransferAdmissionService admissions,
+    ISandboxSscStore? sscStore = null,
+    ISandboxSscCharacterAdapter? characterAdapter = null) : ISandboxPlayerTransferBoundary
 {
-    public ValueTask<SandboxPlayerTransferResult> TransferAsync(
+    public async ValueTask<SandboxPlayerTransferResult> TransferAsync(
         PlayerId playerId,
         SandboxEndpoint endpoint,
         SandboxTransferTicket ticket,
@@ -18,17 +21,47 @@ public sealed class TerrariaSandboxPlayerTransfer(
     {
         if (cancellationToken.IsCancellationRequested)
         {
-            return ValueTask.FromResult(new SandboxPlayerTransferResult(false, "sandbox.transfer.cancelled"));
+            return new SandboxPlayerTransferResult(false, "sandbox.transfer.cancelled");
+        }
+
+        if (ticket.SscLeaseId is Guid leaseId)
+        {
+            if (sscStore is null || characterAdapter is null)
+            {
+                return new SandboxPlayerTransferResult(false, "sandbox.ssc.store_unavailable");
+            }
+
+            SandboxSscCharacterCaptureResult captured = await characterAdapter.CaptureAsync(
+                playerId,
+                cancellationToken).ConfigureAwait(false);
+            if (!captured.Succeeded || captured.Payload is null)
+            {
+                return new SandboxPlayerTransferResult(
+                    false,
+                    captured.ErrorCode ?? "sandbox.ssc.capture_failed");
+            }
+
+            SandboxSscTransferPreparation staged = sscStore.StageTransferState(
+                leaseId,
+                ticket.AccountId,
+                captured.Payload,
+                DateTimeOffset.UtcNow);
+            if (!staged.Accepted)
+            {
+                return new SandboxPlayerTransferResult(
+                    false,
+                    staged.ErrorCode ?? "sandbox.ssc.stage_failed");
+            }
         }
 
         if (!dispatcher.IsGameThreadKnown)
         {
-            return ValueTask.FromResult(new SandboxPlayerTransferResult(false, "sandbox.transfer.dispatcher_unavailable"));
+            return new SandboxPlayerTransferResult(false, "sandbox.transfer.dispatcher_unavailable");
         }
 
         if (dispatcher.IsGameThread)
         {
-            return ValueTask.FromResult(Transfer(playerId, endpoint, ticket));
+            return Transfer(playerId, endpoint, ticket);
         }
 
         var completion = new TaskCompletionSource<SandboxPlayerTransferResult>(
@@ -38,10 +71,10 @@ public sealed class TerrariaSandboxPlayerTransfer(
                     ? new SandboxPlayerTransferResult(false, "sandbox.transfer.cancelled")
                     : Transfer(playerId, endpoint, ticket))))
         {
-            return ValueTask.FromResult(new SandboxPlayerTransferResult(false, "sandbox.transfer.dispatcher_unavailable"));
+            return new SandboxPlayerTransferResult(false, "sandbox.transfer.dispatcher_unavailable");
         }
 
-        return new ValueTask<SandboxPlayerTransferResult>(completion.Task);
+        return await completion.Task.ConfigureAwait(false);
     }
 
     private SandboxPlayerTransferResult Transfer(
@@ -60,14 +93,27 @@ public sealed class TerrariaSandboxPlayerTransfer(
             playerId.Slot,
             transport,
             TerrariaConnectionState.FullyConnected);
-        if (metadata.ForwardingProvenance != ConnectionForwardingProvenance.TrustedForwarder)
+        if (metadata.ForwardingProvenance != ConnectionForwardingProvenance.TrustedForwarder ||
+            string.IsNullOrWhiteSpace(metadata.EffectiveEndpoint) ||
+            string.IsNullOrWhiteSpace(metadata.ClientUuid))
         {
             return new SandboxPlayerTransferResult(false, "sandbox.transfer.dimensions_required");
         }
 
+        SandboxTransferAdmissionResult admission = admissions.Register(
+            ticket,
+            metadata.EffectiveEndpoint,
+            metadata.ClientUuid,
+            DateTimeOffset.UtcNow);
+        if (!admission.Accepted)
+        {
+            return new SandboxPlayerTransferResult(
+                false,
+                admission.ErrorCode ?? "sandbox.transfer.admission_failed");
+        }
+
         byte[] data = DimensionsTransferPacket.Create(endpoint);
         client.Socket.AsyncSend(data, 0, data.Length, client.ServerWriteCallBack);
-        GC.KeepAlive(ticket);
         return new SandboxPlayerTransferResult(true);
     }
 }

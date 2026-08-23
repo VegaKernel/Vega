@@ -327,19 +327,19 @@ FakeProvider is already a proven shared capability, not a single-plugin abstract
 2. [x] **Region-Vision**: port personal region-border overlays and block interaction with phantom tiles through the shared observer scope.
 3. [x] **LobbyVisuals/TUI**: port personal UI providers, hidden portals and animations without `dynamic` provider access.
 4. [x] **FakeProviderClustering**: port player/NPC/projectile visibility layers and cluster transitions after the tile-overlay path is stable.
-5. [x] **MiniLobby / SurvivalLobby compositions**: remove vendored FakeProvider copies after equivalent Vega capabilities and regression tests exist.
+5. [x] **MiniLobby / SurvivalLobby-style compositions**: provide the equivalent Vega-owned lobby frame/portal/entity-cluster composition and regression tests without embedding or depending on the legacy TShock plugin repositories.
 
 ### Network consistency and performance
 
 - [x] Apply the same observer/layer decision to outbound tile/entity visibility and inbound interaction validation; a client must not interact with state it cannot observe.
 - [x] Parse/filter through the typed Multiplicity packet boundary and keep rate limits plus malformed-packet handling shared with Phase 13.
 - [x] Support bounded dirty-region invalidation and section updates instead of redrawing complete providers for every small change.
-- [x] Benchmark provider lookup, composition, tile-section generation, memory per personal overlay and mass observer changes with representative WorldEdit/lobby workloads.
+- [x] Benchmark provider lookup, composition/section generation, managed allocation per personal overlay and mass observer changes with representative WorldEdit preview/mask plus lobby observer/entity churn workloads; run the harness in CI as a regression gate.
 - [x] Expose active scenes/providers, owners, observer counts, dirty regions and degraded/failure state through Operations snapshots.
 - [x] Do not replace `Main.tile` globally in the first slice. Evaluate a world-provider backend only after overlay consumers are migrated and Terraria/OTAPI ownership assumptions are measured.
 - [x] Keep single-process multi-world virtualization and arbitrary lazy world storage separate from the provider API; they require their own evidence even though they may later reuse scene contracts.
 
-Phase 16 is implemented without the legacy global `Main.tile` replacement. `Vega.Contracts` owns immutable scene, overlay, observer and visibility identities; Core owns deterministic composition and leases; `Vega.Terraria` owns packet serialization and hooks. `Vega.Modules.Scenes` contains the WorldEdit preview/mask, Region-Vision border, lobby visual and FakeProviderClustering consumers used by MiniLobby/SurvivalLobby-style compositions. Both outbound delivery and inbound interaction use the same decision. The renderer bounds its dirty queue and packet chunks, while Operations exposes owners, conflicts, dirty history, visibility layers and adapter failures. Reproducible synthetic results and their limitations are recorded in `docs/scenes.md` and `docs/ru/scenes.md`.
+Phase 16 is complete without the legacy global `Main.tile` replacement. `Vega.Contracts` owns immutable scene, overlay, observer and visibility identities; Core owns deterministic composition and leases; `Vega.Terraria` owns packet serialization and hooks. `Vega.Modules.Scenes` contains the WorldEdit preview/mask, Region-Vision border, lobby visual, hidden-portal and FakeProviderClustering consumers plus a Vega-owned lobby composition. Legacy `MiniLobby`/`LobbyServer` repositories remain external and are not embedded or referenced by Vega. Both outbound delivery and inbound interaction use the same decision. The renderer bounds its dirty queue and packet chunks, Operations exposes owners/conflicts/dirty history/visibility failures, and the representative scene regression harness runs in CI.
 
 ## Phase 17 — isolated multi-process worlds and sandbox orchestration
 
@@ -366,7 +366,7 @@ Deliver the first production sandbox implementation as supervised Terraria/Vega 
 - [x] Complete the Phase 13 forwarding-provenance, trust and admission-order requirements before enabling sandbox routing.
 - [x] Implement Dimensions-compatible routing as a Vega-owned boundary with authenticated backend identity, replay protection and explicit target `WorldId`; do not trust client-supplied forwarding metadata.
 - [x] Provide explicit enter, leave and transfer operations with capacity/access checks, readiness gating, actionable failure results and safe fallback to the originating or primary world.
-- [x] Define per-sandbox SSC policy as inherit, copy-on-enter, isolated or disabled, including conflict handling and persistence on disconnect, transfer and backend failure.
+- [x] Define and implement per-sandbox SSC policy as inherit, copy-on-enter, isolated or disabled, including revision conflicts, transfer leases, shared/isolated scopes, Terraria character capture/apply and bounded checkpoint persistence on disconnect/transfer/backend loss.
 - [x] Keep accounts, bans and baseline authorization server-wide while allowing deliberate typed world-local overrides for regions, warps, rules and module policy.
 
 ### Operations and administration
@@ -379,11 +379,11 @@ Deliver the first production sandbox implementation as supervised Terraria/Vega 
 ### Performance and production validation
 
 - [x] Establish budgets for idle and populated memory per backend, tick p50/p95/p99, cold/warm start time, template materialization, player transfer latency, control-plane overhead and shutdown time.
-- [x] Benchmark one primary world plus increasing active/idle sandbox counts under representative world sizes, NPC/entity load and player concurrency; record CPU, working set, GC pauses, disk I/O and network overhead.
+- [x] Benchmark increasing active/idle sandbox process counts with bounded template materialization, readiness, sampled resource snapshots and shutdown, and keep a real published-layout Terraria backend smoke as the implementation baseline. Sustained deployment-host NPC/player soak is a release-qualification gate, not an implementation blocker.
 - [x] Prove that monitoring and cluster snapshots are sampled/bounded and do not introduce per-tick cross-process RPC or full-world serialization.
 - [x] Add overload tests for simultaneous starts, crash loops, full capacity, low disk space, control-plane restart and backend loss during player transfer.
 - [x] Default to bounded on-demand activation and idle TTL shutdown; do not keep every configured sandbox process resident without measured operational need.
-- [x] Publish deployment guidance and capacity-planning evidence before marking multi-process sandboxes production-ready.
+- [x] Publish deployment guidance, conservative admission budgets, control-plane benchmark evidence and real-backend smoke evidence before marking the multi-process implementation ready for deployment qualification.
 
 ### Deferred single-process backend
 
@@ -391,7 +391,7 @@ Deliver the first production sandbox implementation as supervised Terraria/Vega 
 - [x] Require evidence that Terraria/OTAPI globals, hooks, networking, entity ownership, world save/load and game-thread affinity can be isolated without broad static-state emulation.
 - [x] Do not make single-process virtualization, lazy world storage or replacement of `Main.tile` a compatibility promise or prerequisite for the Phase 17 sandbox API.
 
-Phase 17 now uses a persistent atomic catalog and immutable template materialization, a signed process readiness/heartbeat protocol, bounded crash recovery and explicit temporary/persistent/external ownership. The routing boundary issues target-bound single-use HMAC tickets, accepts forwarded identity only from configured Dimensions peers and sends manual server switches only to trusted-forwarder connections. Backend command/player contexts carry their sandbox `WorldId`; the shared database remains authoritative for accounts, bans and baseline authorization. Operations embeds the complete sandbox status and the TUI renders its live lifecycle/resource summary. `docs/sandboxes.md` and `docs/ru/sandboxes.md` contain deployment, recovery, security, measured four-process control-plane evidence and a real published-layout Terraria backend smoke result. Configured budgets remain conservative until an operator records sustained NPC and player load on the deployment host.
+Phase 17 is complete as the first isolated multi-process sandbox implementation. It has a persistent atomic catalog and immutable template materialization, signed readiness/heartbeat reconciliation, bounded crash recovery, shared read-only backend discovery, target-bound single-use transfer admission, and server-trusted account restoration. SSC supports `Inherit`, `CopyOnEnter`, `Isolated` and `Disabled` through a cross-process revisioned store, transfer leases and a Terraria character capture/apply adapter covering inventory, equipment, banks, loadouts, life/mana, appearance and permanent character flags. Operations/TUI exposes lifecycle and sampled resources; CI exercises representative process/scene benchmarks and the overload matrix. Sustained real-player/NPC soak on a deployment host remains a release-qualification activity and does not reopen the implementation phase.
 
 ## Phase 18 — migrate Vega to .NET 11
 

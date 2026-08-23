@@ -9,7 +9,7 @@ using Vega.Contracts.Worlds;
 namespace Vega.Sandboxes;
 
 public sealed class SandboxPlayerTransferCommand(
-    ISandboxControlService sandboxes,
+    ISandboxDirectory sandboxes,
     ISandboxRoutingService routing,
     ISandboxPlayerTransferBoundary boundary,
     IPlayerDirectory players,

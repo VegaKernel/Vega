@@ -4,9 +4,10 @@ using Vega.Contracts.Worlds;
 namespace Vega.Sandboxes;
 
 public sealed class SandboxRoutingService(
-    ISandboxControlService sandboxes,
+    ISandboxDirectory sandboxes,
     ISandboxTransferTicketService tickets,
-    SandboxEndpoint primaryEndpoint) : ISandboxRoutingService
+    SandboxEndpoint primaryEndpoint,
+    ISandboxSscStore? sscStore = null) : ISandboxRoutingService
 {
     public SandboxTransferResult PrepareEnter(
         string accountId,
@@ -17,7 +18,18 @@ public sealed class SandboxRoutingService(
 
     public SandboxTransferResult PrepareLeave(string accountId, WorldId originWorldId)
     {
-        SandboxTransferTicket ticket = tickets.Issue(accountId, originWorldId, WorldId.Primary);
+        SandboxSscMode originMode = ModeFor(originWorldId);
+        SandboxSscMode targetMode = sscStore is null ? SandboxSscMode.Disabled : SandboxSscMode.Inherit;
+        SandboxSscTransferPreparation prepared = PrepareSsc(
+            accountId, originWorldId, WorldId.Primary, originMode, targetMode);
+        if (!prepared.Accepted)
+        {
+            return Reject(originWorldId, prepared.ErrorCode ?? "sandbox.ssc.rejected",
+                prepared.Message ?? "SSC transfer preparation failed.");
+        }
+
+        SandboxTransferTicket ticket = tickets.Issue(
+            accountId, originWorldId, WorldId.Primary, prepared.Lease?.LeaseId);
         return new SandboxTransferResult(true, WorldId.Primary, primaryEndpoint, ticket);
     }
 
@@ -62,7 +74,17 @@ public sealed class SandboxRoutingService(
             return Reject(originWorldId, "sandbox.transfer.forbidden", "Target world access policy rejected the account.");
         }
 
-        SandboxTransferTicket ticket = tickets.Issue(accountId, originWorldId, targetWorldId);
+        SandboxSscMode originMode = ModeFor(originWorldId);
+        SandboxSscTransferPreparation ssc = PrepareSsc(
+            accountId, originWorldId, targetWorldId, originMode, target.Descriptor.SscMode);
+        if (!ssc.Accepted)
+        {
+            return Reject(originWorldId, ssc.ErrorCode ?? "sandbox.ssc.rejected",
+                ssc.Message ?? "SSC transfer preparation failed.");
+        }
+
+        SandboxTransferTicket ticket = tickets.Issue(
+            accountId, originWorldId, targetWorldId, ssc.Lease?.LeaseId);
         return new SandboxTransferResult(true, targetWorldId, target.Endpoint, ticket);
     }
 
@@ -78,10 +100,57 @@ public sealed class SandboxRoutingService(
             ticket,
             receivingWorldId,
             DateTimeOffset.UtcNow);
-        return validation == SandboxTransferValidationStatus.Accepted
-            ? new SandboxTransferResult(true, receivingWorldId, null, ticket)
-            : Reject(ticket.OriginWorldId, $"sandbox.transfer.{validation.ToString().ToLowerInvariant()}",
+        if (validation != SandboxTransferValidationStatus.Accepted)
+        {
+            return Reject(ticket.OriginWorldId, $"sandbox.transfer.{validation.ToString().ToLowerInvariant()}",
                 $"Transfer ticket was rejected: {validation}.");
+        }
+
+        if (ticket.SscLeaseId is Guid leaseId && sscStore is not null)
+        {
+            SandboxSscTransferPreparation committed = sscStore.CommitTransfer(
+                leaseId, ticket.AccountId, receivingWorldId, DateTimeOffset.UtcNow);
+            if (!committed.Accepted)
+            {
+                return Reject(ticket.OriginWorldId, committed.ErrorCode ?? "sandbox.ssc.commit_failed",
+                    committed.Message ?? "SSC transfer commit failed.");
+            }
+        }
+
+        return new SandboxTransferResult(true, receivingWorldId, null, ticket);
+    }
+
+    private SandboxSscTransferPreparation PrepareSsc(
+        string accountId,
+        WorldId originWorldId,
+        WorldId targetWorldId,
+        SandboxSscMode originMode,
+        SandboxSscMode targetMode)
+    {
+        if (sscStore is null)
+        {
+            return originMode == SandboxSscMode.Disabled && targetMode == SandboxSscMode.Disabled
+                ? new SandboxSscTransferPreparation(true)
+                : new SandboxSscTransferPreparation(
+                    false,
+                    ErrorCode: "sandbox.ssc.store_unavailable",
+                    Message: "SSC persistence is unavailable.");
+        }
+
+        return sscStore.PrepareTransfer(
+            accountId, originWorldId, targetWorldId, originMode, targetMode,
+            DateTimeOffset.UtcNow, TimeSpan.FromSeconds(30));
+    }
+
+    private SandboxSscMode ModeFor(WorldId worldId)
+    {
+        if (worldId == WorldId.Primary)
+        {
+            return sscStore is null ? SandboxSscMode.Disabled : SandboxSscMode.Inherit;
+        }
+
+        return sandboxes.Snapshot().FirstOrDefault(status => status.Descriptor.WorldId == worldId)?.Descriptor.SscMode
+            ?? SandboxSscMode.Disabled;
     }
 
     private static SandboxTransferResult Reject(WorldId fallback, string code, string message) =>

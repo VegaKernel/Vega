@@ -17,6 +17,7 @@ public sealed class SandboxControlService : ISandboxControlService
     private readonly SandboxMaterializer materializer;
     private readonly IOperationsLogger logger;
     private readonly byte[] authenticationKey;
+    private readonly ISandboxSscStore sscStore;
     private readonly SemaphoreSlim operationGate = new(1, 1);
     private readonly SemaphoreSlim startGate;
     private readonly Dictionary<WorldId, RuntimeState> states;
@@ -28,7 +29,9 @@ public sealed class SandboxControlService : ISandboxControlService
         string baseDirectory,
         SandboxOptions options,
         IOperationsLogger logger,
-        string? executablePath = null)
+        string? executablePath = null,
+        ISandboxSscStore? sscStore = null,
+        Func<string, long>? availableFreeSpace = null)
     {
         this.baseDirectory = Path.GetFullPath(baseDirectory);
         this.options = options;
@@ -38,8 +41,12 @@ public sealed class SandboxControlService : ISandboxControlService
         string dataRoot = Path.Combine(this.baseDirectory, "data", "sandboxes");
         instancesRoot = Path.Combine(dataRoot, "instances");
         catalog = new SandboxCatalog(Path.Combine(dataRoot, "catalog.json"));
-        materializer = new SandboxMaterializer(instancesRoot, options.MaximumInstanceMegabytes);
+        materializer = new SandboxMaterializer(
+            instancesRoot,
+            options.MaximumInstanceMegabytes,
+            availableFreeSpace);
         authenticationKey = SandboxKeyFile.LoadOrCreate(Path.Combine(dataRoot, "control.key"));
+        this.sscStore = sscStore ?? new SandboxSscStore(Path.Combine(dataRoot, "ssc.json"));
         startGate = new SemaphoreSlim(options.MaximumConcurrentStarts, options.MaximumConcurrentStarts);
         states = catalog.Snapshot().ToDictionary(
             static descriptor => descriptor.WorldId,
@@ -226,6 +233,7 @@ public sealed class SandboxControlService : ISandboxControlService
                 ? state.Descriptor.SourceWorldPath
                 : Path.GetFullPath(replacementSource);
             await materializer.ResetAsync(state.Descriptor, source, cancellationToken).ConfigureAwait(false);
+            sscStore.DeleteWorldState(worldId);
             state.Descriptor = state.Descriptor with
             {
                 SourceWorldPath = source,
@@ -263,6 +271,7 @@ public sealed class SandboxControlService : ISandboxControlService
             if (!stopped.IsSuccess) return stopped;
             state.State = SandboxLifecycleState.Destroying;
             materializer.Destroy(state.Descriptor);
+            sscStore.DeleteWorldState(worldId);
             catalog.Remove(worldId);
             lock (sync) states.Remove(worldId);
             logger.Log(OperationsLogLevel.Warning, "sandboxes", $"Sandbox '{worldId}' destroyed.");
@@ -315,13 +324,6 @@ public sealed class SandboxControlService : ISandboxControlService
     {
         if (!options.Enabled) return Rejected("sandbox.disabled", "Sandbox management is disabled.");
         if (!TryGet(worldId, out RuntimeState? state)) return NotFound(worldId);
-        if (state.Descriptor.SscMode != SandboxSscMode.Disabled)
-        {
-            return Rejected(
-                "sandbox.ssc_mode_unavailable",
-                $"SSC mode '{state.Descriptor.SscMode}' is not available until the persistent SSC store ships; select Disabled explicitly.");
-        }
-
         if (state.Process is { HasExited: false } && state.State == SandboxLifecycleState.Ready)
         {
             state.DesiredRunning = true;
@@ -480,6 +482,8 @@ public sealed class SandboxControlService : ISandboxControlService
         start.ArgumentList.Add($"--vega-backend-instance={instanceId:D}");
         start.ArgumentList.Add($"--vega-backend-status={statusPath}");
         start.ArgumentList.Add($"--vega-backend-modules={string.Join(',', descriptor.EnabledModules)}");
+        start.ArgumentList.Add($"--vega-backend-ssc-mode={descriptor.SscMode}");
+        start.ArgumentList.Add($"--vega-backend-ssc-store={Path.Combine(baseDirectory, "data", "sandboxes", "ssc.json")}");
         start.ArgumentList.Add("--vega-ui=headless");
         start.ArgumentList.Add("-world");
         start.ArgumentList.Add(worldPath);

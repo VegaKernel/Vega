@@ -17,7 +17,7 @@ public sealed class SandboxCommand(
         "sandbox",
         ["worlds"],
         ["vega.sandboxes.manage"],
-        Syntax: "sandbox list | status <id> | create <id> <name> <source.wld> <temporary|persistent|external> <capacity> [port] | start|stop|restart <id> | reset <id> [source.wld] confirm | destroy <id> confirm | rolling-update confirm | transfer <account> <origin> <target>");
+        Syntax: "sandbox list | status <id> | create <id> <name> <source.wld> <temporary|persistent|external> <capacity> [disabled|inherit|copyonenter|isolated] [port] | start|stop|restart <id> | reset <id> [source.wld] confirm | destroy <id> confirm | rolling-update confirm | transfer <account> <origin> <target>");
 
     public async ValueTask<CommandExecutionResult> ExecuteAsync(
         CommandInvocation invocation,
@@ -65,15 +65,39 @@ public sealed class SandboxCommand(
         IReadOnlyList<string> arguments,
         CancellationToken cancellationToken)
     {
-        if (arguments.Count is < 6 or > 7 ||
+        if (arguments.Count is < 6 or > 8 ||
             !Enum.TryParse(arguments[4], true, out SandboxPersistenceMode persistence) ||
-            !int.TryParse(arguments[5], NumberStyles.None, CultureInfo.InvariantCulture, out int capacity) ||
-            arguments.Count == 7 && !int.TryParse(arguments[6], NumberStyles.None, CultureInfo.InvariantCulture, out _))
+            !int.TryParse(arguments[5], NumberStyles.None, CultureInfo.InvariantCulture, out int capacity))
         {
             return Usage();
         }
 
-        int? port = arguments.Count == 7 ? int.Parse(arguments[6], CultureInfo.InvariantCulture) : null;
+        SandboxSscMode sscMode = SandboxSscMode.Disabled;
+        int? port = null;
+        if (arguments.Count >= 7)
+        {
+            if (Enum.TryParse(arguments[6], true, out SandboxSscMode parsedMode))
+            {
+                sscMode = parsedMode;
+            }
+            else if (arguments.Count == 7 &&
+                     int.TryParse(arguments[6], NumberStyles.None, CultureInfo.InvariantCulture, out int legacyPort))
+            {
+                port = legacyPort;
+            }
+            else
+            {
+                return Usage();
+            }
+        }
+
+        if (arguments.Count == 8 &&
+            !int.TryParse(arguments[7], NumberStyles.None, CultureInfo.InvariantCulture, out int parsedPort))
+        {
+            return Usage();
+        }
+        if (arguments.Count == 8) port = int.Parse(arguments[7], CultureInfo.InvariantCulture);
+
         var request = new SandboxCreateRequest(
             arguments[1],
             arguments[2],
@@ -82,7 +106,7 @@ public sealed class SandboxCommand(
             capacity,
             new SandboxAccessPolicy(SandboxAccessMode.Public),
             null,
-            SandboxSscMode.Disabled,
+            sscMode,
             new HashSet<string>(StringComparer.OrdinalIgnoreCase),
             port);
         return Result(await sandboxes.CreateAsync(request, cancellationToken).ConfigureAwait(false));
