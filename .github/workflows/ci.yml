@@ -16,6 +16,13 @@ jobs:
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v6
+      - name: Upload source checkout
+        uses: actions/upload-artifact@v4
+        with:
+          name: vega-source-checkout
+          path: .
+          include-hidden-files: true
+          retention-days: 1
       - name: Setup .NET
         uses: actions/setup-dotnet@v5
         with:
