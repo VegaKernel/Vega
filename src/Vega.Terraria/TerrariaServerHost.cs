@@ -211,6 +211,11 @@ public static class TerrariaServerHost
         RuntimeLifecycleTransition transition,
         IOperationsLogger logger)
     {
+        if (transition.Stage is RuntimeLifecycleStage.WorldLoading or RuntimeLifecycleStage.WorldReady)
+        {
+            return;
+        }
+
         logger.Log(
             OperationsLogLevel.Information,
             "lifecycle",
@@ -224,14 +229,6 @@ public static class TerrariaServerHost
                 OperationsLogLevel.Warning,
                 "lifecycle",
                 $"Vega startup budget warning: bootstrap took {transition.StageDuration.TotalMilliseconds:F1} ms (> 100 ms).");
-        }
-
-        if (transition.Stage == RuntimeLifecycleStage.WorldReady)
-        {
-            logger.Log(
-                OperationsLogLevel.Information,
-                "lifecycle",
-                $"Terraria world load       {transition.StageDuration.TotalMilliseconds,8:F1} ms");
         }
     }
 
