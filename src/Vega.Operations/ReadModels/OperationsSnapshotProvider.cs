@@ -9,6 +9,7 @@ using Vega.Contracts.Moderation;
 using Vega.Contracts.Cluster.Events;
 using Vega.Contracts.Worlds;
 using Vega.Contracts.Scenes;
+using Vega.Contracts.Backups;
 
 namespace Vega.Operations.ReadModels;
 
@@ -33,7 +34,8 @@ public sealed class OperationsSnapshotProvider(
     IBanService? bans = null,
     IMuteService? mutes = null,
     ISceneRuntime? scenes = null,
-    ISceneVisibilityRuntime? visibility = null) : IOperationsSnapshotProvider
+    ISceneVisibilityRuntime? visibility = null,
+    IDeploymentBackupService? backups = null) : IOperationsSnapshotProvider
 {
     public OperationsSnapshot Capture(
         OperationsLogFilter? logFilter = null,
@@ -56,11 +58,13 @@ public sealed class OperationsSnapshotProvider(
             moduleDirectory?.Read() ?? ModuleDirectoryStatusSnapshot.Unmonitored;
         WorldCleanupStatusSnapshot worldCleanupStatus =
             worldCleanup?.Read() ?? WorldCleanupStatusSnapshot.Disabled;
+        DeploymentBackupSnapshot backupStatus = backups?.Read() ?? DeploymentBackupSnapshot.Disabled;
         string[] warnings = BuildWarnings(
             state,
             moduleSnapshots,
             moduleDirectoryStatus,
-            worldCleanupStatus);
+            worldCleanupStatus,
+            backupStatus);
         RuntimeLifecycleStage stage = lifecycle.CurrentStage;
         WorldContextSnapshot[] contexts = worldContexts?.SnapshotContexts().ToArray() ??
         [
@@ -151,7 +155,8 @@ public sealed class OperationsSnapshotProvider(
             Bans = Array.AsReadOnly(banSnapshots),
             Mutes = Array.AsReadOnly(muteSnapshots),
             Scenes = scenes?.SnapshotScenes() ?? Array.Empty<SceneSnapshot>(),
-            VisibilityLayers = visibility?.SnapshotLayers() ?? Array.Empty<VisibilityLayerSnapshot>()
+            VisibilityLayers = visibility?.SnapshotLayers() ?? Array.Empty<VisibilityLayerSnapshot>(),
+            Backup = backupStatus
         };
     }
 
@@ -164,7 +169,8 @@ public sealed class OperationsSnapshotProvider(
         ServerRuntimeStateSnapshot state,
         IReadOnlyList<ModuleOperationsSnapshot> modules,
         ModuleDirectoryStatusSnapshot moduleDirectory,
-        WorldCleanupStatusSnapshot worldCleanup)
+        WorldCleanupStatusSnapshot worldCleanup,
+        DeploymentBackupSnapshot backup)
     {
         var warnings = new List<string>();
         if (DateTimeOffset.UtcNow - state.SampledAt > TimeSpan.FromSeconds(5))
@@ -190,6 +196,11 @@ public sealed class OperationsSnapshotProvider(
         if (worldCleanup.State == WorldCleanupRunState.Failed)
         {
             warnings.Add($"AutoWorldCleaner failed: {worldCleanup.Detail ?? "unknown"}.");
+        }
+
+        if (backup.State == DeploymentBackupState.Failed)
+        {
+            warnings.Add($"Deployment backup failed: {backup.Detail ?? "unknown"}.");
         }
 
         foreach (ModuleOperationsSnapshot module in modules)

@@ -803,6 +803,10 @@ internal sealed class OperationsDashboardView : IDisposable
                 .Append(" · visibility ").Append(snapshot.VisibilityLayers.Count);
         }
 
+        text.AppendLine()
+            .Append("Backup ").Append(snapshot.Backup.State)
+            .Append(" · ").Append(snapshot.Backup.CompletedAt?.ToString("u") ?? "never");
+
         return text.ToString();
     }
 

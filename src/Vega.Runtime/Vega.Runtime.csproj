@@ -16,6 +16,7 @@
 
 	<ItemGroup>
 		<ProjectReference Include="..\Vega.Core\Vega.Core.csproj" />
+		<ProjectReference Include="..\Vega.Backups\Vega.Backups.csproj" />
 		<ProjectReference Include="..\Vega.Cluster\Vega.Cluster.csproj" />
 		<ProjectReference Include="..\Vega.Modules.AutoWorldCleaner\Vega.Modules.AutoWorldCleaner.csproj" />
 		<ProjectReference Include="..\Vega.Modules.Chests\Vega.Modules.Chests.csproj" />
@@ -61,6 +62,10 @@
 			<CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
 		</Content>
 		<Content Include="..\..\config\sandboxes.json" Link="config\sandboxes.json">
+			<CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+			<CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
+		</Content>
+		<Content Include="..\..\config\backups.json" Link="config\backups.json">
 			<CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
 			<CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
 		</Content>

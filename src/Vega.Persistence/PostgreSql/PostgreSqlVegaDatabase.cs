@@ -1,14 +1,17 @@
 using Vega.Persistence.Relational;
+using Npgsql;
 
 namespace Vega.Persistence.PostgreSql;
 
 public sealed class PostgreSqlVegaDatabase : ExternalVegaDatabase
 {
-    private PostgreSqlVegaDatabase(PostgreSqlConnectionFactory connections)
+    private readonly string connectionString;
+
+    private PostgreSqlVegaDatabase(string connectionString)
         : base(
             "postgresql",
             "PostgreSQL persistence",
-            connections,
+            new PostgreSqlConnectionFactory(connectionString),
             RelationalProvider.PostgreSql,
             SchemaSql,
             IdentitySchemaSql,
@@ -16,10 +19,36 @@ public sealed class PostgreSqlVegaDatabase : ExternalVegaDatabase
             ModerationSchemaSql,
             GlobalBanSql)
     {
+        this.connectionString = connectionString;
     }
 
     public static PostgreSqlVegaDatabase Create(string connectionString) =>
-        new(new PostgreSqlConnectionFactory(connectionString));
+        new(connectionString);
+
+    public override string BackupFileName => "vega-postgresql.dump";
+
+    public override async ValueTask WriteBackupAsync(
+        string destinationPath,
+        CancellationToken cancellationToken = default)
+    {
+        EnsureBackupReady();
+        var value = new NpgsqlConnectionStringBuilder(connectionString);
+        if (string.IsNullOrWhiteSpace(value.Database)) throw new InvalidDataException("PostgreSQL database name is required for backup.");
+        await RunDumpAsync(
+            "pg_dump",
+            [
+                $"--host={value.Host}",
+                $"--port={value.Port}",
+                $"--username={value.Username}",
+                $"--dbname={value.Database}",
+                "--format=custom",
+                "--no-password",
+                $"--file={Path.GetFullPath(destinationPath)}"
+            ],
+            new Dictionary<string, string> { ["PGPASSWORD"] = value.Password ?? string.Empty },
+            destinationPath,
+            cancellationToken).ConfigureAwait(false);
+    }
 
     private const string SchemaSql =
         """

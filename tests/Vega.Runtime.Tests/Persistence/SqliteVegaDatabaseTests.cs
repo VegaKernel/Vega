@@ -36,7 +36,7 @@ public sealed class SqliteVegaDatabaseTests
     }
 
     [Test]
-    public async Task CleanDatabaseMigratesExactlyOnceAndCanBeReopened()
+    public async Task CleanDatabaseInitializesOneBaselineAndCanBeReopened()
     {
         SqliteVegaDatabase first = await OpenAsync();
         SqliteVegaDatabase second = await OpenAsync();
@@ -50,6 +50,30 @@ public sealed class SqliteVegaDatabaseTests
             Assert.That(ScalarInt64("SELECT COUNT(*) FROM vega_schema_history;"), Is.EqualTo(1));
             Assert.That(ScalarInt64("SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = 'global_bans';"), Is.EqualTo(1));
             Assert.That(ScalarInt64("SELECT COUNT(*) FROM vega_groups;"), Is.EqualTo(3));
+        });
+    }
+
+    [Test]
+    public async Task OnlineBackupIsConsistentAndReopensIndependently()
+    {
+        SqliteVegaDatabase database = await OpenAsync();
+        await database.Authorization.CreateGroupAsync("builders", "default", "Server");
+        string backupPath = Path.Combine(testDirectory, "backup", database.BackupFileName);
+
+        await database.WriteBackupAsync(backupPath);
+
+        bool walCreatedByBackup = File.Exists(backupPath + "-wal");
+        bool shmCreatedByBackup = File.Exists(backupPath + "-shm");
+        await using var connection = new SqliteConnection($"Data Source={backupPath};Mode=ReadOnly");
+        await connection.OpenAsync();
+        await using SqliteCommand command = connection.CreateCommand();
+        command.CommandText = "SELECT COUNT(*) FROM vega_groups WHERE name = 'builders';";
+        long groupCount = Convert.ToInt64(await command.ExecuteScalarAsync());
+        Assert.Multiple(() =>
+        {
+            Assert.That(groupCount, Is.EqualTo(1));
+            Assert.That(walCreatedByBackup, Is.False);
+            Assert.That(shmCreatedByBackup, Is.False);
         });
     }
 

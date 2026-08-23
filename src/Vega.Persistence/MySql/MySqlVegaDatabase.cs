@@ -1,14 +1,17 @@
 using Vega.Persistence.Relational;
+using MySqlConnector;
 
 namespace Vega.Persistence.MySql;
 
 public sealed class MySqlVegaDatabase : ExternalVegaDatabase
 {
-    private MySqlVegaDatabase(MySqlConnectionFactory connections)
+    private readonly string connectionString;
+
+    private MySqlVegaDatabase(string connectionString)
         : base(
             "mysql",
             "MySQL persistence",
-            connections,
+            new MySqlConnectionFactory(connectionString),
             RelationalProvider.MySql,
             SchemaSql,
             IdentitySchemaSql,
@@ -16,10 +19,39 @@ public sealed class MySqlVegaDatabase : ExternalVegaDatabase
             ModerationSchemaSql,
             GlobalBanSql)
     {
+        this.connectionString = connectionString;
     }
 
     public static MySqlVegaDatabase Create(string connectionString) =>
-        new(new MySqlConnectionFactory(connectionString));
+        new(connectionString);
+
+    public override string BackupFileName => "vega-mysql.sql";
+
+    public override async ValueTask WriteBackupAsync(
+        string destinationPath,
+        CancellationToken cancellationToken = default)
+    {
+        EnsureBackupReady();
+        var value = new MySqlConnectionStringBuilder(connectionString);
+        if (string.IsNullOrWhiteSpace(value.Database)) throw new InvalidDataException("MySQL database name is required for backup.");
+        await RunDumpAsync(
+            "mysqldump",
+            [
+                $"--host={value.Server}",
+                $"--port={value.Port}",
+                $"--user={value.UserID}",
+                "--single-transaction",
+                "--quick",
+                "--routines",
+                "--events",
+                "--hex-blob",
+                $"--result-file={Path.GetFullPath(destinationPath)}",
+                value.Database
+            ],
+            new Dictionary<string, string> { ["MYSQL_PWD"] = value.Password ?? string.Empty },
+            destinationPath,
+            cancellationToken).ConfigureAwait(false);
+    }
 
     private const string SchemaSql =
         """

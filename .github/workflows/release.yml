@@ -81,6 +81,7 @@ jobs:
           )
           $requiredLibraries = @(
             'Vega.Contracts.dll',
+            'Vega.Backups.dll',
             'Vega.Core.dll',
             'Vega.Cluster.dll',
             'Vega.Operations.dll',

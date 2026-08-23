@@ -428,7 +428,7 @@ public sealed class TerrariaWorldImageService : IDisposable, IWorldLoadMetricsRe
         }
     }
 
-    internal void FlushPendingBuilds()
+    public async ValueTask FlushPendingBuildsAsync(CancellationToken cancellationToken = default)
     {
         while (true)
         {
@@ -443,9 +443,11 @@ public sealed class TerrariaWorldImageService : IDisposable, IWorldLoadMetricsRe
                 return;
             }
 
-            worker.GetAwaiter().GetResult();
+            await worker.WaitAsync(cancellationToken).ConfigureAwait(false);
         }
     }
+
+    internal void FlushPendingBuilds() => FlushPendingBuildsAsync().AsTask().GetAwaiter().GetResult();
 
     private void ProcessBuildQueue()
     {

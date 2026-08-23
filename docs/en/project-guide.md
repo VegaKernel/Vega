@@ -195,6 +195,8 @@ An external hot-loadable plugin directly implements `IHotReloadableVegaModule` a
 
 `Vega.Sandboxes` supervises isolated `Vega.Server` backend processes for additional worlds. Use `sandbox create/start/stop/restart/reset/destroy`, and use `worldtransfer` through a trusted Dimensions forwarder. Descriptors, limits and TTL live in `config/sandboxes.json`; forwarding is disabled by default in `config/security.json`. Accounts and bans remain server-wide while command and region contexts carry the backend's explicit `WorldId`. See [the sandbox operations guide](../sandboxes.md).
 
+`Vega.Backups` creates consistent deploy-local world/database archives. `config/backups.json` contains only `enabled`, `interval` and `retainedBackups`; `backup` starts an authorized manual run and `backup status` exposes progress. The service joins the world-save and `.vworld` barrier, uses provider-owned SQLite/`pg_dump`/`mysqldump` capture, redacts configuration secrets and atomically publishes verified archives beneath `backups/`. See [backup and restore](../backups.md).
+
 Cluster support is optional. The current transport is an in-memory reference implementation for deterministic tests and local composition. A standalone server uses `UnavailableClusterClient` and remains functional. No production Redis, NATS, RabbitMQ, HTTP, or WebSocket transport is selected by the current ADR.
 
 ## 11. Packages and releases

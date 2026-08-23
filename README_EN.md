@@ -25,6 +25,7 @@ flowchart TB
     Runtime --> Cluster["Vega.Cluster<br/>optional inter-server scenarios"]
     Runtime --> Persistence["Vega.Persistence<br/>domain stores + schema baseline"]
     Runtime --> Sandboxes["Vega.Sandboxes<br/>isolated worlds + supervisor"]
+    Runtime --> Backups["Vega.Backups<br/>world + database archives"]
     Runtime -. "explicit registration" .-> Modules["ServerPlugins<br/>Vega.Modules.*"]
 
     TerrariaAdapter --> Contracts["Vega.Contracts<br/>contracts + snapshots"]
@@ -33,6 +34,7 @@ flowchart TB
     Cluster --> Contracts
     Persistence --> Contracts
     Sandboxes --> Contracts
+    Backups --> Contracts
     Modules --> Contracts
 
     TerminalUI["Vega.TerminalUI"] --> Operations
@@ -94,6 +96,7 @@ Supported modes are `auto`, `tui`, `plain`, and `headless`. Enable the world-ima
 - [Architecture](docs/architecture.md)
 - [Operations API and Terminal UI](docs/operations.md)
 - [Isolated sandbox worlds](docs/sandboxes.md)
+- [Deployment backups](docs/backups.md)
 - [Cluster messaging](docs/cluster.md)
 - [Persistence and database providers](docs/persistence.md)
 - [World images](docs/world-images.md)

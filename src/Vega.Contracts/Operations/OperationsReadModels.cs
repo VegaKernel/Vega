@@ -7,6 +7,7 @@ using Vega.Contracts.Regions;
 using Vega.Contracts.Worlds;
 using Vega.Contracts.Scenes;
 using Vega.Contracts.Sandboxes;
+using Vega.Contracts.Backups;
 
 namespace Vega.Contracts.Operations;
 
@@ -235,6 +236,8 @@ public sealed record OperationsSnapshot(
 
     public IReadOnlyList<VisibilityLayerSnapshot> VisibilityLayers { get; init; } =
         Array.Empty<VisibilityLayerSnapshot>();
+
+    public DeploymentBackupSnapshot Backup { get; init; } = DeploymentBackupSnapshot.Disabled;
 }
 
 public interface IOperationsSnapshotProvider

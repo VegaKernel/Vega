@@ -487,22 +487,24 @@ The native `lang` command and session-scoped guest preference are live for `en-U
 
 - [x] Ship the domain-oriented `Vega.Persistence` layer with deploy-ready SQLite and selectable PostgreSQL/MySQL providers; initialize it before world loading and fail startup when the selected store is unavailable.
 - [x] Persist the first revision-aware domain consumer (global-ban creation/revocation tombstones) through the same contract used by cluster replication.
-- [ ] Freeze one clean Vega 1.0 baseline schema for every database provider and test creation/reopen from an empty store; do not preserve migration steps between unreleased development schemas.
-- [ ] Introduce numbered, forward-only migrations and upgrade/rollback fixtures only after the first public Vega schema has shipped.
+- [x] Freeze one clean Vega 1.0 baseline schema for every database provider and test creation/reopen from an empty store; do not preserve migration steps between unreleased development schemas.
+- [x] Keep numbered, forward-only migrations and upgrade/rollback fixtures absent until the first public Vega schema has shipped.
 - [ ] Add clean-archive tests proving that an operator can extract the release, edit documented configuration, create the first administrator, start a world and manage groups/regions/bans without repository files.
 - [ ] Update English/Russian guides and the deployable archive only after command examples, generated configuration and persistence paths match the running server.
 
-ADR 0022 establishes the persistence boundary without reproducing TShock's generic database helpers. Domain contracts never expose SQL or `DbConnection`. Before the first public release all current tables belong to one Vega 1.0 baseline; the temporary development sequence is not a compatibility contract. The phase remains open for SSC product storage, clean deployment validation and real disposable PostgreSQL/MySQL contract tests in CI.
+ADR 0022 establishes the persistence boundary without reproducing TShock's generic database helpers. Domain contracts never expose SQL or `DbConnection`. Before the first public release all current tables belong to one Vega 1.0 baseline; the temporary development sequence is not a compatibility contract. SQLite tests create, reopen and online-backup the complete baseline locally. The CI persistence job starts disposable PostgreSQL 17 and MySQL 8.4 services, initializes each empty store, reopens it, exercises a domain mutation and validates the provider's logical dump tool. Numbered migrations remain intentionally absent until a public schema exists.
 
 ### Scheduled deployment backups
 
-- [ ] Add `config/backups.json` with exactly three operator settings: `enabled`, `interval` and `retainedBackups`; write completed archives beneath the fixed deploy-local `backups/` directory.
-- [ ] Coordinate backup with the world-save barrier so the archive contains one consistent saved world and its matching `.vworld` cache when enabled, without stopping the server process or racing autosave/manual save.
-- [ ] Include a consistent database snapshot: SQLite online backup, PostgreSQL logical dump and MySQL/MariaDB logical dump through provider-owned implementations; never copy a live SQLite database/WAL pair opportunistically.
-- [ ] Stage every backup outside the visible archive set, then atomically publish a timestamped archive containing the world, database dump, effective non-secret configuration, version/schema manifest and checksums.
-- [ ] Reject overlapping scheduled/manual runs, expose progress and the last result through Operations/TUI/logs, and provide an authorized `backup` command without adding more persistent configuration knobs.
-- [ ] After successful publication retain only the newest `retainedBackups` archives; validate bounds and never delete files outside the resolved `backups/` directory.
-- [ ] Add cancellation, disk-full, dump-tool failure, world-save failure, archive-integrity, retention and restore-drill tests plus English/Russian recovery documentation.
+- [x] Add `config/backups.json` with exactly three operator settings: `enabled`, `interval` and `retainedBackups`; write completed archives beneath the fixed deploy-local `backups/` directory.
+- [x] Coordinate backup with the world-save barrier so the archive contains one consistent saved world and its matching `.vworld` cache when enabled, without stopping the server process or racing autosave/manual save.
+- [x] Include a consistent database snapshot: SQLite online backup, PostgreSQL logical dump and MySQL/MariaDB logical dump through provider-owned implementations; never copy a live SQLite database/WAL pair opportunistically.
+- [x] Stage every backup outside the visible archive set, then atomically publish a timestamped archive containing the world, database dump, effective non-secret configuration, version/schema manifest and checksums.
+- [x] Reject overlapping scheduled/manual runs, expose progress and the last result through Operations/TUI/logs, and provide an authorized `backup` command without adding more persistent configuration knobs.
+- [x] After successful publication retain only the newest `retainedBackups` archives; validate bounds and never delete files outside the resolved `backups/` directory.
+- [x] Add cancellation, disk-full, dump-tool failure, world-save failure, archive-integrity, retention and restore-drill tests plus English/Russian recovery documentation.
+
+`Vega.Backups` owns the deployment archive workflow outside Core. The save barrier waits for the canonical `.wld` and optional `.vworld`, database providers own online/logical dump semantics, staging is invisible until ZIP validation succeeds, and retention is path-confined. Operations/TUI and `backup status` expose one bounded state. Focused tests cover overlap, provider/save failures, cleanup, integrity, secret redaction, SQLite online restore and retention; `docs/backups.md` and `docs/ru/backups.md` define the operator restore drill.
 
 ## Phase 20 — in-process soft restart
 

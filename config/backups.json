@@ -1,0 +1,5 @@
+{
+  "enabled": false,
+  "interval": "06:00:00",
+  "retainedBackups": 7
+}

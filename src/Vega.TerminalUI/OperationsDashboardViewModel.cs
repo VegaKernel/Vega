@@ -168,6 +168,7 @@ public static class OperationsDashboardRenderer
         text.AppendLine($"MEMORY  working={FormatBytes(snapshot.Runtime.Host.WorkingSetBytes)} managed={FormatBytes(snapshot.Runtime.ManagedMemoryBytes)} heap={FormatBytes(snapshot.Runtime.GcHeapBytes)}");
         text.AppendLine($"GC      gen0={snapshot.Runtime.Gen0Collections} gen1={snapshot.Runtime.Gen1Collections} gen2={snapshot.Runtime.Gen2Collections} fragmented={FormatBytes(snapshot.Runtime.GcFragmentedBytes)}");
         text.AppendLine($"NETWORK in={snapshot.Network.InboundPackets:N0}/{FormatBytes(snapshot.Network.InboundBytes)} out={snapshot.Network.OutboundPackets:N0}/{FormatBytes(snapshot.Network.OutboundBytes)}");
+        text.AppendLine($"BACKUP  state={snapshot.Backup.State} completed={snapshot.Backup.CompletedAt?.ToString("u") ?? "never"} archive={snapshot.Backup.ArchivePath ?? "-"}");
         if (snapshot.WorldClocks.FirstOrDefault() is { } clock)
         {
             text.AppendLine($"CLOCK   {(clock.Predicted.IsDaytime ? "day" : "night")} time={clock.Predicted.TimeTicks / 60d:F1}s drift={clock.DriftTicks / 60d:+0.00;-0.00;0.00}s corrections={clock.CorrectionCount} reanchors={clock.ReanchorCount}");

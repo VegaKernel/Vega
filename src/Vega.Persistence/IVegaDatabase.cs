@@ -4,15 +4,12 @@ using Vega.Contracts.Accounts;
 using Vega.Contracts.Authorization;
 using Vega.Contracts.Regions;
 using Vega.Contracts.Moderation;
+using Vega.Contracts.Backups;
 
 namespace Vega.Persistence;
 
-public interface IVegaDatabase : IRuntimeStartupParticipant
+public interface IVegaDatabase : IRuntimeStartupParticipant, IDatabaseBackupSource
 {
-    string Provider { get; }
-
-    int SchemaVersion { get; }
-
     bool IsReady { get; }
 
     IGlobalBanReplica GlobalBans { get; }

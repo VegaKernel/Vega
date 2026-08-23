@@ -6,6 +6,7 @@ using Vega.Contracts.Operations;
 using Vega.Contracts.Sandboxes;
 using Vega.Contracts.Localization;
 using Vega.Contracts.Modules;
+using Vega.Backups;
 using Vega.Core.Commands;
 using Vega.Core.Commands.Administration;
 using Vega.Core.Commands.Players;
@@ -464,6 +465,21 @@ int Start()
             playerBoundary,
             logger);
         using var worldImages = new TerrariaWorldImageService(logger, lifecycle, worldImageOptions.Enabled);
+        var backupBarrier = new TerrariaBackupConsistencyBarrier(serverControl, worldImages);
+        BackupOptions backupOptions = BackupOptionsStore.Load(
+            Path.Combine(AppContext.BaseDirectory, "config", "backups.json"));
+        using var backups = backendLaunch.IsBackend
+            ? null
+            : new DeploymentBackupService(
+                AppContext.BaseDirectory,
+                backupOptions,
+                backupBarrier,
+                database,
+                () => backupBarrier.CurrentWorldPath,
+                logger);
+        using IDisposable? backupCommandRegistration = backups is null
+            ? null
+            : commandDispatcher.Register(new BackupCommand(backups));
         using IDisposable saveCommandRegistration = commandDispatcher.Register(
             new SaveCommand(serverControl));
         using IDisposable shutdownCommandRegistration = commandDispatcher.Register(
@@ -512,7 +528,8 @@ int Start()
             bans: banService,
             mutes: database.Mutes,
             scenes: scenes,
-            visibility: visibility);
+            visibility: visibility,
+            backups: backups);
         using var backendReporter = backendLaunch.IsBackend
             ? new SandboxBackendReporter(backendLaunch, lifecycle, operationsState, playerBoundary)
             : null;
@@ -634,7 +651,8 @@ IReadOnlyList<ModuleOperationsSnapshot> CreateModuleSnapshots(VegaModuleHost mod
     Module(
         "Vega.Runtime",
         Assembly.GetExecutingAssembly(),
-        ["Vega.Cluster", "Vega.Core", "Vega.Modules.AutoWorldCleaner", "Vega.Modules.Pvp", "Vega.Operations", "Vega.Persistence", "Vega.Sandboxes", "Vega.Terraria", "Vega.TerminalUI"]),
+        ["Vega.Backups", "Vega.Cluster", "Vega.Core", "Vega.Modules.AutoWorldCleaner", "Vega.Modules.Pvp", "Vega.Operations", "Vega.Persistence", "Vega.Sandboxes", "Vega.Terraria", "Vega.TerminalUI"]),
+    Module("Vega.Backups", typeof(DeploymentBackupService).Assembly, ["Vega.Contracts"]),
     Module("Vega.Core", typeof(CommandDispatcher).Assembly, ["Vega.Contracts"]),
     Module("Vega.Cluster", typeof(UnavailableClusterClient).Assembly, ["Vega.Contracts"]),
     Module("Vega.Operations", typeof(OperationsSnapshotProvider).Assembly, ["Vega.Contracts"]),

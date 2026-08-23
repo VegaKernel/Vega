@@ -15,6 +15,7 @@ Vega.Runtime ------------+------------------+
      +-> Vega.TerminalUI -> Vega.Operations-+
      +-> Vega.Cluster -----------------------+
      +-> Vega.Sandboxes ---------------------+
+     +-> Vega.Backups -----------------------+
      +-> Vega.Core --------------------------+
      `-> Vega.Modules -----------------------+
 ```
@@ -81,6 +82,10 @@ Owns optional cluster dispatch, duplicate detection, observability, reference tr
 ### Vega.Sandboxes
 
 Owns the primary-process catalog, immutable template materialization, lifecycle supervisor, signed backend heartbeat and transfer-ticket routing for isolated worlds. Each active sandbox runs a complete `Vega.Server` backend with its own Terraria state and game thread; only typed commands and sampled immutable status cross the process boundary. A backend never creates another control plane. See [`docs/sandboxes.md`](sandboxes.md).
+
+### Vega.Backups
+
+Owns scheduled/manual deployment archive orchestration, atomic publication, retention and redaction. It depends only on backup/world-save/database snapshot contracts; `Vega.Terraria` implements the world consistency barrier and each `Vega.Persistence` provider owns its database capture. Backup policy does not belong to Core. See [`docs/backups.md`](backups.md).
 
 ### Vega modules
 

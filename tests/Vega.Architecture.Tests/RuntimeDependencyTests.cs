@@ -6,6 +6,22 @@ namespace Vega.Architecture.Tests;
 public sealed class RuntimeDependencyTests
 {
     [Test]
+    public void BackupOrchestrationRemainsAnIndependentContractsOnlyDomain()
+    {
+        string repositoryRoot = FindRepositoryRoot();
+        string project = File.ReadAllText(Path.Combine(
+            repositoryRoot, "src", "Vega.Backups", "Vega.Backups.csproj"));
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(project, Does.Contain("Vega.Contracts"));
+            Assert.That(project, Does.Not.Contain("Vega.Core"));
+            Assert.That(project, Does.Not.Contain("Vega.Persistence"));
+            Assert.That(project, Does.Not.Contain("Vega.Terraria"));
+        });
+    }
+
+    [Test]
     public void PersistenceProvidersStayOutsideCoreAndInitializeBeforeWorldLoading()
     {
         var repositoryRoot = FindRepositoryRoot();

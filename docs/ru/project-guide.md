@@ -195,6 +195,8 @@ ProcessStart → Bootstrap → RuntimeReady → ModulesRegistered
 
 `Vega.Sandboxes` управляет изолированными процессами `Vega.Server` для дополнительных миров. Для жизненного цикла служат `sandbox create/start/stop/restart/reset/destroy`, а `worldtransfer` работает через доверенный Dimensions-forwarder. Descriptor, лимиты и TTL находятся в `config/sandboxes.json`; forwarding по умолчанию отключён в `config/security.json`. Accounts и bans остаются общесерверными, а команды и регионы получают явный `WorldId` backend-процесса. Подробности приведены в [руководстве по sandbox-мирам](sandboxes.md).
 
+`Vega.Backups` создаёт согласованные deploy-local архивы мира и базы. В `config/backups.json` находятся только `enabled`, `interval` и `retainedBackups`; команда `backup` запускает ручной архив, а `backup status` показывает прогресс. Сервис использует world-save/`.vworld` barrier, provider-owned SQLite/`pg_dump`/`mysqldump` snapshot, очищает конфигурацию от секретов и атомарно публикует проверенный ZIP в `backups/`. См. [резервное копирование и восстановление](backups.md).
+
 Cluster support опционален. Текущий transport — in-memory reference implementation для детерминированных тестов и локальной композиции. Standalone server использует `UnavailableClusterClient` и остаётся работоспособным. Текущий ADR не выбирает production transport на Redis, NATS, RabbitMQ, HTTP или WebSocket.
 
 ## 11. Пакеты и релизы

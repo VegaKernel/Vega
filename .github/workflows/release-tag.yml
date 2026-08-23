@@ -79,11 +79,19 @@ jobs:
         run: |
           $projects = @(
             "src/Vega.Contracts/Vega.Contracts.csproj",
+            "src/Vega.Backups/Vega.Backups.csproj",
             "src/Vega.Core/Vega.Core.csproj",
             "src/Vega.Cluster/Vega.Cluster.csproj",
+            "src/Vega.Persistence/Vega.Persistence.csproj",
+            "src/Vega.Sandboxes/Vega.Sandboxes.csproj",
+            "src/Vega.Modules.AutoWorldCleaner/Vega.Modules.AutoWorldCleaner.csproj",
+            "src/Vega.Modules.Chests/Vega.Modules.Chests.csproj",
             "src/Vega.Operations/Vega.Operations.csproj",
+            "src/Vega.Modules.Mentions/Vega.Modules.Mentions.csproj",
             "src/Vega.Modules.Pvp/Vega.Modules.Pvp.csproj",
             "src/Vega.Modules.CustomItems/Vega.Modules.CustomItems.csproj",
+            "src/Vega.Modules.Scenes/Vega.Modules.Scenes.csproj",
+            "src/Vega.Modules.Wipe/Vega.Modules.Wipe.csproj",
             "src/Vega.Terraria/Vega.Terraria.csproj",
             "src/Vega.TerminalUI/Vega.TerminalUI.csproj"
           )
@@ -126,6 +134,7 @@ jobs:
           )
           $requiredLibraries = @(
             'Vega.Contracts.dll',
+            'Vega.Backups.dll',
             'Vega.Core.dll',
             'Vega.Cluster.dll',
             'Vega.Operations.dll',

@@ -52,6 +52,8 @@ public sealed class SqliteVegaDatabase : IVegaDatabase
 
     public string DatabasePath { get; }
 
+    public string BackupFileName => "vega.sqlite3";
+
     public int SchemaVersion => Volatile.Read(ref schemaVersion);
 
     public bool IsReady => SchemaVersion > 0;
@@ -83,6 +85,28 @@ public sealed class SqliteVegaDatabase : IVegaDatabase
         SqliteVegaDatabase database = Create(options);
         await database.InitializeAsync(cancellationToken).ConfigureAwait(false);
         return database;
+    }
+
+    public async ValueTask WriteBackupAsync(
+        string destinationPath,
+        CancellationToken cancellationToken = default)
+    {
+        EnsureReady();
+        ArgumentException.ThrowIfNullOrWhiteSpace(destinationPath);
+        string destination = Path.GetFullPath(destinationPath);
+        Directory.CreateDirectory(Path.GetDirectoryName(destination)!);
+        if (File.Exists(destination)) throw new IOException($"Backup destination '{destination}' already exists.");
+        await using Microsoft.Data.Sqlite.SqliteConnection source = await connections.OpenAsync(cancellationToken)
+            .ConfigureAwait(false);
+        var builder = new Microsoft.Data.Sqlite.SqliteConnectionStringBuilder
+        {
+            DataSource = destination,
+            Mode = Microsoft.Data.Sqlite.SqliteOpenMode.ReadWriteCreate,
+            Pooling = false
+        };
+        await using var target = new Microsoft.Data.Sqlite.SqliteConnection(builder.ConnectionString);
+        await target.OpenAsync(cancellationToken).ConfigureAwait(false);
+        await Task.Run(() => source.BackupDatabase(target), cancellationToken).ConfigureAwait(false);
     }
 
     public async ValueTask InitializeAsync(CancellationToken cancellationToken = default)

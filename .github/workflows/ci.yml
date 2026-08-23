@@ -38,3 +38,54 @@ jobs:
         run: dotnet test Vega.sln --configuration Release --no-build --verbosity normal
       - name: Build world-image benchmark harness
         run: dotnet build benchmarks/Vega.WorldImage.Benchmarks/Vega.WorldImage.Benchmarks.csproj --configuration Release --no-restore
+
+  persistence-contracts:
+    name: PostgreSQL and MySQL baseline contracts
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: vega
+          POSTGRES_PASSWORD: vega_test_password
+          POSTGRES_DB: vega_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U vega -d vega_test"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 10
+      mysql:
+        image: mysql:8.4
+        env:
+          MYSQL_USER: vega
+          MYSQL_PASSWORD: vega_test_password
+          MYSQL_DATABASE: vega_test
+          MYSQL_ROOT_PASSWORD: root_test_password
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd "mysqladmin ping -h 127.0.0.1 -uvega -pvega_test_password"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 15
+    env:
+      VEGA_TEST_POSTGRESQL: Host=127.0.0.1;Port=5432;Database=vega_test;Username=vega;Password=vega_test_password
+      VEGA_TEST_MYSQL: Server=127.0.0.1;Port=3306;Database=vega_test;User ID=vega;Password=vega_test_password
+    steps:
+      - uses: actions/checkout@v6
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v5
+        with:
+          dotnet-version: 10.0.x
+      - name: Install provider dump tools
+        run: sudo apt-get update && sudo apt-get install -y postgresql-client default-mysql-client
+      - name: Restore persistence contracts
+        run: dotnet restore tests/Vega.Runtime.Tests/Vega.Runtime.Tests.csproj
+      - name: Run empty-provider and logical-dump contracts
+        run: >-
+          dotnet test tests/Vega.Runtime.Tests/Vega.Runtime.Tests.csproj
+          --configuration Release
+          --filter FullyQualifiedName~ExternalVegaDatabaseContractTests
+          --verbosity normal

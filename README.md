@@ -25,6 +25,7 @@ flowchart TB
     Runtime --> Cluster["Vega.Cluster<br/>опциональные межсерверные сценарии"]
     Runtime --> Persistence["Vega.Persistence<br/>доменные хранилища + schema baseline"]
     Runtime --> Sandboxes["Vega.Sandboxes<br/>изолированные миры + supervisor"]
+    Runtime --> Backups["Vega.Backups<br/>world + database archives"]
     Runtime -. "явная регистрация" .-> Modules["ServerPlugins<br/>Vega.Modules.*"]
 
     TerrariaAdapter --> Contracts["Vega.Contracts<br/>контракты + snapshots"]
@@ -33,6 +34,7 @@ flowchart TB
     Cluster --> Contracts
     Persistence --> Contracts
     Sandboxes --> Contracts
+    Backups --> Contracts
     Modules --> Contracts
 
     TerminalUI["Vega.TerminalUI"] --> Operations
@@ -94,6 +96,7 @@ artifacts/server/Vega.Server.exe --vega-ui=plain
 - [Архитектура](docs/architecture.md)
 - [Operations API и Terminal UI](docs/operations.md)
 - [Изолированные sandbox-миры](docs/ru/sandboxes.md)
+- [Резервные копии](docs/ru/backups.md)
 - [Cluster messaging](docs/cluster.md)
 - [Хранение и провайдеры баз данных](docs/ru/persistence.md)
 - [World image](docs/world-images.md)
