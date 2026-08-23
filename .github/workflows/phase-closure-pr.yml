@@ -51,6 +51,7 @@ jobs:
         shell: pwsh
         run: |
           @'
+          import re
           from pathlib import Path
 
           region_test = Path('tests/Vega.Runtime.Tests/Core/RegionWorldResetParticipantTests.cs')
@@ -65,10 +66,10 @@ jobs:
 
           mute_test = Path('tests/Vega.Runtime.Tests/Persistence/SqliteVegaDatabaseTests.cs')
           text = mute_test.read_text(encoding='utf-8-sig')
-          old_clock = 'DateTimeOffset now = DateTimeOffset.Parse("2026-08-23T12:00:00Z");'
-          if text.count(old_clock) != 1:
-              raise SystemExit('mute test clock anchor not found exactly once')
-          text = text.replace(old_clock, 'DateTimeOffset now = DateTimeOffset.UtcNow;', 1)
+          pattern = r'(public async Task AccountMutePersistsMatchesExpiresAndRevokesWithAudit\(\)\s*\{\s*)DateTimeOffset now = [^;]+;'
+          text, clock_count = re.subn(pattern, r'\1DateTimeOffset now = DateTimeOffset.UtcNow;', text, count=1)
+          if clock_count != 1:
+              raise SystemExit(f'mute test clock rewrite failed: count={clock_count}')
           mute_test.write_text(text, encoding='utf-8')
           '@ | python -
           if ($LASTEXITCODE -ne 0) { throw "regression expectation rewrite failed: $LASTEXITCODE" }
