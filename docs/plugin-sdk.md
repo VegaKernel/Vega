@@ -1,6 +1,6 @@
 # First Vega plugin
 
-An ordinary plugin needs one NuGet package, one base class and no knowledge of Terraria, OTAPI, packet buffers, worker lanes or collectible load contexts.
+An ordinary plugin needs one NuGet package, one base class and no knowledge of Terraria, TerrariaRuntime, packet buffers, worker lanes or collectible load contexts.
 
 ## Create and build
 

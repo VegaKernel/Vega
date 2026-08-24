@@ -6,7 +6,7 @@ Phase 23 keeps runtime selection evidence-driven. NativeAOT is an option for a s
 
 `Vega.Server` runs on CoreCLR. Its project explicitly enables tiered compilation and dynamic PGO, defaults ReadyToRun off, and rejects `PublishAot=true`. ReadyToRun remains an optional CoreCLR experiment through `-p:PublishReadyToRun=true`; it does not change the plugin or process model.
 
-The server must retain managed `ServerPlugins`, collectible `AssemblyLoadContext` hot replacement, soft-restart generations, runtime assembly resolution and the OTAPI/MonoMod hook stack. Those are deliberate dynamic boundaries. The Phase 22 packet path also stays in the same process: the Terraria hook calls the Multiplicity adapter and policy pipeline directly. No IPC boundary is introduced merely to create an AOT worker.
+The server must retain managed `ServerPlugins`, collectible `AssemblyLoadContext` hot replacement, soft-restart generations, runtime assembly resolution and the TerrariaRuntime/MonoMod hook stack. Those are deliberate dynamic boundaries. The Phase 22 packet path also stays in the same process: the Terraria hook calls the Multiplicity adapter and policy pipeline directly. No IPC boundary is introduced merely to create an AOT worker.
 
 `Vega.Contracts` is the first AOT-compatible library boundary. `IsAotCompatible=true` enables the SDK single-file, trimming and AOT analyzers; warnings are errors in that project. It has no project or package dependencies and architecture tests prevent reflection/plugin-host, Terraria and UI concerns from entering it. This does not make `Vega.Contracts` a separately deployed component.
 

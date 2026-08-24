@@ -14,7 +14,7 @@ Those assumptions are no longer the product direction. Vega is not TShock with a
 
 The transition must therefore stop treating historical plugin surfaces as constraints. Existing TerraZ plugins will be ported to the Vega module API. Binary compatibility with TShock/TSAPI plugins is not required. Source-level compatibility with TShock hooks, `Command`, `TSPlayer`, globals or plugin lifecycle types is also not a long-term requirement.
 
-OTAPI remains useful because it provides low-level instrumentation and patching over Terraria. That is a deliberately narrow role and does not make OTAPI part of Core.
+TerrariaRuntime remains useful because it provides low-level instrumentation and patching over Terraria. That is a deliberately narrow role and does not make TerrariaRuntime part of Core.
 
 ## Decision
 
@@ -26,7 +26,7 @@ The target dependency direction is conceptually:
 Terraria
    |
    v
-OTAPI
+TerrariaRuntime
    |
    v
 Vega.Runtime / Vega.Terraria
@@ -45,10 +45,10 @@ The exact project names may be refined during implementation. The dependency con
 
 A more precise interpretation is:
 
-- `Vega.Terraria` owns Terraria/OTAPI integration, adapters, patch entrypoints, game-thread scheduling and translation between Terraria objects and Vega contracts.
+- `Vega.Terraria` owns Terraria/TerrariaRuntime integration, adapters, patch entrypoints, game-thread scheduling and translation between Terraria objects and Vega contracts.
 - `Vega.Runtime` owns process/bootstrap/module-host/readiness concerns that are not domain behavior. It may compose `Vega.Terraria` and `Vega.Core`.
 - `Vega.Contracts` contains implementation-independent contracts, identifiers, DTOs, events, snapshots and capability interfaces.
-- `Vega.Core` contains server/application behavior that can be reasoned about without direct references to Terraria, OTAPI, TSAPI or TShockAPI.
+- `Vega.Core` contains server/application behavior that can be reasoned about without direct references to Terraria, TerrariaRuntime, TSAPI or TShockAPI.
 - `Vega.Modules` denotes modules built on the public Vega module API. It is a conceptual consumer boundary, not necessarily one assembly.
 
 `Vega.Core` must not reference or expose:
@@ -56,7 +56,7 @@ A more precise interpretation is:
 ```text
 Terraria.Main
 Terraria.Player
-OTAPI
+TerrariaRuntime
 TSAPI
 TerrariaApi.Server
 ServerApi.Hooks
@@ -85,13 +85,13 @@ TSAPI is not part of Vega's target architecture. During migration it may remain 
 
 Removal of TSAPI from the solution/submodules is a later implementation step and is intentionally not performed by this ADR.
 
-## OTAPI boundary
+## TerrariaRuntime boundary
 
-OTAPI remains the low-level instrumentation/patching layer directly above Terraria.
+TerrariaRuntime remains the low-level instrumentation/patching layer directly above Terraria.
 
-Vega may consume OTAPI-specific hooks and patched runtime capabilities only inside `Vega.Terraria` or an equivalently named runtime-integration layer. OTAPI types must not leak into `Vega.Contracts` or `Vega.Core`.
+Vega may consume TerrariaRuntime-specific hooks and patched runtime capabilities only inside `Vega.Terraria` or an equivalently named runtime-integration layer. TerrariaRuntime types must not leak into `Vega.Contracts` or `Vega.Core`.
 
-If a capability can later be implemented without OTAPI, changing that integration must not require changes to Core contracts unless the underlying semantic capability itself changes.
+If a capability can later be implemented without TerrariaRuntime, changing that integration must not require changes to Core contracts unless the underlying semantic capability itself changes.
 
 ## Module direction
 
@@ -133,7 +133,7 @@ The preferred migration sequence is:
 
 1. establish Vega contracts and runtime boundaries;
 2. make startup/readiness and module lifecycle explicit;
-3. move Terraria/OTAPI integration behind `Vega.Terraria`;
+3. move Terraria/TerrariaRuntime integration behind `Vega.Terraria`;
 4. port server behavior into `Vega.Core` without Terraria/TShock types;
 5. introduce the Vega module host/API;
 6. port TerraZ modules;
@@ -166,6 +166,6 @@ The current ADR set is interpreted as follows after this decision:
 - Vega can design its public API for its own lifecycle and semantics rather than for TShock compatibility.
 - Existing plugins require deliberate ports to Vega modules.
 - Removing TSAPI and TShockAPI becomes an explicit migration objective.
-- Core remains portable and testable without Terraria, OTAPI or legacy server assemblies.
+- Core remains portable and testable without Terraria, TerrariaRuntime or legacy server assemblies.
 - TShock remains extremely valuable as production evidence, but future architecture is free to reject its shapes.
 - Some short-term migration code will become disposable. This is intentional and should be labelled as such rather than promoted to permanent API.

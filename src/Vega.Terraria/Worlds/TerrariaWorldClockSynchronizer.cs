@@ -1,5 +1,5 @@
 using Terraria.ID;
-using OTAPI;
+using TerrariaRuntime;
 using Vega.Contracts.Operations;
 using Vega.Contracts.Worlds;
 

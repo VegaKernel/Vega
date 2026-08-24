@@ -15,7 +15,7 @@ Phase 24 audits the surface an external author must use, not every public domain
 | Reflection/DI | Assembly scanning, attribute registration and replaceable global services hide ownership. | Registration remains explicit C#; no container, scanning or universal `IServer` is introduced. |
 | Performance | A facade could wrap every dispatch. | Command handlers and player callbacks are registered directly. The facade exists only at registration/lifecycle boundaries; it adds no per-command or per-hook dispatch layer. |
 
-`Vega.PluginSdk` depends only on `Vega.Contracts` and is built with trimming/AOT compatibility analyzers. Architecture tests reject references or vocabulary from Terraria, OTAPI, UI, packet queues, `AssemblyLoadContext`, `SynchronizationContext` and service locators. The sample and template use the same public surface, and CI builds a repository-independent project from the locally packed single `Vega` package.
+`Vega.PluginSdk` depends only on `Vega.Contracts` and is built with trimming/AOT compatibility analyzers. Architecture tests reject references or vocabulary from Terraria, TerrariaRuntime, UI, packet queues, `AssemblyLoadContext`, `SynchronizationContext` and service locators. The sample and template use the same public surface, and CI builds a repository-independent project from the locally packed single `Vega` package.
 
 ## Ceremony comparison
 

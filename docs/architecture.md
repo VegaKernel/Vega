@@ -7,7 +7,7 @@ TShock remains an important source of production behavior, requirements, securit
 ## Dependency direction
 
 ```text
-Terraria -> OTAPI -> Vega.Terraria -> Vega.Contracts
+Terraria -> TerrariaRuntime -> Vega.Terraria -> Vega.Contracts
                          ^                  ^
                          |                  |
 Vega.Runtime ------------+------------------+
@@ -25,7 +25,7 @@ Project names may evolve, but these boundaries are normative.
 
 ### Vega.Terraria
 
-Owns Terraria and OTAPI integration:
+Owns Terraria and TerrariaRuntime integration:
 
 - instrumentation/patch entrypoints;
 - translation between Terraria objects and Vega contracts;
@@ -33,7 +33,7 @@ Owns Terraria and OTAPI integration:
 - network/runtime integration that necessarily knows Terraria;
 - world loading integration.
 
-Terraria and OTAPI types stop here.
+Terraria and TerrariaRuntime types stop here.
 
 ### Vega.Runtime
 
@@ -50,11 +50,11 @@ Owns process-level hosting:
 
 Contains implementation-independent contracts, identifiers, DTOs, snapshots, events and capability interfaces.
 
-It must not reference Terraria or OTAPI.
+It must not reference Terraria or TerrariaRuntime.
 
 ### Vega.PluginSdk
 
-Contains the thin external-plugin entry point and five curated capability facades over Contracts. It must not reference Core, Runtime, Terraria, OTAPI, UI, packet-worker internals or a universal service locator. Core implements the host side; plugin behavior still uses the same authoritative Contracts services.
+Contains the thin external-plugin entry point and five curated capability facades over Contracts. It must not reference Core, Runtime, Terraria, TerrariaRuntime, UI, packet-worker internals or a universal service locator. Core implements the host side; plugin behavior still uses the same authoritative Contracts services.
 
 ### Vega.Core
 
@@ -65,7 +65,7 @@ Core must not know about:
 ```text
 Terraria.Main
 Terraria.Player
-OTAPI
+TerrariaRuntime
 reflection-based compatibility bridges
 mutable integration globals
 ```
@@ -82,7 +82,7 @@ Owns toolkit-independent operational projections, bounded structured logging, ch
 
 ### Vega.TerminalUI
 
-Owns the optional Terminal.Gui host, rendering and view state. Terminal.Gui types are contained to this project. The UI consumes immutable operations snapshots and routes commands through the normal application boundary; it does not reference Terraria or OTAPI.
+Owns the optional Terminal.Gui host, rendering and view state. Terminal.Gui types are contained to this project. The UI consumes immutable operations snapshots and routes commands through the normal application boundary; it does not reference Terraria or TerrariaRuntime.
 
 ### Vega.Cluster
 
@@ -104,9 +104,9 @@ Modules consume Vega-native contracts and lifecycle APIs. Existing TerraZ plugin
 
 TShockAPI, TSAPI and their hook/command/plugin compatibility surfaces are not present in the executable path, solution or active source tree. Their exact pre-cleanup revisions and current TerraZ comparison sources remain pinned outside the production solution through the [migration audit](migration-audit.md); they stay behavioral and regression evidence until the Phase 9/10 ledger is resolved.
 
-## OTAPI
+## TerrariaRuntime
 
-OTAPI remains the low-level instrumentation/patching layer directly above Terraria. It is intentionally isolated from Core and Contracts.
+TerrariaRuntime remains the low-level instrumentation/patching layer directly above Terraria. It is intentionally isolated from Core and Contracts.
 
 ## World model
 

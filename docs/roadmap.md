@@ -9,16 +9,16 @@
 - [x] Define startup lifecycle, readiness barriers and performance budgets (ADR 0017).
 - [x] Define event/player/packet migration architecture and anti-framework constraints (ADR 0018).
 - [x] Define optional typed cluster messaging and first production scenarios (ADR 0019).
-- [x] Add architecture tests that prevent Terraria/OTAPI/TSAPI/TShockAPI references from entering Vega.Core.
+- [x] Add architecture tests that prevent Terraria/TerrariaRuntime/TSAPI/TShockAPI references from entering Vega.Core.
 
 ## Phase 1 — native runtime boundary
 
-- [x] Establish `Vega.Runtime` / `Vega.Terraria` as the Terraria/OTAPI integration boundary.
+- [x] Establish `Vega.Runtime` / `Vega.Terraria` as the Terraria/TerrariaRuntime integration boundary.
 - [x] Move process bootstrap/readiness telemetry into the Vega runtime host.
-- [x] Add Vega-owned OTAPI lifecycle/readiness hooks.
-- [x] Add a bounded Vega-native game-thread dispatcher contract and OTAPI implementation.
+- [x] Add Vega-owned TerrariaRuntime lifecycle/readiness hooks.
+- [x] Add a bounded Vega-native game-thread dispatcher contract and TerrariaRuntime implementation.
 - [x] Measure Vega overhead separately from Terraria world load time.
-- [x] Replace the remaining compatibility hook dispatch with Vega-native OTAPI adapters.
+- [x] Replace the remaining compatibility hook dispatch with Vega-native TerrariaRuntime adapters.
 - [x] Remove TSAPI after the native host no longer requires it.
 
 ## Phase 2 — typed event model and first migrated behavior
@@ -53,20 +53,20 @@ The initial Terraria implementation publishes immutable player snapshots from th
 - [x] Keep raw byte parsing/encoding in the Terraria/protocol integration boundary.
 - [x] Migrate a real packet-sensitive behavior such as join/security or PvP validation through the context.
 
-The first end-to-end packet slice validates inbound `PlayerHp` ownership. `Vega.Terraria` parses the OTAPI payload window through `TZ.Multiplicity`, the typed context flows into a Core anti-spoof policy, and a rejected decision cancels the native OTAPI hook.
+The first end-to-end packet slice validates inbound `PlayerHp` ownership. `Vega.Terraria` parses the TerrariaRuntime payload window through `TZ.Multiplicity`, the typed context flows into a Core anti-spoof policy, and a rejected decision cancels the native TerrariaRuntime hook.
 
 ## Phase 5 — commands and legacy hook migration
 
 - [x] Migrate commands through Vega contracts instead of `Commands.ChatCommands` compatibility surfaces.
-- [x] Replace TSAPI event groups incrementally with Vega-native OTAPI adapters.
+- [x] Replace TSAPI event groups incrementally with Vega-native TerrariaRuntime adapters.
 - [x] Migrate production behavior by capability rather than reproducing TShock class shapes.
 - [x] Keep main server semantics in Core services; helper/extensions remain thin convenience layers.
 - [x] Promote true server invariants/security primitives into Core/runtime services.
 - [x] Keep gameplay/community policy as optional modules.
 
-`serverinfo` was the first native command path. The base surface now also owns `tps`/`tpsstats`, `kick`, `playing`/`online`/`who`, `checkupdates`, `ban`, `plugin`/`plugins`, `help`/`commands` and `aliases`. Discovery reads the live command catalog, including hot-loaded registrations, and applies the same server/permission visibility rules as dispatch instead of maintaining a second command list. Server-console input is intercepted through OTAPI command processing; player input is recognized from typed `LoadNetModule`/`NetTextModule` payloads. Effective player permissions live in Vega session state behind `IPlayerAuthorizationService`, and update discovery uses the Vega GitHub release endpoint.
+`serverinfo` was the first native command path. The base surface now also owns `tps`/`tpsstats`, `kick`, `playing`/`online`/`who`, `checkupdates`, `ban`, `plugin`/`plugins`, `help`/`commands` and `aliases`. Discovery reads the live command catalog, including hot-loaded registrations, and applies the same server/permission visibility rules as dispatch instead of maintaining a second command list. Server-console input is intercepted through TerrariaRuntime command processing; player input is recognized from typed `LoadNetModule`/`NetTextModule` payloads. Effective player permissions live in Vega session state behind `IPlayerAuthorizationService`, and update discovery uses the Vega GitHub release endpoint.
 
-Lifecycle, world decisions, console commands, player commands and packet security have Vega-owned OTAPI entrypoints. Core owns command behavior and the player packet ownership invariant; optional gameplay policy remains in modules. Unknown commands and non-command chat remain available to Terraria's normal paths.
+Lifecycle, world decisions, console commands, player commands and packet security have Vega-owned TerrariaRuntime entrypoints. Core owns command behavior and the player packet ownership invariant; optional gameplay policy remains in modules. Unknown commands and non-command chat remain available to Terraria's normal paths.
 
 ## Phase 6 — Operations API and Terminal UI
 
@@ -167,7 +167,7 @@ The post-1.4.5 registration audit also routes client `TeamChangeFromUI (157)` th
 - [x] Review deleted configuration, command, permission, persistence, localization, REST and operations documentation against the running Vega product; restore or rewrite every still-relevant operator contract.
 - [x] Close the scaffolding-removal gate only when there are no unresolved `Partial`, `Missing` or `Unclassified` rows—physical deletion alone is not completion.
 
-The runtime boots Terraria directly through the OTAPI-backed `Vega.Terraria` host, and architecture/release tests keep TShockAPI and TSAPI outside the source, solution and deployable graph. The exact parent snapshot (`72bff778`), pinned TSAPI revision (`024e480e`) and current TerraZ revisions remain documentary audit evidence. Configuration, command/permission, persistence, localization, REST-drop and Operations decisions are reflected in the running bilingual guides. No unresolved ledger row remains and no legacy assembly was reintroduced.
+The runtime boots Terraria directly through the TerrariaRuntime-backed `Vega.Terraria` host, and architecture/release tests keep TShockAPI and TSAPI outside the source, solution and deployable graph. The exact parent snapshot (`72bff778`), pinned TSAPI revision (`024e480e`) and current TerraZ revisions remain documentary audit evidence. Configuration, command/permission, persistence, localization, REST-drop and Operations decisions are reflected in the running bilingual guides. No unresolved ledger row remains and no legacy assembly was reintroduced.
 
 ## Phase 11 — World image and runtime optimization
 
@@ -336,7 +336,7 @@ FakeProvider is already a proven shared capability, not a single-plugin abstract
 - [x] Support bounded dirty-region invalidation and section updates instead of redrawing complete providers for every small change.
 - [x] Benchmark provider lookup, composition/section generation, managed allocation per personal overlay and mass observer changes with representative WorldEdit preview/mask plus lobby observer/entity churn workloads; run the harness in CI as a regression gate.
 - [x] Expose active scenes/providers, owners, observer counts, dirty regions and degraded/failure state through Operations snapshots.
-- [x] Do not replace `Main.tile` globally in the first slice. Evaluate a world-provider backend only after overlay consumers are migrated and Terraria/OTAPI ownership assumptions are measured.
+- [x] Do not replace `Main.tile` globally in the first slice. Evaluate a world-provider backend only after overlay consumers are migrated and Terraria/TerrariaRuntime ownership assumptions are measured.
 - [x] Keep single-process multi-world virtualization and arbitrary lazy world storage separate from the provider API; they require their own evidence even though they may later reuse scene contracts.
 
 Phase 16 is complete without the legacy global `Main.tile` replacement. `Vega.Contracts` owns immutable scene, overlay, observer and visibility identities; Core owns deterministic composition and leases; `Vega.Terraria` owns packet serialization and hooks. `Vega.Modules.Scenes` contains the WorldEdit preview/mask, Region-Vision border, lobby visual, hidden-portal and FakeProviderClustering consumers plus a Vega-owned lobby composition. Legacy `MiniLobby`/`LobbyServer` repositories remain external and are not embedded or referenced by Vega. Both outbound delivery and inbound interaction use the same decision. The renderer bounds its dirty queue and packet chunks, Operations exposes owners/conflicts/dirty history/visibility failures, and the representative scene regression harness runs in CI.
@@ -388,7 +388,7 @@ Deliver the first production sandbox implementation as supervised Terraria/Vega 
 ### Deferred single-process backend
 
 - [x] Treat multiple live Terraria worlds inside one process as a separate research project after the multi-process API and consumers are stable.
-- [x] Require evidence that Terraria/OTAPI globals, hooks, networking, entity ownership, world save/load and game-thread affinity can be isolated without broad static-state emulation.
+- [x] Require evidence that Terraria/TerrariaRuntime globals, hooks, networking, entity ownership, world save/load and game-thread affinity can be isolated without broad static-state emulation.
 - [x] Do not make single-process virtualization, lazy world storage or replacement of `Main.tile` a compatibility promise or prerequisite for the Phase 17 sandbox API.
 
 Phase 17 is complete as the first isolated multi-process sandbox implementation. It has a persistent atomic catalog and immutable template materialization, signed readiness/heartbeat reconciliation, bounded crash recovery, shared read-only backend discovery, target-bound single-use transfer admission, and server-trusted account restoration. SSC supports `Inherit`, `CopyOnEnter`, `Isolated` and `Disabled` through a cross-process revisioned store, transfer leases and a Terraria character capture/apply adapter covering inventory, equipment, banks, loadouts, life/mana, appearance and permanent character flags. Operations/TUI exposes lifecycle and sampled resources; CI exercises representative process/scene benchmarks and the overload matrix. Sustained real-player/NPC soak on a deployment host remains a release-qualification activity and does not reopen the implementation phase.
@@ -399,7 +399,7 @@ Active development moved to .NET 11 Preview 7 early under ADR 0024, with Runtime
 
 ### Dependency and compatibility gate
 
-- [x] Audit .NET 11 support for OTAPI, ModFramework, MonoMod, `Multiplicity`, Terminal.Gui, MaxMind, test adapters and every runtime dependency before changing Vega target frameworks.
+- [x] Audit .NET 11 support for TerrariaRuntime, ModFramework, MonoMod, `Multiplicity`, Terminal.Gui, MaxMind, test adapters and every runtime dependency before changing Vega target frameworks.
 - [ ] Build and run a disposable compatibility branch on .NET 11 with zero suppressed loader, JIT, trimming, native-asset or hook failures.
 - [x] Record required dependency upgrades and their behavioral/API changes; do not carry local forks or binding workarounds without an explicit owner and removal condition.
 - [x] Decide the public-package compatibility policy: publish one authoritative `Vega` package on `net11.0`; require a separate consumer-backed decision before introducing a narrow package split or .NET 10 multi-target.
@@ -417,7 +417,7 @@ Active development moved to .NET 11 Preview 7 early under ADR 0024, with Runtime
 
 - [x] Run the complete unit, integration and architecture suite on .NET 11, including packet ownership, game-thread dispatch, module lifecycle, cluster scenarios and `.vworld` fallback/corruption paths.
 - [ ] Smoke-test clean extraction and startup on every supported operating system/runtime identifier, including interactive world selection, plain console, TUI and headless modes.
-- [ ] Validate OTAPI hooks, Terraria world load/save, networking, player join/leave, commands, shutdown and crash diagnostics against representative production worlds.
+- [ ] Validate TerrariaRuntime hooks, Terraria world load/save, networking, player join/leave, commands, shutdown and crash diagnostics against representative production worlds.
 - [x] Pack and inspect the single unified `Vega` NuGet package, install it into a clean consumer project and verify that dependency assets resolve without relying on the Vega repository cache.
 - [ ] Run upgrade tests for existing Vega configuration, logs, worlds, `.vworld` images and module deployments; document every incompatible operational change.
 
@@ -514,7 +514,7 @@ Provide an authorized operational restart of the Vega application/module graph w
 
 ### Restart boundary and lifecycle
 
-- [x] Classify every runtime component as `PreservedInfrastructure`, `RestartableModule` or `ProcessRestartOnly`; keep Terraria/OTAPI, the loaded world, network listener, database connections/schema management, lifecycle coordinator and Operations control plane outside the restartable graph.
+- [x] Classify every runtime component as `PreservedInfrastructure`, `RestartableModule` or `ProcessRestartOnly`; keep Terraria/TerrariaRuntime, the loaded world, network listener, database connections/schema management, lifecycle coordinator and Operations control plane outside the restartable graph.
 - [x] Replace one-shot static-module construction with explicit factories and owned registration scopes so every restartable module can quiesce, stop, remove hooks/commands/jobs and be recreated without retaining the previous generation.
 - [x] Add a generation-aware module router and an exclusive restart barrier: reject concurrent restart requests, stop new module callbacks, drain bounded in-flight work, atomically swap the packet/event/command generation and then dispose the old graph.
 - [x] Stop modules in reverse dependency order and start them in validated topological order with cancellation, per-module timeout and a total restart deadline.
@@ -677,7 +677,7 @@ Create small real plugins that compile and run against the public SDK and use th
 
 ### SDK, templates and documentation
 
-- [x] Define the minimal public package set needed to write plugins; a simple plugin should not reference runtime implementation, Terraria, OTAPI, persistence providers or UI assemblies.
+- [x] Define the minimal public package set needed to write plugins; a simple plugin should not reference runtime implementation, Terraria, TerrariaRuntime, persistence providers or UI assemblies.
 - [x] Provide a maintained `dotnet new` plugin template or equally direct starter project that builds immediately and contains one command plus one typed hook.
 - [x] Publish a short "first plugin" guide before the deep architecture guide. The first successful command should not require reading ADRs, runtime composition documentation or packet internals.
 - [x] Document advanced concepts separately: background work, low-level packet validation, custom lifecycle behavior, hot-reload restrictions and performance-sensitive APIs.
@@ -719,7 +719,7 @@ Ordinary Vega plugins must not be.
 
 These apply across all phases:
 
-- Core must not know `Terraria.Main`, `Terraria.Player`, OTAPI, TSAPI, `TerrariaApi.Server`, `TShockAPI.TShock`, `TSPlayer` or `Commands.ChatCommands`.
+- Core must not know `Terraria.Main`, `Terraria.Player`, TerrariaRuntime, TSAPI, `TerrariaApi.Server`, `TShockAPI.TShock`, `TSPlayer` or `Commands.ChatCommands`.
 - Do not build interfaces for every Terraria type in advance.
 - Do not introduce a custom DI container, dynamic service rebinding layer or reflection-heavy Core registration.
 - Do not move business logic into helper/extension APIs.

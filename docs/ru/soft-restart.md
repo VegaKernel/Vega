@@ -6,9 +6,9 @@ Vega умеет пересоздать встроенные прикладные
 
 | Время жизни | Компоненты | Поведение |
 | --- | --- | --- |
-| `PreservedInfrastructure` | Terraria/OTAPI, загруженный мир, listener и подключённые игроки, game-thread dispatcher, БД, аккаунты/сессии, баны, регионы, локализация, lifecycle, Operations/TUI, world image и бекапы | Продолжают работать и сохраняют авторитетное состояние. |
+| `PreservedInfrastructure` | Terraria/TerrariaRuntime, загруженный мир, listener и подключённые игроки, game-thread dispatcher, БД, аккаунты/сессии, баны, регионы, локализация, lifecycle, Operations/TUI, world image и бекапы | Продолжают работать и сохраняют авторитетное состояние. |
 | `RestartableModule` | PVP, CustomItems, AutoWorldCleaner, Mentions, Chests, Wipe и Scenes | Пересоздаются явными фабриками. Пакеты, чат, chest callbacks, команды и статус проходят через маршрутизатор активного поколения. |
-| `ProcessRestartOnly` | нативные/runtime-сборки, выбор listener/мира/хранилища, OTAPI hooks вне отслеживаемого модуля, невыгруженный или повреждённый `ServerPlugins` context | Требуют обычного перезапуска процесса; Vega не сообщает ложный успех. |
+| `ProcessRestartOnly` | нативные/runtime-сборки, выбор listener/мира/хранилища, TerrariaRuntime hooks вне отслеживаемого модуля, невыгруженный или повреждённый `ServerPlugins` context | Требуют обычного перезапуска процесса; Vega не сообщает ложный успех. |
 
 Временное состояние модулей сбрасывается. Для действительно необходимой непрерывности модуль может реализовать `IModuleRestartStateParticipant`: хост принимает не больше одного МиБ явно именованного состояния с совпавшей версией. Авторизация, модерация, регионы и мир в этом механизме не нуждаются — ими владеют сохраняемые сервисы.
 

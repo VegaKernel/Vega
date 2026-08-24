@@ -4,7 +4,7 @@
 
 ## 1. Обзор проекта
 
-Vega — самостоятельный серверный runtime и framework для Terraria на .NET 11 Preview 7. Process host использует OTAPI для низкоуровневой интеграции с Terraria, а Vega владеет серверными контрактами, политиками, жизненным циклом модулей, наблюдаемостью и application boundaries.
+Vega — самостоятельный серверный runtime и framework для Terraria на .NET 11 Preview 7. Process host использует TerrariaRuntime для низкоуровневой интеграции с Terraria, а Vega владеет серверными контрактами, политиками, жизненным циклом модулей, наблюдаемостью и application boundaries.
 
 Проект строится вокруг трёх правил:
 
@@ -20,8 +20,8 @@ Vega не загружает плагины TShock или TSAPI и не сохр
 |---|---|
 | `src/Vega.Contracts` | Публичные идентификаторы, snapshots, события, команды, player/world/network/operations/cluster-контракты |
 | `src/Vega.PluginSdk` | Тонкая точка входа обычного плагина и фасады command/player/task/storage/log |
-| `src/Vega.Core` | Серверная и application-логика без зависимости от Terraria и OTAPI |
-| `src/Vega.Terraria` | Terraria/OTAPI hooks, преобразование пакетов, player operations, game-thread scheduling и world integration |
+| `src/Vega.Core` | Серверная и application-логика без зависимости от Terraria и TerrariaRuntime |
+| `src/Vega.Terraria` | Terraria/TerrariaRuntime hooks, преобразование пакетов, player operations, game-thread scheduling и world integration |
 | `src/Vega.Runtime` | Исполняемый host, composition root, запуск модулей, runtime options и разрешение сборок |
 | `src/Vega.Operations` | Структурные логи, метрики, read models и безопасные command actions |
 | `src/Vega.TerminalUI` | Опциональная Terminal.Gui-панель и command palette |
@@ -42,7 +42,7 @@ Vega не загружает плагины TShock или TSAPI и не сохр
 ```text
 Terraria
    ↓
-OTAPI
+TerrariaRuntime
    ↓
 Vega.Runtime ───────→ Vega.TerminalUI
    │                       ↓
@@ -54,7 +54,7 @@ Vega.Runtime ───────→ Vega.TerminalUI
    └──→ Server modules ────↑
 ```
 
-`Vega.Contracts` является общей семантической границей. `Vega.Core` не может ссылаться на Terraria, OTAPI, TSAPI или TShockAPI. `Vega.Terraria` владеет всеми преобразованиями между изменяемыми игровыми объектами и Vega snapshots/operations. Architecture tests падают, если запрещённая зависимость пересекает эту границу.
+`Vega.Contracts` является общей семантической границей. `Vega.Core` не может ссылаться на Terraria, TerrariaRuntime, TSAPI или TShockAPI. `Vega.Terraria` владеет всеми преобразованиями между изменяемыми игровыми объектами и Vega snapshots/operations. Architecture tests падают, если запрещённая зависимость пересекает эту границу.
 
 Runtime подключает встроенные модули явно. Для `ServerPlugins/` также существует отдельный unload-safe контракт административной горячей замены; он выключен по умолчанию и никогда не считает обычные сборки `IVegaModule` безопасно выгружаемыми.
 
@@ -63,7 +63,7 @@ Runtime подключает встроенные модули явно. Для 
 - .NET SDK 11.0.100-preview.7.26381.103, закреплённый в `global.json`;
 - доступ к настроенным NuGet feeds при первом restore;
 - Git для сборки из клона;
-- платформа, поддерживаемая выбранными Terraria/OTAPI runtime-пакетами.
+- платформа, поддерживаемая выбранными Terraria/TerrariaRuntime runtime-пакетами.
 
 Важные версии пакетов закреплены в project files. Не нужно добавлять старый MonoMod development feed или восстанавливать удалённые TSAPI submodules.
 
@@ -125,7 +125,7 @@ Assembly resolver сначала проверяет `libs/`, затем `ServerP
 
 ### Режимы runtime
 
-`Vega.Server` работает на CoreCLR с tiered compilation и dynamic PGO. ReadyToRun допускается как отдельный измеряемый вариант публикации CoreCLR; публикация самого сервера через NativeAOT запрещена, потому что управляемые `ServerPlugins`, collectible hot reload, поколения soft restart и runtime OTAPI/MonoMod являются обязательными возможностями. Packet path стадии 22 остаётся внутри процесса.
+`Vega.Server` работает на CoreCLR с tiered compilation и dynamic PGO. ReadyToRun допускается как отдельный измеряемый вариант публикации CoreCLR; публикация самого сервера через NativeAOT запрещена, потому что управляемые `ServerPlugins`, collectible hot reload, поколения soft restart и runtime TerrariaRuntime/MonoMod являются обязательными возможностями. Packet path стадии 22 остаётся внутри процесса.
 
 Сейчас в репозитории нет отдельного поставляемого executable, подходящего для NativeAOT. `Vega.Contracts` собирается с анализаторами совместимости trimming/AOT, чтобы будущая узкая утилита могла использовать чистую границу контрактов без Terraria, plugin host и UI. Порядок кандидатов, правила сравнения и fallback описаны в [аудите специализации runtime](../native-aot.md).
 

@@ -19,7 +19,7 @@
         <dependency id="Multiplicity" version="2.6.2" exclude="Build,Analyzers" />
         <dependency id="MySqlConnector" version="2.6.2" exclude="Build,Analyzers" />
         <dependency id="Npgsql" version="10.0.3" exclude="Build,Analyzers" />
-        <dependency id="OTAPI.Upcoming" version="3.3.14" exclude="Build,Analyzers" />
+        <dependency id="TerrariaRuntime" version="1.0.0" exclude="Build,Analyzers" />
         <dependency id="SQLitePCLRaw.bundle_e_sqlite3" version="2.1.13" exclude="Build,Analyzers" />
         <dependency id="Terminal.Gui" version="2.4.17" exclude="Build,Analyzers" />
         <dependency id="Terminal.Gui.Editor" version="2.5.7" exclude="Build,Analyzers" />

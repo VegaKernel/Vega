@@ -1,6 +1,6 @@
 using Multiplicity.Packets;
 using Multiplicity.Packets.Views;
-using OTAPI;
+using TerrariaRuntime;
 using Vega.Contracts.Authorization;
 using Vega.Contracts.Accounts;
 using Vega.Contracts.Commands;
@@ -103,7 +103,7 @@ internal sealed class NativePlayerCommandHooks : IDisposable
             CommandTextParser.TryParse(messageText, out ParsedCommandText command) &&
             dispatcher.CanDispatch(command.Name))
         {
-            // This synchronous OTAPI hook only claims commands already owned by Vega.
+            // This synchronous TerrariaRuntime hook only claims commands already owned by Vega.
             // Execution and game-thread message delivery continue asynchronously without blocking packet processing.
             args.Result = HookResult.Cancel;
             _ = ExecuteAsync(playerId, player.Name, player.WorldId, command);

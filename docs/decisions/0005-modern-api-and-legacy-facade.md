@@ -31,7 +31,7 @@ ADR 0016 replaces the target dependency model with Vega-native layers:
 ```text
 Terraria
    ↓
-OTAPI
+TerrariaRuntime
    ↓
 Vega.Runtime / Vega.Terraria
    ↓

@@ -12,7 +12,7 @@ namespace Vega.Terraria.Worlds;
 /// </summary>
 public sealed class TerrariaWorldImageService : IDisposable, IWorldLoadMetricsReader
 {
-    // OTAPI 3.3.12 no longer generates Terraria.Liquid hooks because Liquid became a value type in 1.4.5.7.
+    // The Terraria 1.4.5.7 integration baseline stopped generating Liquid hooks after Liquid became a value type.
     // Keep the cache correct by using Terraria's stock liquid initialization until upstream exposes an equivalent hook.
     private const bool SupportsLiquidRuntimeFastRestore = false;
 

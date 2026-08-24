@@ -18,6 +18,6 @@ ADR 0012, ADR 0013 and ADR 0014 remain accepted for their behavioral and capabil
 - optional gameplay/community behavior remains modular;
 - server invariants, security primitives, identity/authorization primitives and safe world/runtime abstractions remain candidates for Core/runtime ownership;
 - all Terraria-specific implementation belongs behind the Vega runtime/Terraria boundary;
-- Core remains free of Terraria, OTAPI, TSAPI and TShockAPI dependencies.
+- Core remains free of Terraria, TerrariaRuntime, TSAPI and TShockAPI dependencies.
 
 This note avoids rewriting the historical ADR prose as if those documents had originally been authored for Vega.

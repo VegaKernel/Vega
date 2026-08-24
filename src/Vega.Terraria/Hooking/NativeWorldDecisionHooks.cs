@@ -1,4 +1,4 @@
-using OTAPI;
+using TerrariaRuntime;
 using Vega.Contracts.Events;
 using Vega.Contracts.Worlds;
 
@@ -6,7 +6,7 @@ namespace Vega.Terraria.Hooking;
 
 /// <summary>
 /// Applies Vega event decisions to Terraria world hooks. The event pipeline decides;
-/// this adapter alone owns the final mutation of OTAPI hook state.
+/// this adapter alone owns the final mutation of TerrariaRuntime hook state.
 /// </summary>
 internal sealed class NativeWorldDecisionHooks : IDisposable
 {

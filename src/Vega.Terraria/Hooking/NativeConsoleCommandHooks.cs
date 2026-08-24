@@ -1,4 +1,4 @@
-using OTAPI;
+using TerrariaRuntime;
 using Vega.Contracts.Commands;
 using Vega.Contracts.Messaging;
 using Vega.Contracts.Localization;
@@ -61,7 +61,7 @@ internal sealed class NativeConsoleCommandHooks : IDisposable
             return;
         }
 
-        // The OTAPI hook is synchronous. Claim the known Vega command, then observe its
+        // The TerrariaRuntime hook is synchronous. Claim the known Vega command, then observe its
         // ValueTask asynchronously instead of blocking the console thread.
         args.Result = HookResult.Cancel;
         _ = ExecuteAsync(command);

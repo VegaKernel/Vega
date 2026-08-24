@@ -89,44 +89,8 @@
 		</Content>
 	</ItemGroup>
 
-	<ItemGroup>
-		<PackageReference Include="ModFramework" Version="1.1.15" GeneratePathProperty="true" />
-		<PackageReference Include="OTAPI.Upcoming" Version="3.3.14" ExcludeAssets="all" GeneratePathProperty="true" />
-		<!-- OTAPI 3.3.14 exposes Terraria types that require these assemblies, but does not declare them. -->
-		<PackageReference Include="System.Configuration.ConfigurationManager" Version="11.0.0-preview.7.26381.103" />
-		<PackageReference Include="System.Drawing.Common" Version="11.0.0-preview.7.26381.103" />
-
-		<None Include="$(PkgOTAPI_Upcoming)\lib\$(TargetFramework)\OTAPI.dll" Condition="Exists('$(PkgOTAPI_Upcoming)\lib\$(TargetFramework)\OTAPI.dll')">
-			<CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
-			<ExcludeFromSingleFile>true</ExcludeFromSingleFile>
-		</None>
-		<None Include="$(PkgOTAPI_Upcoming)\lib\$(TargetFramework)\OTAPI.Runtime.dll" Condition="Exists('$(PkgOTAPI_Upcoming)\lib\$(TargetFramework)\OTAPI.Runtime.dll')">
-			<CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
-			<ExcludeFromSingleFile>true</ExcludeFromSingleFile>
-		</None>
-		<None Include="$(PkgModFramework)\lib\$(TargetFramework)\ModFramework.dll" Condition="Exists('$(PkgModFramework)\lib\$(TargetFramework)\ModFramework.dll')">
-			<CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
-			<ExcludeFromSingleFile>true</ExcludeFromSingleFile>
-		</None>
-
-		<None Include="$(PkgOTAPI_Upcoming)\lib\**\OTAPI.dll" Condition="!Exists('$(PkgOTAPI_Upcoming)\lib\$(TargetFramework)\OTAPI.dll')">
-			<Link>OTAPI.dll</Link>
-			<CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
-			<ExcludeFromSingleFile>true</ExcludeFromSingleFile>
-		</None>
-		<None Include="$(PkgOTAPI_Upcoming)\lib\**\OTAPI.Runtime.dll" Condition="!Exists('$(PkgOTAPI_Upcoming)\lib\$(TargetFramework)\OTAPI.Runtime.dll')">
-			<Link>OTAPI.Runtime.dll</Link>
-			<CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
-			<ExcludeFromSingleFile>true</ExcludeFromSingleFile>
-		</None>
-		<None Include="$(PkgModFramework)\lib\**\ModFramework.dll" Condition="!Exists('$(PkgModFramework)\lib\$(TargetFramework)\ModFramework.dll')">
-			<Link>ModFramework.dll</Link>
-			<CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
-			<ExcludeFromSingleFile>true</ExcludeFromSingleFile>
-		</None>
-	</ItemGroup>
-
 	<Target Name="ArrangeDevRuntime" AfterTargets="PostBuildEvent">
+		<RemoveDir Directories="$(OutDir)libs;$(OutDir)ServerPlugins" />
 		<ItemGroup>
 			<DevServerPlugins Include="$(OutDir)Vega.Modules.*" />
 			<DevLibraries Include="$(OutDir)*" Exclude="$(OutDir)Vega.Server*;$(OutDir)Vega.Modules.*" />
@@ -136,7 +100,14 @@
 		<Move SourceFiles="@(DevLibraries)" DestinationFolder="$(OutDir)libs" />
 	</Target>
 
+	<Target Name="ArrangeTerrariaRuntimeMonoModCore" AfterTargets="CopyTerrariaRuntimeNet11MonoModCore">
+		<Move SourceFiles="$(OutDir)MonoMod.Core.dll"
+			DestinationFolder="$(OutDir)libs"
+			Condition="Exists('$(OutDir)MonoMod.Core.dll')" />
+	</Target>
+
 	<Target Name="ArrangePublishedRuntime" AfterTargets="Publish">
+		<RemoveDir Directories="$(PublishDir)libs;$(PublishDir)ServerPlugins" />
 		<ItemGroup>
 			<PublishedServerPlugins Include="$(PublishDir)Vega.Modules.*" />
 			<PublishedLibraries Include="$(PublishDir)*" Exclude="$(PublishDir)Vega.Server*;$(PublishDir)Vega.Modules.*" />

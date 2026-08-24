@@ -96,9 +96,8 @@ jobs:
             'Vega.Sandboxes.dll',
             'Vega.Terraria.dll',
             'Vega.TerminalUI.dll',
-            'OTAPI.dll',
-            'OTAPI.Runtime.dll',
-            'ModFramework.dll'
+            'TerrariaRuntime.dll',
+            'TerrariaRuntime.Hooks.dll'
           )
           $requiredPlugins = @(
             'Vega.Modules.Administration.dll',

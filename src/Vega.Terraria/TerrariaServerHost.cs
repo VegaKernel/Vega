@@ -32,7 +32,7 @@ public static class TerrariaServerHost
         WorldId runtimeWorldId,
         IRuntimeLifecycleController lifecycle,
         IEventPipeline<WorldHardmodeStarting> hardmodeStarting,
-        OtapiGameThreadDispatcher gameThreadDispatcher,
+        TerrariaRuntimeGameThreadDispatcher gameThreadDispatcher,
         TerrariaPlayerBoundary playerBoundary,
         TerrariaConnectionMetadataRegistry connectionMetadata,
         TerrariaOperationsState operationsState,

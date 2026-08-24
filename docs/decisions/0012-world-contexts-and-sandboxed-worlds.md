@@ -10,7 +10,7 @@ TShockNG is being split into `TShockNG.Contracts`, `TShockNG.Core` and a transit
 
 The current Terraria/TShock model is strongly process-global: world state, players, entities and many operations are reached through static/global objects such as `Main.*` and `TShock.*`. If the new core repeats those assumptions, adding isolated worlds later would require another broad rewrite.
 
-TShockNG should support isolated temporary or persistent worlds ("sandboxes") while retaining a practical implementation path. The first implementation may use separate backend processes and Dimensions-compatible routing. A later runtime may host multiple isolated world contexts in one process if the Terraria/OTAPI runtime can safely support that model.
+TShockNG should support isolated temporary or persistent worlds ("sandboxes") while retaining a practical implementation path. The first implementation may use separate backend processes and Dimensions-compatible routing. A later runtime may host multiple isolated world contexts in one process if the Terraria/TerrariaRuntime runtime can safely support that model.
 
 ## Decision
 
@@ -111,7 +111,7 @@ This stage provides strong crash and memory isolation and avoids immediately vir
 
 ### Stage 3: optional single-process multi-world runtime
 
-Investigate hosting multiple Terraria/OTAPI world instances in one process once the runtime provides sufficient isolation. `IWorldContext` remains the abstraction, so callers should not care whether a world lives in another process or in the same runtime.
+Investigate hosting multiple Terraria/TerrariaRuntime world instances in one process once the runtime provides sufficient isolation. `IWorldContext` remains the abstraction, so callers should not care whether a world lives in another process or in the same runtime.
 
 Single-process multi-world support is an optimization/advanced backend, not a prerequisite for the sandbox API.
 

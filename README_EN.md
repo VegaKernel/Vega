@@ -8,7 +8,7 @@
   · <a href="docs/decisions/">ADRs</a>
 </p>
 
-Vega is an independent Terraria server runtime and framework targeting .NET 11 Preview 7. It hosts Terraria through OTAPI, separates game integration from server behavior, and exposes typed contracts for commands, events, players, packets, modules, operations, and cluster scenarios.
+Vega is an independent Terraria server runtime and framework targeting .NET 11 Preview 7. It hosts Terraria through TerrariaRuntime, separates game integration from server behavior, and exposes typed contracts for commands, events, players, packets, modules, operations, and cluster scenarios.
 
 Vega is not a TShock fork and does not provide binary or source compatibility for TShock/TSAPI plugins. Historical implementations are used only as evidence for production behavior, requirements, and regression scenarios.
 
@@ -16,8 +16,8 @@ Vega is not a TShock fork and does not provide binary or source compatibility fo
 
 ```mermaid
 flowchart TB
-    Terraria["Terraria"] --> OTAPI["OTAPI"]
-    OTAPI --> TerrariaAdapter["Vega.Terraria<br/>game integration"]
+    Terraria["Terraria"] --> TerrariaRuntime["TerrariaRuntime"]
+    TerrariaRuntime --> TerrariaAdapter["Vega.Terraria<br/>game integration"]
 
     Runtime["Vega.Runtime<br/>host + composition root"] --> TerrariaAdapter
     Runtime --> Core["Vega.Core<br/>server behavior"]
@@ -42,7 +42,7 @@ flowchart TB
     TerminalUI["Vega.TerminalUI"] --> Operations
 ```
 
-`Vega.Core` has no Terraria or OTAPI dependency. Mutable game state remains behind the `Vega.Terraria` boundary, while other components use typed contracts and immutable snapshots.
+`Vega.Core` has no Terraria or TerrariaRuntime dependency. Mutable game state remains behind the `Vega.Terraria` boundary, while other components use typed contracts and immutable snapshots.
 
 ## Available today
 
@@ -61,7 +61,7 @@ flowchart TB
 
 - .NET SDK 11.0.100-preview.7.26381.103, pinned by `global.json`;
 - NuGet access for the initial restore;
-- a compatible Terraria/OTAPI server runtime environment.
+- a compatible Terraria/TerrariaRuntime server runtime environment.
 
 ## Build and test
 

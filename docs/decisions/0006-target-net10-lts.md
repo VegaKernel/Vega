@@ -29,7 +29,7 @@ Framework upgrades should verify at least:
 - startup overhead and readiness budgets from ADR 0017;
 - packet throughput and allocation behavior;
 - tick latency and GC behavior under representative load;
-- native Terraria/OTAPI integration used by Vega at that time.
+- native Terraria/TerrariaRuntime integration used by Vega at that time.
 
 ## Consequences
 

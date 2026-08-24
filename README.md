@@ -8,7 +8,7 @@
   · <a href="docs/decisions/">ADR</a>
 </p>
 
-Vega — самостоятельный серверный runtime и framework для Terraria на .NET 11 Preview 7. Он запускает Terraria через OTAPI, отделяет игровую интеграцию от серверной логики и предоставляет типизированные контракты для команд, событий, игроков, пакетов, модулей, операций и кластерных сценариев.
+Vega — самостоятельный серверный runtime и framework для Terraria на .NET 11 Preview 7. Он запускает Terraria через TerrariaRuntime, отделяет игровую интеграцию от серверной логики и предоставляет типизированные контракты для команд, событий, игроков, пакетов, модулей, операций и кластерных сценариев.
 
 Vega не является форком TShock и не поддерживает бинарную или исходную совместимость с TShock/TSAPI-плагинами. Старые реализации используются только как источник проверенных сценариев, требований и регрессионных тестов.
 
@@ -16,8 +16,8 @@ Vega не является форком TShock и не поддерживает 
 
 ```mermaid
 flowchart TB
-    Terraria["Terraria"] --> OTAPI["OTAPI"]
-    OTAPI --> TerrariaAdapter["Vega.Terraria<br/>игровая интеграция"]
+    Terraria["Terraria"] --> TerrariaRuntime["TerrariaRuntime"]
+    TerrariaRuntime --> TerrariaAdapter["Vega.Terraria<br/>игровая интеграция"]
 
     Runtime["Vega.Runtime<br/>host + composition root"] --> TerrariaAdapter
     Runtime --> Core["Vega.Core<br/>серверная логика"]
@@ -42,7 +42,7 @@ flowchart TB
     TerminalUI["Vega.TerminalUI"] --> Operations
 ```
 
-`Vega.Core` не зависит от Terraria или OTAPI. Всё изменяемое игровое состояние остаётся за границей `Vega.Terraria`, а остальные компоненты работают через типизированные контракты и неизменяемые snapshots.
+`Vega.Core` не зависит от Terraria или TerrariaRuntime. Всё изменяемое игровое состояние остаётся за границей `Vega.Terraria`, а остальные компоненты работают через типизированные контракты и неизменяемые snapshots.
 
 ## Что уже есть
 
@@ -61,7 +61,7 @@ flowchart TB
 
 - .NET SDK 11.0.100-preview.7.26381.103, закреплённый в `global.json`;
 - доступ к NuGet при первом восстановлении пакетов;
-- совместимая Terraria/OTAPI server runtime-среда.
+- совместимая Terraria/TerrariaRuntime server runtime-среда.
 
 ## Сборка и тесты
 

@@ -1,6 +1,6 @@
 # Первый плагин Vega
 
-Обычному плагину нужны один NuGet-пакет, один базовый класс и никакие знания о Terraria, OTAPI, packet buffers, worker lanes или collectible load contexts.
+Обычному плагину нужны один NuGet-пакет, один базовый класс и никакие знания о Terraria, TerrariaRuntime, packet buffers, worker lanes или collectible load contexts.
 
 ## Создание и сборка
 

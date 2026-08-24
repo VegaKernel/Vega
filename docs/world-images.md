@@ -59,7 +59,7 @@ Structured `world-image` log records and `OperationsSnapshot.WorldLoad` expose:
 
 ## Schema 1 benchmark record
 
-Measurements were collected on 2026-08-20 with the Release build, .NET 10, OTAPI 3.3.11 and three real local worlds. Each server run used a temporary world copy, one player slot and a dedicated listener port. "Image" is a validated warm `.vworld`; OS page-cache state was not forcibly flushed, so the figures are engineering evidence rather than a hardware-neutral promise.
+Measurements were collected on 2026-08-20 with the Release build, .NET 10, TerrariaRuntime 3.3.11 and three real local worlds. Each server run used a temporary world copy, one player slot and a dedicated listener port. "Image" is a validated warm `.vworld`; OS page-cache state was not forcibly flushed, so the figures are engineering evidence rather than a hardware-neutral promise.
 
 | World | Dimensions | Path | Tile decode | Load body | Peak working set | Allocated | GC 0/1/2 |
 |---|---:|---|---:|---:|---:|---:|---:|

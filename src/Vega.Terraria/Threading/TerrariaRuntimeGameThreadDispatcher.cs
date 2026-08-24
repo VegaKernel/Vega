@@ -1,6 +1,6 @@
 using System.Collections.Concurrent;
 using System.Diagnostics;
-using OTAPI;
+using TerrariaRuntime;
 using Vega.Contracts.Threading;
 
 namespace Vega.Terraria.Threading;
@@ -8,7 +8,7 @@ namespace Vega.Terraria.Threading;
 /// <summary>
 /// Bounded, time-sliced game-thread scheduler driven directly by the Terraria update hook.
 /// </summary>
-public sealed class OtapiGameThreadDispatcher : IGameThreadDispatcher, IDisposable
+public sealed class TerrariaRuntimeGameThreadDispatcher : IGameThreadDispatcher, IDisposable
 {
     private readonly record struct WorkItem(string Name, Func<bool> Step);
 
@@ -22,7 +22,7 @@ public sealed class OtapiGameThreadDispatcher : IGameThreadDispatcher, IDisposab
     private int threadMismatchReported;
     private bool attached;
 
-    public OtapiGameThreadDispatcher(
+    public TerrariaRuntimeGameThreadDispatcher(
         int queueCapacity = 4096,
         int maxStepsPerTick = 128,
         TimeSpan? budget = null)

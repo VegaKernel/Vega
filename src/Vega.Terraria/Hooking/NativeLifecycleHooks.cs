@@ -1,4 +1,4 @@
-using OTAPI;
+using TerrariaRuntime;
 using Vega.Contracts.Runtime;
 using HookWorldFile = HookEvents.Terraria.IO.WorldFile;
 using HookWorldGen = HookEvents.Terraria.WorldGen;
@@ -6,7 +6,7 @@ using HookWorldGen = HookEvents.Terraria.WorldGen;
 namespace Vega.Terraria.Hooking;
 
 /// <summary>
-/// Vega-owned OTAPI lifecycle hooks. These hooks observe Terraria directly and do not
+/// Vega-owned TerrariaRuntime lifecycle hooks. These hooks observe Terraria directly and do not
 /// depend on TSAPI server types or the legacy hook manager.
 /// </summary>
 internal sealed class NativeLifecycleHooks : IDisposable

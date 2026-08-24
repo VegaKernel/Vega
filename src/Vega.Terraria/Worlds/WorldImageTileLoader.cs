@@ -194,7 +194,7 @@ internal static class WorldImageTileLoader
         return collectionType.IsGenericType &&
             string.Equals(
                 collectionType.GetGenericTypeDefinition().FullName,
-                "ModFramework.DefaultCollection`1",
+                "TerrariaRuntime.DefaultCollection`1",
                 StringComparison.Ordinal);
     }
 

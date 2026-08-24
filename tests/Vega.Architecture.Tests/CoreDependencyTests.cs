@@ -11,7 +11,7 @@ public sealed class CoreDependencyTests
     private static readonly string[] ForbiddenAssemblyPrefixes =
     [
         "Terraria",
-        "OTAPI",
+        "TerrariaRuntime",
         "TShockAPI"
     ];
 
@@ -28,7 +28,7 @@ public sealed class CoreDependencyTests
             .ToArray();
 
         Assert.That(forbidden, Is.Empty,
-            $"Vega.Core must stay independent from Terraria, OTAPI, TSAPI and TShockAPI. Forbidden references: {string.Join(", ", forbidden)}");
+            $"Vega.Core must stay independent from Terraria, TerrariaRuntime, TSAPI and TShockAPI. Forbidden references: {string.Join(", ", forbidden)}");
     }
 
     [Test]

@@ -1,4 +1,4 @@
-using OTAPI;
+using TerrariaRuntime;
 using Vega.Contracts.Operations;
 
 namespace Vega.Terraria.Operations;

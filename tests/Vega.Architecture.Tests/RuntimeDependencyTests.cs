@@ -84,7 +84,7 @@ public sealed class RuntimeDependencyTests
                     source.Contains("TShockAPI", StringComparison.Ordinal) ||
                     source.Contains("TSPlayer", StringComparison.Ordinal) ||
                     source.Contains("Terraria.Main", StringComparison.Ordinal) ||
-                    source.Contains("OTAPI", StringComparison.Ordinal)),
+                    source.Contains("TerrariaRuntime", StringComparison.Ordinal)),
                 Is.False,
                 "Persistence must remain independent from Terraria and legacy APIs.");
             Assert.That(coreProject, Does.Not.Contain("Microsoft.Data.Sqlite"));
@@ -131,7 +131,7 @@ public sealed class RuntimeDependencyTests
         [
             "Terraria.Main",
             "Main.player",
-            "OTAPI",
+            "TerrariaRuntime",
             "TerrariaApi.Server",
             "TShockAPI",
             "TSPlayer"
@@ -364,7 +364,7 @@ public sealed class RuntimeDependencyTests
             "Activator.CreateInstance",
             "System.Reflection.Emit",
             "Terraria.",
-            "OTAPI",
+            "TerrariaRuntime",
             "Terminal.Gui"
         ];
         string[] offenders = Directory
@@ -413,7 +413,7 @@ public sealed class RuntimeDependencyTests
             "AssemblyLoadContext",
             "IncomingPacket",
             "Terraria.",
-            "OTAPI",
+            "TerrariaRuntime",
             "IServiceProvider",
             "SynchronizationContext"
         ];
@@ -456,7 +456,7 @@ public sealed class RuntimeDependencyTests
         [
             Path.Combine(repositoryRoot, "src", "Vega.Terraria", "Operations", "TerrariaOperationsState.cs"),
             Path.Combine(repositoryRoot, "src", "Vega.Terraria", "Players", "TerrariaPlayerBoundary.cs"),
-            Path.Combine(repositoryRoot, "src", "Vega.Terraria", "Threading", "OtapiGameThreadDispatcher.cs"),
+            Path.Combine(repositoryRoot, "src", "Vega.Terraria", "Threading", "TerrariaRuntimeGameThreadDispatcher.cs"),
             Path.Combine(repositoryRoot, "src", "Vega.Terraria", "Worlds", "TerrariaWorldClockSynchronizer.cs")
         ];
 
@@ -473,16 +473,19 @@ public sealed class RuntimeDependencyTests
     }
 
     [Test]
-    public void PublishedRuntimeDeclaresAssembliesRequiredByOtapiTypePreloading()
+    public void TerrariaBoundaryConsumesTheSingleCurrentTerrariaRuntimePackage()
     {
         var repositoryRoot = FindRepositoryRoot();
-        string project = File.ReadAllText(Path.Combine(
+        string terrariaProject = File.ReadAllText(Path.Combine(
+            repositoryRoot, "src", "Vega.Terraria", "Vega.Terraria.csproj"));
+        string runtimeProject = File.ReadAllText(Path.Combine(
             repositoryRoot, "src", "Vega.Runtime", "Vega.Runtime.csproj"));
 
         Assert.Multiple(() =>
         {
-            Assert.That(project, Does.Contain("PackageReference Include=\"System.Configuration.ConfigurationManager\""));
-            Assert.That(project, Does.Contain("PackageReference Include=\"System.Drawing.Common\""));
+            Assert.That(terrariaProject, Does.Contain("PackageReference Include=\"TerrariaRuntime\" Version=\"1.0.0\""));
+            Assert.That(terrariaProject, Does.Not.Contain("TerrariaRuntime.Upcoming"));
+            Assert.That(runtimeProject, Does.Not.Contain("ModFramework"));
         });
     }
 

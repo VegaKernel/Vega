@@ -12,7 +12,7 @@ The last .NET 10 baseline before this migration is commit `2a528ce8efb78e3b223f5
 
 The selected development SDK is `.NET SDK 11.0.100-preview.7.26381.103`. .NET 11 is still a preview runtime, so adopting it for active development does not by itself make it the stable production channel.
 
-The current Terraria integration chain still supplies lower-target assets: OTAPI 3.3.14, ModFramework 1.1.15, Multiplicity 2.6.2 and the resolved MonoMod stack provide `net9.0` assemblies. NuGet resolves those assets for `net11.0`, but MonoMod retains its explicit unsupported-target warning. The full package graph and its owned exception are recorded in the [.NET 11 dependency audit](../net11-dependency-audit.md). A successful restore and build therefore do not replace the required hook, world, network and shutdown smoke tests before production promotion.
+The current Terraria integration chain uses TerrariaRuntime 1.0.0, which provides native `net11.0` runtime and hook assemblies and removes the former ModFramework dependency. Multiplicity and the resolved MonoMod stack still select compatible lower-target assets, and MonoMod retains its explicit unsupported-target warning. The full package graph and its owned exception are recorded in the [.NET 11 dependency audit](../net11-dependency-audit.md). A successful restore and build therefore do not replace the required hook, world, network and shutdown smoke tests before production promotion.
 
 ## Decision
 
@@ -21,7 +21,7 @@ The current Terraria integration chain still supplies lower-target assets: OTAPI
 - Keep the server runtime on CoreCLR with tiered JIT and dynamic PGO. Do not introduce NativeAOT into `Vega.Server` as part of this migration.
 - Enable .NET 11 Runtime Async for every first-party project from the migration baseline through the central `runtime-async=on` compiler feature. Do not silently disable it for individual projects.
 - Publish the first-party library surface as the single authoritative `Vega` package on `net11.0`; do not multi-target the complete repository merely to preserve .NET 10. A future narrow package split requires an actual supported consumer and a separately measured compatibility decision.
-- Preserve the existing `Vega.Terraria` fallback asset resolution for OTAPI/ModFramework packages when an exact `net11.0` package asset directory is absent; do not add local forks or binding hacks unless compatibility testing proves they are required.
+- Consume the single `TerrariaRuntime` package directly from `Vega.Terraria`; keep its runtime-specific assets and MonoMod.Core propagation owned by TerrariaRuntime instead of duplicating fallback resolution in Vega.
 - Use `sdk:11.0.100-preview.7` and `runtime:11.0.0-preview.7` for Linux container stages. Use `runtime:11.0.0-preview.7-nanoserver-ltsc2025` for Windows because the preview runtime image is not published for LTSC 2022.
 - Treat RC/GA dependency revalidation, deployment-host soak, representative world startup and performance comparison as production-promotion gates rather than blockers for the development branch.
 
@@ -33,7 +33,7 @@ The development migration must prove at least:
 - the PostgreSQL/MySQL external-provider contracts on the same SDK;
 - world-image benchmark harness compilation;
 - tagged/manual release workflow use of the same SDK;
-- deployable runtime layout and OTAPI/ModFramework asset resolution;
+- deployable runtime layout with TerrariaRuntime, TerrariaRuntime.Hooks and the required MonoMod.Core asset;
 - a clean .NET 11 container build for supported container targets before production promotion;
 - no global warning suppressions added merely to make the preview compile;
 - a metadata guard proving representative first-party async methods carry `MethodImplAttributes.Async`;

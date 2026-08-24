@@ -184,7 +184,7 @@ int Start()
         Array.Empty<IEventHandler<WorldHardmodeStarting>>(),
         Array.Empty<IEventMonitor<WorldHardmodeStarting>>());
 
-    using var gameThreadDispatcher = new OtapiGameThreadDispatcher();
+    using var gameThreadDispatcher = new TerrariaRuntimeGameThreadDispatcher();
     WorldId runtimeWorldId = backendLaunch.IsBackend ? backendLaunch.WorldId : WorldId.Primary;
     var connectionMetadata = new TerrariaConnectionMetadataRegistry();
     using var playerBoundary = new TerrariaPlayerBoundary(gameThreadDispatcher, connectionMetadata, runtimeWorldId);
@@ -716,7 +716,7 @@ IReadOnlyList<ModuleOperationsSnapshot> CreateModuleSnapshots(IModuleOperationsC
     Module("Vega.Persistence", typeof(IVegaDatabase).Assembly, ["Vega.Contracts", "System.Data.Common"]),
     Module("Vega.Regions", typeof(RegionCommand).Assembly, ["Vega.Contracts", "Multiplicity"]),
     Module("Vega.Sandboxes", typeof(SandboxControlService).Assembly, ["Vega.Contracts"]),
-    Module("Vega.Terraria", typeof(TerrariaServerHost).Assembly, ["Vega.Contracts", "OTAPI", "Multiplicity"]),
+    Module("Vega.Terraria", typeof(TerrariaServerHost).Assembly, ["Vega.Contracts", "TerrariaRuntime", "Multiplicity"]),
     Module("Vega.TerminalUI", typeof(TerminalUiHost).Assembly, ["Vega.Contracts", "Terminal.Gui"]),
     .. moduleHost.SnapshotModules()
 ];

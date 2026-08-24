@@ -1,6 +1,6 @@
 using Multiplicity.Packets;
 using Multiplicity.Packets.Views;
-using OTAPI;
+using TerrariaRuntime;
 using Vega.Contracts.Networking;
 using Vega.Contracts.Operations;
 using Vega.Contracts.Players;

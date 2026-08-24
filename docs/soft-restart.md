@@ -6,9 +6,9 @@ Vega can recreate its bundled application modules without unloading Terraria or 
 
 | Lifetime | Components | Behavior |
 | --- | --- | --- |
-| `PreservedInfrastructure` | Terraria/OTAPI, loaded world, listener and connected players, game-thread dispatcher, persistence, accounts/sessions, bans, regions, localization, lifecycle, Operations/TUI, world image and backups | Remain alive and keep authoritative state. |
+| `PreservedInfrastructure` | Terraria/TerrariaRuntime, loaded world, listener and connected players, game-thread dispatcher, persistence, accounts/sessions, bans, regions, localization, lifecycle, Operations/TUI, world image and backups | Remain alive and keep authoritative state. |
 | `RestartableModule` | PVP, CustomItems, AutoWorldCleaner, Mentions, Chests, Wipe and Scenes | Recreated from explicit factories. Packet, chat, chest, command and status calls pass through the active generation router. |
-| `ProcessRestartOnly` | native/runtime assemblies, listener/world/storage selection, OTAPI hooks not owned by a tracked module, failed or uncollected `ServerPlugins` contexts | Require a normal process restart; Vega refuses to report a successful soft restart. |
+| `ProcessRestartOnly` | native/runtime assemblies, listener/world/storage selection, TerrariaRuntime hooks not owned by a tracked module, failed or uncollected `ServerPlugins` contexts | Require a normal process restart; Vega refuses to report a successful soft restart. |
 
 Module-owned temporary state resets. A module that genuinely needs continuity may implement `IModuleRestartStateParticipant`; the host accepts at most one MiB of explicitly keyed, version-matched state. Authentication, moderation, regions and world state do not use that handoff because they already belong to preserved services.
 

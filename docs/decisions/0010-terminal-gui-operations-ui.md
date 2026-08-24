@@ -19,7 +19,7 @@ Introduce an optional operations layer and Terminal UI after the player/packet/c
 Conceptually:
 
 ```text
-Terraria / OTAPI
+Terraria / TerrariaRuntime
        |
        v
  Vega.Terraria
