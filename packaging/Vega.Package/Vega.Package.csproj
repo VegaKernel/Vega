@@ -1,0 +1,54 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net11.0</TargetFramework>
+    <IsPackable>true</IsPackable>
+    <PackageId>VegaKernel</PackageId>
+    <Title>Vega</Title>
+    <Description>Vega native Terraria server contracts, runtime libraries, and bundled modules.</Description>
+    <MonoMod_ReallySkipCheckTargetRuntime>true</MonoMod_ReallySkipCheckTargetRuntime>
+    <IncludeSymbols>false</IncludeSymbols>
+    <NuspecFile>Vega.Package.nuspec</NuspecFile>
+    <NuspecProperties>
+      version=$(PackageVersion);configuration=$(Configuration);tfm=$(TargetFramework);repositoryRoot=$(MSBuildThisFileDirectory)..\..\
+    </NuspecProperties>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\Vega.Contracts\Vega.Contracts.csproj" PrivateAssets="all" />
+    <ProjectReference Include="..\..\src\Vega.Backups\Vega.Backups.csproj" PrivateAssets="all" />
+    <ProjectReference Include="..\..\src\Vega.Core\Vega.Core.csproj" PrivateAssets="all" />
+    <ProjectReference Include="..\..\src\Vega.Cluster\Vega.Cluster.csproj" PrivateAssets="all" />
+    <ProjectReference Include="..\..\src\Vega.Persistence\Vega.Persistence.csproj" PrivateAssets="all" />
+    <ProjectReference Include="..\..\src\Vega.Regions\Vega.Regions.csproj" PrivateAssets="all" />
+    <ProjectReference Include="..\..\src\Vega.Modules.Administration\Vega.Modules.Administration.csproj" PrivateAssets="all" />
+    <ProjectReference Include="..\..\src\Vega.Modules.AutoWorldCleaner\Vega.Modules.AutoWorldCleaner.csproj" PrivateAssets="all" />
+    <ProjectReference Include="..\..\src\Vega.Modules.Chests\Vega.Modules.Chests.csproj" PrivateAssets="all" />
+    <ProjectReference Include="..\..\src\Vega.Operations\Vega.Operations.csproj" PrivateAssets="all" />
+    <ProjectReference Include="..\..\src\Vega.Modules.Mentions\Vega.Modules.Mentions.csproj" PrivateAssets="all" />
+    <ProjectReference Include="..\..\src\Vega.Modules.Pvp\Vega.Modules.Pvp.csproj" PrivateAssets="all" />
+    <ProjectReference Include="..\..\src\Vega.Modules.CustomItems\Vega.Modules.CustomItems.csproj" PrivateAssets="all" />
+    <ProjectReference Include="..\..\src\Vega.Modules.Scenes\Vega.Modules.Scenes.csproj" PrivateAssets="all" />
+    <ProjectReference Include="..\..\src\Vega.Modules.Wipe\Vega.Modules.Wipe.csproj" PrivateAssets="all" />
+    <ProjectReference Include="..\..\src\Vega.Terraria\Vega.Terraria.csproj" PrivateAssets="all" />
+    <ProjectReference Include="..\..\src\Vega.TerminalUI\Vega.TerminalUI.csproj" PrivateAssets="all" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="MaxMind.GeoIP2" Version="6.1.0" />
+    <PackageReference Include="Microsoft.Data.Sqlite" Version="11.0.0-preview.7.26381.103" />
+    <PackageReference Include="Multiplicity" Version="2.6.2" />
+    <PackageReference Include="MySqlConnector" Version="2.6.2" />
+    <PackageReference Include="Npgsql" Version="10.0.3" />
+    <PackageReference Include="OTAPI.Upcoming" Version="3.3.14" />
+    <PackageReference Include="SQLitePCLRaw.bundle_e_sqlite3" Version="2.1.13" />
+    <PackageReference Include="Terminal.Gui" Version="2.4.17" />
+    <PackageReference Include="Terminal.Gui.Editor" Version="2.5.7" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <None Include="buildTransitive\VegaKernel.props"
+          Pack="true"
+          PackagePath="buildTransitive\VegaKernel.props" />
+  </ItemGroup>
+
+</Project>

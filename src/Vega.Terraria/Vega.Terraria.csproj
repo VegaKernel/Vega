@@ -18,11 +18,7 @@
   <ItemGroup>
     <InternalsVisibleTo Include="Vega.Runtime.Tests" />
     <InternalsVisibleTo Include="Vega.WorldImage.Benchmarks" />
+    <InternalsVisibleTo Include="Vega.PacketPipeline.Benchmarks" />
   </ItemGroup>
 
-  <ItemGroup>
-    <None Include="buildTransitive\VegaKernel.Terraria.props"
-          Pack="true"
-          PackagePath="buildTransitive\VegaKernel.Terraria.props" />
-  </ItemGroup>
 </Project>

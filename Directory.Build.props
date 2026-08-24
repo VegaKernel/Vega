@@ -15,6 +15,7 @@
     <PackageLicenseFile>LICENSE</PackageLicenseFile>
     <PackageReadmeFile>README_EN.md</PackageReadmeFile>
     <PackageRequireLicenseAcceptance>true</PackageRequireLicenseAcceptance>
+    <IsPackable Condition="'$(IsPackable)' == ''">false</IsPackable>
     <PackageId>$(MSBuildProjectName.Replace('Vega.', 'VegaKernel.'))</PackageId>
     <Title>$(MSBuildProjectName)</Title>
     <Description>Vega native Terraria server component: $(MSBuildProjectName).</Description>

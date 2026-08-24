@@ -6,16 +6,16 @@ Vega has two release workflows with separate responsibilities.
 
 ## Automatic tagged release
 
-`Release Tag` runs when a `v*` tag is pushed. During the .NET 11 preview baseline it requires `vMAJOR.MINOR.PATCH-SUFFIX`, requires the base version to match `VersionPrefix`, and marks the GitHub release as a prerelease. The workflow restores, builds and tests the tagged revision, packs the public `VegaKernel.*` libraries and symbol packages, publishes them to NuGet.org, and creates or refreshes the matching GitHub Release.
+`Release Tag` runs when a `v*` tag is pushed. During the .NET 11 preview baseline it requires `vMAJOR.MINOR.PATCH-SUFFIX`, requires the base version to match `VersionPrefix`, and marks the GitHub release as a prerelease. The workflow restores, builds and tests the tagged revision, creates the single `VegaKernel` NuGet package, publishes it to NuGet.org, and creates or refreshes the matching GitHub Release.
 
-Configure the repository Actions secret `NUGET_API_KEY` with a NuGet.org API key allowed to publish the `VegaKernel.*` package IDs before pushing the tag:
+Configure the repository Actions secret `NUGET_API_KEY` with a NuGet.org API key allowed to publish the `VegaKernel` package ID before pushing the tag:
 
 ```powershell
 git tag -a v1.0.1-preview.1 -m "Vega 1.0.1 preview 1"
 git push origin v1.0.1-preview.1
 ```
 
-The GitHub Release contains the deployable server ZIP, all `.nupkg` and `.snupkg` files, and `SHA256SUMS.txt`. NuGet duplicates are skipped and existing GitHub Release assets are replaced, so a previously interrupted run can be re-run safely.
+The GitHub Release contains the deployable server ZIP, the single `VegaKernel.*.nupkg`, and `SHA256SUMS.txt`. NuGet duplicates are skipped and existing GitHub Release assets are replaced, so a previously interrupted run can be re-run safely.
 
 ## Manual server publication
 

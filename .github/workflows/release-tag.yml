@@ -73,36 +73,16 @@ jobs:
       - name: Test
         run: dotnet test Vega.sln --configuration Release --no-build --no-restore --verbosity normal
 
-      - name: Pack NuGet components
+      - name: Pack unified NuGet package
         shell: pwsh
         env:
           RELEASE_VERSION: ${{ steps.version.outputs.version }}
         run: |
-          $projects = @(
-            "src/Vega.Contracts/Vega.Contracts.csproj",
-            "src/Vega.Backups/Vega.Backups.csproj",
-            "src/Vega.Core/Vega.Core.csproj",
-            "src/Vega.Cluster/Vega.Cluster.csproj",
-            "src/Vega.Persistence/Vega.Persistence.csproj",
-            "src/Vega.Regions/Vega.Regions.csproj",
-            "src/Vega.Sandboxes/Vega.Sandboxes.csproj",
-            "src/Vega.Modules.Administration/Vega.Modules.Administration.csproj",
-            "src/Vega.Modules.AutoWorldCleaner/Vega.Modules.AutoWorldCleaner.csproj",
-            "src/Vega.Modules.Chests/Vega.Modules.Chests.csproj",
-            "src/Vega.Operations/Vega.Operations.csproj",
-            "src/Vega.Modules.Mentions/Vega.Modules.Mentions.csproj",
-            "src/Vega.Modules.Pvp/Vega.Modules.Pvp.csproj",
-            "src/Vega.Modules.CustomItems/Vega.Modules.CustomItems.csproj",
-            "src/Vega.Modules.Scenes/Vega.Modules.Scenes.csproj",
-            "src/Vega.Modules.Wipe/Vega.Modules.Wipe.csproj",
-            "src/Vega.Terraria/Vega.Terraria.csproj",
-            "src/Vega.TerminalUI/Vega.TerminalUI.csproj"
-          )
-          foreach ($project in $projects) {
-            dotnet pack $project --configuration Release --no-build --no-restore `
-              --output artifacts/nuget -p:PackageVersion=$env:RELEASE_VERSION
-            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          }
+          dotnet pack packaging/Vega.Package/Vega.Package.csproj `
+            --configuration Release `
+            --output artifacts/nuget `
+            -p:PackageVersion=$env:RELEASE_VERSION
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
       - name: Publish deployable server
         shell: pwsh
@@ -191,7 +171,7 @@ jobs:
           New-Item -ItemType Directory -Force -Path artifacts/release | Out-Null
           Compress-Archive -Path artifacts/server/* `
             -DestinationPath "artifacts/release/Vega.Server-$env:RELEASE_VERSION.zip"
-          Copy-Item -Path artifacts/nuget/*.nupkg, artifacts/nuget/*.snupkg `
+          Copy-Item -Path artifacts/nuget/*.nupkg `
             -Destination artifacts/release/
 
           Get-ChildItem artifacts/release -File | ForEach-Object {
