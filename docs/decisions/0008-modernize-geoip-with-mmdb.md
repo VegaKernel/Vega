@@ -24,9 +24,9 @@ Organization
 
 Use local GeoIP2/GeoLite2 Country and ASN MMDB databases through `MaxMind.GeoIP2`. `DatabaseReader` instances are opened once and reused for connection-time lookups; there is no runtime HTTP lookup or database download on player connection.
 
-TShockNG looks for `GeoLite2-Country.mmdb` and `GeoLite2-ASN.mmdb` under the TShock save path. Missing databases disable only the unavailable metadata source; if neither database exists, GeoIP remains inactive and startup continues with a warning. Invalid existing databases fail closed at provider initialization and do not block server startup.
+Vega accepts explicit country and ASN MMDB paths through its IP metadata provider contract. Missing databases disable only the unavailable metadata source; if neither database exists, GeoIP remains inactive. Invalid existing databases fail closed at provider initialization and do not block server startup.
 
-The old database file and parser are removed from the repository and distribution. A narrow TShock-facing adapter may remain temporarily only to bridge the existing connection path while ADR 0005 moves behavior out of `TShockAPI`; it does not preserve the old database format or binary compatibility.
+The old database file, parser and compatibility adapter are removed from the repository and distribution. The old database format is not supported.
 
 The MMDB provider does not expose the historical proxy pseudo-country, so reputation policy is no longer inferred from geolocation metadata; a later reputation ADR may introduce an independent policy contract.
 

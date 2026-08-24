@@ -13,7 +13,7 @@
     <RepositoryType>git</RepositoryType>
     <PackageProjectUrl>https://github.com/VegaKernel/Vega</PackageProjectUrl>
     <PackageLicenseFile>LICENSE</PackageLicenseFile>
-    <PackageReadmeFile>README_EN.md</PackageReadmeFile>
+    <PackageReadmeFile>README.md</PackageReadmeFile>
     <PackageRequireLicenseAcceptance>true</PackageRequireLicenseAcceptance>
     <IsPackable Condition="'$(IsPackable)' == ''">false</IsPackable>
     <PackageId>$(MSBuildProjectName.Replace('Vega.', 'VegaKernel.'))</PackageId>
@@ -27,7 +27,7 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <None Include="$(MSBuildThisFileDirectory)LICENSE" Pack="true" PackagePath="" Visible="false" />
-    <None Include="$(MSBuildThisFileDirectory)README_EN.md" Pack="true" PackagePath="" Visible="false" />
+    <None Include="$(MSBuildThisFileDirectory)..\licenses\LICENSE" Pack="true" PackagePath="LICENSE" Visible="false" />
+    <None Include="$(MSBuildThisFileDirectory)..\docs\en\README.md" Pack="true" PackagePath="README.md" Visible="false" />
   </ItemGroup>
 </Project>

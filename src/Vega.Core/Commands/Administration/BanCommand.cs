@@ -13,7 +13,7 @@ public sealed class BanCommand(
     IBanService bans,
     TimeProvider? timeProvider = null) : ICommandHandler
 {
-    private const string BanPermission = "tshock.admin.ban";
+    private const string BanPermission = "vega.admin.ban";
     private readonly TimeProvider time = timeProvider ?? TimeProvider.System;
 
     public CommandDescriptor Descriptor { get; } = new(

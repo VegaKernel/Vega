@@ -8,7 +8,7 @@
     <owners>VegaKernel</owners>
     <requireLicenseAcceptance>true</requireLicenseAcceptance>
     <license type="file">LICENSE</license>
-    <readme>README_EN.md</readme>
+    <readme>README.md</readme>
     <projectUrl>https://github.com/VegaKernel/Vega</projectUrl>
     <repository type="git" url="https://github.com/VegaKernel/Vega" />
     <description>Vega native Terraria server contracts, runtime libraries, and bundled modules.</description>
@@ -19,7 +19,7 @@
         <dependency id="Multiplicity" version="2.6.2" exclude="Build,Analyzers" />
         <dependency id="MySqlConnector" version="2.6.2" exclude="Build,Analyzers" />
         <dependency id="Npgsql" version="10.0.3" exclude="Build,Analyzers" />
-        <dependency id="TerrariaRuntime" version="1.0.0" exclude="Build,Analyzers" />
+        <dependency id="TerrariaRuntime" version="1.0.1" exclude="Build,Analyzers" />
         <dependency id="SQLitePCLRaw.bundle_e_sqlite3" version="2.1.13" exclude="Build,Analyzers" />
         <dependency id="Terminal.Gui" version="2.4.17" exclude="Build,Analyzers" />
         <dependency id="Terminal.Gui.Editor" version="2.5.7" exclude="Build,Analyzers" />
@@ -27,44 +27,44 @@
     </dependencies>
   </metadata>
   <files>
-    <file src="$repositoryRoot$LICENSE" target="LICENSE" />
-    <file src="$repositoryRoot$README_EN.md" target="README_EN.md" />
-    <file src="$repositoryRoot$src\Vega.Contracts\bin\$configuration$\$tfm$\Vega.Contracts.dll" target="lib\$tfm$" />
-    <file src="$repositoryRoot$src\Vega.PluginSdk\bin\$configuration$\$tfm$\Vega.PluginSdk.dll" target="lib\$tfm$" />
-    <file src="$repositoryRoot$src\Vega.Backups\bin\$configuration$\$tfm$\Vega.Backups.dll" target="lib\$tfm$" />
-    <file src="$repositoryRoot$src\Vega.Core\bin\$configuration$\$tfm$\Vega.Core.dll" target="lib\$tfm$" />
-    <file src="$repositoryRoot$src\Vega.Cluster\bin\$configuration$\$tfm$\Vega.Cluster.dll" target="lib\$tfm$" />
-    <file src="$repositoryRoot$src\Vega.Persistence\bin\$configuration$\$tfm$\Vega.Persistence.dll" target="lib\$tfm$" />
-    <file src="$repositoryRoot$src\Vega.Regions\bin\$configuration$\$tfm$\Vega.Regions.dll" target="lib\$tfm$" />
-    <file src="$repositoryRoot$src\Vega.Modules.Administration\bin\$configuration$\$tfm$\Vega.Modules.Administration.dll" target="lib\$tfm$" />
-    <file src="$repositoryRoot$src\Vega.Modules.AutoWorldCleaner\bin\$configuration$\$tfm$\Vega.Modules.AutoWorldCleaner.dll" target="lib\$tfm$" />
-    <file src="$repositoryRoot$src\Vega.Modules.Chests\bin\$configuration$\$tfm$\Vega.Modules.Chests.dll" target="lib\$tfm$" />
-    <file src="$repositoryRoot$src\Vega.Operations\bin\$configuration$\$tfm$\Vega.Operations.dll" target="lib\$tfm$" />
-    <file src="$repositoryRoot$src\Vega.Modules.Mentions\bin\$configuration$\$tfm$\Vega.Modules.Mentions.dll" target="lib\$tfm$" />
-    <file src="$repositoryRoot$src\Vega.Modules.Pvp\bin\$configuration$\$tfm$\Vega.Modules.Pvp.dll" target="lib\$tfm$" />
-    <file src="$repositoryRoot$src\Vega.Modules.CustomItems\bin\$configuration$\$tfm$\Vega.Modules.CustomItems.dll" target="lib\$tfm$" />
-    <file src="$repositoryRoot$src\Vega.Modules.Scenes\bin\$configuration$\$tfm$\Vega.Modules.Scenes.dll" target="lib\$tfm$" />
-    <file src="$repositoryRoot$src\Vega.Modules.Wipe\bin\$configuration$\$tfm$\Vega.Modules.Wipe.dll" target="lib\$tfm$" />
-    <file src="$repositoryRoot$src\Vega.Terraria\bin\$configuration$\$tfm$\Vega.Terraria.dll" target="lib\$tfm$" />
-    <file src="$repositoryRoot$src\Vega.TerminalUI\bin\$configuration$\$tfm$\Vega.TerminalUI.dll" target="lib\$tfm$" />
-    <file src="$repositoryRoot$src\Vega.Contracts\bin\$configuration$\$tfm$\Vega.Contracts.pdb" target="lib\$tfm$" />
-    <file src="$repositoryRoot$src\Vega.PluginSdk\bin\$configuration$\$tfm$\Vega.PluginSdk.pdb" target="lib\$tfm$" />
-    <file src="$repositoryRoot$src\Vega.Backups\bin\$configuration$\$tfm$\Vega.Backups.pdb" target="lib\$tfm$" />
-    <file src="$repositoryRoot$src\Vega.Core\bin\$configuration$\$tfm$\Vega.Core.pdb" target="lib\$tfm$" />
-    <file src="$repositoryRoot$src\Vega.Cluster\bin\$configuration$\$tfm$\Vega.Cluster.pdb" target="lib\$tfm$" />
-    <file src="$repositoryRoot$src\Vega.Persistence\bin\$configuration$\$tfm$\Vega.Persistence.pdb" target="lib\$tfm$" />
-    <file src="$repositoryRoot$src\Vega.Regions\bin\$configuration$\$tfm$\Vega.Regions.pdb" target="lib\$tfm$" />
-    <file src="$repositoryRoot$src\Vega.Modules.Administration\bin\$configuration$\$tfm$\Vega.Modules.Administration.pdb" target="lib\$tfm$" />
-    <file src="$repositoryRoot$src\Vega.Modules.AutoWorldCleaner\bin\$configuration$\$tfm$\Vega.Modules.AutoWorldCleaner.pdb" target="lib\$tfm$" />
-    <file src="$repositoryRoot$src\Vega.Modules.Chests\bin\$configuration$\$tfm$\Vega.Modules.Chests.pdb" target="lib\$tfm$" />
-    <file src="$repositoryRoot$src\Vega.Operations\bin\$configuration$\$tfm$\Vega.Operations.pdb" target="lib\$tfm$" />
-    <file src="$repositoryRoot$src\Vega.Modules.Mentions\bin\$configuration$\$tfm$\Vega.Modules.Mentions.pdb" target="lib\$tfm$" />
-    <file src="$repositoryRoot$src\Vega.Modules.Pvp\bin\$configuration$\$tfm$\Vega.Modules.Pvp.pdb" target="lib\$tfm$" />
-    <file src="$repositoryRoot$src\Vega.Modules.CustomItems\bin\$configuration$\$tfm$\Vega.Modules.CustomItems.pdb" target="lib\$tfm$" />
-    <file src="$repositoryRoot$src\Vega.Modules.Scenes\bin\$configuration$\$tfm$\Vega.Modules.Scenes.pdb" target="lib\$tfm$" />
-    <file src="$repositoryRoot$src\Vega.Modules.Wipe\bin\$configuration$\$tfm$\Vega.Modules.Wipe.pdb" target="lib\$tfm$" />
-    <file src="$repositoryRoot$src\Vega.Terraria\bin\$configuration$\$tfm$\Vega.Terraria.pdb" target="lib\$tfm$" />
-    <file src="$repositoryRoot$src\Vega.TerminalUI\bin\$configuration$\$tfm$\Vega.TerminalUI.pdb" target="lib\$tfm$" />
-    <file src="buildTransitive\Vega.props" target="buildTransitive\Vega.props" />
+    <file src="$licenseSource$" target="LICENSE" />
+    <file src="$readmeSource$" target="README.md" />
+    <file src="src\Vega.Contracts\bin\$configuration$\$tfm$\Vega.Contracts.dll" target="lib\$tfm$" />
+    <file src="src\Vega.PluginSdk\bin\$configuration$\$tfm$\Vega.PluginSdk.dll" target="lib\$tfm$" />
+    <file src="src\Vega.Backups\bin\$configuration$\$tfm$\Vega.Backups.dll" target="lib\$tfm$" />
+    <file src="src\Vega.Core\bin\$configuration$\$tfm$\Vega.Core.dll" target="lib\$tfm$" />
+    <file src="src\Vega.Cluster\bin\$configuration$\$tfm$\Vega.Cluster.dll" target="lib\$tfm$" />
+    <file src="src\Vega.Persistence\bin\$configuration$\$tfm$\Vega.Persistence.dll" target="lib\$tfm$" />
+    <file src="src\Vega.Regions\bin\$configuration$\$tfm$\Vega.Regions.dll" target="lib\$tfm$" />
+    <file src="src\Vega.Modules.Administration\bin\$configuration$\$tfm$\Vega.Modules.Administration.dll" target="lib\$tfm$" />
+    <file src="src\Vega.Modules.AutoWorldCleaner\bin\$configuration$\$tfm$\Vega.Modules.AutoWorldCleaner.dll" target="lib\$tfm$" />
+    <file src="src\Vega.Modules.Chests\bin\$configuration$\$tfm$\Vega.Modules.Chests.dll" target="lib\$tfm$" />
+    <file src="src\Vega.Operations\bin\$configuration$\$tfm$\Vega.Operations.dll" target="lib\$tfm$" />
+    <file src="src\Vega.Modules.Mentions\bin\$configuration$\$tfm$\Vega.Modules.Mentions.dll" target="lib\$tfm$" />
+    <file src="src\Vega.Modules.Pvp\bin\$configuration$\$tfm$\Vega.Modules.Pvp.dll" target="lib\$tfm$" />
+    <file src="src\Vega.Modules.CustomItems\bin\$configuration$\$tfm$\Vega.Modules.CustomItems.dll" target="lib\$tfm$" />
+    <file src="src\Vega.Modules.Scenes\bin\$configuration$\$tfm$\Vega.Modules.Scenes.dll" target="lib\$tfm$" />
+    <file src="src\Vega.Modules.Wipe\bin\$configuration$\$tfm$\Vega.Modules.Wipe.dll" target="lib\$tfm$" />
+    <file src="src\Vega.Terraria\bin\$configuration$\$tfm$\Vega.Terraria.dll" target="lib\$tfm$" />
+    <file src="src\Vega.TerminalUI\bin\$configuration$\$tfm$\Vega.TerminalUI.dll" target="lib\$tfm$" />
+    <file src="src\Vega.Contracts\bin\$configuration$\$tfm$\Vega.Contracts.pdb" target="lib\$tfm$" />
+    <file src="src\Vega.PluginSdk\bin\$configuration$\$tfm$\Vega.PluginSdk.pdb" target="lib\$tfm$" />
+    <file src="src\Vega.Backups\bin\$configuration$\$tfm$\Vega.Backups.pdb" target="lib\$tfm$" />
+    <file src="src\Vega.Core\bin\$configuration$\$tfm$\Vega.Core.pdb" target="lib\$tfm$" />
+    <file src="src\Vega.Cluster\bin\$configuration$\$tfm$\Vega.Cluster.pdb" target="lib\$tfm$" />
+    <file src="src\Vega.Persistence\bin\$configuration$\$tfm$\Vega.Persistence.pdb" target="lib\$tfm$" />
+    <file src="src\Vega.Regions\bin\$configuration$\$tfm$\Vega.Regions.pdb" target="lib\$tfm$" />
+    <file src="src\Vega.Modules.Administration\bin\$configuration$\$tfm$\Vega.Modules.Administration.pdb" target="lib\$tfm$" />
+    <file src="src\Vega.Modules.AutoWorldCleaner\bin\$configuration$\$tfm$\Vega.Modules.AutoWorldCleaner.pdb" target="lib\$tfm$" />
+    <file src="src\Vega.Modules.Chests\bin\$configuration$\$tfm$\Vega.Modules.Chests.pdb" target="lib\$tfm$" />
+    <file src="src\Vega.Operations\bin\$configuration$\$tfm$\Vega.Operations.pdb" target="lib\$tfm$" />
+    <file src="src\Vega.Modules.Mentions\bin\$configuration$\$tfm$\Vega.Modules.Mentions.pdb" target="lib\$tfm$" />
+    <file src="src\Vega.Modules.Pvp\bin\$configuration$\$tfm$\Vega.Modules.Pvp.pdb" target="lib\$tfm$" />
+    <file src="src\Vega.Modules.CustomItems\bin\$configuration$\$tfm$\Vega.Modules.CustomItems.pdb" target="lib\$tfm$" />
+    <file src="src\Vega.Modules.Scenes\bin\$configuration$\$tfm$\Vega.Modules.Scenes.pdb" target="lib\$tfm$" />
+    <file src="src\Vega.Modules.Wipe\bin\$configuration$\$tfm$\Vega.Modules.Wipe.pdb" target="lib\$tfm$" />
+    <file src="src\Vega.Terraria\bin\$configuration$\$tfm$\Vega.Terraria.pdb" target="lib\$tfm$" />
+    <file src="src\Vega.TerminalUI\bin\$configuration$\$tfm$\Vega.TerminalUI.pdb" target="lib\$tfm$" />
+    <file src="packaging\Vega.Package\buildTransitive\Vega.props" target="buildTransitive\Vega.props" />
   </files>
 </package>

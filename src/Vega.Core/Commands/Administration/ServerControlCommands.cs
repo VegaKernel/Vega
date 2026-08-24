@@ -9,7 +9,7 @@ public sealed class SaveCommand(IServerControl server) : ICommandHandler
     public CommandDescriptor Descriptor { get; } = new(
         "save",
         Array.Empty<string>(),
-        ["tshock.cfg.maintenance"],
+        ["vega.cfg.maintenance"],
         Syntax: "save");
 
     public async ValueTask<CommandExecutionResult> ExecuteAsync(
@@ -38,7 +38,7 @@ public sealed class ShutdownCommand(IServerControl server) : ICommandHandler
     public CommandDescriptor Descriptor { get; } = new(
         "shutdown",
         ["stop", "off"],
-        ["tshock.cfg.maintenance"],
+        ["vega.cfg.maintenance"],
         Syntax: "shutdown [reason]");
 
     public async ValueTask<CommandExecutionResult> ExecuteAsync(

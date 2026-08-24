@@ -22,7 +22,7 @@ Vega заменяет фиксированный таймер Terraria, поэт
 поэтому одновременное ручное сохранение и autosave не дублируются. Команда
 `shutdown [причина]` (псевдонимы `stop` и `off`) запрашивает штатный выход server loop
 Terraria с `SaveOnServerExit=true` и не убивает процесс напрямую. Обе команды требуют
-право `tshock.cfg.maintenance`.
+право `vega.cfg.maintenance`.
 
 Очистка предметов и снарядов намеренно не относится к world-maintenance config. Её
 политикой и scheduler владеет опциональный модуль `Vega.Modules.AutoWorldCleaner`;

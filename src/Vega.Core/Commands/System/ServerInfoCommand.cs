@@ -9,7 +9,7 @@ public sealed class ServerInfoCommand(IHostMetricsReader metricsReader) : IComma
     public CommandDescriptor Descriptor { get; } = new(
         "serverinfo",
         Array.Empty<string>(),
-        ["tshock.info"],
+        ["vega.info"],
         Syntax: "serverinfo");
 
     public ValueTask<CommandExecutionResult> ExecuteAsync(

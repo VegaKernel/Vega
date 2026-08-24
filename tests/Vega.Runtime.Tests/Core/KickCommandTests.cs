@@ -189,7 +189,7 @@ public sealed class KickCommandTests
     private sealed class FakeAuthorization(params PlayerId[] immunePlayers) : IPlayerAuthorizationService
     {
         public bool HasPermission(PlayerId playerId, string permission) =>
-            permission == "tshock.admin.nokick" && immunePlayers.Contains(playerId);
+            permission == "vega.admin.nokick" && immunePlayers.Contains(playerId);
     }
 
     private sealed class FakePrincipal(bool isServer) : ICommandPrincipal

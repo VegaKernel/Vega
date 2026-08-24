@@ -542,7 +542,7 @@ public sealed class SandboxControlTests
     private static string FindTestBackend()
     {
         DirectoryInfo? current = new(TestContext.CurrentContext.TestDirectory);
-        while (current is not null && !File.Exists(Path.Combine(current.FullName, "Vega.sln"))) current = current.Parent;
+        while (current is not null && !File.Exists(Path.Combine(current.FullName, "src", "Vega.sln"))) current = current.Parent;
         Assert.That(current, Is.Not.Null);
         string targetFramework = new DirectoryInfo(TestContext.CurrentContext.TestDirectory).Name;
         string configuration = new DirectoryInfo(TestContext.CurrentContext.TestDirectory).Parent!.Name;

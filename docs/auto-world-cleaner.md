@@ -44,7 +44,7 @@ module.
 
 `worldclean run` (or `cleanworld run`) requests an immediate run through the same policy
 as the scheduler. `worldclean status` reports the latest state. The command requires
-`tshock.cfg.maintenance`; disabling the module in configuration also disables manual
+`vega.cfg.maintenance`; disabling the module in configuration also disables manual
 cleanup rather than creating a hidden policy bypass.
 
 Operations snapshots expose whether the cleaner is enabled, its current/last state,

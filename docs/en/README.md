@@ -59,24 +59,28 @@ flowchart TB
 
 ## Requirements
 
-- .NET SDK 11.0.100-preview.7.26381.103, pinned by `global.json`;
+- .NET SDK 11.0.100-preview.7.26381.103, pinned by `src/global.json`;
 - NuGet access for the initial restore;
 - a compatible Terraria/TerrariaRuntime server runtime environment.
 
 ## Build and test
 
 ```powershell
+Push-Location src
 dotnet restore Vega.sln
 dotnet build Vega.sln --configuration Release --no-restore
 dotnet test Vega.sln --configuration Release --no-build --no-restore
+Pop-Location
 ```
 
 Publish a ready-to-run server directory:
 
 ```powershell
-dotnet publish src/Vega.Runtime/Vega.Runtime.csproj `
+Push-Location src
+dotnet publish Vega.Runtime/Vega.Runtime.csproj `
   --configuration Release `
-  --output artifacts/server
+  --output ../artifacts/server
+Pop-Location
 ```
 
 The launcher stays at the publish root, shared dependencies live in `libs/`, and bundled server modules live in `ServerPlugins/`.
@@ -113,6 +117,6 @@ The roadmap records completed capabilities and the .NET 11 Preview 7 development
 
 ## License
 
-Original Vega code is distributed under the proprietary [Vega Proprietary License](LICENSE). Public access to the repository or a NuGet package does not make Vega open source and grants no use, modification, or redistribution rights beyond an express authorization.
+Original Vega code is distributed under the proprietary [Vega Proprietary License](../../licenses/LICENSE). Public access to the repository or a NuGet package does not make Vega open source and grants no use, modification, or redistribution rights beyond an express authorization.
 
 Third-party dependencies retain their respective licenses; see [licenses/README.md](licenses/README.md).

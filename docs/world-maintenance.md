@@ -22,7 +22,7 @@ Authorized operators use `save` for the same coalesced save barrier; a concurren
 autosave/manual save is joined rather than duplicated. `shutdown [reason]` (aliases
 `stop` and `off`) requests Terraria's normal server-loop exit with
 `SaveOnServerExit=true`; it never kills the Vega process directly. Both commands require
-`tshock.cfg.maintenance`.
+`vega.cfg.maintenance`.
 
 Item/projectile cleanup is deliberately not part of world maintenance configuration.
 Its policy and scheduler belong to the optional `Vega.Modules.AutoWorldCleaner` module;

@@ -672,7 +672,7 @@ int Start()
 
 IDisposable RegisterCoreRussianCatalog(ILocalizationService localization) =>
     localization.RegisterCatalog(
-        "tshock",
+        "vega",
         "ru-RU",
         new Dictionary<string, string>(StringComparer.Ordinal)
         {

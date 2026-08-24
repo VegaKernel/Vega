@@ -7,6 +7,17 @@ namespace Vega.Architecture.Tests;
 public sealed class RuntimeDependencyTests
 {
     [Test]
+    public void RepositoryRootContainsOnlyEntryPointFiles()
+    {
+        string[] files = Directory.EnumerateFiles(FindRepositoryRoot())
+            .Select(Path.GetFileName)
+            .Order(StringComparer.Ordinal)
+            .ToArray()!;
+
+        Assert.That(files, Is.EqualTo(new[] { ".gitignore", "AGENTS.md", "README.md" }));
+    }
+
+    [Test]
     public void RegionsIsACompleteContractsOnlyVerticalSlice()
     {
         string repositoryRoot = FindRepositoryRoot();
@@ -187,7 +198,7 @@ public sealed class RuntimeDependencyTests
     public void VegaRepository_has_no_TSAPI_or_TShock_runtime_projects()
     {
         var repositoryRoot = FindRepositoryRoot();
-        string solution = File.ReadAllText(Path.Combine(repositoryRoot, "Vega.sln"));
+        string solution = File.ReadAllText(Path.Combine(repositoryRoot, "src", "Vega.sln"));
         string host = File.ReadAllText(Path.Combine(
             repositoryRoot, "src", "Vega.Terraria", "TerrariaServerHost.cs"));
 
@@ -277,7 +288,7 @@ public sealed class RuntimeDependencyTests
     public void NuGetPublicationProducesOneUnifiedPackageWithVisibleMonoModOptIn()
     {
         string repositoryRoot = FindRepositoryRoot();
-        string defaults = File.ReadAllText(Path.Combine(repositoryRoot, "Directory.Build.props"));
+        string defaults = File.ReadAllText(Path.Combine(repositoryRoot, "src", "Directory.Build.props"));
         string project = File.ReadAllText(Path.Combine(
             repositoryRoot, "packaging", "Vega.Package", "Vega.Package.csproj"));
         string packageProps = File.ReadAllText(Path.Combine(
@@ -483,7 +494,7 @@ public sealed class RuntimeDependencyTests
 
         Assert.Multiple(() =>
         {
-            Assert.That(terrariaProject, Does.Contain("PackageReference Include=\"TerrariaRuntime\" Version=\"1.0.0\""));
+            Assert.That(terrariaProject, Does.Contain("PackageReference Include=\"TerrariaRuntime\" Version=\"1.0.1\""));
             Assert.That(terrariaProject, Does.Not.Contain("TerrariaRuntime.Upcoming"));
             Assert.That(runtimeProject, Does.Not.Contain("ModFramework"));
         });
@@ -737,7 +748,7 @@ public sealed class RuntimeDependencyTests
             var directory = new DirectoryInfo(start);
             while (directory is not null)
             {
-                if (File.Exists(Path.Combine(directory.FullName, "Vega.sln")))
+                if (File.Exists(Path.Combine(directory.FullName, "src", "Vega.sln")))
                 {
                     return directory.FullName;
                 }

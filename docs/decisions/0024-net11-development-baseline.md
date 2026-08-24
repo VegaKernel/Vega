@@ -12,17 +12,17 @@ The last .NET 10 baseline before this migration is commit `2a528ce8efb78e3b223f5
 
 The selected development SDK is `.NET SDK 11.0.100-preview.7.26381.103`. .NET 11 is still a preview runtime, so adopting it for active development does not by itself make it the stable production channel.
 
-The current Terraria integration chain uses TerrariaRuntime 1.0.0, which provides native `net11.0` runtime and hook assemblies and removes the former ModFramework dependency. Multiplicity and the resolved MonoMod stack still select compatible lower-target assets, and MonoMod retains its explicit unsupported-target warning. The full package graph and its owned exception are recorded in the [.NET 11 dependency audit](../net11-dependency-audit.md). A successful restore and build therefore do not replace the required hook, world, network and shutdown smoke tests before production promotion.
+The current Terraria integration chain uses TerrariaRuntime 1.0.1, which provides native `net11.0` runtime and hook assemblies and removes the former ModFramework dependency. Multiplicity and the resolved MonoMod stack still select compatible lower-target assets, and MonoMod retains its explicit unsupported-target warning. The full package graph and its owned exception are recorded in the [.NET 11 dependency audit](../net11-dependency-audit.md). A successful restore and build therefore do not replace the required hook, world, network and shutdown smoke tests before production promotion.
 
 ## Decision
 
 - Target `net11.0` for all first-party Vega runtime, libraries, bundled modules, tests and benchmark harnesses during active development.
-- Pin `11.0.100-preview.7.26381.103` in `global.json`, CI and release workflows, and use the matching version-specific Preview 7 container tags so framework comparisons are reproducible.
+- Pin `11.0.100-preview.7.26381.103` in `src/global.json` and CI/release workflows so framework comparisons are reproducible.
 - Keep the server runtime on CoreCLR with tiered JIT and dynamic PGO. Do not introduce NativeAOT into `Vega.Server` as part of this migration.
 - Enable .NET 11 Runtime Async for every first-party project from the migration baseline through the central `runtime-async=on` compiler feature. Do not silently disable it for individual projects.
 - Publish the first-party library surface as the single authoritative `Vega` package on `net11.0`; do not multi-target the complete repository merely to preserve .NET 10. A future narrow package split requires an actual supported consumer and a separately measured compatibility decision.
 - Consume the single `TerrariaRuntime` package directly from `Vega.Terraria`; keep its runtime-specific assets and MonoMod.Core propagation owned by TerrariaRuntime instead of duplicating fallback resolution in Vega.
-- Use `sdk:11.0.100-preview.7` and `runtime:11.0.0-preview.7` for Linux container stages. Use `runtime:11.0.0-preview.7-nanoserver-ltsc2025` for Windows because the preview runtime image is not published for LTSC 2022.
+- Keep container packaging outside this repository until a maintained deployment target and image contract are defined; the obsolete TShock-shaped Dockerfile is not part of the .NET 11 baseline.
 - Treat RC/GA dependency revalidation, deployment-host soak, representative world startup and performance comparison as production-promotion gates rather than blockers for the development branch.
 
 ## Validation
@@ -34,7 +34,6 @@ The development migration must prove at least:
 - world-image benchmark harness compilation;
 - tagged/manual release workflow use of the same SDK;
 - deployable runtime layout with TerrariaRuntime, TerrariaRuntime.Hooks and the required MonoMod.Core asset;
-- a clean .NET 11 container build for supported container targets before production promotion;
 - no global warning suppressions added merely to make the preview compile;
 - a metadata guard proving representative first-party async methods carry `MethodImplAttributes.Async`;
 - a recorded .NET 10 versus .NET 11 Runtime Async baseline before Phase 22 packet-pipeline changes are attributed to the framework.

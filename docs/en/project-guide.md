@@ -1,6 +1,6 @@
 # Vega project guide
 
-[Русская версия](../ru/project-guide.md) · [Repository README](../../README_EN.md) · [Roadmap](../roadmap.md) · [ADRs](../decisions/)
+[Русская версия](../ru/project-guide.md) · [Repository README](README.md) · [Roadmap](../roadmap.md) · [ADRs](../decisions/)
 
 ## 1. Project overview
 
@@ -60,7 +60,7 @@ The runtime composes bundled modules explicitly. `ServerPlugins/` also supports 
 
 ## 4. Prerequisites
 
-- .NET SDK 11.0.100-preview.7.26381.103, pinned by `global.json`;
+- .NET SDK 11.0.100-preview.7.26381.103, pinned by `src/global.json`;
 - network access to configured NuGet feeds for the first restore;
 - Git when building from a clone;
 - a platform supported by the selected Terraria/TerrariaRuntime runtime packages.
@@ -74,9 +74,11 @@ All first-party projects compile with .NET 11 Runtime Async through the central 
 Run from the repository root:
 
 ```powershell
+Push-Location src
 dotnet restore Vega.sln
 dotnet build Vega.sln --configuration Release --no-restore
 dotnet test Vega.sln --configuration Release --no-build --no-restore
+Pop-Location
 ```
 
 Build the world-image benchmark harness separately:
@@ -101,9 +103,11 @@ MonoMod emits an expected warning because Vega explicitly opts into the target r
 ## 6. Publish and distribution layout
 
 ```powershell
-dotnet publish src/Vega.Runtime/Vega.Runtime.csproj `
+Push-Location src
+dotnet publish Vega.Runtime/Vega.Runtime.csproj `
   --configuration Release `
-  --output artifacts/server
+  --output ../artifacts/server
+Pop-Location
 ```
 
 The resulting directory is arranged as follows:
@@ -256,4 +260,4 @@ When a change moves ownership, alters threading, changes readiness semantics, ad
 3. update the subsystem document or ADR;
 4. update the roadmap only when the implementation and validation are complete.
 
-Original Vega code is proprietary. Review [LICENSE](../../LICENSE) before using or distributing source, binaries, containers, or NuGet packages. Third-party materials keep their own terms.
+Original Vega code is proprietary. Review the [Vega Proprietary License](../../licenses/LICENSE) before using or distributing source, binaries, or NuGet packages. Third-party materials keep their own terms.

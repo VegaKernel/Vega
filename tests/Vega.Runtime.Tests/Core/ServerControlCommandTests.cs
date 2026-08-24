@@ -19,7 +19,7 @@ public sealed class ServerControlCommandTests
             new ShutdownCommand(control)
         ]);
         var denied = new Principal("player", []);
-        var operatorPrincipal = new Principal("operator", ["tshock.cfg.maintenance"]);
+        var operatorPrincipal = new Principal("operator", ["vega.cfg.maintenance"]);
 
         CommandExecutionResult deniedSave = await dispatcher.DispatchAsync(
             Invocation("save", [], denied));

@@ -18,7 +18,7 @@ public sealed class MuteCommand(
     public CommandDescriptor Descriptor { get; } = new(
         "mute",
         ["unmute"],
-        ["tshock.admin.mute"],
+        ["vega.admin.mute"],
         Syntax: "mute <online-player> <duration> [reason] | mute add <name|account> <value> <duration> [reason] | mute list | mute show <id> | unmute <id>");
 
     public async ValueTask<CommandExecutionResult> ExecuteAsync(

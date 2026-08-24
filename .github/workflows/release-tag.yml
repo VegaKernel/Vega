@@ -33,7 +33,7 @@ jobs:
           $baseVersion = $Matches.base
           $packageVersion = "$baseVersion$($Matches.suffix)"
 
-          [xml] $props = Get-Content -LiteralPath Directory.Build.props -Raw
+          [xml] $props = Get-Content -LiteralPath src/Directory.Build.props -Raw
           $projectVersion = [string] $props.Project.PropertyGroup.VersionPrefix
           if ($baseVersion -ne $projectVersion) {
             throw "Tag base version '$baseVersion' does not match VersionPrefix '$projectVersion'."
@@ -56,13 +56,13 @@ jobs:
           Invoke-WebRequest "$base/GeoLite2-ASN-Test.mmdb" -OutFile "$target/GeoLite2-ASN-Test.mmdb"
 
       - name: Restore
-        run: dotnet restore Vega.sln
+        run: dotnet restore src/Vega.sln
 
       - name: Build
-        run: dotnet build Vega.sln --configuration Release --no-restore
+        run: dotnet build src/Vega.sln --configuration Release --no-restore
 
       - name: Test
-        run: dotnet test Vega.sln --configuration Release --no-build --no-restore --verbosity normal
+        run: dotnet test src/Vega.sln --configuration Release --no-build --no-restore --verbosity normal
 
       - name: Pack unified validation package
         shell: pwsh
@@ -87,8 +87,11 @@ jobs:
             --output artifacts/server
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
-          Copy-Item -LiteralPath LICENSE, README.md, README_EN.md `
-            -Destination artifacts/server/
+          Copy-Item -LiteralPath README.md -Destination artifacts/server/
+          Copy-Item -LiteralPath licenses/LICENSE `
+            -Destination artifacts/server/LICENSE
+          Copy-Item -LiteralPath docs/en/README.md `
+            -Destination artifacts/server/README_EN.md
           Set-Content -LiteralPath artifacts/server/VERSION `
             -Value $env:RELEASE_VERSION -Encoding ascii
 

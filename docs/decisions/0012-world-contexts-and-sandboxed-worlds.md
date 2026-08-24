@@ -123,19 +123,6 @@ Cross-world operations must not directly mutate another world's Terraria state. 
 
 A failure in one sandbox should be contained as far as the selected backend permits. Multi-process sandboxes provide the strongest isolation and are therefore the preferred first production implementation.
 
-## Legacy source migration
-
-`TShockAPI.dll` may temporarily expose legacy single-server concepts while their source-level migration paths are still needed. This is not a binary-compatibility guarantee (ADR 0015).
-
-For legacy source callers during that migration:
-
-- `TShock.Players`, legacy commands and existing hooks may map to the player's/current primary world;
-- callers using the transitional legacy source surface are not required to understand `WorldId` immediately;
-- modern plugins/services use contracts from `TShockNG.Contracts` and can be world-aware;
-- legacy members remain only while they have an active source-level migration purpose.
-
-The legacy bridge must not expose arbitrary cross-world mutable Terraria objects.
-
 ## Operations UI
 
 Terminal.Gui consumes the operations/read-model layer and should eventually show all managed world contexts, for example:

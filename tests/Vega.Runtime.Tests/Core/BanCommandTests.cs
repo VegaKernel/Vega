@@ -113,7 +113,7 @@ public sealed class BanCommandTests
             new CommandInvocation(
                 "ban",
                 ["list"],
-                new FakePrincipal(["tshock.admin.ban"]),
+                new FakePrincipal(["vega.admin.ban"]),
                 new FakeOutput()),
             CancellationToken.None);
 

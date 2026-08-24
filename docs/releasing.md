@@ -1,6 +1,6 @@
 # Releasing Vega
 
-`Directory.Build.props` is the single source of truth for the Vega base version. While active development uses a preview .NET runtime, new release tags must add a SemVer prerelease suffix, for example `v1.0.1-preview.1` for `VersionPrefix` 1.0.1. Stable `vMAJOR.MINOR.PATCH` tags remain reserved for the production runtime channel.
+`src/Directory.Build.props` is the single source of truth for the Vega base version. While active development uses a preview .NET runtime, new release tags must add a SemVer prerelease suffix, for example `v1.0.1-preview.1` for `VersionPrefix` 1.0.1. Stable `vMAJOR.MINOR.PATCH` tags remain reserved for the production runtime channel.
 
 Vega has two release workflows with separate responsibilities.
 

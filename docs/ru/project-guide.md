@@ -60,7 +60,7 @@ Runtime подключает встроенные модули явно. Для 
 
 ## 4. Требования
 
-- .NET SDK 11.0.100-preview.7.26381.103, закреплённый в `global.json`;
+- .NET SDK 11.0.100-preview.7.26381.103, закреплённый в `src/global.json`;
 - доступ к настроенным NuGet feeds при первом restore;
 - Git для сборки из клона;
 - платформа, поддерживаемая выбранными Terraria/TerrariaRuntime runtime-пакетами.
@@ -74,9 +74,11 @@ Runtime подключает встроенные модули явно. Для 
 Запускайте из корня репозитория:
 
 ```powershell
+Push-Location src
 dotnet restore Vega.sln
 dotnet build Vega.sln --configuration Release --no-restore
 dotnet test Vega.sln --configuration Release --no-build --no-restore
+Pop-Location
 ```
 
 Benchmark harness для world image собирается отдельно:
@@ -101,9 +103,11 @@ MonoMod выдаёт ожидаемое предупреждение из-за �
 ## 6. Публикация и структура дистрибутива
 
 ```powershell
-dotnet publish src/Vega.Runtime/Vega.Runtime.csproj `
+Push-Location src
+dotnet publish Vega.Runtime/Vega.Runtime.csproj `
   --configuration Release `
-  --output artifacts/server
+  --output ../artifacts/server
+Pop-Location
 ```
 
 Полученный каталог устроен так:
@@ -256,4 +260,4 @@ Cluster support опционален. Текущий transport — in-memory ref
 3. обновите документ подсистемы или ADR;
 4. отмечайте пункт roadmap завершённым только после реализации и проверки.
 
-Оригинальный код Vega является проприетарным. Перед использованием или распространением исходников, бинарных файлов, контейнеров или NuGet-пакетов прочитайте [LICENSE](../../LICENSE). Сторонние материалы сохраняют собственные условия.
+Оригинальный код Vega является проприетарным. Перед использованием или распространением исходников, бинарных файлов или NuGet-пакетов прочитайте [Vega Proprietary License](../../licenses/LICENSE). Сторонние материалы сохраняют собственные условия.

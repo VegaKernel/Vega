@@ -7,7 +7,7 @@ namespace Vega.Core.Commands.Players;
 
 public sealed class PlayingCommand(IPlayerDirectory players) : ICommandHandler
 {
-    private const string SeePlayerIdsPermission = "tshock.admin.seeplayerids";
+    private const string SeePlayerIdsPermission = "vega.admin.seeplayerids";
     private const int MaxLineLength = 80;
     private const int LinesPerPage = 4;
 

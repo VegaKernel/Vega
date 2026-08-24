@@ -2,7 +2,7 @@
 
 <p align="center">
   <strong>Русский</strong>
-  · <a href="README_EN.md">English</a>
+  · <a href="docs/en/README.md">English</a>
   · <a href="docs/ru/project-guide.md">Документация</a>
   · <a href="docs/roadmap.md">Roadmap</a>
   · <a href="docs/decisions/">ADR</a>
@@ -59,24 +59,28 @@ flowchart TB
 
 ## Требования
 
-- .NET SDK 11.0.100-preview.7.26381.103, закреплённый в `global.json`;
+- .NET SDK 11.0.100-preview.7.26381.103, закреплённый в `src/global.json`;
 - доступ к NuGet при первом восстановлении пакетов;
 - совместимая Terraria/TerrariaRuntime server runtime-среда.
 
 ## Сборка и тесты
 
 ```powershell
+Push-Location src
 dotnet restore Vega.sln
 dotnet build Vega.sln --configuration Release --no-restore
 dotnet test Vega.sln --configuration Release --no-build --no-restore
+Pop-Location
 ```
 
 Публикация готового сервера:
 
 ```powershell
-dotnet publish src/Vega.Runtime/Vega.Runtime.csproj `
+Push-Location src
+dotnet publish Vega.Runtime/Vega.Runtime.csproj `
   --configuration Release `
-  --output artifacts/server
+  --output ../artifacts/server
+Pop-Location
 ```
 
 После публикации launcher остаётся в корне, общие зависимости находятся в `libs/`, а встроенные серверные модули — в `ServerPlugins/`.
@@ -113,6 +117,6 @@ Roadmap фиксирует завершённые возможности и пе
 
 ## Лицензия
 
-Оригинальный код Vega распространяется по проприетарной лицензии [Vega Proprietary License](LICENSE). Публичная доступность репозитория или NuGet-пакета не делает проект open source и не предоставляет права использования, модификации или распространения сверх явно выданного разрешения.
+Оригинальный код Vega распространяется по [Vega Proprietary License](licenses/LICENSE). Публичная доступность репозитория или NuGet-пакета не делает проект open source и не предоставляет права использования, модификации или распространения сверх явно выданного разрешения.
 
 Сторонние зависимости сохраняют лицензии своих правообладателей; см. [licenses/README.md](licenses/README.md).

@@ -4,7 +4,7 @@
 
 Accepted
 
-Supersedes the long-term compatibility and TSAPI-target assumptions in ADR 0001, ADR 0005, ADR 0007 and ADR 0015. It amends ADR 0006, ADR 0012, ADR 0013 and ADR 0014 where those decisions refer to TShockNG, TSAPI, TShockAPI or legacy plugin surfaces as target architecture.
+Supersedes the removed migration-era compatibility and TSAPI-target decisions. It amends ADR 0012, ADR 0013 and ADR 0014 where those decisions refer to TShockNG, TSAPI, TShockAPI or legacy plugin surfaces as target architecture.
 
 ## Context
 
@@ -145,13 +145,9 @@ The current ADR set is interpreted as follows after this decision:
 
 | ADR | Result |
 |---|---|
-| 0001 | Historical; compatibility policy superseded by 0015 and ultimately by this ADR |
 | 0002 | Remains valid where protocol ownership is independent of TShock/TSAPI naming |
 | 0003 | Remains valid |
 | 0004 | Remains directionally valid; event/module surfaces become Vega-native |
-| 0005 | Superseded as target layering where it assigns a target role to TShockAPI |
-| 0006 | .NET 10 baseline remains valid; TSAPI stack validation is historical migration evidence, not a target dependency |
-| 0007 | Superseded as target layout where it reserves permanent TShockAPI/TSAPI locations |
 | 0008 | Remains valid; implementation must live behind Vega contracts/boundaries |
 | 0009 | Remains directionally valid; names and legacy adapters are transitional |
 | 0010 | Remains directionally valid; UI consumes Vega operations contracts |
@@ -159,7 +155,6 @@ The current ADR set is interpreted as follows after this decision:
 | 0012 | Remains valid with Vega naming and without a long-term TShock bridge |
 | 0013 | Remains valid as production-requirements evidence; legacy loader/adapter goals are removed |
 | 0014 | Remains valid as module/Core capability guidance; compatibility adapters are not a goal |
-| 0015 | Superseded; even narrow source-level TShock compatibility is transitional, not a target contract |
 
 ## Consequences
 

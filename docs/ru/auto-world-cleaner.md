@@ -44,7 +44,7 @@ sandbox backend смогут дать собственную реализаци�
 
 `worldclean run` (или `cleanworld run`) запускает очистку немедленно через ту же политику,
 что и scheduler. `worldclean status` показывает последнее состояние. Требуется permission
-`tshock.cfg.maintenance`; выключенный в конфиге модуль не допускает и ручной обход
+`vega.cfg.maintenance`; выключенный в конфиге модуль не допускает и ручной обход
 политики.
 
 Operations snapshot содержит enabled/state, времена запуска/завершения и количество

@@ -34,15 +34,15 @@ jobs:
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
           $version = $tag.Substring(1)
-          [xml] $props = Get-Content -LiteralPath Directory.Build.props -Raw
+          [xml] $props = Get-Content -LiteralPath src/Directory.Build.props -Raw
           $projectVersion = [string] $props.Project.PropertyGroup.VersionPrefix
           if ($version -ne $projectVersion) {
             throw "Latest tag version '$version' does not match VersionPrefix '$projectVersion'."
           }
 
           $sdkVersion = '10.0.x'
-          if (Test-Path -LiteralPath global.json -PathType Leaf) {
-            $sdkVersion = (Get-Content -LiteralPath global.json -Raw | ConvertFrom-Json).sdk.version
+          if (Test-Path -LiteralPath src/global.json -PathType Leaf) {
+            $sdkVersion = (Get-Content -LiteralPath src/global.json -Raw | ConvertFrom-Json).sdk.version
           }
 
           "tag=$tag" >> $env:GITHUB_OUTPUT
@@ -66,8 +66,11 @@ jobs:
             --output artifacts/server
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
-          Copy-Item -LiteralPath LICENSE, README.md, README_EN.md `
-            -Destination artifacts/server/
+          Copy-Item -LiteralPath README.md -Destination artifacts/server/
+          Copy-Item -LiteralPath licenses/LICENSE `
+            -Destination artifacts/server/LICENSE
+          Copy-Item -LiteralPath docs/en/README.md `
+            -Destination artifacts/server/README_EN.md
           Set-Content -LiteralPath artifacts/server/VERSION `
             -Value '${{ steps.tag.outputs.version }}' -Encoding ascii
 

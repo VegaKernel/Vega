@@ -52,7 +52,7 @@ public sealed class StructuredCommandOutputTests
     {
         var command = new CheckUpdatesCommand(new SuccessfulUpdateChecker());
 
-        Assert.That(command.Descriptor.Permissions, Is.EqualTo(new[] { "tshock.cfg.maintenance" }));
+        Assert.That(command.Descriptor.Permissions, Is.EqualTo(new[] { "vega.cfg.maintenance" }));
     }
 
     [Test]

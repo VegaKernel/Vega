@@ -29,13 +29,13 @@ jobs:
           Invoke-WebRequest "$base/GeoIP2-Country-Test.mmdb" -OutFile "$target/GeoIP2-Country-Test.mmdb"
           Invoke-WebRequest "$base/GeoLite2-ASN-Test.mmdb" -OutFile "$target/GeoLite2-ASN-Test.mmdb"
       - name: Restore Vega
-        run: dotnet restore Vega.sln
+        run: dotnet restore src/Vega.sln
       - name: Restore world-image benchmark harness
         run: dotnet restore benchmarks/Vega.WorldImage.Benchmarks/Vega.WorldImage.Benchmarks.csproj
       - name: Build Vega
-        run: dotnet build Vega.sln --configuration Release --no-restore
+        run: dotnet build src/Vega.sln --configuration Release --no-restore
       - name: Test Vega
-        run: dotnet test Vega.sln --configuration Release --no-build --verbosity normal
+        run: dotnet test src/Vega.sln --configuration Release --no-build --verbosity normal
       - name: Run plugin SDK facade baseline
         run: >-
           dotnet run

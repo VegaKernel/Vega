@@ -6,7 +6,7 @@ This audit records the dependency state of the .NET 11 Preview 7 development bas
 
 | Area | Resolved packages | Selected assets | Decision |
 | --- | --- | --- | --- |
-| Terraria and hooks | TerrariaRuntime 1.0.0, Multiplicity 2.6.2 | `net11.0` plus Multiplicity's compatible asset | Use the single current TerrariaRuntime package. ModFramework and the legacy Upcoming package are no longer part of the graph. Production promotion still requires real hook, world and network validation. |
+| Terraria and hooks | TerrariaRuntime 1.0.1, Multiplicity 2.6.2 | `net11.0` plus Multiplicity's compatible asset | Use the single current TerrariaRuntime package. ModFramework and the legacy Upcoming package are no longer part of the graph. Production promotion still requires real hook, world and network validation. |
 | Runtime detours | MonoMod.Core 1.3.6, RuntimeDetour 25.3.6, Utils 25.0.14, Backports 1.1.2 and ILHelpers 1.1.0 | `net5.0` through `net9.0`; patched Core is supplied by TerrariaRuntime | The resolved stack does not officially accept `net11.0`. Vega keeps the explicit opt-in and its warning; this is the outstanding compatibility exception. |
 | Persistence | Microsoft.Data.Sqlite 11.0.0-preview.7.26381.103, MySqlConnector 2.6.2, Npgsql 10.0.3, SQLitePCLRaw 2.1.13 | `net10.0`, `net6.0` and `netstandard2.0` | Align Sqlite with the pinned SDK preview. Local SQLite tests pass; PostgreSQL/MySQL remain covered by their service-backed CI job and are not represented by skipped local tests. |
 | Runtime system assemblies | System.Configuration.ConfigurationManager and System.Drawing.Common 11.0.0-preview.7.26381.103 | `net11.0` | Align with the pinned runtime because TerrariaRuntime exposes types that require these undeclared assemblies. |
@@ -18,7 +18,7 @@ The remaining transitive graph consists of the Microsoft.Extensions.Configuratio
 
 ## Changes made by the audit
 
-- TerrariaRuntime 1.0.0 replaced the legacy Upcoming and ModFramework packages. Vega now consumes native `net11.0` runtime and hook assemblies from one package.
+- TerrariaRuntime 1.0.1 replaced the legacy Upcoming and ModFramework packages. Vega now consumes native `net11.0` runtime and hook assemblies from one package.
 - Microsoft.Data.Sqlite, System.Configuration.ConfigurationManager and System.Drawing.Common moved from .NET 10 packages to the pinned .NET 11 Preview 7 package version. No schema, configuration or runtime-layout change was required.
 - Microsoft.NET.Test.Sdk moved from 18.8.1 to 18.9.0. The test count and execution model remain unchanged, except for the new compatibility guards added with this audit.
 - Every bundled `Vega.Modules.*` project is guarded as `net11.0`. The hot-plugin loader reads `TargetFrameworkAttribute` before loading the assembly and rejects a newer or different runtime with an actionable startup diagnostic.

@@ -169,7 +169,7 @@ public sealed class ServerPluginHotReloadHostTests
     private static string FindTestPlugin()
     {
         DirectoryInfo? current = new(TestContext.CurrentContext.TestDirectory);
-        while (current is not null && !File.Exists(Path.Combine(current.FullName, "Vega.sln")))
+        while (current is not null && !File.Exists(Path.Combine(current.FullName, "src", "Vega.sln")))
         {
             current = current.Parent;
         }

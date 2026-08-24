@@ -10,8 +10,8 @@ public sealed class KickCommand(
     IPlayerOperations playerOperations,
     IPlayerAuthorizationService authorization) : ICommandHandler
 {
-    private const string KickPermission = "tshock.admin.kick";
-    private const string KickImmunityPermission = "tshock.admin.nokick";
+    private const string KickPermission = "vega.admin.kick";
+    private const string KickImmunityPermission = "vega.admin.nokick";
 
     public CommandDescriptor Descriptor { get; } = new(
         "kick",

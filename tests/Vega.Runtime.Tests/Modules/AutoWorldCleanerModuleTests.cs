@@ -162,7 +162,7 @@ public sealed class AutoWorldCleanerModuleTests
             Assert.That(run.Status, Is.EqualTo(CommandExecutionStatus.Success));
             Assert.That(status.Status, Is.EqualTo(CommandExecutionStatus.Success));
             Assert.That(command.Descriptor.Aliases, Does.Contain("cleanworld"));
-            Assert.That(command.Descriptor.Permissions, Does.Contain("tshock.cfg.maintenance"));
+            Assert.That(command.Descriptor.Permissions, Does.Contain("vega.cfg.maintenance"));
         });
     }
 

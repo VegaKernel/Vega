@@ -12,7 +12,7 @@ namespace Vega.Terraria.Players;
 /// <summary>
 /// Captures and restores the Terraria-owned character state used by sandbox SSC modes.
 /// The serialized payload is intentionally Vega-owned so the shared sandbox store remains independent
-/// from TShock's database schema and from any one Terraria process.
+/// from legacy database schemas and from any one Terraria process.
 /// </summary>
 public sealed class TerrariaSandboxSscCharacterAdapter(IGameThreadDispatcher dispatcher) : ISandboxSscCharacterAdapter
 {

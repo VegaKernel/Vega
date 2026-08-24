@@ -1,75 +1,74 @@
-﻿
 Microsoft Visual Studio Solution File, Format Version 12.00
 # Visual Studio Version 17
 VisualStudioVersion = 17.0.31825.309
 MinimumVisualStudioVersion = 10.0.40219.1
-Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "Vega.Contracts", "src\Vega.Contracts\Vega.Contracts.csproj", "{A0A93F13-55D7-4C1E-9E5B-5A90B8E2A001}"
+Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "Vega.Contracts", "Vega.Contracts\Vega.Contracts.csproj", "{A0A93F13-55D7-4C1E-9E5B-5A90B8E2A001}"
 EndProject
-Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "Vega.Core", "src\Vega.Core\Vega.Core.csproj", "{A0A93F13-55D7-4C1E-9E5B-5A90B8E2A002}"
+Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "Vega.Core", "Vega.Core\Vega.Core.csproj", "{A0A93F13-55D7-4C1E-9E5B-5A90B8E2A002}"
 EndProject
-Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "Vega.Terraria", "src\Vega.Terraria\Vega.Terraria.csproj", "{A0A93F13-55D7-4C1E-9E5B-5A90B8E2A003}"
+Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "Vega.Terraria", "Vega.Terraria\Vega.Terraria.csproj", "{A0A93F13-55D7-4C1E-9E5B-5A90B8E2A003}"
 EndProject
-Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "Vega.Operations", "src\Vega.Operations\Vega.Operations.csproj", "{A0A93F13-55D7-4C1E-9E5B-5A90B8E2A005}"
+Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "Vega.Operations", "Vega.Operations\Vega.Operations.csproj", "{A0A93F13-55D7-4C1E-9E5B-5A90B8E2A005}"
 EndProject
-Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "Vega.TerminalUI", "src\Vega.TerminalUI\Vega.TerminalUI.csproj", "{A0A93F13-55D7-4C1E-9E5B-5A90B8E2A006}"
+Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "Vega.TerminalUI", "Vega.TerminalUI\Vega.TerminalUI.csproj", "{A0A93F13-55D7-4C1E-9E5B-5A90B8E2A006}"
 EndProject
-Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "Vega.Modules.Pvp", "src\Vega.Modules.Pvp\Vega.Modules.Pvp.csproj", "{A0A93F13-55D7-4C1E-9E5B-5A90B8E2A007}"
+Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "Vega.Modules.Pvp", "Vega.Modules.Pvp\Vega.Modules.Pvp.csproj", "{A0A93F13-55D7-4C1E-9E5B-5A90B8E2A007}"
 EndProject
-Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "Vega.Modules.CustomItems", "src\Vega.Modules.CustomItems\Vega.Modules.CustomItems.csproj", "{5001FDF4-7F89-49AB-B7A2-75AEB1378650}"
+Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "Vega.Modules.CustomItems", "Vega.Modules.CustomItems\Vega.Modules.CustomItems.csproj", "{5001FDF4-7F89-49AB-B7A2-75AEB1378650}"
 EndProject
-Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "Vega.Cluster", "src\Vega.Cluster\Vega.Cluster.csproj", "{A0A93F13-55D7-4C1E-9E5B-5A90B8E2A008}"
+Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "Vega.Cluster", "Vega.Cluster\Vega.Cluster.csproj", "{A0A93F13-55D7-4C1E-9E5B-5A90B8E2A008}"
 EndProject
-Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "Vega.Persistence", "src\Vega.Persistence\Vega.Persistence.csproj", "{C7B8D6AB-1347-4A2B-90F3-7DD330B3A901}"
+Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "Vega.Persistence", "Vega.Persistence\Vega.Persistence.csproj", "{C7B8D6AB-1347-4A2B-90F3-7DD330B3A901}"
 EndProject
-Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "Vega.Runtime", "src\Vega.Runtime\Vega.Runtime.csproj", "{2A312452-A43F-43E3-8AEB-E22F9A35C210}"
+Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "Vega.Runtime", "Vega.Runtime\Vega.Runtime.csproj", "{2A312452-A43F-43E3-8AEB-E22F9A35C210}"
 EndProject
-Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "Vega.Runtime.Tests", "tests\Vega.Runtime.Tests\Vega.Runtime.Tests.csproj", "{90AB47F3-8220-48FC-BDAB-D6E97BFDA51B}"
+Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "Vega.Runtime.Tests", "..\tests\Vega.Runtime.Tests\Vega.Runtime.Tests.csproj", "{90AB47F3-8220-48FC-BDAB-D6E97BFDA51B}"
 EndProject
-Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "Vega.Architecture.Tests", "tests\Vega.Architecture.Tests\Vega.Architecture.Tests.csproj", "{A0A93F13-55D7-4C1E-9E5B-5A90B8E2A004}"
+Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "Vega.Architecture.Tests", "..\tests\Vega.Architecture.Tests\Vega.Architecture.Tests.csproj", "{A0A93F13-55D7-4C1E-9E5B-5A90B8E2A004}"
 EndProject
-Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "Vega.HotReload.TestPlugin", "tests\Vega.HotReload.TestPlugin\Vega.HotReload.TestPlugin.csproj", "{B1B04F24-66E8-4E19-AF44-4D4AF1C83F01}"
+Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "Vega.HotReload.TestPlugin", "..\tests\Vega.HotReload.TestPlugin\Vega.HotReload.TestPlugin.csproj", "{B1B04F24-66E8-4E19-AF44-4D4AF1C83F01}"
 EndProject
-Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "Vega.Modules.AutoWorldCleaner", "src\Vega.Modules.AutoWorldCleaner\Vega.Modules.AutoWorldCleaner.csproj", "{C93209DB-B4F5-4522-9678-D39AF244BB77}"
+Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "Vega.Modules.AutoWorldCleaner", "Vega.Modules.AutoWorldCleaner\Vega.Modules.AutoWorldCleaner.csproj", "{C93209DB-B4F5-4522-9678-D39AF244BB77}"
 EndProject
 Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "src", "src", "{827E0CD3-B72D-47B6-A68D-7590B98EB39B}"
 EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Vega.Modules.Mentions", "src\Vega.Modules.Mentions\Vega.Modules.Mentions.csproj", "{35FCD31F-DD4C-49CC-BC01-0CE1916CA676}"
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Vega.Modules.Mentions", "Vega.Modules.Mentions\Vega.Modules.Mentions.csproj", "{35FCD31F-DD4C-49CC-BC01-0CE1916CA676}"
 EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Vega.Modules.Chests", "src\Vega.Modules.Chests\Vega.Modules.Chests.csproj", "{57421BB4-6C4E-4983-A120-A6769DBD73CC}"
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Vega.Modules.Chests", "Vega.Modules.Chests\Vega.Modules.Chests.csproj", "{57421BB4-6C4E-4983-A120-A6769DBD73CC}"
 EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Vega.Modules.Wipe", "src\Vega.Modules.Wipe\Vega.Modules.Wipe.csproj", "{5516CF2D-E4B0-49C5-969F-4AEBAF207864}"
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Vega.Modules.Wipe", "Vega.Modules.Wipe\Vega.Modules.Wipe.csproj", "{5516CF2D-E4B0-49C5-969F-4AEBAF207864}"
 EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Vega.Modules.Scenes", "src\Vega.Modules.Scenes\Vega.Modules.Scenes.csproj", "{94F8C24B-6D6D-4DE8-9AB6-D876C8CECB79}"
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Vega.Modules.Scenes", "Vega.Modules.Scenes\Vega.Modules.Scenes.csproj", "{94F8C24B-6D6D-4DE8-9AB6-D876C8CECB79}"
 EndProject
 Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "benchmarks", "benchmarks", "{66320409-64EC-F7C5-3DEF-65E7510DAAD1}"
 EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Vega.Scene.Benchmarks", "benchmarks\Vega.Scene.Benchmarks\Vega.Scene.Benchmarks.csproj", "{D0AF1EAA-E568-494E-B0C6-F2BCFB2F26A6}"
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Vega.Scene.Benchmarks", "..\benchmarks\Vega.Scene.Benchmarks\Vega.Scene.Benchmarks.csproj", "{D0AF1EAA-E568-494E-B0C6-F2BCFB2F26A6}"
 EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Vega.Sandboxes", "src\Vega.Sandboxes\Vega.Sandboxes.csproj", "{0F0A7698-45C0-4698-A2DF-A7B6B3BBF89E}"
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Vega.Sandboxes", "Vega.Sandboxes\Vega.Sandboxes.csproj", "{0F0A7698-45C0-4698-A2DF-A7B6B3BBF89E}"
 EndProject
 Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "tests", "tests", "{0AB3BF05-4346-4AA6-1389-037BE0695223}"
 EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Vega.Sandbox.TestBackend", "tests\Vega.Sandbox.TestBackend\Vega.Sandbox.TestBackend.csproj", "{B46BDA08-F932-47DE-81EC-452D4A720C81}"
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Vega.Sandbox.TestBackend", "..\tests\Vega.Sandbox.TestBackend\Vega.Sandbox.TestBackend.csproj", "{B46BDA08-F932-47DE-81EC-452D4A720C81}"
 EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Vega.Sandbox.Benchmarks", "benchmarks\Vega.Sandbox.Benchmarks\Vega.Sandbox.Benchmarks.csproj", "{83209C45-8B7F-47E8-B59C-0CEE16F3A8B8}"
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Vega.Sandbox.Benchmarks", "..\benchmarks\Vega.Sandbox.Benchmarks\Vega.Sandbox.Benchmarks.csproj", "{83209C45-8B7F-47E8-B59C-0CEE16F3A8B8}"
 EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Vega.Backups", "src\Vega.Backups\Vega.Backups.csproj", "{1B29BFDE-92A8-462D-B5CE-8109E20B8ABC}"
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Vega.Backups", "Vega.Backups\Vega.Backups.csproj", "{1B29BFDE-92A8-462D-B5CE-8109E20B8ABC}"
 EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Vega.SoftRestart.Benchmarks", "benchmarks\Vega.SoftRestart.Benchmarks\Vega.SoftRestart.Benchmarks.csproj", "{537876B3-0939-43B2-9E85-93D43DB63419}"
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Vega.SoftRestart.Benchmarks", "..\benchmarks\Vega.SoftRestart.Benchmarks\Vega.SoftRestart.Benchmarks.csproj", "{537876B3-0939-43B2-9E85-93D43DB63419}"
 EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Vega.Regions", "src\Vega.Regions\Vega.Regions.csproj", "{685D5BEE-1233-4883-86A0-208C1037EA3F}"
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Vega.Regions", "Vega.Regions\Vega.Regions.csproj", "{685D5BEE-1233-4883-86A0-208C1037EA3F}"
 EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Vega.Modules.Administration", "src\Vega.Modules.Administration\Vega.Modules.Administration.csproj", "{A583777E-9B4D-437C-949F-2A66756764EC}"
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Vega.Modules.Administration", "Vega.Modules.Administration\Vega.Modules.Administration.csproj", "{A583777E-9B4D-437C-949F-2A66756764EC}"
 EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Vega.PluginSdk", "src\Vega.PluginSdk\Vega.PluginSdk.csproj", "{1136150F-BCCE-47E8-9CEA-369B9B97F8DD}"
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Vega.PluginSdk", "Vega.PluginSdk\Vega.PluginSdk.csproj", "{1136150F-BCCE-47E8-9CEA-369B9B97F8DD}"
 EndProject
 Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "samples", "samples", "{5D20AA90-6969-D8BD-9DCD-8634F4692FDA}"
 EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Vega.PluginSamples", "samples\Vega.PluginSamples\Vega.PluginSamples.csproj", "{3E9A5519-0279-42BE-8ADB-51EB9B7F8786}"
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Vega.PluginSamples", "..\samples\Vega.PluginSamples\Vega.PluginSamples.csproj", "{3E9A5519-0279-42BE-8ADB-51EB9B7F8786}"
 EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Vega.AdvancedPacketPlugin", "samples\Vega.AdvancedPacketPlugin\Vega.AdvancedPacketPlugin.csproj", "{A24D4306-9F31-4ED4-A3EE-0E87EE8BBAFD}"
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Vega.AdvancedPacketPlugin", "..\samples\Vega.AdvancedPacketPlugin\Vega.AdvancedPacketPlugin.csproj", "{A24D4306-9F31-4ED4-A3EE-0E87EE8BBAFD}"
 EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Vega.PluginSdk.Benchmarks", "benchmarks\Vega.PluginSdk.Benchmarks\Vega.PluginSdk.Benchmarks.csproj", "{6F9996E4-9F12-48A9-A288-F93989611778}"
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Vega.PluginSdk.Benchmarks", "..\benchmarks\Vega.PluginSdk.Benchmarks\Vega.PluginSdk.Benchmarks.csproj", "{6F9996E4-9F12-48A9-A288-F93989611778}"
 EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution

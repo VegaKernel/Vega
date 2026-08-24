@@ -133,7 +133,7 @@ A durable outbox is optional and should be introduced only if a real scenario re
 
 - [x] Port the first two behavior references (`PvPController-1.3` and `CustomWeaponAPI`) to prove the Vega module boundary.
 - [x] Restore a pinned pre-cleanup TShock/TSAPI reference snapshot and lock current TerraZ source revisions outside the production solution.
-- [x] Complete every `Keep`, `Port`, `Replace` or `Drop` decision in the [TShock and TerraZ migration audit](migration-audit.md); an unclassified subsystem or plugin keeps this phase open.
+- [x] Complete every `Keep`, `Port`, `Replace` or `Drop` migration decision before removing the closed migration ledger.
 - [x] Port accepted TerraZ behavior to the Vega module API by capability, not by reproducing TShock class shapes.
 - [x] Use each migrated module as the forcing function for its required contract instead of building an abstract framework ahead of a consumer.
 - [x] Add incident-backed regression tests before retiring the corresponding TShock/TerraZ behavior or workaround.
@@ -162,7 +162,7 @@ The post-1.4.5 registration audit also routes client `TeamChangeFromUI (157)` th
 - [x] Remove TShockAPI and TSAPI from the production solution after the native runtime no longer depends on them.
 - [x] Remove legacy hook/command/plugin compatibility surfaces from the shipping runtime.
 - [x] Rename active physical `TShock*` project paths/namespaces to Vega names.
-- [x] Resolve every legacy subsystem and TerraZ repository in the [migration audit](migration-audit.md), with source evidence, target owner, disposition and validation recorded.
+- [x] Resolve every legacy subsystem and TerraZ repository, then remove the closed migration ledger from the active documentation set.
 - [x] Preserve the pinned source references until all accepted behavior, edge cases and incident regressions have executable Vega coverage.
 - [x] Review deleted configuration, command, permission, persistence, localization, REST and operations documentation against the running Vega product; restore or rewrite every still-relevant operator contract.
 - [x] Close the scaffolding-removal gate only when there are no unresolved `Partial`, `Missing` or `Unclassified` rows—physical deletion alone is not completion.

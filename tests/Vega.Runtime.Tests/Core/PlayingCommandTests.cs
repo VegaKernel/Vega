@@ -52,7 +52,7 @@ public sealed class PlayingCommandTests
         var command = Command(Player(4, "Alice"), Player(12, "Bob"));
 
         CommandExecutionResult result = await command.ExecuteAsync(
-            Invocation("who", ["-I"], permissions: ["tshock.admin.seeplayerids"]),
+            Invocation("who", ["-I"], permissions: ["vega.admin.seeplayerids"]),
             CancellationToken.None);
 
         Assert.That(
