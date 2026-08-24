@@ -4,7 +4,7 @@
 
 ## 1. Project overview
 
-Vega is an independent Terraria server runtime and framework built for .NET 10. The process host uses OTAPI for low-level Terraria integration while Vega owns the server-facing contracts, policies, module lifecycle, observability, and application boundaries.
+Vega is an independent Terraria server runtime and framework built for .NET 11 Preview 7. The process host uses OTAPI for low-level Terraria integration while Vega owns the server-facing contracts, policies, module lifecycle, observability, and application boundaries.
 
 The project is designed around three rules:
 
@@ -57,12 +57,14 @@ The runtime composes bundled modules explicitly. `ServerPlugins/` also supports 
 
 ## 4. Prerequisites
 
-- .NET 10 SDK;
+- .NET SDK 11.0.100-preview.7.26381.103, pinned by `global.json`;
 - network access to configured NuGet feeds for the first restore;
 - Git when building from a clone;
 - a platform supported by the selected Terraria/OTAPI runtime packages.
 
 The repository pins its important package versions in project files. Do not add the old MonoMod development feed or restore removed TSAPI submodules.
+
+All first-party projects compile with .NET 11 Runtime Async through the central `runtime-async=on` feature in `Directory.Build.props`. Do not disable or replace that feature in an individual project; the architecture suite verifies the emitted runtime-async metadata.
 
 ## 5. Build and test
 

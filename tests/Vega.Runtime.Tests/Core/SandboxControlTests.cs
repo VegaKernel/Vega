@@ -544,6 +544,7 @@ public sealed class SandboxControlTests
         DirectoryInfo? current = new(TestContext.CurrentContext.TestDirectory);
         while (current is not null && !File.Exists(Path.Combine(current.FullName, "Vega.sln"))) current = current.Parent;
         Assert.That(current, Is.Not.Null);
+        string targetFramework = new DirectoryInfo(TestContext.CurrentContext.TestDirectory).Name;
         string configuration = new DirectoryInfo(TestContext.CurrentContext.TestDirectory).Parent!.Name;
         string path = Path.Combine(
             current!.FullName,
@@ -551,7 +552,7 @@ public sealed class SandboxControlTests
             "Vega.Sandbox.TestBackend",
             "bin",
             configuration,
-            "net10.0",
+            targetFramework,
             "Vega.Sandbox.TestBackend.dll");
         Assert.That(File.Exists(path), Is.True, $"Test backend was not built: {path}");
         return path;

@@ -145,6 +145,7 @@ public sealed class ServerPluginHotReloadHostTests
         }
 
         Assert.That(current, Is.Not.Null, "Repository root was not found from the test output directory.");
+        string targetFramework = new DirectoryInfo(TestContext.CurrentContext.TestDirectory).Name;
         string configuration = new DirectoryInfo(TestContext.CurrentContext.TestDirectory).Parent!.Name;
         string path = Path.Combine(
             current!.FullName,
@@ -152,7 +153,7 @@ public sealed class ServerPluginHotReloadHostTests
             "Vega.HotReload.TestPlugin",
             "bin",
             configuration,
-            "net10.0",
+            targetFramework,
             "Vega.HotReload.TestPlugin.dll");
         Assert.That(File.Exists(path), Is.True, $"Test plugin was not built: {path}");
         return path;

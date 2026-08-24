@@ -4,7 +4,7 @@
 
 ## 1. Обзор проекта
 
-Vega — самостоятельный серверный runtime и framework для Terraria на .NET 10. Process host использует OTAPI для низкоуровневой интеграции с Terraria, а Vega владеет серверными контрактами, политиками, жизненным циклом модулей, наблюдаемостью и application boundaries.
+Vega — самостоятельный серверный runtime и framework для Terraria на .NET 11 Preview 7. Process host использует OTAPI для низкоуровневой интеграции с Terraria, а Vega владеет серверными контрактами, политиками, жизненным циклом модулей, наблюдаемостью и application boundaries.
 
 Проект строится вокруг трёх правил:
 
@@ -57,12 +57,14 @@ Runtime подключает встроенные модули явно. Для 
 
 ## 4. Требования
 
-- .NET 10 SDK;
+- .NET SDK 11.0.100-preview.7.26381.103, закреплённый в `global.json`;
 - доступ к настроенным NuGet feeds при первом restore;
 - Git для сборки из клона;
 - платформа, поддерживаемая выбранными Terraria/OTAPI runtime-пакетами.
 
 Важные версии пакетов закреплены в project files. Не нужно добавлять старый MonoMod development feed или восстанавливать удалённые TSAPI submodules.
+
+Все first-party проекты компилируются с .NET 11 Runtime Async через централизованный feature `runtime-async=on` в `Directory.Build.props`. Не отключайте и не заменяйте его в отдельном проекте: architecture suite проверяет сгенерированные runtime-async metadata.
 
 ## 5. Сборка и тесты
 

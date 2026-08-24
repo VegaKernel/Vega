@@ -27,18 +27,19 @@ jobs:
         env:
           RELEASE_TAG: ${{ github.ref_name }}
         run: |
-          if ($env:RELEASE_TAG -notmatch '^v(?<version>[0-9]+\.[0-9]+\.[0-9]+)$') {
-            throw "Release tags must use vMAJOR.MINOR.PATCH; received '$env:RELEASE_TAG'."
+          if ($env:RELEASE_TAG -notmatch '^v(?<base>[0-9]+\.[0-9]+\.[0-9]+)(?<suffix>-[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)$') {
+            throw "The .NET 11 preview channel requires a prerelease tag such as v1.0.1-preview.1; received '$env:RELEASE_TAG'."
           }
-          $tagVersion = $Matches.version
+          $baseVersion = $Matches.base
+          $packageVersion = "$baseVersion$($Matches.suffix)"
 
           [xml] $props = Get-Content -LiteralPath Directory.Build.props -Raw
           $projectVersion = [string] $props.Project.PropertyGroup.VersionPrefix
-          if ($tagVersion -ne $projectVersion) {
-            throw "Tag version '$tagVersion' does not match VersionPrefix '$projectVersion'."
+          if ($baseVersion -ne $projectVersion) {
+            throw "Tag base version '$baseVersion' does not match VersionPrefix '$projectVersion'."
           }
 
-          "version=$tagVersion" >> $env:GITHUB_OUTPUT
+          "version=$packageVersion" >> $env:GITHUB_OUTPUT
 
       - name: Setup .NET
         uses: actions/setup-dotnet@v5
@@ -85,6 +86,7 @@ jobs:
             "src/Vega.Persistence/Vega.Persistence.csproj",
             "src/Vega.Regions/Vega.Regions.csproj",
             "src/Vega.Sandboxes/Vega.Sandboxes.csproj",
+            "src/Vega.Modules.Administration/Vega.Modules.Administration.csproj",
             "src/Vega.Modules.AutoWorldCleaner/Vega.Modules.AutoWorldCleaner.csproj",
             "src/Vega.Modules.Chests/Vega.Modules.Chests.csproj",
             "src/Vega.Operations/Vega.Operations.csproj",
@@ -149,6 +151,7 @@ jobs:
             'ModFramework.dll'
           )
           $requiredPlugins = @(
+            'Vega.Modules.Administration.dll',
             'Vega.Modules.AutoWorldCleaner.dll',
             'Vega.Modules.Chests.dll',
             'Vega.Modules.Mentions.dll',
@@ -230,6 +233,7 @@ jobs:
             gh release create $env:RELEASE_TAG artifacts/release/* `
               --repo $env:GITHUB_REPOSITORY `
               --verify-tag `
+              --prerelease `
               --title "Vega $env:RELEASE_VERSION" `
               --generate-notes
           }

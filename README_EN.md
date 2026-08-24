@@ -8,7 +8,7 @@
   · <a href="docs/decisions/">ADRs</a>
 </p>
 
-Vega is an independent Terraria server runtime and framework targeting .NET 10. It hosts Terraria through OTAPI, separates game integration from server behavior, and exposes typed contracts for commands, events, players, packets, modules, operations, and cluster scenarios.
+Vega is an independent Terraria server runtime and framework targeting .NET 11 Preview 7. It hosts Terraria through OTAPI, separates game integration from server behavior, and exposes typed contracts for commands, events, players, packets, modules, operations, and cluster scenarios.
 
 Vega is not a TShock fork and does not provide binary or source compatibility for TShock/TSAPI plugins. Historical implementations are used only as evidence for production behavior, requirements, and regression scenarios.
 
@@ -59,7 +59,7 @@ flowchart TB
 
 ## Requirements
 
-- .NET 10 SDK for builds;
+- .NET SDK 11.0.100-preview.7.26381.103, pinned by `global.json`;
 - NuGet access for the initial restore;
 - a compatible Terraria/OTAPI server runtime environment.
 
@@ -109,7 +109,7 @@ Supported modes are `auto`, `tui`, `plain`, and `headless`. Enable the world-ima
 
 ## Status
 
-The roadmap records completed capabilities and the intentionally deferred .NET 11 migration. Dimensions forwarding, sandbox backends, scheduled backups and soft restart are implemented but risky operational modes stay disabled or conservatively bounded by default. Authoritative SSC, legacy whitelist/warps and TShock REST compatibility are explicit non-goals for Vega 1.0.
+The roadmap records completed capabilities and the .NET 11 Preview 7 development migration; production promotion remains gated by compatibility, deployment, and soak validation. Dimensions forwarding, sandbox backends, scheduled backups and soft restart are implemented but risky operational modes stay disabled or conservatively bounded by default. Authoritative SSC, legacy whitelist/warps and TShock REST compatibility are explicit non-goals for Vega 1.0.
 
 ## License
 

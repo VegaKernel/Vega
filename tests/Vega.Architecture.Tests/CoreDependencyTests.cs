@@ -1,5 +1,7 @@
+using System.Reflection;
 using NUnit.Framework;
 using Vega.Core.Commands;
+using Vega.Core.Events;
 
 namespace Vega.Architecture.Tests;
 
@@ -27,5 +29,14 @@ public sealed class CoreDependencyTests
 
         Assert.That(forbidden, Is.Empty,
             $"Vega.Core must stay independent from Terraria, OTAPI, TSAPI and TShockAPI. Forbidden references: {string.Join(", ", forbidden)}");
+    }
+
+    [Test]
+    public void VegaCore_uses_runtime_async()
+    {
+        var method = typeof(AsyncEventPipeline<>).GetMethod(nameof(AsyncEventPipeline<object>.DispatchAsync));
+
+        Assert.That(method, Is.Not.Null);
+        Assert.That(method!.GetMethodImplementationFlags().HasFlag(MethodImplAttributes.Async), Is.True);
     }
 }

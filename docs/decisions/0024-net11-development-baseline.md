@@ -12,15 +12,17 @@ The last .NET 10 baseline before this migration is commit `2a528ce8efb78e3b223f5
 
 The selected development SDK is `.NET SDK 11.0.100-preview.7.26381.103`. .NET 11 is still a preview runtime, so adopting it for active development does not by itself make it the stable production channel.
 
+The current Terraria integration chain still supplies lower-target assets: OTAPI 3.3.12, ModFramework 1.1.15, Multiplicity 2.6.2 and the resolved MonoMod stack provide `net9.0` assemblies. NuGet resolves those assets for `net11.0` without compatibility warnings, but MonoMod retains its explicit unsupported-target warning. A successful restore and build therefore do not replace the required hook, world, network and shutdown smoke tests before production promotion.
+
 ## Decision
 
 - Target `net11.0` for all first-party Vega runtime, libraries, bundled modules, tests and benchmark harnesses during active development.
-- Pin `11.0.100-preview.7.26381.103` in `global.json`, CI and release workflows so framework comparisons are reproducible.
+- Pin `11.0.100-preview.7.26381.103` in `global.json`, CI and release workflows, and use the matching version-specific Preview 7 container tags so framework comparisons are reproducible.
 - Keep the server runtime on CoreCLR with tiered JIT and dynamic PGO. Do not introduce NativeAOT into `Vega.Server` as part of this migration.
-- Keep .NET 11 Runtime Async disabled for the baseline migration. Enable it only in a separate benchmarked experiment after the plain `net10` versus `net11` comparison is recorded.
+- Enable .NET 11 Runtime Async for every first-party project from the migration baseline through the central `runtime-async=on` compiler feature. Do not silently disable it for individual projects.
 - Do not multi-target the complete repository merely to preserve .NET 10. A narrow public package may regain a .NET 10 target only when an actual supported consumer requires it and the compatibility cost is measured.
 - Preserve the existing `Vega.Terraria` fallback asset resolution for OTAPI/ModFramework packages when an exact `net11.0` package asset directory is absent; do not add local forks or binding hacks unless compatibility testing proves they are required.
-- Move the .NET 11 preview Windows container baseline to Nano Server LTSC 2025 because the preview runtime image is not published for LTSC 2022. Linux containers use the .NET 11 preview runtime image.
+- Use `sdk:11.0.100-preview.7` and `runtime:11.0.0-preview.7` for Linux container stages. Use `runtime:11.0.0-preview.7-nanoserver-ltsc2025` for Windows because the preview runtime image is not published for LTSC 2022.
 - Treat RC/GA dependency revalidation, deployment-host soak, representative world startup and performance comparison as production-promotion gates rather than blockers for the development branch.
 
 ## Validation
@@ -34,7 +36,8 @@ The development migration must prove at least:
 - deployable runtime layout and OTAPI/ModFramework asset resolution;
 - a clean .NET 11 container build for supported container targets before production promotion;
 - no global warning suppressions added merely to make the preview compile;
-- a recorded .NET 10 versus plain .NET 11 baseline before Runtime Async or Phase 22 packet-pipeline changes are attributed to the framework.
+- a metadata guard proving representative first-party async methods carry `MethodImplAttributes.Async`;
+- a recorded .NET 10 versus .NET 11 Runtime Async baseline before Phase 22 packet-pipeline changes are attributed to the framework.
 
 ## Consequences
 

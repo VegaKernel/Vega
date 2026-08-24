@@ -40,13 +40,19 @@ jobs:
             throw "Latest tag version '$version' does not match VersionPrefix '$projectVersion'."
           }
 
+          $sdkVersion = '10.0.x'
+          if (Test-Path -LiteralPath global.json -PathType Leaf) {
+            $sdkVersion = (Get-Content -LiteralPath global.json -Raw | ConvertFrom-Json).sdk.version
+          }
+
           "tag=$tag" >> $env:GITHUB_OUTPUT
           "version=$version" >> $env:GITHUB_OUTPUT
+          "sdk-version=$sdkVersion" >> $env:GITHUB_OUTPUT
 
       - name: Setup .NET
         uses: actions/setup-dotnet@v5
         with:
-          dotnet-version: 11.0.100-preview.7.26381.103
+          dotnet-version: ${{ steps.tag.outputs.sdk-version }}
 
       - name: Restore server
         run: dotnet restore src/Vega.Runtime/Vega.Runtime.csproj
@@ -95,6 +101,7 @@ jobs:
             'ModFramework.dll'
           )
           $requiredPlugins = @(
+            'Vega.Modules.Administration.dll',
             'Vega.Modules.AutoWorldCleaner.dll',
             'Vega.Modules.Chests.dll',
             'Vega.Modules.Mentions.dll',
