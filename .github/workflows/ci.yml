@@ -30,6 +30,8 @@ jobs:
           Invoke-WebRequest "$base/GeoLite2-ASN-Test.mmdb" -OutFile "$target/GeoLite2-ASN-Test.mmdb"
       - name: Restore Vega
         run: dotnet restore src/Vega.sln
+      - name: Restore unified package project
+        run: dotnet restore packaging/Vega.Package/Vega.Package.csproj
       - name: Restore world-image benchmark harness
         run: dotnet restore benchmarks/Vega.WorldImage.Benchmarks/Vega.WorldImage.Benchmarks.csproj
       - name: Build Vega
