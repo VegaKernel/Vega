@@ -133,7 +133,7 @@ A durable outbox is optional and should be introduced only if a real scenario re
 
 - [x] Port the first two behavior references (`PvPController-1.3` and `CustomWeaponAPI`) to prove the Vega module boundary.
 - [x] Restore a pinned pre-cleanup TShock/TSAPI reference snapshot and lock current TerraZ source revisions outside the production solution.
-- [x] Complete every `Keep`, `Port`, `Replace` or `Drop` migration decision before removing the closed migration ledger.
+- [x] Complete every capability-level `Keep`, `Port`, `Replace` or `Drop` decision in the historical migration ledger before removing that ledger.
 - [x] Port accepted TerraZ behavior to the Vega module API by capability, not by reproducing TShock class shapes.
 - [x] Use each migrated module as the forcing function for its required contract instead of building an abstract framework ahead of a consumer.
 - [x] Add incident-backed regression tests before retiring the corresponding TShock/TerraZ behavior or workaround.
@@ -143,6 +143,8 @@ The first reopened migration slice replaces TerraZ `NoCoinDupe` with `NpcCoinPic
 The next StateGuard slice extends the existing player-slot ownership rule to typed `SpectatePlayer (150)` payloads. It deliberately does not claim the whole plugin: configurable spectate/ghost/difficulty policy, physical-world borders, permission bypasses and corrective state synchronization stay open until their required Phase 13/19 capabilities exist.
 
 The first full-TShock network slice ports the TerraZ Bouncer fix for `PlayerDeathV2 (118)`. Vega compares the signed wire field as an unsigned 16-bit value and rejects damage above `42000` before Terraria receives it; the same typed payload must also claim the sending connection's player slot. This is one closed invariant, not a claim that Bouncer or `GetDataHandlers` are fully migrated.
+
+The retired ledger was a capability and repository disposition record. It did not enumerate every branch of every TShock packet handler, command or client/server connection state. Phase 25 reopens that work at source-method and executable-behavior granularity without reviving TShock compatibility architecture.
 
 The post-1.4.5 registration audit also routes client `TeamChangeFromUI (157)` through the native security hook and applies the same sender-slot ownership rule as legacy `PlayerTeam (45)`. Protocol 325 marks historical item packets `145/148` as deprecated, so Vega rejects those packet identities instead of pretending they remain writable item-sync formats. Supported client-authored item state (`21/90/151/160`) is validated for fixed slot bounds, finite positions/velocities, stack, item type and prefix before Terraria sees it.
 
@@ -162,12 +164,12 @@ The post-1.4.5 registration audit also routes client `TeamChangeFromUI (157)` th
 - [x] Remove TShockAPI and TSAPI from the production solution after the native runtime no longer depends on them.
 - [x] Remove legacy hook/command/plugin compatibility surfaces from the shipping runtime.
 - [x] Rename active physical `TShock*` project paths/namespaces to Vega names.
-- [x] Resolve every legacy subsystem and TerraZ repository, then remove the closed migration ledger from the active documentation set.
+- [x] Resolve every row in the capability-level legacy/TerraZ repository ledger, then remove that closed historical ledger from the active documentation set.
 - [x] Preserve the pinned source references until all accepted behavior, edge cases and incident regressions have executable Vega coverage.
 - [x] Review deleted configuration, command, permission, persistence, localization, REST and operations documentation against the running Vega product; restore or rewrite every still-relevant operator contract.
-- [x] Close the scaffolding-removal gate only when there are no unresolved `Partial`, `Missing` or `Unclassified` rows—physical deletion alone is not completion.
+- [x] Close the scaffolding-removal gate only when that historical capability ledger has no unresolved `Partial`, `Missing` or `Unclassified` rows—physical deletion alone is not completion.
 
-The runtime boots Terraria directly through the TerrariaRuntime-backed `Vega.Terraria` host, and architecture/release tests keep TShockAPI and TSAPI outside the source, solution and deployable graph. The exact parent snapshot (`72bff778`), pinned TSAPI revision (`024e480e`) and current TerraZ revisions remain documentary audit evidence. Configuration, command/permission, persistence, localization, REST-drop and Operations decisions are reflected in the running bilingual guides. No unresolved ledger row remains and no legacy assembly was reintroduced.
+The runtime boots Terraria directly through the TerrariaRuntime-backed `Vega.Terraria` host, and architecture/release tests keep TShockAPI and TSAPI outside the source, solution and deployable graph. The exact parent snapshot (`72bff778`), pinned TSAPI revision (`024e480e`) and current TerraZ revisions remain documentary audit evidence. Configuration, command/permission, persistence, localization, REST-drop and Operations decisions are reflected in the running bilingual guides. No unresolved row remained in the retired capability ledger and no legacy assembly was reintroduced; this statement does not close the exhaustive behavioral audit introduced by Phase 25.
 
 ## Phase 11 — World image and runtime optimization
 
@@ -560,7 +562,7 @@ Reduce game-thread packet cost and tail latency by moving only pure, order-safe 
 ### Baseline and packet classification
 
 - [x] Add `Vega.PacketPipeline.Benchmarks` and record the current synchronous zero-copy baseline for packets/sec, ns/packet, allocations, CPU, GC, context switches and packet/tick p50/p95/p99/max.
-- [x] Audit every inbound packet family as `GameThreadOnly`, `PartiallyOffloadable` or `PureBeforeApply`, and separately record whether it is order-sensitive, world-state-sensitive, latency-sensitive and safely coalescable.
+- [x] Classify every inbound packet family for execution placement as `GameThreadOnly`, `PartiallyOffloadable` or `PureBeforeApply`, and separately record whether it is order-sensitive, world-state-sensitive, latency-sensitive and safely coalescable. This performance classification is not a semantic parity audit of every vanilla/TShock handler branch; that belongs to Phase 25.
 - [ ] Start with player movement/state, projectile spawn/update/destroy and tile/world interaction; do not redesign the complete protocol before one measured vertical proves the model.
 - [x] Keep `Multiplicity` as the protocol representation layer and preserve the existing zero-copy synchronous ingress for framing and typed views.
 
@@ -713,6 +715,69 @@ Plugin API invariant:
 ```text
 Vega runtime internals may be complex.
 Ordinary Vega plugins must not be.
+```
+
+## Phase 25 — vanilla/TerraZ behavioral audit and client compatibility
+
+Recover server behavior that the capability-level migration audit did not enumerate. The goal is not source/API compatibility with TShock and not a line-for-line port. Vanilla Terraria defines protocol and world semantics; TerraZ TShock is a source of security, administration and operator behavior. Each behavior must receive an explicit Vega-owned `Keep`, `Replace`, `Module`, `Native passthrough` or `Drop` decision backed by executable evidence.
+
+### Pinned evidence and durable ledger
+
+- [x] Pin the current TerraZ reference to `TerraZ-Team/TShock` `general-devel@81175b934497f9ef0ee5b5200334e4260b0cc06c`; its current registries contain 71 `GetDataHandlers` packet entries and 95 built-in `Command` registrations.
+- [x] Pin the inspected Terraria 1.4.5.8 Windows server executable (`26,028,032` bytes, SHA-256 `D87E3FAF08637F6BE8882C63E7F11FB7E792B0230006309618473ECE0F863E1E`) and protocol `326` as the current binary baseline.
+- [x] Record the user-verified decompiled Terraria 1.4.5.7 source at [`JonataOliveiraa/Terraria1.4.5`](https://github.com/JonataOliveiraa/Terraria1.4.5) `main@0459d7b61e35f15354a40fb9d1422d84e9bb4f2c` as the readable comparison baseline. Resolve any 1.4.5.7/1.4.5.8 difference against the pinned 1.4.5.8 binary and captured protocol behavior.
+- [ ] Create and maintain `docs/server-behavior-audit.md`. Every row must record source revision, file/type/method or packet/command registration, branch/invariant, Vega decision, owner, implementation status and executable evidence. Do not delete or collapse unresolved rows into broad capability labels.
+- [ ] Distinguish vanilla protocol/world behavior, TShock hardening/operator behavior, TerraZ-specific deltas and optional gameplay policy. A TShock choice is not automatically a server invariant.
+- [ ] Add a CI structure check for the ledger and require an explicit refresh when the Terraria protocol, TerrariaRuntime input binary or pinned TerraZ revision changes.
+
+### Client connection and UUID regression
+
+- [ ] Document the exact vanilla client/server state machine for both password and passwordless joins: `ConnectRequest (1)`, slot assignment/password challenge, player info and inventory burst, `ClientUUID (68)`, platform/host-token variants, world request/data, section request/transfer, spawn, `FinishedConnectingToServer (129)`, disconnect, reconnect and slot reuse.
+- [ ] Verify TerrariaRuntime `MessageBuffer.GetData` hook timing and the meaning/bounds of `start`, `length` and `readOffset` against the actual 1.4.5.8 IL before changing admission policy.
+- [ ] Fix the known UUID compatibility defect: vanilla loads `ClientUUID` from configuration and transports it as an opaque string, while current Vega requires exactly a canonical 36-character GUID and a 37-byte payload. Accept a non-empty, bounded, completely consumed protocol token compatible with vanilla/TerraZ behavior; preserve exact stable comparison semantics and never treat this client-controlled value as cryptographic authentication.
+- [ ] Replace GUID-only tests with serialized packet regressions for a fresh vanilla GUID, a persisted non-GUID legitimate token, empty/whitespace input, UTF-8 and length boundaries, truncated/trailing payloads, duplicate/late packets, disconnect cleanup and reconnect slot reuse.
+- [ ] Capture a real vanilla-client packet transcript and replay it through Vega for password/no-password, new/existing client configuration, SSC/non-SSC and supported platform variants. Assert state transitions, outbound responses and disconnect reasons, not merely individual packet acceptance.
+- [ ] Test Dimensions and sandbox admission end to end: forwarded endpoint provenance must be established before ticket lookup, ordinary primary-world joins must not require a transfer ticket, sandbox tickets must bind the bounded opaque UUID token plus endpoint/session, and stale metadata must not survive slot reuse.
+
+Current evidence for the UUID defect is concrete: Terraria 1.4.5.8 initializes a new value with `Guid.NewGuid().ToString()`, later loads `ClientUUID` from preferences without format normalization, and packet 68 writes the resulting string. The vanilla server reads that string without GUID parsing. Current TerraZ TShock rejects an empty UUID when configured but persists UUID values in a 128-character database column. Vega's stricter `Guid.TryParseExact("D")`, 36-character and 37-byte checks therefore reject protocol-valid persisted client values.
+
+### Packet-handler semantic ledger
+
+- [ ] Enumerate all 71 packet registrations in the pinned TerraZ `GetDataHandlers` table and every client-to-server packet/branch in the pinned vanilla protocol, including protocol 326 additions and packets TShock does not intercept.
+- [ ] For each handler branch, record connection-state prerequisite, sender-slot/entity ownership, field/range/finite-value checks, permission/configuration gates, rate/spam limits, world-state reads, mutation, correction/resend, relay suppression, kick/disable behavior and fail-open/fail-closed semantics.
+- [ ] Compare each behavior against the current Vega ingress path and Terraria's native handling. Choose `Keep`, `Replace`, `Module`, `Native passthrough` or `Drop`; do not count a coarse packet-family or Phase 22 execution-placement classification as semantic coverage.
+- [ ] Add serialized regressions for every accepted/replaced security invariant and an explicit rationale for every drop. Include malformed, boundary, wrong-phase, duplicate, stale-session and hostile-burst cases plus the authoritative outbound correction/relay behavior.
+- [ ] Audit TShock's per-tick/bouncer counters, temporary state, cleanup and reset paths so retained checks cannot leak across reconnects, worlds or runtime generations.
+- [ ] Complete this semantic baseline before moving a packet family into Phase 22 worker lanes; parallelizing an incompletely understood handler is not an optimization.
+
+### Commands and operator behavior
+
+- [ ] Enumerate all 95 built-in TerraZ command registrations with canonical names, aliases, permissions, console availability, parsing/selectors, side effects, audit behavior and configuration/database dependencies.
+- [ ] Assign each command `Vega built-in`, `Terraria native passthrough`, `Optional module` or `Drop`. Verify native dedicated-server commands against 1.4.5.8 rather than assuming that a command name exists, and record operator impact for every omission.
+- [ ] Review each retained/replaced command method branch for target ambiguity, delegated authority, offline-account behavior, confirmation, save/game-thread affinity, failure response and audit logging. Port semantics through Vega services, never through TShock class shapes.
+- [ ] Add end-to-end command tests for player and console callers, aliases, permissions, selectors, persistence, game-thread mutation and localized success/failure output. Make intentionally absent commands visible in the migration/operator guide rather than silently missing.
+- [ ] Audit the current TerraZ REST registrations separately from chat/console commands. Only introduce remote administration routes when Vega has an owned authentication, authorization, rate-limit, audit and lifecycle model; otherwise record an explicit drop.
+
+### Server lifecycle and non-command subsystems
+
+- [ ] Audit join admission beyond UUID: protocol/version, server password, bans, whitelist, duplicate names, character difficulty/world mode, SSC/login/account binding, reserved slots, GeoIP/proxy identity and kick/disconnect messaging.
+- [ ] Audit authoritative save, shutdown/no-save, crash recovery, configuration reload, world/event mutation, groups/accounts/permissions, mute/chat, regions/protections, item/projectile/tile bans, console/log routing, plugin lifecycle and background cleanup.
+- [ ] Compare vanilla, TerraZ and Vega exception/resynchronization behavior around malformed packets and failed mutations. Retain native behavior where it is correct; add Vega policy only for a documented invariant or operator requirement.
+- [ ] Run real-client, clean-world, existing-world, reconnect, sustained-operation and malicious-input smoke suites against the resulting decisions. Feed measured hot spots such as NPC AI into profiling/optimization phases only after behavior is pinned.
+
+### Exit criteria
+
+- [ ] Every pinned vanilla inbound connection/packet branch and every TerraZ packet/command registration has a resolved ledger row with executable evidence or an explicit, reviewed drop rationale.
+- [ ] A stock legitimate 1.4.5.8 client completes passwordless and password joins without Vega-only handshake rejection, while malformed and unauthorized variants fail with stable reasons and no stale session state.
+- [ ] Operator documentation describes the actual Vega command/administration surface and every intentional TShock difference.
+- [ ] No TShock/TSAPI compatibility assembly, namespace or class shape re-enters the production graph as a consequence of the audit.
+
+Behavioral-audit invariant:
+
+```text
+vanilla binary/protocol = semantic authority
+TerraZ TShock           = security and operator behavior reference
+Vega                    = independent implementation with explicit evidence
 ```
 
 ## Architectural guardrails
