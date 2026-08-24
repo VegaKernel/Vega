@@ -562,7 +562,7 @@ Reduce game-thread packet cost and tail latency by moving only pure, order-safe 
 - [ ] Add `Vega.PacketPipeline.Benchmarks` and record the current synchronous zero-copy baseline for packets/sec, ns/packet, allocations, CPU, GC, context switches and packet/tick p50/p95/p99/max.
 - [ ] Audit every inbound packet family as `GameThreadOnly`, `PartiallyOffloadable` or `PureBeforeApply`, and separately record whether it is order-sensitive, world-state-sensitive, latency-sensitive and safely coalescable.
 - [ ] Start with player movement/state, projectile spawn/update/destroy and tile/world interaction; do not redesign the complete protocol before one measured vertical proves the model.
-- [ ] Keep `TZ.Multiplicity` as the protocol representation layer and preserve the existing zero-copy synchronous ingress for framing and typed views.
+- [ ] Keep `Multiplicity` as the protocol representation layer and preserve the existing zero-copy synchronous ingress for framing and typed views.
 
 ### Owned intents and worker lanes
 
