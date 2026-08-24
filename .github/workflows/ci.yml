@@ -36,6 +36,35 @@ jobs:
         run: dotnet build Vega.sln --configuration Release --no-restore
       - name: Test Vega
         run: dotnet test Vega.sln --configuration Release --no-build --verbosity normal
+      - name: Run plugin SDK facade baseline
+        run: >-
+          dotnet run
+          --project benchmarks/Vega.PluginSdk.Benchmarks/Vega.PluginSdk.Benchmarks.csproj
+          --configuration Release
+          --no-build
+          --no-restore
+      - name: Pack plugin SDK consumer feed
+        run: >-
+          dotnet pack packaging/Vega.Package/Vega.Package.csproj
+          --configuration Release
+          --no-build
+          -p:PackageVersion=1.0.0-preview.7.local
+          --output artifacts/plugin-feed
+      - name: Build clean plugin template consumer
+        shell: pwsh
+        run: |
+          dotnet new install ./templates/vega-plugin
+          $consumer = Join-Path $env:RUNNER_TEMP "vega-clean-plugin"
+          dotnet new vegaplugin --name Clean.Plugin --output $consumer
+          dotnet new nugetconfig --output $consumer --force
+          dotnet nuget add source "$PWD/artifacts/plugin-feed" `
+            --name vega-local `
+            --configfile "$consumer/nuget.config"
+          dotnet restore "$consumer/Clean.Plugin.csproj" `
+            --configfile "$consumer/nuget.config"
+          dotnet build "$consumer/Clean.Plugin.csproj" `
+            --configuration Release `
+            --no-restore
       - name: Build world-image benchmark harness
         run: dotnet build benchmarks/Vega.WorldImage.Benchmarks/Vega.WorldImage.Benchmarks.csproj --configuration Release --no-restore
 

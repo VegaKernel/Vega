@@ -1,0 +1,14 @@
+{
+  "$schema": "http://json.schemastore.org/template",
+  "author": "VegaKernel",
+  "classifications": ["Vega", "Plugin"],
+  "identity": "VegaKernel.Plugin.CSharp",
+  "name": "Vega plugin",
+  "shortName": "vegaplugin",
+  "sourceName": "Vega.PluginTemplate",
+  "preferNameDirectory": true,
+  "tags": {
+    "language": "C#",
+    "type": "project"
+  }
+}

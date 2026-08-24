@@ -1,28 +1,36 @@
 using System.Reflection;
 using System.Runtime.Loader;
 using Vega.Contracts.Modules;
+using Vega.PluginSdk;
 
 namespace Vega.Core.Modules;
 
 internal sealed class ServerPluginLoadContext : AssemblyLoadContext
 {
     private readonly AssemblyDependencyResolver resolver;
-    private readonly string contractsAssemblyName;
+    private readonly IReadOnlyDictionary<string, Assembly> sharedAssemblies;
     private readonly string pluginDirectory;
 
     public ServerPluginLoadContext(string pluginPath)
         : base($"Vega.ServerPlugin:{Path.GetFileNameWithoutExtension(pluginPath)}", isCollectible: true)
     {
         resolver = new AssemblyDependencyResolver(pluginPath);
-        contractsAssemblyName = typeof(IHotReloadableVegaModule).Assembly.GetName().Name!;
+        Assembly contractsAssembly = typeof(IHotReloadableVegaModule).Assembly;
+        Assembly pluginSdkAssembly = typeof(VegaPlugin).Assembly;
+        sharedAssemblies = new Dictionary<string, Assembly>(StringComparer.OrdinalIgnoreCase)
+        {
+            [contractsAssembly.GetName().Name!] = contractsAssembly,
+            [pluginSdkAssembly.GetName().Name!] = pluginSdkAssembly,
+        };
         pluginDirectory = Path.GetDirectoryName(pluginPath)!;
     }
 
     protected override Assembly? Load(AssemblyName assemblyName)
     {
-        if (string.Equals(assemblyName.Name, contractsAssemblyName, StringComparison.OrdinalIgnoreCase))
+        if (assemblyName.Name is not null
+            && sharedAssemblies.TryGetValue(assemblyName.Name, out Assembly? sharedAssembly))
         {
-            return typeof(IHotReloadableVegaModule).Assembly;
+            return sharedAssembly;
         }
 
         string? path = resolver.ResolveAssemblyToPath(assemblyName);

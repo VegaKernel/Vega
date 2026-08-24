@@ -19,6 +19,7 @@ Vega does not load TShock or TSAPI plugins and does not preserve their API shape
 | Path | Responsibility |
 |---|---|
 | `src/Vega.Contracts` | Public identifiers, snapshots, events, command, player, world, networking, operations, and cluster contracts |
+| `src/Vega.PluginSdk` | Thin ordinary-plugin entry point and curated command/player/task/storage/log facades |
 | `src/Vega.Core` | Server/application behavior independent of Terraria and OTAPI |
 | `src/Vega.Terraria` | Terraria/OTAPI hooks, packet translation, player operations, game-thread scheduling, and world integration |
 | `src/Vega.Runtime` | Executable host, composition root, module startup, runtime options, and assembly resolution |
@@ -33,6 +34,8 @@ Vega does not load TShock or TSAPI plugins and does not preserve their API shape
 | `tests/Vega.Runtime.Tests` | Unit and integration tests for runtime behavior |
 | `benchmarks/Vega.WorldImage.Benchmarks` | Reproducible `.wld` versus `.vworld` measurements |
 | `docs/decisions` | Architecture Decision Records and their status |
+
+For external plugin development, start with the short [first plugin guide](../plugin-sdk.md). It comes before the internal architecture details intentionally.
 
 ## 3. Runtime architecture
 
@@ -224,11 +227,11 @@ Cluster support is optional. The current transport is an in-memory reference imp
 
 ## 11. Packages and releases
 
-`Directory.Build.props` is the version source. NuGet publication produces one `VegaKernel` package containing the public first-party assemblies; component projects are not published separately. `Vega.Runtime` remains the deployable server archive rather than a NuGet executable.
+`Directory.Build.props` is the version source. NuGet publication produces one `Vega` package containing the public first-party assemblies; component projects are not published separately. `Vega.Runtime` remains the deployable server archive rather than a NuGet executable.
 
-`VegaKernel` propagates Vega's explicit MonoMod `net11.0` opt-in to package consumers and therefore emits the same unsupported-runtime warning during a consumer build. Keep that warning visible until the dependency graph officially supports .NET 11; see the [.NET 11 dependency audit](../net11-dependency-audit.md).
+`Vega` propagates Vega's explicit MonoMod `net11.0` opt-in to package consumers and therefore emits the same unsupported-runtime warning during a consumer build. Keep that warning visible until the dependency graph officially supports .NET 11; see the [.NET 11 dependency audit](../net11-dependency-audit.md).
 
-The automatic `Release Tag` workflow runs when a `vMAJOR.MINOR.PATCH` tag is pushed. It validates the tag against `VersionPrefix`, restores, builds and tests the solution, packs and publishes the single `VegaKernel` package, and creates or refreshes the GitHub Release with the deployable server ZIP and checksums. The repository must contain the `NUGET_API_KEY` Actions secret before a release tag is pushed.
+The automatic `Release Tag` workflow validates a prerelease tag, restores, builds and tests the solution, packs the single `Vega` package as a validation artifact, and creates or refreshes the GitHub Release with the deployable server ZIP and checksums. NuGet.org publication and credential requirements are hard-disabled until a separate post-debugging release decision.
 
 The separate `Publish Manual` workflow selects the newest valid tag and only rebuilds its deployable server archive and GitHub Release assets. It deliberately skips tests and NuGet publication and does not require the NuGet secret. See [the release procedure](../releasing.md).
 

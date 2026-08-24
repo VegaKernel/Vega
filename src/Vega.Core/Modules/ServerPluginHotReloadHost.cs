@@ -7,6 +7,9 @@ using System.Runtime.Versioning;
 using Vega.Contracts.Commands;
 using Vega.Contracts.Modules;
 using Vega.Contracts.Operations;
+using Vega.Contracts.Players;
+using Vega.Contracts.Threading;
+using Vega.PluginSdk;
 
 namespace Vega.Core.Modules;
 
@@ -21,6 +24,12 @@ public sealed class ServerPluginHotReloadHost :
     private readonly ServerPluginHotReloadOptions options;
     private readonly ICommandRegistry commands;
     private readonly IOperationsLogger logger;
+    private readonly IPlayerDirectory? playerDirectory;
+    private readonly IPlayerMessenger? playerMessenger;
+    private readonly IPlayerOperations? playerOperations;
+    private readonly IPlayerSessionLifecycle? playerLifecycle;
+    private readonly IGameThreadDispatcher? gameThread;
+    private readonly string pluginDataRoot;
     private readonly Dictionary<string, LoadedPlugin> loaded = new(StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<string, ModuleOperationsSnapshot> snapshots = new(StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<string, long> changeVersions = new(StringComparer.OrdinalIgnoreCase);
@@ -40,13 +49,25 @@ public sealed class ServerPluginHotReloadHost :
         string directory,
         ServerPluginHotReloadOptions options,
         ICommandRegistry commands,
-        IOperationsLogger logger)
+        IOperationsLogger logger,
+        IPlayerDirectory? playerDirectory = null,
+        IPlayerMessenger? playerMessenger = null,
+        IPlayerOperations? playerOperations = null,
+        IPlayerSessionLifecycle? playerLifecycle = null,
+        IGameThreadDispatcher? gameThread = null,
+        string? pluginDataRoot = null)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(directory);
         this.directory = Path.GetFullPath(directory);
         this.options = ServerPluginHotReloadOptions.Normalize(options);
         this.commands = commands ?? throw new ArgumentNullException(nameof(commands));
         this.logger = logger ?? throw new ArgumentNullException(nameof(logger));
+        this.playerDirectory = playerDirectory;
+        this.playerMessenger = playerMessenger;
+        this.playerOperations = playerOperations;
+        this.playerLifecycle = playerLifecycle;
+        this.gameThread = gameThread;
+        this.pluginDataRoot = Path.GetFullPath(pluginDataRoot ?? Path.Combine(this.directory, ".data"));
     }
 
     public bool HotReloadEnabled => options.Enabled;
@@ -378,7 +399,16 @@ public sealed class ServerPluginHotReloadHost :
                 $"A server plugin named '{staged.Name}' is already loaded.");
         }
 
-        var scope = new HotModuleRegistrationScope(commands);
+        var scope = new HotModuleRegistrationScope(
+            commands,
+            logger,
+            staged.Name,
+            Path.Combine(pluginDataRoot, SafeDirectoryName(staged.Name)),
+            playerDirectory,
+            playerMessenger,
+            playerOperations,
+            playerLifecycle,
+            gameThread);
         long startedAt = Stopwatch.GetTimestamp();
         try
         {
@@ -494,7 +524,10 @@ public sealed class ServerPluginHotReloadHost :
 
         try
         {
-            scope?.Dispose();
+            if (scope is not null)
+            {
+                await scope.DisposeAsync().ConfigureAwait(false);
+            }
         }
         catch (Exception ex)
         {
@@ -596,7 +629,7 @@ public sealed class ServerPluginHotReloadHost :
             throw readFailure;
         }
 
-        if (!ReferencesHotModuleContract(image))
+        if (!ReferencesHotModuleEntryPoint(image))
         {
             return null;
         }
@@ -841,7 +874,7 @@ public sealed class ServerPluginHotReloadHost :
         string? failure = null) =>
         new(plugin.Name, plugin.Version, state, plugin.Dependencies, startupDuration, failure);
 
-    private static bool ReferencesHotModuleContract(byte[] image)
+    private static bool ReferencesHotModuleEntryPoint(byte[] image)
     {
         using var stream = new MemoryStream(image, writable: false);
         using var pe = new PEReader(stream);
@@ -854,8 +887,13 @@ public sealed class ServerPluginHotReloadHost :
         foreach (TypeReferenceHandle handle in metadata.TypeReferences)
         {
             TypeReference reference = metadata.GetTypeReference(handle);
-            if (metadata.StringComparer.Equals(reference.Namespace, "Vega.Contracts.Modules") &&
-                metadata.StringComparer.Equals(reference.Name, nameof(IHotReloadableVegaModule)))
+            bool referencesLegacyContract =
+                metadata.StringComparer.Equals(reference.Namespace, "Vega.Contracts.Modules") &&
+                metadata.StringComparer.Equals(reference.Name, nameof(IHotReloadableVegaModule));
+            bool referencesPluginSdk =
+                metadata.StringComparer.Equals(reference.Namespace, "Vega.PluginSdk") &&
+                metadata.StringComparer.Equals(reference.Name, nameof(VegaPlugin));
+            if (referencesLegacyContract || referencesPluginSdk)
             {
                 return true;
             }
@@ -950,6 +988,16 @@ public sealed class ServerPluginHotReloadHost :
         false,
         false,
         "Server plugin hot reload is disabled in config/modules.json.");
+
+    private static string SafeDirectoryName(string pluginName)
+    {
+        char[] name = pluginName
+            .Select(character => char.IsLetterOrDigit(character) || character is '.' or '-' or '_'
+                ? character
+                : '_')
+            .ToArray();
+        return name.Length == 0 ? "plugin" : new string(name);
+    }
 
     private sealed class StagedPlugin
     {

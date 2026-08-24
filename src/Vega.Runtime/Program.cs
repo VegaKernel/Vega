@@ -543,7 +543,13 @@ int Start()
             Path.Combine(AppContext.BaseDirectory, "ServerPlugins"),
             hotReloadOptions,
             commandDispatcher,
-            logger);
+            logger,
+            playerDirectory: playerBoundary,
+            playerMessenger: playerBoundary,
+            playerOperations: playerBoundary,
+            playerLifecycle: playerBoundary,
+            gameThread: gameThreadDispatcher,
+            pluginDataRoot: Path.Combine(AppContext.BaseDirectory, "data", "plugins"));
         serverPlugins.Start();
         softRestart.SetProcessRestartGuard(() => serverPlugins.Read().IsRestartRequired
             ? "ServerPlugins contains a change or cleanup failure that requires a process restart."

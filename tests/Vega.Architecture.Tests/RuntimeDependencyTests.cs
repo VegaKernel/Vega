@@ -285,7 +285,7 @@ public sealed class RuntimeDependencyTests
             "packaging",
             "Vega.Package",
             "buildTransitive",
-            "VegaKernel.props"));
+            "Vega.props"));
         string workflow = File.ReadAllText(Path.Combine(
             repositoryRoot, ".github", "workflows", "release-tag.yml"));
         string nuspec = File.ReadAllText(Path.Combine(
@@ -294,20 +294,25 @@ public sealed class RuntimeDependencyTests
         Assert.Multiple(() =>
         {
             Assert.That(defaults, Does.Contain("<IsPackable Condition=\"'$(IsPackable)' == ''\">false"));
-            Assert.That(project, Does.Contain("<PackageId>VegaKernel</PackageId>"));
+            Assert.That(project, Does.Contain("<PackageId>Vega</PackageId>"));
             Assert.That(project, Does.Contain("<IsPackable>true</IsPackable>"));
-            Assert.That(project, Does.Contain("PackagePath=\"buildTransitive\\VegaKernel.props\""));
+            Assert.That(project, Does.Contain("PackagePath=\"buildTransitive\\Vega.props\""));
             Assert.That(packageProps, Does.Contain("<MonoMod_ReallySkipCheckTargetRuntime>true"));
             Assert.That(packageProps, Does.Contain("Remove when the resolved MonoMod stack officially supports net11.0"));
             Assert.That(workflow, Does.Contain("dotnet pack packaging/Vega.Package/Vega.Package.csproj"));
+            Assert.That(workflow, Does.Contain("NuGet.org publication is disabled"));
+            Assert.That(workflow, Does.Not.Contain("dotnet nuget push"));
+            Assert.That(workflow, Does.Not.Contain("NUGET_API_KEY"));
             Assert.That(workflow, Does.Not.Contain("foreach ($project in $projects)"));
             Assert.That(workflow, Does.Not.Contain("artifacts/nuget/*.snupkg"));
             Assert.That(Regex.Matches(workflow, "dotnet pack").Count, Is.EqualTo(1));
-            Assert.That(Regex.Matches(nuspec, @"\.dll"" target=""lib\\\$tfm\$""").Count, Is.EqualTo(17));
-            Assert.That(Regex.Matches(nuspec, @"\.pdb"" target=""lib\\\$tfm\$""").Count, Is.EqualTo(17));
+            Assert.That(Regex.Matches(nuspec, @"\.dll"" target=""lib\\\$tfm\$""").Count, Is.EqualTo(18));
+            Assert.That(Regex.Matches(nuspec, @"\.pdb"" target=""lib\\\$tfm\$""").Count, Is.EqualTo(18));
             Assert.That(nuspec, Does.Contain("Vega.Contracts.dll"));
             Assert.That(nuspec, Does.Contain("Vega.Contracts.pdb"));
-            Assert.That(nuspec, Does.Not.Contain("<dependency id=\"VegaKernel."));
+            Assert.That(nuspec, Does.Contain("Vega.PluginSdk.dll"));
+            Assert.That(nuspec, Does.Contain("Vega.PluginSdk.pdb"));
+            Assert.That(nuspec, Does.Not.Contain("<dependency id=\"Vega."));
         });
     }
 
@@ -378,6 +383,68 @@ public sealed class RuntimeDependencyTests
             Assert.That(project, Does.Not.Contain("<PackageReference"));
             Assert.That(offenders, Is.Empty,
                 $"AOT-compatible contracts must remain isolated. Offenders: {string.Join(", ", offenders)}");
+        });
+    }
+
+    [Test]
+    public void PluginSdkKeepsTheGoldenPathCuratedAndSourceTreeIndependent()
+    {
+        string repositoryRoot = FindRepositoryRoot();
+        string sdkDirectory = Path.Combine(repositoryRoot, "src", "Vega.PluginSdk");
+        string sdkProject = File.ReadAllText(Path.Combine(sdkDirectory, "Vega.PluginSdk.csproj"));
+        string sdk = string.Join('\n', Directory
+            .EnumerateFiles(sdkDirectory, "*.cs", SearchOption.AllDirectories)
+            .Where(path => !path.Contains($"{Path.DirectorySeparatorChar}obj{Path.DirectorySeparatorChar}", StringComparison.Ordinal))
+            .Select(File.ReadAllText));
+        string templateProject = File.ReadAllText(Path.Combine(
+            repositoryRoot, "templates", "vega-plugin", "Vega.PluginTemplate.csproj"));
+        string template = File.ReadAllText(Path.Combine(
+            repositoryRoot, "templates", "vega-plugin", "HelloPlugin.cs"));
+        string sample = File.ReadAllText(Path.Combine(
+            repositoryRoot, "samples", "Vega.PluginSamples", "UsabilityPlugin.cs"));
+        string advancedSample = File.ReadAllText(Path.Combine(
+            repositoryRoot, "samples", "Vega.AdvancedPacketPlugin", "FiniteMovementValidator.cs"));
+        string pluginLoader = File.ReadAllText(Path.Combine(
+            repositoryRoot, "src", "Vega.Core", "Modules", "ServerPluginLoadContext.cs"));
+        string workflow = File.ReadAllText(Path.Combine(repositoryRoot, ".github", "workflows", "ci.yml"));
+        string[] forbiddenGoldenPathTokens =
+        [
+            "System.Threading.Channels",
+            "AssemblyLoadContext",
+            "IncomingPacket",
+            "Terraria.",
+            "OTAPI",
+            "IServiceProvider",
+            "SynchronizationContext"
+        ];
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(sdkProject, Does.Contain("<IsAotCompatible>true</IsAotCompatible>"));
+            Assert.That(Regex.Matches(sdkProject, "<ProjectReference").Count, Is.EqualTo(1));
+            Assert.That(sdkProject, Does.Contain("Vega.Contracts"));
+            Assert.That(forbiddenGoldenPathTokens.Any(token => sdk.Contains(token, StringComparison.Ordinal)), Is.False);
+            Assert.That(sdk, Does.Contain("abstract class VegaPlugin"));
+            Assert.That(sdk, Does.Contain("interface IVegaPluginContext"));
+            Assert.That(sdk, Does.Contain("void RunIo<T>"));
+            Assert.That(sdk, Does.Not.Contain("IServiceProvider"));
+            Assert.That(templateProject, Does.Contain("PackageReference Include=\"Vega\""));
+            Assert.That(templateProject, Does.Contain("Version=\"1.0.0-preview.7.local\""));
+            Assert.That(templateProject, Does.Not.Contain("ProjectReference"));
+            Assert.That(template, Does.Contain(": VegaPlugin"));
+            Assert.That(template, Does.Contain("plugin.Commands.Register"));
+            Assert.That(template, Does.Contain("plugin.Players.OnJoined"));
+            Assert.That(sample, Does.Contain("plugin.Tasks.RunIo"));
+            Assert.That(sample, Does.Contain("plugin.Storage.LoadJson"));
+            Assert.That(sample, Does.Contain("plugin.Players.KickAsync"));
+            Assert.That(sample, Does.Contain("plugin.Players.TeleportAsync"));
+            Assert.That(forbiddenGoldenPathTokens.Any(token => sample.Contains(token, StringComparison.Ordinal)), Is.False);
+            Assert.That(advancedSample, Does.Contain("IPacketProcessor<PacketView>"));
+            Assert.That(advancedSample, Does.Contain("PURE / NO TERRARIA MUTABLE STATE / NO BLOCKING I/O"));
+            Assert.That(pluginLoader, Does.Contain("typeof(VegaPlugin).Assembly"));
+            Assert.That(pluginLoader, Does.Contain("sharedAssemblies.TryGetValue"));
+            Assert.That(workflow, Does.Contain("dotnet new vegaplugin"));
+            Assert.That(workflow, Does.Contain("artifacts/plugin-feed"));
         });
     }
 

@@ -22,7 +22,7 @@ The remaining transitive graph consists of the Microsoft.Extensions.Configuratio
 - Microsoft.Data.Sqlite, System.Configuration.ConfigurationManager and System.Drawing.Common moved from .NET 10 packages to the pinned .NET 11 Preview 7 package version. No schema, configuration or runtime-layout change was required.
 - Microsoft.NET.Test.Sdk moved from 18.8.1 to 18.9.0. The test count and execution model remain unchanged, except for the new compatibility guards added with this audit.
 - Every bundled `Vega.Modules.*` project is guarded as `net11.0`. The hot-plugin loader reads `TargetFrameworkAttribute` before loading the assembly and rejects a newer or different runtime with an actionable startup diagnostic.
-- The unified `VegaKernel` package carries the repository's explicit MonoMod opt-in in `buildTransitive/VegaKernel.props`, so a clean `net11.0` consumer receives the same visible unsupported-runtime warning instead of an unexplained build failure.
+- The unified `Vega` package carries the repository's explicit MonoMod opt-in in `buildTransitive/Vega.props`, so a clean `net11.0` consumer receives the same visible unsupported-runtime warning instead of an unexplained build failure.
 
 The Vega runtime maintainers own that package-level MonoMod opt-in. Remove it as soon as the resolved OTAPI/ModFramework dependency graph publishes MonoMod assets that officially accept `net11.0`; until then, the warning and the unchecked production smoke/soak gates must remain visible. No local package fork or binding redirect was introduced.
 
@@ -32,8 +32,8 @@ The Vega runtime maintainers own that package-level MonoMod opt-in. Remove it as
 - architecture suite: 25 passed;
 - runtime suite: 425 passed, with only the two service-backed PostgreSQL/MySQL cases skipped locally;
 - hot-plugin lifecycle and incompatible-TFM diagnostic tests: 4 passed;
-- the single public `VegaKernel` package inspected for all 17 `net11.0` first-party DLL/PDB pairs, metadata files and leaked build directories;
-- `VegaKernel` restored in a clean `net11.0` class-library consumer with a fresh global-packages directory, then built successfully;
+- the single public `Vega` package inspected for all 18 `net11.0` first-party DLL/PDB pairs, metadata files and leaked build directories;
+- `Vega` restored in a clean `net11.0` class-library consumer with a fresh global-packages directory, then built successfully;
 - clean Windows deployable layout reached the scripted startup smoke checkpoint.
 
 These results close the repository dependency audit, tooling refresh, bundled-module TFM and clean package-consumer tasks. They do not close official MonoMod support, external-provider execution, every supported OS/mode, representative production-world operation, performance comparison or deployment-host soak.

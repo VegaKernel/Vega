@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <package xmlns="http://schemas.microsoft.com/packaging/2013/05/nuspec.xsd">
   <metadata>
-    <id>VegaKernel</id>
+    <id>Vega</id>
     <version>$version$</version>
     <title>Vega</title>
     <authors>VegaKernel</authors>
@@ -30,6 +30,7 @@
     <file src="$repositoryRoot$LICENSE" target="LICENSE" />
     <file src="$repositoryRoot$README_EN.md" target="README_EN.md" />
     <file src="$repositoryRoot$src\Vega.Contracts\bin\$configuration$\$tfm$\Vega.Contracts.dll" target="lib\$tfm$" />
+    <file src="$repositoryRoot$src\Vega.PluginSdk\bin\$configuration$\$tfm$\Vega.PluginSdk.dll" target="lib\$tfm$" />
     <file src="$repositoryRoot$src\Vega.Backups\bin\$configuration$\$tfm$\Vega.Backups.dll" target="lib\$tfm$" />
     <file src="$repositoryRoot$src\Vega.Core\bin\$configuration$\$tfm$\Vega.Core.dll" target="lib\$tfm$" />
     <file src="$repositoryRoot$src\Vega.Cluster\bin\$configuration$\$tfm$\Vega.Cluster.dll" target="lib\$tfm$" />
@@ -47,6 +48,7 @@
     <file src="$repositoryRoot$src\Vega.Terraria\bin\$configuration$\$tfm$\Vega.Terraria.dll" target="lib\$tfm$" />
     <file src="$repositoryRoot$src\Vega.TerminalUI\bin\$configuration$\$tfm$\Vega.TerminalUI.dll" target="lib\$tfm$" />
     <file src="$repositoryRoot$src\Vega.Contracts\bin\$configuration$\$tfm$\Vega.Contracts.pdb" target="lib\$tfm$" />
+    <file src="$repositoryRoot$src\Vega.PluginSdk\bin\$configuration$\$tfm$\Vega.PluginSdk.pdb" target="lib\$tfm$" />
     <file src="$repositoryRoot$src\Vega.Backups\bin\$configuration$\$tfm$\Vega.Backups.pdb" target="lib\$tfm$" />
     <file src="$repositoryRoot$src\Vega.Core\bin\$configuration$\$tfm$\Vega.Core.pdb" target="lib\$tfm$" />
     <file src="$repositoryRoot$src\Vega.Cluster\bin\$configuration$\$tfm$\Vega.Cluster.pdb" target="lib\$tfm$" />
@@ -63,6 +65,6 @@
     <file src="$repositoryRoot$src\Vega.Modules.Wipe\bin\$configuration$\$tfm$\Vega.Modules.Wipe.pdb" target="lib\$tfm$" />
     <file src="$repositoryRoot$src\Vega.Terraria\bin\$configuration$\$tfm$\Vega.Terraria.pdb" target="lib\$tfm$" />
     <file src="$repositoryRoot$src\Vega.TerminalUI\bin\$configuration$\$tfm$\Vega.TerminalUI.pdb" target="lib\$tfm$" />
-    <file src="buildTransitive\VegaKernel.props" target="buildTransitive\VegaKernel.props" />
+    <file src="buildTransitive\Vega.props" target="buildTransitive\Vega.props" />
   </files>
 </package>

@@ -14,7 +14,7 @@ concurrency:
 
 jobs:
   release:
-    name: Publish NuGet packages and GitHub release
+    name: Build verified artifacts and GitHub prerelease
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v6
@@ -46,15 +46,6 @@ jobs:
         with:
           dotnet-version: 11.0.100-preview.7.26381.103
 
-      - name: Validate NuGet credentials
-        shell: pwsh
-        env:
-          NUGET_API_KEY: ${{ secrets.NUGET_API_KEY }}
-        run: |
-          if ([string]::IsNullOrWhiteSpace($env:NUGET_API_KEY)) {
-            throw "Repository secret NUGET_API_KEY is required."
-          }
-
       - name: Download pinned MaxMind test databases
         shell: pwsh
         run: |
@@ -73,7 +64,7 @@ jobs:
       - name: Test
         run: dotnet test Vega.sln --configuration Release --no-build --no-restore --verbosity normal
 
-      - name: Pack unified NuGet package
+      - name: Pack unified validation package
         shell: pwsh
         env:
           RELEASE_VERSION: ${{ steps.version.outputs.version }}
@@ -186,16 +177,9 @@ jobs:
           path: artifacts/release/*
           if-no-files-found: error
 
-      - name: Publish to NuGet.org
+      - name: NuGet.org publication is disabled
         shell: pwsh
-        env:
-          NUGET_API_KEY: ${{ secrets.NUGET_API_KEY }}
-        run: |
-          Get-ChildItem artifacts/nuget/*.nupkg | ForEach-Object {
-            dotnet nuget push $_.FullName --api-key $env:NUGET_API_KEY `
-              --source https://api.nuget.org/v3/index.json --skip-duplicate
-            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          }
+        run: Write-Host "Vega.nupkg is validation-only until an explicit post-debugging publication decision."
 
       - name: Publish GitHub release
         shell: pwsh

@@ -9,5 +9,6 @@
 
   <ItemGroup>
     <ProjectReference Include="..\..\src\Vega.Contracts\Vega.Contracts.csproj" />
+    <ProjectReference Include="..\..\src\Vega.PluginSdk\Vega.PluginSdk.csproj" />
   </ItemGroup>
 </Project>

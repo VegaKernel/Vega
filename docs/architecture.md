@@ -52,6 +52,10 @@ Contains implementation-independent contracts, identifiers, DTOs, snapshots, eve
 
 It must not reference Terraria or OTAPI.
 
+### Vega.PluginSdk
+
+Contains the thin external-plugin entry point and five curated capability facades over Contracts. It must not reference Core, Runtime, Terraria, OTAPI, UI, packet-worker internals or a universal service locator. Core implements the host side; plugin behavior still uses the same authoritative Contracts services.
+
 ### Vega.Core
 
 Owns server/application behavior independent of the Terraria implementation boundary.

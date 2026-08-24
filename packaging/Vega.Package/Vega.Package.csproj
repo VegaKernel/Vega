@@ -2,7 +2,7 @@
   <PropertyGroup>
     <TargetFramework>net11.0</TargetFramework>
     <IsPackable>true</IsPackable>
-    <PackageId>VegaKernel</PackageId>
+    <PackageId>Vega</PackageId>
     <Title>Vega</Title>
     <Description>Vega native Terraria server contracts, runtime libraries, and bundled modules.</Description>
     <MonoMod_ReallySkipCheckTargetRuntime>true</MonoMod_ReallySkipCheckTargetRuntime>
@@ -15,6 +15,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\..\src\Vega.Contracts\Vega.Contracts.csproj" PrivateAssets="all" />
+    <ProjectReference Include="..\..\src\Vega.PluginSdk\Vega.PluginSdk.csproj" PrivateAssets="all" />
     <ProjectReference Include="..\..\src\Vega.Backups\Vega.Backups.csproj" PrivateAssets="all" />
     <ProjectReference Include="..\..\src\Vega.Core\Vega.Core.csproj" PrivateAssets="all" />
     <ProjectReference Include="..\..\src\Vega.Cluster\Vega.Cluster.csproj" PrivateAssets="all" />
@@ -46,9 +47,9 @@
   </ItemGroup>
 
   <ItemGroup>
-    <None Include="buildTransitive\VegaKernel.props"
+    <None Include="buildTransitive\Vega.props"
           Pack="true"
-          PackagePath="buildTransitive\VegaKernel.props" />
+          PackagePath="buildTransitive\Vega.props" />
   </ItemGroup>
 
 </Project>

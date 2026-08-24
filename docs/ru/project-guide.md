@@ -19,6 +19,7 @@ Vega не загружает плагины TShock или TSAPI и не сохр
 | Путь | Ответственность |
 |---|---|
 | `src/Vega.Contracts` | Публичные идентификаторы, snapshots, события, команды, player/world/network/operations/cluster-контракты |
+| `src/Vega.PluginSdk` | Тонкая точка входа обычного плагина и фасады command/player/task/storage/log |
 | `src/Vega.Core` | Серверная и application-логика без зависимости от Terraria и OTAPI |
 | `src/Vega.Terraria` | Terraria/OTAPI hooks, преобразование пакетов, player operations, game-thread scheduling и world integration |
 | `src/Vega.Runtime` | Исполняемый host, composition root, запуск модулей, runtime options и разрешение сборок |
@@ -33,6 +34,8 @@ Vega не загружает плагины TShock или TSAPI и не сохр
 | `tests/Vega.Runtime.Tests` | Unit- и integration-тесты runtime-поведения |
 | `benchmarks/Vega.WorldImage.Benchmarks` | Воспроизводимые измерения `.wld` и `.vworld` |
 | `docs/decisions` | Architecture Decision Records и их статусы |
+
+Разработку внешнего плагина начинайте с короткого [руководства по первому плагину](plugin-sdk.md). Оно намеренно предшествует внутренним архитектурным деталям.
 
 ## 3. Runtime-архитектура
 
@@ -224,11 +227,11 @@ Cluster support опционален. Текущий transport — in-memory ref
 
 ## 11. Пакеты и релизы
 
-Источником версии является `Directory.Build.props`. Для NuGet создаётся один пакет `VegaKernel` со всеми публичными first-party assemblies; компонентные проекты отдельно не публикуются. `Vega.Runtime` по-прежнему поставляется как deployable server archive, а не NuGet executable.
+Источником версии является `Directory.Build.props`. Для NuGet создаётся один пакет `Vega` со всеми публичными first-party assemblies; компонентные проекты отдельно не публикуются. `Vega.Runtime` по-прежнему поставляется как deployable server archive, а не NuGet executable.
 
-`VegaKernel` передаёт consumer-проектам явный opt-in Vega для MonoMod на `net11.0`, поэтому consumer build показывает то же предупреждение о неподдерживаемом runtime. Сохраняйте его видимым, пока dependency graph официально не поддержит .NET 11; подробности записаны в [.NET 11 dependency audit](../net11-dependency-audit.md).
+`Vega` передаёт consumer-проектам явный opt-in Vega для MonoMod на `net11.0`, поэтому consumer build показывает то же предупреждение о неподдерживаемом runtime. Сохраняйте его видимым, пока dependency graph официально не поддержит .NET 11; подробности записаны в [.NET 11 dependency audit](../net11-dependency-audit.md).
 
-Автоматический workflow `Release Tag` запускается при отправке тега `vMAJOR.MINOR.PATCH`. Он сверяет тег с `VersionPrefix`, восстанавливает, собирает и тестирует solution, упаковывает и публикует единственный пакет `VegaKernel`, затем создаёт или обновляет GitHub Release с готовым серверным ZIP-архивом и checksums. До отправки релизного тега в репозитории должен быть настроен Actions secret `NUGET_API_KEY`.
+Автоматический workflow `Release Tag` проверяет prerelease-тег, восстанавливает, собирает и тестирует solution, упаковывает единственный пакет `Vega` как validation artifact, затем создаёт или обновляет GitHub Release с серверным ZIP и checksums. Публикация в NuGet.org и требование credentials жёстко отключены до отдельного решения после завершения отладки.
 
 Отдельный workflow `Publish Manual` выбирает последний корректный тег и только пересобирает его готовый к развёртыванию серверный архив и assets GitHub Release. Он намеренно не запускает тесты и публикацию в NuGet и не требует NuGet-секрета. Подробности: [процедура релиза](../releasing.md).
 

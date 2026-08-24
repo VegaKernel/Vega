@@ -1,24 +1,20 @@
 using Vega.Contracts.Commands;
 using Vega.Contracts.Modules;
+using Vega.PluginSdk;
 
 namespace Vega.HotReload.TestPlugin;
 
-public sealed class TestHotModule : IHotReloadableVegaModule
+public sealed class TestHotModule : VegaPlugin
 {
-    public VegaModuleDescriptor Descriptor { get; } = new(
+    public override VegaModuleDescriptor Descriptor { get; } = new(
         "Vega.Test.HotPlugin",
         "1.0.0",
         ["Vega.Contracts"]);
 
-    public ValueTask StartAsync(IHotModuleContext context, CancellationToken cancellationToken)
+    protected override void Configure(IVegaPluginContext plugin)
     {
-        context.RegisterCommand(new ProbeCommand());
-        return ValueTask.CompletedTask;
+        plugin.Commands.Register(new ProbeCommand());
     }
-
-    public ValueTask StopAsync(CancellationToken cancellationToken) => ValueTask.CompletedTask;
-
-    public ValueTask DisposeAsync() => ValueTask.CompletedTask;
 
     private sealed class ProbeCommand : ICommandHandler
     {
