@@ -217,7 +217,7 @@ public sealed class ConnectionMetadataRegistryTests
             (byte)PacketTypes.ConnectRequest,
             [],
             4,
-            TerrariaConnectionState.Connected);
+            TerrariaConnectionState.AwaitingHello);
         PacketProcessingDecision second = registry.ObserveInbound(
             (byte)PacketTypes.ClientUUID,
             EncodeString("new-persisted-token"),
