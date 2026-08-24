@@ -20,6 +20,7 @@ This directory contains Vega's project documentation, implementation notes, road
 - `extension-state.md` — scoped typed session state.
 - `operations.md` — operations API and Terminal UI.
 - `packet-pipeline.md` — Phase 22 ingress classification, threading boundary, and synchronous baseline.
+- `native-aot.md` — Phase 23 CoreCLR boundary, executable audit, and NativeAOT admission gate.
 - `cluster.md` — optional typed cluster messaging.
 - `persistence.md` / `ru/persistence.md` — SQLite, PostgreSQL and MySQL configuration, the Vega 1.0 baseline, backup and recovery.
 - `world-images.md` — `.vworld` format, fallback rules, and benchmark evidence.

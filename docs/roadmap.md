@@ -608,22 +608,22 @@ Use NativeAOT where a component is naturally a small isolated executable with a 
 
 ### CoreCLR server boundary
 
-- [ ] Keep `Vega.Server` on CoreCLR with tiered JIT/dynamic PGO and optional ReadyToRun unless measurements and a future architecture explicitly justify changing the plugin model.
-- [ ] Keep the Phase 22 packet hot path in-process on CoreCLR; do not add IPC, serialization and extra context switches solely to place packet workers in a NativeAOT process.
-- [ ] Preserve managed `ServerPlugins`, collectible `AssemblyLoadContext`, hot reload and soft-restart generation boundaries as first-class server capabilities.
+- [x] Keep `Vega.Server` on CoreCLR with tiered JIT/dynamic PGO and optional ReadyToRun unless measurements and a future architecture explicitly justify changing the plugin model.
+- [x] Keep the Phase 22 packet hot path in-process on CoreCLR; do not add IPC, serialization and extra context switches solely to place packet workers in a NativeAOT process.
+- [x] Preserve managed `ServerPlugins`, collectible `AssemblyLoadContext`, hot reload and soft-restart generation boundaries as first-class server capabilities.
 
 ### NativeAOT candidates
 
-- [ ] Audit isolated executables in this order: launcher/bootstrapper, updater, crash reporter, standalone admin/world tools, sandbox supervisor, backup/world workers and cluster relay/gateway.
-- [ ] NativeAOT-enable a component only if it has no requirement for arbitrary managed plugin loading/runtime code generation and its trimming/AOT dependency graph is clean.
+- [x] Audit isolated executables in this order: launcher/bootstrapper, updater, crash reporter, standalone admin/world tools, sandbox supervisor, backup/world workers and cluster relay/gateway.
+- [x] NativeAOT-enable a component only if it has no requirement for arbitrary managed plugin loading/runtime code generation and its trimming/AOT dependency graph is clean.
 - [ ] Compare CoreCLR self-contained, ReadyToRun and NativeAOT variants for startup, working set/private memory, publish size, CPU, throughput/latency and operational/build complexity before selecting a deployment mode.
-- [ ] Keep an ordinary CoreCLR variant when NativeAOT creates dependency, diagnostics, platform or maintenance costs that outweigh measured startup/footprint benefits.
+- [x] Keep an ordinary CoreCLR variant when NativeAOT creates dependency, diagnostics, platform or maintenance costs that outweigh measured startup/footprint benefits.
 
 ### AOT-compatible library boundaries
 
-- [ ] Enable AOT/trimming compatibility analyzers for pure libraries where useful, starting with contracts and protocol/domain utility layers, even when those libraries still execute inside the CoreCLR server.
-- [ ] Remove accidental reflection/dynamic/runtime-code-generation patterns from those layers only when doing so improves their architecture or enables a real NativeAOT consumer; do not contort dynamic server/plugin boundaries for analyzer purity.
-- [ ] Add architecture and packaging tests so AOT-oriented helpers cannot pull Terraria mutable state, plugin-host implementation or UI concerns into otherwise isolated executables.
+- [x] Enable AOT/trimming compatibility analyzers for pure libraries where useful, starting with contracts and protocol/domain utility layers, even when those libraries still execute inside the CoreCLR server.
+- [x] Remove accidental reflection/dynamic/runtime-code-generation patterns from those layers only when doing so improves their architecture or enables a real NativeAOT consumer; do not contort dynamic server/plugin boundaries for analyzer purity.
+- [x] Add architecture and packaging tests so AOT-oriented helpers cannot pull Terraria mutable state, plugin-host implementation or UI concerns into otherwise isolated executables.
 
 ### Rollout
 
@@ -637,6 +637,8 @@ Runtime invariant:
 Vega.Server                         = CoreCLR + JIT/PGO + dynamic plugins
 small isolated fixed-function tools = NativeAOT when benchmarked and compatible
 ```
+
+The Phase 23 audit is recorded in `docs/native-aot.md`. `Vega.Server` is currently the only product executable and is intentionally fixed to CoreCLR; benchmark and test executables are not shipping candidates. The server project rejects NativeAOT, emits tiered-compilation/dynamic-PGO runtime settings and keeps ReadyToRun optional. `Vega.Contracts` is the first analyzer-enforced AOT-compatible boundary. No standalone AOT component was invented: comparison and rollout remain open until a real fixed-function executable exists and the independent Phase 22 performance gate is complete.
 
 ## Phase 24 — plugin API ergonomics and anti-framework audit
 

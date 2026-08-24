@@ -120,6 +120,12 @@ artifacts/server/
 
 The assembly resolver checks `libs/` first and then `ServerPlugins/`. The old `bin/` and `Plugins/` distribution names are not used.
 
+### Runtime modes
+
+`Vega.Server` is a CoreCLR application with tiered compilation and dynamic PGO. ReadyToRun is an optional measured CoreCLR publish variant; NativeAOT publication of the server is rejected because managed `ServerPlugins`, collectible hot reload, soft-restart generations and the OTAPI/MonoMod runtime are first-class capabilities. The Phase 22 packet path remains in-process.
+
+There is currently no separate shipping executable suitable for NativeAOT. `Vega.Contracts` is compiled with trimming/AOT compatibility analyzers so a future fixed-function tool can reuse the pure contract boundary without importing Terraria, the plugin host or UI. See the [runtime specialization audit](../native-aot.md) for the candidate order, comparison gate and fallback policy.
+
 ### Database provider
 
 SQLite is enabled by default and creates `data/vega.db`. Select `postgresql` or `mysql` in `config/database.json` and supply `VEGA_DATABASE_CONNECTION_STRING` for an external database. Provider connection and Vega 1.0 baseline initialization run after cheap runtime/module registration but before world loading; failure stops startup. See [the persistence guide](../persistence.md) for configuration, schema locking, backup and recovery.

@@ -11,6 +11,10 @@
 		<DebugType>embedded</DebugType>
 		<IncludeNativeLibrariesForSelfExtract>true</IncludeNativeLibrariesForSelfExtract>
 		<IsPackable>false</IsPackable>
+		<PublishAot>false</PublishAot>
+		<PublishReadyToRun Condition="'$(PublishReadyToRun)' == ''">false</PublishReadyToRun>
+		<TieredCompilation>true</TieredCompilation>
+		<TieredPGO>true</TieredPGO>
 		<MonoMod_ReallySkipCheckTargetRuntime>true</MonoMod_ReallySkipCheckTargetRuntime>
 	</PropertyGroup>
 
@@ -140,5 +144,9 @@
 		<MakeDir Directories="$(PublishDir)libs;$(PublishDir)ServerPlugins" />
 		<Move SourceFiles="@(PublishedServerPlugins)" DestinationFolder="$(PublishDir)ServerPlugins" />
 		<Move SourceFiles="@(PublishedLibraries)" DestinationFolder="$(PublishDir)libs" />
+	</Target>
+
+	<Target Name="RejectNativeAotServerPublish" BeforeTargets="PrepareForPublish" Condition="'$(PublishAot)' == 'true'">
+		<Error Text="Vega.Server requires CoreCLR for managed ServerPlugins, collectible AssemblyLoadContext hot reload and soft restart. Publish a fixed-function executable separately before enabling NativeAOT." />
 	</Target>
 </Project>

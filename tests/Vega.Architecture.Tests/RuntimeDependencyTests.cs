@@ -305,7 +305,79 @@ public sealed class RuntimeDependencyTests
             Assert.That(Regex.Matches(workflow, "dotnet pack").Count, Is.EqualTo(1));
             Assert.That(Regex.Matches(nuspec, @"\.dll"" target=""lib\\\$tfm\$""").Count, Is.EqualTo(17));
             Assert.That(Regex.Matches(nuspec, @"\.pdb"" target=""lib\\\$tfm\$""").Count, Is.EqualTo(17));
+            Assert.That(nuspec, Does.Contain("Vega.Contracts.dll"));
+            Assert.That(nuspec, Does.Contain("Vega.Contracts.pdb"));
             Assert.That(nuspec, Does.Not.Contain("<dependency id=\"VegaKernel."));
+        });
+    }
+
+    [Test]
+    public void CoreClrServerRetainsDynamicInProcessRuntimeBoundaries()
+    {
+        string repositoryRoot = FindRepositoryRoot();
+        string runtimeProject = File.ReadAllText(Path.Combine(
+            repositoryRoot, "src", "Vega.Runtime", "Vega.Runtime.csproj"));
+        string runtime = File.ReadAllText(Path.Combine(
+            repositoryRoot, "src", "Vega.Runtime", "Program.cs"));
+        string packetHook = File.ReadAllText(Path.Combine(
+            repositoryRoot, "src", "Vega.Terraria", "Hooking", "NativePlayerPacketSecurityHooks.cs"));
+        string packetAdapter = File.ReadAllText(Path.Combine(
+            repositoryRoot, "src", "Vega.Terraria", "Networking", "MultiplicityPacketProcessing.cs"));
+        string[] productExecutables = Directory
+            .EnumerateFiles(Path.Combine(repositoryRoot, "src"), "*.csproj", SearchOption.AllDirectories)
+            .Where(path => File.ReadAllText(path).Contains("<OutputType>Exe</OutputType>", StringComparison.Ordinal))
+            .Select(path => Path.GetRelativePath(repositoryRoot, path).Replace('\\', '/'))
+            .OrderBy(path => path, StringComparer.Ordinal)
+            .ToArray();
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(productExecutables, Is.EqualTo(new[] { "src/Vega.Runtime/Vega.Runtime.csproj" }));
+            Assert.That(runtimeProject, Does.Contain("<PublishAot>false</PublishAot>"));
+            Assert.That(runtimeProject, Does.Contain("<TieredCompilation>true</TieredCompilation>"));
+            Assert.That(runtimeProject, Does.Contain("<TieredPGO>true</TieredPGO>"));
+            Assert.That(runtimeProject, Does.Contain("RejectNativeAotServerPublish"));
+            Assert.That(runtime, Does.Contain("new ServerPluginHotReloadHost("));
+            Assert.That(runtime, Does.Contain("new SoftRestartCoordinator("));
+            Assert.That(packetHook, Does.Contain("MultiplicityPacketProcessing.ProcessInboundPayload("));
+            Assert.That(packetAdapter, Does.Contain("processor.Process(in context)"));
+            Assert.That(packetAdapter, Does.Not.Contain("ProcessStartInfo"));
+            Assert.That(packetAdapter, Does.Not.Contain("Task.Run"));
+        });
+    }
+
+    [Test]
+    public void ContractsIsAnAotCompatibleIsolatedBoundary()
+    {
+        string repositoryRoot = FindRepositoryRoot();
+        string contractsDirectory = Path.Combine(repositoryRoot, "src", "Vega.Contracts");
+        string project = File.ReadAllText(Path.Combine(contractsDirectory, "Vega.Contracts.csproj"));
+        string[] forbiddenTokens =
+        [
+            "System.Reflection",
+            "AssemblyLoadContext",
+            "Activator.CreateInstance",
+            "System.Reflection.Emit",
+            "Terraria.",
+            "OTAPI",
+            "Terminal.Gui"
+        ];
+        string[] offenders = Directory
+            .EnumerateFiles(contractsDirectory, "*.cs", SearchOption.AllDirectories)
+            .Where(path => !path.Contains($"{Path.DirectorySeparatorChar}obj{Path.DirectorySeparatorChar}", StringComparison.Ordinal) &&
+                           !path.Contains($"{Path.DirectorySeparatorChar}bin{Path.DirectorySeparatorChar}", StringComparison.Ordinal))
+            .Where(path => forbiddenTokens.Any(token =>
+                File.ReadAllText(path).Contains(token, StringComparison.Ordinal)))
+            .Select(path => Path.GetRelativePath(repositoryRoot, path))
+            .ToArray();
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(project, Does.Contain("<IsAotCompatible>true</IsAotCompatible>"));
+            Assert.That(project, Does.Not.Contain("<ProjectReference"));
+            Assert.That(project, Does.Not.Contain("<PackageReference"));
+            Assert.That(offenders, Is.Empty,
+                $"AOT-compatible contracts must remain isolated. Offenders: {string.Join(", ", offenders)}");
         });
     }
 
