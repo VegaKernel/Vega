@@ -11,12 +11,18 @@
 
   <ItemGroup>
     <ProjectReference Include="..\Vega.Contracts\Vega.Contracts.csproj" />
-    <PackageReference Include="OTAPI.Upcoming" Version="3.3.12" />
+    <PackageReference Include="OTAPI.Upcoming" Version="3.3.14" />
     <PackageReference Include="Multiplicity" Version="2.6.2" />
   </ItemGroup>
 
   <ItemGroup>
     <InternalsVisibleTo Include="Vega.Runtime.Tests" />
     <InternalsVisibleTo Include="Vega.WorldImage.Benchmarks" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <None Include="buildTransitive\VegaKernel.Terraria.props"
+          Pack="true"
+          PackagePath="buildTransitive\VegaKernel.Terraria.props" />
   </ItemGroup>
 </Project>

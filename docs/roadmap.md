@@ -399,17 +399,17 @@ Active development moved to .NET 11 Preview 7 early under ADR 0024, with Runtime
 
 ### Dependency and compatibility gate
 
-- [ ] Audit .NET 11 support for OTAPI, ModFramework, MonoMod, `Multiplicity`, Terminal.Gui, MaxMind, test adapters and every runtime dependency before changing Vega target frameworks.
+- [x] Audit .NET 11 support for OTAPI, ModFramework, MonoMod, `Multiplicity`, Terminal.Gui, MaxMind, test adapters and every runtime dependency before changing Vega target frameworks.
 - [ ] Build and run a disposable compatibility branch on .NET 11 with zero suppressed loader, JIT, trimming, native-asset or hook failures.
-- [ ] Record required dependency upgrades and their behavioral/API changes; do not carry local forks or binding workarounds without an explicit owner and removal condition.
+- [x] Record required dependency upgrades and their behavioral/API changes; do not carry local forks or binding workarounds without an explicit owner and removal condition.
 - [x] Decide the public-package compatibility policy from real consumers: multi-target only narrow libraries that still require active .NET 10 consumers, while keeping the server runtime on one authoritative target.
-- [ ] Confirm that every bundled `ServerPlugins` module targets a framework loadable by the .NET 11 host and rejects incompatible modules with an actionable startup diagnostic.
+- [x] Confirm that every bundled `ServerPlugins` module targets a framework loadable by the .NET 11 host and rejects incompatible modules with an actionable startup diagnostic.
 
 ### Project and toolchain migration
 
 - [x] Change the repository target framework and documented SDK baseline from `net10.0` to `net11.0` in one coordinated change, with Runtime Async enabled centrally for all first-party projects.
 - [x] Update CI, tagged release, manual publication and local build instructions to install and use the pinned .NET 11 SDK feature band.
-- [ ] Upgrade analyzers, test infrastructure and build tooling, then resolve new warnings intentionally instead of globally suppressing them.
+- [x] Upgrade analyzers, test infrastructure and build tooling, then resolve new warnings intentionally instead of globally suppressing them.
 - [x] Preserve deterministic package metadata, symbols, assembly/file versions and the `VegaKernel.*` package IDs across the framework transition.
 - [x] Update the deployable server layout and assembly resolver only where .NET 11 requires it; retain `libs/` and `ServerPlugins/` ownership boundaries.
 
@@ -418,7 +418,7 @@ Active development moved to .NET 11 Preview 7 early under ADR 0024, with Runtime
 - [ ] Run the complete unit, integration and architecture suite on .NET 11, including packet ownership, game-thread dispatch, module lifecycle, cluster scenarios and `.vworld` fallback/corruption paths.
 - [ ] Smoke-test clean extraction and startup on every supported operating system/runtime identifier, including interactive world selection, plain console, TUI and headless modes.
 - [ ] Validate OTAPI hooks, Terraria world load/save, networking, player join/leave, commands, shutdown and crash diagnostics against representative production worlds.
-- [ ] Pack and inspect every NuGet and symbol package, install them into clean consumer projects and verify that dependency assets resolve without relying on the Vega repository cache.
+- [x] Pack and inspect every NuGet and symbol package, install them into clean consumer projects and verify that dependency assets resolve without relying on the Vega repository cache.
 - [ ] Run upgrade tests for existing Vega configuration, logs, worlds, `.vworld` images and module deployments; document every incompatible operational change.
 
 ### Performance and rollout

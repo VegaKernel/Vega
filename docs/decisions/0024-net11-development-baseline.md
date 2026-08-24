@@ -12,7 +12,7 @@ The last .NET 10 baseline before this migration is commit `2a528ce8efb78e3b223f5
 
 The selected development SDK is `.NET SDK 11.0.100-preview.7.26381.103`. .NET 11 is still a preview runtime, so adopting it for active development does not by itself make it the stable production channel.
 
-The current Terraria integration chain still supplies lower-target assets: OTAPI 3.3.12, ModFramework 1.1.15, Multiplicity 2.6.2 and the resolved MonoMod stack provide `net9.0` assemblies. NuGet resolves those assets for `net11.0` without compatibility warnings, but MonoMod retains its explicit unsupported-target warning. A successful restore and build therefore do not replace the required hook, world, network and shutdown smoke tests before production promotion.
+The current Terraria integration chain still supplies lower-target assets: OTAPI 3.3.14, ModFramework 1.1.15, Multiplicity 2.6.2 and the resolved MonoMod stack provide `net9.0` assemblies. NuGet resolves those assets for `net11.0`, but MonoMod retains its explicit unsupported-target warning. The full package graph and its owned exception are recorded in the [.NET 11 dependency audit](../net11-dependency-audit.md). A successful restore and build therefore do not replace the required hook, world, network and shutdown smoke tests before production promotion.
 
 ## Decision
 

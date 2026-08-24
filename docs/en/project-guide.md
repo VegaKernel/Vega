@@ -211,6 +211,8 @@ Cluster support is optional. The current transport is an in-memory reference imp
 
 `Directory.Build.props` is the version source. Library projects pack as `VegaKernel.*`; `Vega.Runtime` is distributed as the server archive instead of a NuGet library.
 
+`VegaKernel.Terraria` propagates Vega's explicit MonoMod `net11.0` opt-in to package consumers and therefore emits the same unsupported-runtime warning during a consumer build. Keep that warning visible until the dependency graph officially supports .NET 11; see the [.NET 11 dependency audit](../net11-dependency-audit.md).
+
 The automatic `Release Tag` workflow runs when a `vMAJOR.MINOR.PATCH` tag is pushed. It validates the tag against `VersionPrefix`, restores, builds and tests the solution, packs the public libraries and symbol packages, pushes them to NuGet.org, and creates or refreshes the GitHub Release with the deployable server ZIP and checksums. The repository must contain the `NUGET_API_KEY` Actions secret before a release tag is pushed.
 
 The separate `Publish Manual` workflow selects the newest valid tag and only rebuilds its deployable server archive and GitHub Release assets. It deliberately skips tests and NuGet publication and does not require the NuGet secret. See [the release procedure](../releasing.md).

@@ -3,6 +3,7 @@ using System.Reflection;
 using System.Reflection.Metadata;
 using System.Reflection.PortableExecutable;
 using System.Runtime.CompilerServices;
+using System.Runtime.Versioning;
 using Vega.Contracts.Commands;
 using Vega.Contracts.Modules;
 using Vega.Contracts.Operations;
@@ -600,6 +601,8 @@ public sealed class ServerPluginHotReloadHost :
             return null;
         }
 
+        ValidateTargetFramework(image, path);
+
         var context = new ServerPluginLoadContext(path);
         try
         {
@@ -860,6 +863,88 @@ public sealed class ServerPluginHotReloadHost :
 
         return false;
     }
+
+    private static void ValidateTargetFramework(byte[] image, string path)
+    {
+        using var stream = new MemoryStream(image, writable: false);
+        using var pe = new PEReader(stream);
+        MetadataReader metadata = pe.GetMetadataReader();
+        string? targetFramework = null;
+
+        foreach (CustomAttributeHandle handle in metadata.GetAssemblyDefinition().GetCustomAttributes())
+        {
+            CustomAttribute attribute = metadata.GetCustomAttribute(handle);
+            if (!IsTargetFrameworkAttribute(metadata, attribute.Constructor))
+            {
+                continue;
+            }
+
+            BlobReader value = metadata.GetBlobReader(attribute.Value);
+            if (value.ReadUInt16() == 1)
+            {
+                targetFramework = value.ReadSerializedString();
+            }
+
+            break;
+        }
+
+        string? hostTargetFramework = typeof(ServerPluginHotReloadHost).Assembly
+            .GetCustomAttribute<TargetFrameworkAttribute>()?
+            .FrameworkName;
+        if (string.IsNullOrWhiteSpace(targetFramework) || string.IsNullOrWhiteSpace(hostTargetFramework))
+        {
+            throw new InvalidOperationException(
+                $"Server plugin '{Path.GetFileName(path)}' does not declare a target framework that Vega can validate.");
+        }
+
+        FrameworkName pluginFramework;
+        FrameworkName hostFramework;
+        try
+        {
+            pluginFramework = new FrameworkName(targetFramework);
+            hostFramework = new FrameworkName(hostTargetFramework);
+        }
+        catch (ArgumentException ex)
+        {
+            throw new InvalidOperationException(
+                $"Server plugin '{Path.GetFileName(path)}' declares invalid target framework '{targetFramework}'.",
+                ex);
+        }
+
+        if (!string.Equals(pluginFramework.Identifier, hostFramework.Identifier, StringComparison.OrdinalIgnoreCase) ||
+            pluginFramework.Version > hostFramework.Version)
+        {
+            throw new InvalidOperationException(
+                $"Server plugin '{Path.GetFileName(path)}' targets '{targetFramework}', but this Vega host targets " +
+                $"'net{hostFramework.Version.Major}.{hostFramework.Version.Minor}'. Rebuild the plugin for the host " +
+                "framework or an earlier compatible .NETCoreApp target.");
+        }
+    }
+
+    private static bool IsTargetFrameworkAttribute(MetadataReader metadata, EntityHandle constructor)
+    {
+        EntityHandle declaringType = constructor.Kind switch
+        {
+            HandleKind.MemberReference => metadata.GetMemberReference((MemberReferenceHandle)constructor).Parent,
+            HandleKind.MethodDefinition => metadata.GetMethodDefinition((MethodDefinitionHandle)constructor).GetDeclaringType(),
+            _ => default
+        };
+
+        return declaringType.Kind switch
+        {
+            HandleKind.TypeReference => IsTargetFrameworkAttribute(metadata, metadata.GetTypeReference((TypeReferenceHandle)declaringType)),
+            HandleKind.TypeDefinition => IsTargetFrameworkAttribute(metadata, metadata.GetTypeDefinition((TypeDefinitionHandle)declaringType)),
+            _ => false
+        };
+    }
+
+    private static bool IsTargetFrameworkAttribute(MetadataReader metadata, TypeReference type) =>
+        metadata.StringComparer.Equals(type.Namespace, "System.Runtime.Versioning") &&
+        metadata.StringComparer.Equals(type.Name, nameof(TargetFrameworkAttribute));
+
+    private static bool IsTargetFrameworkAttribute(MetadataReader metadata, TypeDefinition type) =>
+        metadata.StringComparer.Equals(type.Namespace, "System.Runtime.Versioning") &&
+        metadata.StringComparer.Equals(type.Name, nameof(TargetFrameworkAttribute));
 
     private static ServerPluginOperationResult DisabledResult() => new(
         false,

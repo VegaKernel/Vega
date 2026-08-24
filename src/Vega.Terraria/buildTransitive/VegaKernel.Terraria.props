@@ -1,0 +1,6 @@
+<Project>
+  <PropertyGroup>
+    <!-- Remove when the resolved MonoMod stack officially supports net11.0. -->
+    <MonoMod_ReallySkipCheckTargetRuntime>true</MonoMod_ReallySkipCheckTargetRuntime>
+  </PropertyGroup>
+</Project>

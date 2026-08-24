@@ -257,6 +257,43 @@ public sealed class RuntimeDependencyTests
     }
 
     [Test]
+    public void BundledServerPluginsTargetTheHostFramework()
+    {
+        string repositoryRoot = FindRepositoryRoot();
+        string[] incompatibleProjects = Directory
+            .EnumerateFiles(Path.Combine(repositoryRoot, "src"), "Vega.Modules.*.csproj", SearchOption.AllDirectories)
+            .Where(path => !File.ReadAllText(path).Contains("<TargetFramework>net11.0</TargetFramework>", StringComparison.Ordinal))
+            .Select(path => Path.GetRelativePath(repositoryRoot, path))
+            .ToArray();
+
+        Assert.That(
+            incompatibleProjects,
+            Is.Empty,
+            $"Bundled ServerPlugins must target the net11.0 host. Offenders: {string.Join(", ", incompatibleProjects)}");
+    }
+
+    [Test]
+    public void TerrariaPackagePropagatesTheVisibleMonoModRuntimeOptIn()
+    {
+        string repositoryRoot = FindRepositoryRoot();
+        string project = File.ReadAllText(Path.Combine(
+            repositoryRoot, "src", "Vega.Terraria", "Vega.Terraria.csproj"));
+        string packageProps = File.ReadAllText(Path.Combine(
+            repositoryRoot,
+            "src",
+            "Vega.Terraria",
+            "buildTransitive",
+            "VegaKernel.Terraria.props"));
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(project, Does.Contain("PackagePath=\"buildTransitive\\VegaKernel.Terraria.props\""));
+            Assert.That(packageProps, Does.Contain("<MonoMod_ReallySkipCheckTargetRuntime>true"));
+            Assert.That(packageProps, Does.Contain("Remove when the resolved MonoMod stack officially supports net11.0"));
+        });
+    }
+
+    [Test]
     public void NativeGameThreadServicesContinueTickingWithoutConnectedPlayers()
     {
         string repositoryRoot = FindRepositoryRoot();

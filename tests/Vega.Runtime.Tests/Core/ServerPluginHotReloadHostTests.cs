@@ -1,4 +1,5 @@
 using NUnit.Framework;
+using System.Text;
 using Vega.Contracts.Operations;
 using Vega.Core.Commands;
 using Vega.Core.Modules;
@@ -124,6 +125,35 @@ public sealed class ServerPluginHotReloadHostTests
             Assert.That(dispatcher.CanDispatch("hotprobe"), Is.False);
             Assert.That(host.Read().ChangedFiles, Does.Contain("Watched.Plugin.dll"));
             Assert.That(host.Read().IsRestartRequired, Is.False);
+        });
+    }
+
+    [Test]
+    public void RejectsPluginTargetingANewerRuntimeWithActionableDiagnostic()
+    {
+        byte[] image = File.ReadAllBytes(FindTestPlugin());
+        byte[] currentTarget = Encoding.UTF8.GetBytes(".NETCoreApp,Version=v11.0");
+        byte[] newerTarget = Encoding.UTF8.GetBytes(".NETCoreApp,Version=v12.0");
+        int targetOffset = image.AsSpan().IndexOf(currentTarget);
+        Assert.That(targetOffset, Is.GreaterThanOrEqualTo(0), "Test plugin target framework metadata was not found.");
+        newerTarget.CopyTo(image, targetOffset);
+        File.WriteAllBytes(Path.Combine(directory, "Future.Plugin.dll"), image);
+
+        var dispatcher = new CommandDispatcher([]);
+        using var host = new ServerPluginHotReloadHost(
+            directory,
+            new ServerPluginHotReloadOptions(true, 100, 5000),
+            dispatcher,
+            new RecordingLogger());
+
+        host.Start();
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(dispatcher.CanDispatch("hotprobe"), Is.False);
+            Assert.That(host.Read().IsRestartRequired, Is.True);
+            Assert.That(host.Read().Failure, Does.Contain(".NETCoreApp,Version=v12.0"));
+            Assert.That(host.Read().Failure, Does.Contain("net11.0"));
         });
     }
 
