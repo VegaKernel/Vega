@@ -399,7 +399,7 @@ Active development moved to .NET 11 Preview 7 early under ADR 0024, with Runtime
 
 ### Dependency and compatibility gate
 
-- [ ] Audit .NET 11 support for OTAPI, ModFramework, MonoMod, `TZ.Multiplicity`, Terminal.Gui, MaxMind, test adapters and every runtime dependency before changing Vega target frameworks.
+- [ ] Audit .NET 11 support for OTAPI, ModFramework, MonoMod, `Multiplicity`, Terminal.Gui, MaxMind, test adapters and every runtime dependency before changing Vega target frameworks.
 - [ ] Build and run a disposable compatibility branch on .NET 11 with zero suppressed loader, JIT, trimming, native-asset or hook failures.
 - [ ] Record required dependency upgrades and their behavioral/API changes; do not carry local forks or binding workarounds without an explicit owner and removal condition.
 - [x] Decide the public-package compatibility policy from real consumers: multi-target only narrow libraries that still require active .NET 10 consumers, while keeping the server runtime on one authoritative target.
