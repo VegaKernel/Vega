@@ -6,8 +6,9 @@ param(
 
 $ErrorActionPreference = 'Stop'
 $source = (Resolve-Path -LiteralPath $ServerRoot).Path
+$serverHost = if ($IsWindows) { 'Vega.Server.exe' } else { 'Vega.Server' }
 $required = @(
-    'Vega.Server.exe',
+    $serverHost,
     'Vega.Server.dll',
     'libs/Vega.Contracts.dll',
     'libs/Vega.Core.dll',
@@ -32,29 +33,29 @@ $smokeRoot = Join-Path ([IO.Path]::GetTempPath()) ("vega-deployment-smoke-" + [G
 $deploy = Join-Path $smokeRoot 'server'
 $process = $null
 try {
-New-Item -ItemType Directory -Path $deploy -Force | Out-Null
-Copy-Item -Path (Join-Path $source '*') -Destination $deploy -Recurse -Force
-foreach ($relative in @('data', 'logs', 'worlds')) {
-    $generated = Join-Path $deploy $relative
-    if ([IO.Directory]::Exists($generated)) { [IO.Directory]::Delete($generated, $true) }
-}
-$world = Join-Path $deploy 'worlds/smoke.wld'
-New-Item -ItemType Directory -Path (Split-Path -Parent $world) -Force | Out-Null
+    New-Item -ItemType Directory -Path $deploy -Force | Out-Null
+    Copy-Item -Path (Join-Path $source '*') -Destination $deploy -Recurse -Force
+    foreach ($relative in @('data', 'logs', 'worlds')) {
+        $generated = Join-Path $deploy $relative
+        if ([IO.Directory]::Exists($generated)) { [IO.Directory]::Delete($generated, $true) }
+    }
+    $world = Join-Path $deploy 'worlds/smoke.wld'
+    New-Item -ItemType Directory -Path (Split-Path -Parent $world) -Force | Out-Null
 
-$start = [Diagnostics.ProcessStartInfo]::new()
-$start.FileName = Join-Path $deploy 'Vega.Server.exe'
-$start.WorkingDirectory = $deploy
-$start.UseShellExecute = $false
-$start.RedirectStandardInput = $true
-$start.RedirectStandardOutput = $true
-$start.RedirectStandardError = $true
-$start.CreateNoWindow = $true
-$quotedWorld = '"' + $world.Replace('"', '\"') + '"'
-$start.Arguments = "--vega-ui=plain -autocreate 1 -world $quotedWorld -port 17889 -maxplayers 4 -password deployment-smoke"
+    $start = [Diagnostics.ProcessStartInfo]::new()
+    $start.FileName = Join-Path $deploy $serverHost
+    $start.WorkingDirectory = $deploy
+    $start.UseShellExecute = $false
+    $start.RedirectStandardInput = $true
+    $start.RedirectStandardOutput = $true
+    $start.RedirectStandardError = $true
+    $start.CreateNoWindow = $true
+    $quotedWorld = '"' + $world.Replace('"', '\"') + '"'
+    $start.Arguments = "--vega-ui=plain -autocreate 1 -world $quotedWorld -port 17889 -maxplayers 4 -password deployment-smoke"
 
-$process = [Diagnostics.Process]::new()
-$process.StartInfo = $start
-    if (-not $process.Start()) { throw 'Vega.Server.exe did not start.' }
+    $process = [Diagnostics.Process]::new()
+    $process.StartInfo = $start
+    if (-not $process.Start()) { throw "$serverHost did not start." }
     $standardOutput = $process.StandardOutput.ReadToEndAsync()
     $standardError = $process.StandardError.ReadToEndAsync()
     $deadline = [DateTime]::UtcNow.AddSeconds($TimeoutSeconds)

@@ -79,10 +79,11 @@ public sealed class ConnectionMetadataRegistryTests
     }
 
     [Test]
-    public void UuidIsAcceptedOnceOnlyDuringProtocolAcceptedPhase()
+    public void UuidTokenIsAcceptedOnceOnlyDuringProtocolAcceptedPhase()
     {
         var registry = new TerrariaConnectionMetadataRegistry();
-        byte[] payload = EncodeString("755A3C87-6F2B-4EC9-AED4-B8EEAF855C81");
+        const string token = "755A3C87-6F2B-4EC9-AED4-B8EEAF855C81";
+        byte[] payload = EncodeString(token);
 
         PacketProcessingDecision accepted = registry.ObserveInbound(
             (byte)PacketTypes.ClientUUID,
@@ -102,15 +103,36 @@ public sealed class ConnectionMetadataRegistryTests
         {
             Assert.That(accepted.Kind, Is.EqualTo(PacketDecisionKind.Allow));
             Assert.That(duplicate.Kind, Is.EqualTo(PacketDecisionKind.Reject));
-            Assert.That(uuid, Is.EqualTo("755a3c87-6f2b-4ec9-aed4-b8eeaf855c81"));
+            Assert.That(uuid, Is.EqualTo(token), "ClientUUID is an opaque vanilla token and must not be normalized.");
+        });
+    }
+
+    [TestCase("persisted-client-token")]
+    [TestCase("755a3c876f2b4ec9aed4b8eeaf855c81")]
+    [TestCase("client-uuid-with-non-guid-format")]
+    [TestCase("клиент-uuid")]
+    public void UuidAcceptsNonEmptyOpaqueVanillaTokens(string value)
+    {
+        var registry = new TerrariaConnectionMetadataRegistry();
+
+        PacketProcessingDecision decision = registry.ObserveInbound(
+            (byte)PacketTypes.ClientUUID,
+            EncodeString(value),
+            1,
+            TerrariaConnectionState.ProtocolAccepted);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(decision.Kind, Is.EqualTo(PacketDecisionKind.Allow));
+            Assert.That(registry.Snapshot(1, null, TerrariaConnectionState.ProtocolAccepted).ClientUuid,
+                Is.EqualTo(value));
         });
     }
 
     [TestCase("")]
-    [TestCase("not-a-uuid")]
-    [TestCase("755a3c876f2b4ec9aed4b8eeaf855c81")]
-    [TestCase("755a3c87-6f2b-4ec9-aed4-b8eeaf855c8z")]
-    public void UuidRejectsEmptyAndNonCanonicalValues(string value)
+    [TestCase(" ")]
+    [TestCase("\t\r\n")]
+    public void UuidRejectsEmptyOrWhitespaceTokens(string value)
     {
         var registry = new TerrariaConnectionMetadataRegistry();
 
@@ -129,25 +151,86 @@ public sealed class ConnectionMetadataRegistryTests
     }
 
     [Test]
-    public void UuidRejectsMalformedValueAndWrongLoginPhase()
+    public void UuidRejectsOverlongTruncatedAndTrailingPayloads()
+    {
+        var registry = new TerrariaConnectionMetadataRegistry();
+        string overlong = new('x', 129);
+        byte[] trailing = [.. EncodeString("persisted-token"), 0x7f];
+        byte[] truncated = [5, (byte)'a'];
+
+        PacketProcessingDecision overlongDecision = registry.ObserveInbound(
+            (byte)PacketTypes.ClientUUID,
+            EncodeString(overlong),
+            1,
+            TerrariaConnectionState.ProtocolAccepted);
+        PacketProcessingDecision trailingDecision = registry.ObserveInbound(
+            (byte)PacketTypes.ClientUUID,
+            trailing,
+            2,
+            TerrariaConnectionState.ProtocolAccepted);
+        PacketProcessingDecision truncatedDecision = registry.ObserveInbound(
+            (byte)PacketTypes.ClientUUID,
+            truncated,
+            3,
+            TerrariaConnectionState.ProtocolAccepted);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(overlongDecision.Reason, Is.EqualTo("connection_metadata.uuid_invalid"));
+            Assert.That(trailingDecision.Reason, Is.EqualTo("connection_metadata.uuid_invalid"));
+            Assert.That(truncatedDecision.Reason, Is.EqualTo("connection_metadata.uuid_invalid"));
+            Assert.That(registry.Snapshot(1, null, TerrariaConnectionState.ProtocolAccepted).ClientUuid, Is.Null);
+            Assert.That(registry.Snapshot(2, null, TerrariaConnectionState.ProtocolAccepted).ClientUuid, Is.Null);
+            Assert.That(registry.Snapshot(3, null, TerrariaConnectionState.ProtocolAccepted).ClientUuid, Is.Null);
+        });
+    }
+
+    [Test]
+    public void UuidRejectsWrongLoginPhase()
     {
         var registry = new TerrariaConnectionMetadataRegistry();
 
-        PacketProcessingDecision malformed = registry.ObserveInbound(
-            (byte)PacketTypes.ClientUUID,
-            EncodeString("not-a-uuid"),
-            1,
-            TerrariaConnectionState.ProtocolAccepted);
         PacketProcessingDecision late = registry.ObserveInbound(
             (byte)PacketTypes.ClientUUID,
-            EncodeString("755a3c87-6f2b-4ec9-aed4-b8eeaf855c81"),
+            EncodeString("persisted-client-token"),
             2,
             TerrariaConnectionState.FullyConnected);
 
         Assert.Multiple(() =>
         {
-            Assert.That(malformed.Reason, Is.EqualTo("connection_metadata.uuid_invalid"));
+            Assert.That(late.Kind, Is.EqualTo(PacketDecisionKind.Reject));
             Assert.That(late.Reason, Is.EqualTo("connection_metadata.uuid_wrong_phase"));
+        });
+    }
+
+    [Test]
+    public void ConnectRequestClearsUuidForReconnectSlotReuse()
+    {
+        var registry = new TerrariaConnectionMetadataRegistry();
+
+        PacketProcessingDecision first = registry.ObserveInbound(
+            (byte)PacketTypes.ClientUUID,
+            EncodeString("old-persisted-token"),
+            4,
+            TerrariaConnectionState.ProtocolAccepted);
+        PacketProcessingDecision reset = registry.ObserveInbound(
+            (byte)PacketTypes.ConnectRequest,
+            [],
+            4,
+            TerrariaConnectionState.AwaitingHello);
+        PacketProcessingDecision second = registry.ObserveInbound(
+            (byte)PacketTypes.ClientUUID,
+            EncodeString("new-persisted-token"),
+            4,
+            TerrariaConnectionState.ProtocolAccepted);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(first.Kind, Is.EqualTo(PacketDecisionKind.Allow));
+            Assert.That(reset.Kind, Is.EqualTo(PacketDecisionKind.Allow));
+            Assert.That(second.Kind, Is.EqualTo(PacketDecisionKind.Allow));
+            Assert.That(registry.Snapshot(4, null, TerrariaConnectionState.ProtocolAccepted).ClientUuid,
+                Is.EqualTo("new-persisted-token"));
         });
     }
 
@@ -215,7 +298,7 @@ public sealed class ConnectionMetadataRegistryTests
             "127.0.0.1:40000");
         PacketProcessingDecision uuid = registry.ObserveInbound(
             (byte)PacketTypes.ClientUUID,
-            EncodeString("755a3c87-6f2b-4ec9-aed4-b8eeaf855c81"),
+            EncodeString("Persisted-Client-Token"),
             5,
             TerrariaConnectionState.ProtocolAccepted);
 
@@ -226,7 +309,7 @@ public sealed class ConnectionMetadataRegistryTests
             Assert.That(admission.ConsumeCount, Is.EqualTo(1));
             Assert.That(admission.WorldId, Is.EqualTo(new WorldId("arena")));
             Assert.That(admission.EffectiveEndpoint, Is.EqualTo("203.0.113.9"));
-            Assert.That(admission.ClientUuid, Is.EqualTo("755a3c87-6f2b-4ec9-aed4-b8eeaf855c81"));
+            Assert.That(admission.ClientUuid, Is.EqualTo("Persisted-Client-Token"));
             Assert.That(registry.Snapshot(5, null, TerrariaConnectionState.ProtocolAccepted).TrustedTransferAccountId,
                 Is.EqualTo("42"));
         });
@@ -254,7 +337,7 @@ public sealed class ConnectionMetadataRegistryTests
 
         PacketProcessingDecision decision = registry.ObserveInbound(
             (byte)PacketTypes.ClientUUID,
-            EncodeString("755a3c87-6f2b-4ec9-aed4-b8eeaf855c81"),
+            EncodeString("persisted-client-token"),
             5,
             TerrariaConnectionState.ProtocolAccepted);
 
@@ -274,7 +357,7 @@ public sealed class ConnectionMetadataRegistryTests
 
         PacketProcessingDecision decision = registry.ObserveInbound(
             (byte)PacketTypes.ClientUUID,
-            EncodeString("755a3c87-6f2b-4ec9-aed4-b8eeaf855c81"),
+            EncodeString("persisted-client-token"),
             5,
             TerrariaConnectionState.ProtocolAccepted);
 

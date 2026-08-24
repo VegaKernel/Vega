@@ -83,10 +83,12 @@ internal sealed class RelationalRoleLeaseService(
                 RoleLeaseSnapshot? before = await FindCurrentAsync(
                     connection, transaction, accountId, cancellationToken).ConfigureAwait(false);
                 await using (DbCommand revoke = CreateCommand(connection, transaction,
-                    "UPDATE vega_role_leases SET revoked = 1, revision = revision + 1 " +
-                    "WHERE account_id = @account AND revoked = 0;"))
+                    "UPDATE vega_role_leases SET revoked = @revoked, revision = revision + 1 " +
+                    "WHERE account_id = @account AND revoked = @active;"))
                 {
                     revoke.AddParameter("@account", accountId.Value);
+                    revoke.AddParameter("@revoked", true);
+                    revoke.AddParameter("@active", false);
                     await revoke.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
                 }
 
@@ -102,9 +104,10 @@ internal sealed class RelationalRoleLeaseService(
                 await using (DbCommand insert = CreateCommand(connection, transaction,
                     "INSERT INTO vega_role_leases " +
                     "(id, account_id, group_name, issued_by, issued_at_utc, expires_at_utc, revision, revoked) " +
-                    "VALUES (@id, @account, @group, @actor, @issued, @expires, 1, 0);"))
+                    "VALUES (@id, @account, @group, @actor, @issued, @expires, 1, @revoked);"))
                 {
                     AddLeaseParameters(insert, after);
+                    insert.AddParameter("@revoked", false);
                     await insert.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
                 }
 
@@ -175,10 +178,12 @@ internal sealed class RelationalRoleLeaseService(
                 }
 
                 await using DbCommand update = CreateCommand(connection, transaction,
-                    "UPDATE vega_role_leases SET revoked = 1, revision = revision + 1 " +
-                    "WHERE id = @id AND revision = @revision AND revoked = 0;");
+                    "UPDATE vega_role_leases SET revoked = @revoked, revision = revision + 1 " +
+                    "WHERE id = @id AND revision = @revision AND revoked = @active;");
                 update.AddParameter("@id", leaseId.ToString("D"));
                 update.AddParameter("@revision", expectedRevision);
+                update.AddParameter("@revoked", true);
+                update.AddParameter("@active", false);
                 if (await update.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false) != 1)
                 {
                     return new RoleLeaseMutationResult(false, "role-lease.revision-conflict", before);
@@ -228,7 +233,8 @@ internal sealed class RelationalRoleLeaseService(
             using DbCommand command = connection.CreateCommand();
             command.CommandText =
                 "SELECT id, account_id, group_name, issued_by, issued_at_utc, expires_at_utc, revision, revoked " +
-                "FROM vega_role_leases WHERE revoked = 0 ORDER BY issued_at_utc, id;";
+                "FROM vega_role_leases WHERE revoked = @active ORDER BY issued_at_utc, id;";
+            command.AddParameter("@active", false);
             using DbDataReader reader = command.ExecuteReader();
             activeByAccount = [];
             while (reader.Read())
@@ -247,9 +253,10 @@ internal sealed class RelationalRoleLeaseService(
     {
         await using DbCommand command = CreateCommand(connection, transaction,
             "SELECT id, account_id, group_name, issued_by, issued_at_utc, expires_at_utc, revision, revoked " +
-            "FROM vega_role_leases WHERE account_id = @account AND revoked = 0 " +
+            "FROM vega_role_leases WHERE account_id = @account AND revoked = @active " +
             "ORDER BY issued_at_utc DESC, id DESC LIMIT 1;");
         command.AddParameter("@account", accountId.Value);
+        command.AddParameter("@active", false);
         await using DbDataReader reader = await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
         return await reader.ReadAsync(cancellationToken).ConfigureAwait(false) ? Read(reader) : null;
     }

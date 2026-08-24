@@ -9,6 +9,8 @@ namespace Vega.Terraria.Networking;
 
 public sealed class TerrariaConnectionMetadataRegistry
 {
+    private const int MaxClientUuidLength = 128;
+
     private readonly object sync = new();
     private readonly Dictionary<int, MutableMetadata> connections = [];
     private bool dimensionsEnabled;
@@ -230,16 +232,17 @@ public sealed class TerrariaConnectionMetadataRegistry
 
         try
         {
-            string value = packet.AsClientUUIDView().Uuid;
-            if (string.IsNullOrWhiteSpace(value) ||
-                value.Length != 36 ||
-                packet.PayloadSpan.Length != 37 ||
-                !Guid.TryParseExact(value, "D", out Guid uuid))
+            PacketReader reader = packet.CreatePayloadReader();
+            string value = reader.ReadStringUtf8();
+            reader.EnsureEnd();
+            if (string.IsNullOrWhiteSpace(value) || value.Length > MaxClientUuidLength)
             {
                 return Reject("connection_metadata.uuid_invalid");
             }
 
-            metadata.ClientUuid = uuid.ToString("D");
+            // Terraria persists ClientUUID as an opaque string. Preserve the exact token so
+            // reconnect, transfer-ticket and moderation comparisons use vanilla semantics.
+            metadata.ClientUuid = value;
             return Allow();
         }
         catch (Exception ex) when (ex is InvalidDataException or EndOfStreamException or FormatException)
@@ -277,7 +280,6 @@ public sealed class TerrariaConnectionMetadataRegistry
         metadata.Platform = platform;
         return Allow();
     }
-
 
     private PacketProcessingDecision ConsumeSandboxAdmission(MutableMetadata metadata, bool required)
     {
