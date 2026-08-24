@@ -84,6 +84,15 @@ dotnet build benchmarks/Vega.WorldImage.Benchmarks/Vega.WorldImage.Benchmarks.cs
   --no-restore
 ```
 
+Synchronous packet baseline стадии 22 запускается отдельно и выводит machine-readable throughput, allocations, CPU, GC и tick latency:
+
+```powershell
+dotnet run --project benchmarks/Vega.PacketPipeline.Benchmarks/Vega.PacketPipeline.Benchmarks.csproj `
+  --configuration Release
+```
+
+Классификация и текущий baseline описаны в [packet pipeline](../packet-pipeline.md).
+
 MonoMod выдаёт ожидаемое предупреждение из-за явного opt-in Vega в target runtime. Сборка при этом должна завершаться без ошибок.
 
 ## 6. Публикация и структура дистрибутива
@@ -209,11 +218,11 @@ Cluster support опционален. Текущий transport — in-memory ref
 
 ## 11. Пакеты и релизы
 
-Источником версии является `Directory.Build.props`. Библиотечные проекты упаковываются как `VegaKernel.*`; `Vega.Runtime` поставляется серверным архивом, а не NuGet-библиотекой.
+Источником версии является `Directory.Build.props`. Для NuGet создаётся один пакет `VegaKernel` со всеми публичными first-party assemblies; компонентные проекты отдельно не публикуются. `Vega.Runtime` по-прежнему поставляется как deployable server archive, а не NuGet executable.
 
-`VegaKernel.Terraria` передаёт consumer-проектам явный opt-in Vega для MonoMod на `net11.0`, поэтому consumer build показывает то же предупреждение о неподдерживаемом runtime. Сохраняйте его видимым, пока dependency graph официально не поддержит .NET 11; подробности записаны в [.NET 11 dependency audit](../net11-dependency-audit.md).
+`VegaKernel` передаёт consumer-проектам явный opt-in Vega для MonoMod на `net11.0`, поэтому consumer build показывает то же предупреждение о неподдерживаемом runtime. Сохраняйте его видимым, пока dependency graph официально не поддержит .NET 11; подробности записаны в [.NET 11 dependency audit](../net11-dependency-audit.md).
 
-Автоматический workflow `Release Tag` запускается при отправке тега `vMAJOR.MINOR.PATCH`. Он сверяет тег с `VersionPrefix`, восстанавливает, собирает и тестирует solution, упаковывает публичные библиотеки и symbol packages, публикует их в NuGet.org и создаёт или обновляет GitHub Release с готовым серверным ZIP-архивом и checksums. До отправки релизного тега в репозитории должен быть настроен Actions secret `NUGET_API_KEY`.
+Автоматический workflow `Release Tag` запускается при отправке тега `vMAJOR.MINOR.PATCH`. Он сверяет тег с `VersionPrefix`, восстанавливает, собирает и тестирует solution, упаковывает и публикует единственный пакет `VegaKernel`, затем создаёт или обновляет GitHub Release с готовым серверным ZIP-архивом и checksums. До отправки релизного тега в репозитории должен быть настроен Actions secret `NUGET_API_KEY`.
 
 Отдельный workflow `Publish Manual` выбирает последний корректный тег и только пересобирает его готовый к развёртыванию серверный архив и assets GitHub Release. Он намеренно не запускает тесты и публикацию в NuGet и не требует NuGet-секрета. Подробности: [процедура релиза](../releasing.md).
 

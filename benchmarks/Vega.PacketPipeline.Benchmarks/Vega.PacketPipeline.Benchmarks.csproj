@@ -1,0 +1,17 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net11.0</TargetFramework>
+    <RootNamespace>Vega.PacketPipeline.Benchmarks</RootNamespace>
+    <AssemblyName>Vega.PacketPipeline.Benchmarks</AssemblyName>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <IsPackable>false</IsPackable>
+    <MonoMod_ReallySkipCheckTargetRuntime>true</MonoMod_ReallySkipCheckTargetRuntime>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\Vega.Core\Vega.Core.csproj" />
+    <ProjectReference Include="..\..\src\Vega.Terraria\Vega.Terraria.csproj" />
+  </ItemGroup>
+</Project>

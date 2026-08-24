@@ -247,53 +247,5 @@ internal sealed class NativePlayerPacketSecurityHooks : IDisposable
     }
 
     private static bool IsProcessedPacket(byte packetId) =>
-        packetId is
-            (byte)PacketTypes.PlayerUpdate or
-            (byte)PacketTypes.PlayerHp or
-            (byte)PacketTypes.PlayerMana or
-            (byte)PacketTypes.PlayerTeam or
-            (byte)PacketTypes.TeamChangeFromUI or
-            (byte)PacketTypes.TogglePvp or
-            (byte)PacketTypes.SpectatePlayer or
-            (byte)PacketTypes.PlayerTeleportPortal or
-            (byte)PacketTypes.SyncExtraValue or
-            (byte)PacketTypes.ItemDrop or
-            (byte)PacketTypes.UpdateItemDrop or
-            (byte)PacketTypes.SyncItemsWithShimmerDeprecated or
-            (byte)PacketTypes.SyncItemCannotBeTakenByEnemiesDeprecated or
-            (byte)PacketTypes.SyncItemDespawn or
-            (byte)PacketTypes.SyncItemPosition or
-            (byte)PacketTypes.ProjectileNew or
-            (byte)PacketTypes.ProjectileDestroy or
-            (byte)PacketTypes.SyncProjectileTrackers or
-            (byte)PacketTypes.PlayerHurtV2 or
-            (byte)PacketTypes.PlayerDeathV2 or
-            (byte)PacketTypes.Tile or
-            (byte)PacketTypes.DoorUse or
-            (byte)PacketTypes.PaintTile or
-            (byte)PacketTypes.PaintWall or
-            (byte)PacketTypes.SignRead or
-            (byte)PacketTypes.SignNew or
-            (byte)PacketTypes.PlaceObject or
-            (byte)PacketTypes.PlaceItemFrame or
-            (byte)PacketTypes.ChestGetContents or
-            (byte)PacketTypes.ChestItem or
-            (byte)PacketTypes.ChestOpen or
-            (byte)PacketTypes.PlaceChest or
-            (byte)PacketTypes.SyncChestSize or
-            (byte)PacketTypes.ChestName or
-            (byte)PacketTypes.ChestUnlock or
-            (byte)PacketTypes.SyncPlayerChestIndex or
-            (byte)PacketTypes.ForceItemIntoNearestChest or
-            (byte)PacketTypes.LiquidSet or
-            (byte)PacketTypes.PlaceTileEntity or
-            (byte)PacketTypes.GemLockToggle or
-            (byte)PacketTypes.MassWireOperation or
-            (byte)PacketTypes.FoodPlatterTryPlacing or
-            (byte)PacketTypes.TEDeadCellsDisplayJar or
-            (byte)PacketTypes.TileEntityDisplayDollItemSync or
-            (byte)PacketTypes.RequestTileEntityInteraction or
-            (byte)PacketTypes.TileEntityHatRackItemSync or
-            (byte)PacketTypes.SyncTilePicking or
-            (byte)PacketTypes.TELeashedEntityAnchorPlaceItem;
+        PacketPipelineClassification.Get(packetId).SecurityProcessed;
 }

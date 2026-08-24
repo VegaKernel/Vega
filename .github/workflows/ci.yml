@@ -39,6 +39,31 @@ jobs:
       - name: Build world-image benchmark harness
         run: dotnet build benchmarks/Vega.WorldImage.Benchmarks/Vega.WorldImage.Benchmarks.csproj --configuration Release --no-restore
 
+  packet-pipeline-baseline:
+    name: Packet pipeline baseline
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v5
+        with:
+          dotnet-version: 11.0.100-preview.7.26381.103
+      - name: Restore benchmark
+        run: dotnet restore benchmarks/Vega.PacketPipeline.Benchmarks/Vega.PacketPipeline.Benchmarks.csproj
+      - name: Build benchmark
+        run: dotnet build benchmarks/Vega.PacketPipeline.Benchmarks/Vega.PacketPipeline.Benchmarks.csproj --configuration Release --no-restore
+      - name: Record synchronous baseline
+        run: |
+          mkdir -p artifacts
+          dotnet run --project benchmarks/Vega.PacketPipeline.Benchmarks/Vega.PacketPipeline.Benchmarks.csproj --configuration Release --no-build --no-restore > artifacts/packet-pipeline-baseline.json
+          cat artifacts/packet-pipeline-baseline.json
+      - name: Upload baseline
+        uses: actions/upload-artifact@v4
+        with:
+          name: packet-pipeline-baseline
+          path: artifacts/packet-pipeline-baseline.json
+          if-no-files-found: error
+
   persistence-contracts:
     name: PostgreSQL and MySQL baseline contracts
     runs-on: ubuntu-latest

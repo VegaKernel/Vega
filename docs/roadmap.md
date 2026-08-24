@@ -402,7 +402,7 @@ Active development moved to .NET 11 Preview 7 early under ADR 0024, with Runtime
 - [x] Audit .NET 11 support for OTAPI, ModFramework, MonoMod, `Multiplicity`, Terminal.Gui, MaxMind, test adapters and every runtime dependency before changing Vega target frameworks.
 - [ ] Build and run a disposable compatibility branch on .NET 11 with zero suppressed loader, JIT, trimming, native-asset or hook failures.
 - [x] Record required dependency upgrades and their behavioral/API changes; do not carry local forks or binding workarounds without an explicit owner and removal condition.
-- [x] Decide the public-package compatibility policy from real consumers: multi-target only narrow libraries that still require active .NET 10 consumers, while keeping the server runtime on one authoritative target.
+- [x] Decide the public-package compatibility policy: publish one authoritative `VegaKernel` package on `net11.0`; require a separate consumer-backed decision before introducing a narrow package split or .NET 10 multi-target.
 - [x] Confirm that every bundled `ServerPlugins` module targets a framework loadable by the .NET 11 host and rejects incompatible modules with an actionable startup diagnostic.
 
 ### Project and toolchain migration
@@ -410,7 +410,7 @@ Active development moved to .NET 11 Preview 7 early under ADR 0024, with Runtime
 - [x] Change the repository target framework and documented SDK baseline from `net10.0` to `net11.0` in one coordinated change, with Runtime Async enabled centrally for all first-party projects.
 - [x] Update CI, tagged release, manual publication and local build instructions to install and use the pinned .NET 11 SDK feature band.
 - [x] Upgrade analyzers, test infrastructure and build tooling, then resolve new warnings intentionally instead of globally suppressing them.
-- [x] Preserve deterministic package metadata, symbols, assembly/file versions and the `VegaKernel.*` package IDs across the framework transition.
+- [x] Preserve deterministic package metadata and assembly/file versions; publish the unpublished component assemblies together under the single authoritative `VegaKernel` package ID.
 - [x] Update the deployable server layout and assembly resolver only where .NET 11 requires it; retain `libs/` and `ServerPlugins/` ownership boundaries.
 
 ### Runtime validation
@@ -418,7 +418,7 @@ Active development moved to .NET 11 Preview 7 early under ADR 0024, with Runtime
 - [ ] Run the complete unit, integration and architecture suite on .NET 11, including packet ownership, game-thread dispatch, module lifecycle, cluster scenarios and `.vworld` fallback/corruption paths.
 - [ ] Smoke-test clean extraction and startup on every supported operating system/runtime identifier, including interactive world selection, plain console, TUI and headless modes.
 - [ ] Validate OTAPI hooks, Terraria world load/save, networking, player join/leave, commands, shutdown and crash diagnostics against representative production worlds.
-- [x] Pack and inspect every NuGet and symbol package, install them into clean consumer projects and verify that dependency assets resolve without relying on the Vega repository cache.
+- [x] Pack and inspect the single unified `VegaKernel` NuGet package, install it into a clean consumer project and verify that dependency assets resolve without relying on the Vega repository cache.
 - [ ] Run upgrade tests for existing Vega configuration, logs, worlds, `.vworld` images and module deployments; document every incompatible operational change.
 
 ### Performance and rollout
@@ -546,7 +546,7 @@ Review whether `Vega.Core` still represents a cohesive application kernel or has
 ### Controlled extraction
 
 - [x] Extract one complete vertical slice at a time with its tests and runtime registration; do not move only DTOs or create pass-through interfaces solely to reduce a project file count.
-- [x] Preserve public `VegaKernel.*` compatibility where justified, or document and version intentional moves; avoid exposing Terraria, SQL, UI or plugin-host types through domain contracts.
+- [x] Preserve public Vega assembly/API compatibility where justified inside the single `VegaKernel` package, or document and version intentional moves; avoid exposing Terraria, SQL, UI or plugin-host types through domain contracts.
 - [x] Compare solution build time, server startup, package graph, packet hot-path cost and allocation/working-set baselines before and after each split; revert extractions that add indirection without measurable ownership benefit.
 - [x] Update English/Russian architecture documentation, diagrams, module-author guidance and the migration ledger after each accepted ownership change.
 - [x] Close the audit only when every Core namespace has one recorded owner/reason to remain and no extracted domain requires Core as a hidden mediator.
@@ -560,9 +560,9 @@ Reduce game-thread packet cost and tail latency by moving only pure, order-safe 
 ### Baseline and packet classification
 
 - [ ] Add `Vega.PacketPipeline.Benchmarks` and record the current synchronous zero-copy baseline for packets/sec, ns/packet, allocations, CPU, GC, context switches and packet/tick p50/p95/p99/max.
-- [ ] Audit every inbound packet family as `GameThreadOnly`, `PartiallyOffloadable` or `PureBeforeApply`, and separately record whether it is order-sensitive, world-state-sensitive, latency-sensitive and safely coalescable.
+- [x] Audit every inbound packet family as `GameThreadOnly`, `PartiallyOffloadable` or `PureBeforeApply`, and separately record whether it is order-sensitive, world-state-sensitive, latency-sensitive and safely coalescable.
 - [ ] Start with player movement/state, projectile spawn/update/destroy and tile/world interaction; do not redesign the complete protocol before one measured vertical proves the model.
-- [ ] Keep `Multiplicity` as the protocol representation layer and preserve the existing zero-copy synchronous ingress for framing and typed views.
+- [x] Keep `Multiplicity` as the protocol representation layer and preserve the existing zero-copy synchronous ingress for framing and typed views.
 
 ### Owned intents and worker lanes
 
@@ -599,6 +599,8 @@ Packet-pipeline invariant:
 network/worker threads = pure preparation of owned packet intents
 game thread             = current-state authority, plugin gameplay hooks and mutation
 ```
+
+The first Phase 22 slice is recorded in `docs/packet-pipeline.md`. Every Terraria packet type now has a conservative internal profile; the current security families are only partially offloadable and remain synchronous. The reproducible `Vega.PacketPipeline.Benchmarks` harness measures the `PlayerUpdate` zero-copy view plus ownership-policy path and emits a Linux context-switch counter in CI. The first local Windows baseline exposed 232 bytes allocated per packet, so production worker queues and coalescing remain intentionally unimplemented until that cost and the ordered-intent variants are measured.
 
 ## Phase 23 — selective NativeAOT and runtime process specialization
 

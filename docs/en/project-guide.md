@@ -84,6 +84,15 @@ dotnet build benchmarks/Vega.WorldImage.Benchmarks/Vega.WorldImage.Benchmarks.cs
   --no-restore
 ```
 
+Run the Phase 22 synchronous packet baseline separately; it emits machine-readable throughput, allocation, CPU, GC and tick-latency data:
+
+```powershell
+dotnet run --project benchmarks/Vega.PacketPipeline.Benchmarks/Vega.PacketPipeline.Benchmarks.csproj `
+  --configuration Release
+```
+
+See [packet pipeline](../packet-pipeline.md) for the classification and current baseline.
+
 MonoMod emits an expected warning because Vega explicitly opts into the target runtime. The build must still complete with zero errors.
 
 ## 6. Publish and distribution layout
@@ -209,11 +218,11 @@ Cluster support is optional. The current transport is an in-memory reference imp
 
 ## 11. Packages and releases
 
-`Directory.Build.props` is the version source. Library projects pack as `VegaKernel.*`; `Vega.Runtime` is distributed as the server archive instead of a NuGet library.
+`Directory.Build.props` is the version source. NuGet publication produces one `VegaKernel` package containing the public first-party assemblies; component projects are not published separately. `Vega.Runtime` remains the deployable server archive rather than a NuGet executable.
 
-`VegaKernel.Terraria` propagates Vega's explicit MonoMod `net11.0` opt-in to package consumers and therefore emits the same unsupported-runtime warning during a consumer build. Keep that warning visible until the dependency graph officially supports .NET 11; see the [.NET 11 dependency audit](../net11-dependency-audit.md).
+`VegaKernel` propagates Vega's explicit MonoMod `net11.0` opt-in to package consumers and therefore emits the same unsupported-runtime warning during a consumer build. Keep that warning visible until the dependency graph officially supports .NET 11; see the [.NET 11 dependency audit](../net11-dependency-audit.md).
 
-The automatic `Release Tag` workflow runs when a `vMAJOR.MINOR.PATCH` tag is pushed. It validates the tag against `VersionPrefix`, restores, builds and tests the solution, packs the public libraries and symbol packages, pushes them to NuGet.org, and creates or refreshes the GitHub Release with the deployable server ZIP and checksums. The repository must contain the `NUGET_API_KEY` Actions secret before a release tag is pushed.
+The automatic `Release Tag` workflow runs when a `vMAJOR.MINOR.PATCH` tag is pushed. It validates the tag against `VersionPrefix`, restores, builds and tests the solution, packs and publishes the single `VegaKernel` package, and creates or refreshes the GitHub Release with the deployable server ZIP and checksums. The repository must contain the `NUGET_API_KEY` Actions secret before a release tag is pushed.
 
 The separate `Publish Manual` workflow selects the newest valid tag and only rebuilds its deployable server archive and GitHub Release assets. It deliberately skips tests and NuGet publication and does not require the NuGet secret. See [the release procedure](../releasing.md).
 

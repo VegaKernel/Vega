@@ -1,4 +1,5 @@
 using NUnit.Framework;
+using System.Text.RegularExpressions;
 
 namespace Vega.Architecture.Tests;
 
@@ -273,23 +274,38 @@ public sealed class RuntimeDependencyTests
     }
 
     [Test]
-    public void TerrariaPackagePropagatesTheVisibleMonoModRuntimeOptIn()
+    public void NuGetPublicationProducesOneUnifiedPackageWithVisibleMonoModOptIn()
     {
         string repositoryRoot = FindRepositoryRoot();
+        string defaults = File.ReadAllText(Path.Combine(repositoryRoot, "Directory.Build.props"));
         string project = File.ReadAllText(Path.Combine(
-            repositoryRoot, "src", "Vega.Terraria", "Vega.Terraria.csproj"));
+            repositoryRoot, "packaging", "Vega.Package", "Vega.Package.csproj"));
         string packageProps = File.ReadAllText(Path.Combine(
             repositoryRoot,
-            "src",
-            "Vega.Terraria",
+            "packaging",
+            "Vega.Package",
             "buildTransitive",
-            "VegaKernel.Terraria.props"));
+            "VegaKernel.props"));
+        string workflow = File.ReadAllText(Path.Combine(
+            repositoryRoot, ".github", "workflows", "release-tag.yml"));
+        string nuspec = File.ReadAllText(Path.Combine(
+            repositoryRoot, "packaging", "Vega.Package", "Vega.Package.nuspec"));
 
         Assert.Multiple(() =>
         {
-            Assert.That(project, Does.Contain("PackagePath=\"buildTransitive\\VegaKernel.Terraria.props\""));
+            Assert.That(defaults, Does.Contain("<IsPackable Condition=\"'$(IsPackable)' == ''\">false"));
+            Assert.That(project, Does.Contain("<PackageId>VegaKernel</PackageId>"));
+            Assert.That(project, Does.Contain("<IsPackable>true</IsPackable>"));
+            Assert.That(project, Does.Contain("PackagePath=\"buildTransitive\\VegaKernel.props\""));
             Assert.That(packageProps, Does.Contain("<MonoMod_ReallySkipCheckTargetRuntime>true"));
             Assert.That(packageProps, Does.Contain("Remove when the resolved MonoMod stack officially supports net11.0"));
+            Assert.That(workflow, Does.Contain("dotnet pack packaging/Vega.Package/Vega.Package.csproj"));
+            Assert.That(workflow, Does.Not.Contain("foreach ($project in $projects)"));
+            Assert.That(workflow, Does.Not.Contain("artifacts/nuget/*.snupkg"));
+            Assert.That(Regex.Matches(workflow, "dotnet pack").Count, Is.EqualTo(1));
+            Assert.That(Regex.Matches(nuspec, @"\.dll"" target=""lib\\\$tfm\$""").Count, Is.EqualTo(17));
+            Assert.That(Regex.Matches(nuspec, @"\.pdb"" target=""lib\\\$tfm\$""").Count, Is.EqualTo(17));
+            Assert.That(nuspec, Does.Not.Contain("<dependency id=\"VegaKernel."));
         });
     }
 
@@ -335,20 +351,27 @@ public sealed class RuntimeDependencyTests
     public void Vega_native_packet_security_owns_migrated_player_identity_packets()
     {
         var repositoryRoot = FindRepositoryRoot();
-        var source = File.ReadAllText(Path.Combine(
+        var hook = File.ReadAllText(Path.Combine(
             repositoryRoot,
             "src",
             "Vega.Terraria",
             "Hooking",
             "NativePlayerPacketSecurityHooks.cs"));
+        var classification = File.ReadAllText(Path.Combine(
+            repositoryRoot,
+            "src",
+            "Vega.Terraria",
+            "Networking",
+            "PacketPipelineClassification.cs"));
 
         Assert.Multiple(() =>
         {
-            Assert.That(source, Does.Contain("PacketTypes.PlayerHp"));
-            Assert.That(source, Does.Contain("PacketTypes.PlayerMana"));
-            Assert.That(source, Does.Contain("PacketTypes.PlayerTeam"));
-            Assert.That(source, Does.Contain("PacketTypes.TogglePvp"));
-            Assert.That(source, Does.Not.Contain("GetDataHandlers"));
+            Assert.That(classification, Does.Contain("PacketTypes.PlayerHp"));
+            Assert.That(classification, Does.Contain("PacketTypes.PlayerMana"));
+            Assert.That(classification, Does.Contain("PacketTypes.PlayerTeam"));
+            Assert.That(classification, Does.Contain("PacketTypes.TogglePvp"));
+            Assert.That(hook, Does.Contain("PacketPipelineClassification.Get(packetId).SecurityProcessed"));
+            Assert.That(hook, Does.Not.Contain("GetDataHandlers"));
         });
     }
 
@@ -398,6 +421,41 @@ public sealed class RuntimeDependencyTests
             Assert.That(source, Does.Contain("IPlayerMessenger"));
             Assert.That(source, Does.Not.Contain("Commands.HandleCommand"));
             Assert.That(source, Does.Not.Contain("TSPlayer"));
+        });
+    }
+
+    [Test]
+    public void PacketPipelineClassificationRemainsInternalAndPreservesSynchronousMultiplicityIngress()
+    {
+        string repositoryRoot = FindRepositoryRoot();
+        string classification = File.ReadAllText(Path.Combine(
+            repositoryRoot,
+            "src",
+            "Vega.Terraria",
+            "Networking",
+            "PacketPipelineClassification.cs"));
+        string ingress = File.ReadAllText(Path.Combine(
+            repositoryRoot,
+            "src",
+            "Vega.Terraria",
+            "Networking",
+            "MultiplicityPacketProcessing.cs"));
+        string hook = File.ReadAllText(Path.Combine(
+            repositoryRoot,
+            "src",
+            "Vega.Terraria",
+            "Hooking",
+            "NativePlayerPacketSecurityHooks.cs"));
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(classification, Does.Contain("internal static class PacketPipelineClassification"));
+            Assert.That(classification, Does.Contain("PacketPreparationClass.GameThreadOnly"));
+            Assert.That(classification, Does.Contain("PacketPreparationClass.PartiallyOffloadable"));
+            Assert.That(ingress, Does.Contain("PacketViewParser.TryParsePayloadBounded"));
+            Assert.That(ingress, Does.Contain("processor.Process(in context)"));
+            Assert.That(hook, Does.Not.Contain("Task.Run"));
+            Assert.That(hook, Does.Not.Contain("Channel<"));
         });
     }
 
