@@ -1,0 +1,43 @@
+name: Deployment Smoke
+
+on:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  clean-deployment:
+    name: Clean deployment (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os:
+          - windows-latest
+          - ubuntu-latest
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v5
+        with:
+          dotnet-version: 11.0.100-preview.7.26381.103
+
+      - name: Restore runtime
+        shell: pwsh
+        run: dotnet restore src/Vega.Runtime/Vega.Runtime.csproj
+
+      - name: Publish clean server layout
+        shell: pwsh
+        run: |
+          dotnet publish src/Vega.Runtime/Vega.Runtime.csproj `
+            --configuration Release `
+            --no-restore `
+            --output artifacts/server
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Run clean deployment smoke
+        shell: pwsh
+        run: ./scripts/Test-DeployableServer.ps1 -ServerRoot artifacts/server
