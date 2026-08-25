@@ -91,6 +91,100 @@ public sealed class MultiplicityPacketProcessingTests
         });
     }
 
+    [TestCase(PacketTypes.PlayerSpawn, 15)]
+    [TestCase(PacketTypes.TileGetSection, 9)]
+    [TestCase(PacketTypes.NpcAddBuff, 6)]
+    [TestCase(PacketTypes.PlayerAddBuff, 7)]
+    public void Protocol325AuditedCompatibilityLayoutsUseExactLengths(PacketTypes packetType, int expectedLength)
+    {
+        var accepted = new CapturingProcessor();
+        byte[] exact = new byte[expectedLength];
+
+        PacketProcessingDecision exactDecision = MultiplicityPacketProcessing.ProcessInboundPayload(
+            (byte)packetType,
+            exact,
+            0,
+            exact.Length,
+            new ConnectionId(2),
+            new PlayerId(2),
+            accepted,
+            DateTimeOffset.UtcNow);
+
+        var rejected = new CapturingProcessor();
+        byte[] trailing = new byte[expectedLength + 1];
+        PacketProcessingDecision trailingDecision = MultiplicityPacketProcessing.ProcessInboundPayload(
+            (byte)packetType,
+            trailing,
+            0,
+            trailing.Length,
+            new ConnectionId(2),
+            new PlayerId(2),
+            rejected,
+            DateTimeOffset.UtcNow);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(exactDecision.Kind, Is.EqualTo(PacketDecisionKind.Allow));
+            Assert.That(accepted.Called, Is.True);
+            Assert.That(accepted.PayloadLength, Is.EqualTo(expectedLength));
+            Assert.That(trailingDecision, Is.EqualTo(PacketProcessingDecision.Reject("packet.invalid_payload")));
+            Assert.That(rejected.Called, Is.False);
+        });
+    }
+
+    [Test]
+    public void Protocol325PlayerBuffAcceptsBoundedUInt16ListWithoutOldMultiplicityMaterialization()
+    {
+        var processor = new CapturingProcessor();
+        byte[] payload =
+        [
+            7,
+            1, 0,
+            0x2c, 0x01,
+            0, 0
+        ];
+
+        PacketProcessingDecision decision = MultiplicityPacketProcessing.ProcessInboundPayload(
+            (byte)PacketTypes.PlayerBuff,
+            payload,
+            0,
+            payload.Length,
+            new ConnectionId(7),
+            new PlayerId(7),
+            processor,
+            DateTimeOffset.UtcNow);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(decision.Kind, Is.EqualTo(PacketDecisionKind.Allow));
+            Assert.That(processor.Called, Is.True);
+            Assert.That(processor.PayloadLength, Is.EqualTo(payload.Length));
+        });
+    }
+
+    [Test]
+    public void Protocol325PlayerBuffRejectsOddUInt16TailBeforePoliciesRun()
+    {
+        var processor = new CapturingProcessor();
+        byte[] payload = [7, 1, 0, 0x7f];
+
+        PacketProcessingDecision decision = MultiplicityPacketProcessing.ProcessInboundPayload(
+            (byte)PacketTypes.PlayerBuff,
+            payload,
+            0,
+            payload.Length,
+            new ConnectionId(7),
+            new PlayerId(7),
+            processor,
+            DateTimeOffset.UtcNow);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(decision, Is.EqualTo(PacketProcessingDecision.Reject("packet.invalid_payload")));
+            Assert.That(processor.Called, Is.False);
+        });
+    }
+
     private sealed class CapturingProcessor : IPacketProcessor<PacketView>
     {
         public bool Called { get; private set; }
