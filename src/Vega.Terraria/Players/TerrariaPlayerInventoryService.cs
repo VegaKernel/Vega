@@ -6,9 +6,12 @@ namespace Vega.Terraria.Players;
 
 public sealed class TerrariaPlayerInventoryService(IGameThreadDispatcher dispatcher) : IPlayerInventoryService
 {
-    private readonly long[] revisions = new long[global::Terraria.Main.maxPlayers];
-    private readonly long[] fingerprints = new long[global::Terraria.Main.maxPlayers];
-    private readonly bool[] initialized = new bool[global::Terraria.Main.maxPlayers];
+    // Terraria 1.4.5.7 / protocol 325 has 255 player slots. Do not read Main.maxPlayers here:
+    // this service is composed before Terraria's save path and Main static initialization are ready.
+    private const int PlayerCapacity = 255;
+    private readonly long[] revisions = new long[PlayerCapacity];
+    private readonly long[] fingerprints = new long[PlayerCapacity];
+    private readonly bool[] initialized = new bool[PlayerCapacity];
 
     public ValueTask<PlayerInventorySnapshot?> CaptureAsync(
         PlayerId playerId,
