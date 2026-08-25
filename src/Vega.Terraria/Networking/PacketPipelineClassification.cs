@@ -89,15 +89,15 @@ internal static class PacketPipelineClassification
         PacketTypes.FinishedConnectingToServer or
         PacketTypes.ClientSyncedInventory or
         PacketTypes.HostToken or
-        PacketTypes.ExtraSpawnSectionLoaded or
-        PacketTypes.RequestSection => PacketIngressDisposition.Handshake,
+        PacketTypes.ExtraSpawnSectionLoaded => PacketIngressDisposition.Handshake,
 
         // These are legitimate both during join and after it, so they receive an early validator and
         // the full gameplay pipeline once the connection reaches FullyConnected.
         PacketTypes.PlayerInfo or
         PacketTypes.PlayerSlot or
         PacketTypes.TileGetSection or
-        PacketTypes.PlayerSpawn => PacketIngressDisposition.EarlyValidated,
+        PacketTypes.PlayerSpawn or
+        PacketTypes.RequestSection => PacketIngressDisposition.EarlyValidated,
 
         // Server-originated protocol. A fully connected client sending one of these is a protocol violation.
         PacketTypes.Disconnect or
