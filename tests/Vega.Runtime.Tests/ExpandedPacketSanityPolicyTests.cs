@@ -18,8 +18,8 @@ public sealed class ExpandedPacketSanityPolicyTests
             new byte[] { 7, 1, 0, 0, 0 });
         var policy = new PlayerPacketOwnershipPolicy();
 
-        PacketProcessingDecision own = policy.Process(in Context(packet, 7));
-        PacketProcessingDecision foreign = policy.Process(in Context(packet, 8));
+        PacketProcessingDecision own = Process(policy, packet, 7);
+        PacketProcessingDecision foreign = Process(policy, packet, 8);
 
         Assert.Multiple(() =>
         {
@@ -42,7 +42,7 @@ public sealed class ExpandedPacketSanityPolicyTests
                 2, 0
             });
 
-        PacketProcessingDecision decision = policy.Process(in Context(packet, 7));
+        PacketProcessingDecision decision = Process(policy, packet, 7);
 
         Assert.That(
             decision,
@@ -57,7 +57,7 @@ public sealed class ExpandedPacketSanityPolicyTests
             PacketTypes.SyncLoadout,
             new byte[] { 7, 3, 0, 0 });
 
-        PacketProcessingDecision decision = policy.Process(in Context(packet, 7));
+        PacketProcessingDecision decision = Process(policy, packet, 7);
 
         Assert.That(decision, Is.EqualTo(PacketProcessingDecision.Violation("packet.loadout.index_out_of_range")));
     }
@@ -72,7 +72,7 @@ public sealed class ExpandedPacketSanityPolicyTests
         BinaryPrimitives.WriteInt32LittleEndian(payload.AsSpan(3), 60);
         PacketView packet = PacketView.FromPayload(PacketTypes.PlayerAddBuff, payload);
 
-        PacketProcessingDecision decision = policy.Process(in Context(packet, 7));
+        PacketProcessingDecision decision = Process(policy, packet, 7);
 
         Assert.That(
             decision,
@@ -91,7 +91,7 @@ public sealed class ExpandedPacketSanityPolicyTests
         BinaryPrimitives.WriteUInt16LittleEndian(payload.AsSpan(7), 100);
         PacketView packet = PacketView.FromPayload(PacketTypes.LandGolfBallInCup, payload);
 
-        PacketProcessingDecision decision = policy.Process(in Context(packet, 7));
+        PacketProcessingDecision decision = Process(policy, packet, 7);
 
         Assert.That(
             decision,
@@ -103,12 +103,12 @@ public sealed class ExpandedPacketSanityPolicyTests
     {
         var policy = NpcActions();
         byte[] payload = new byte[6];
-        BinaryPrimitives.WriteInt16LittleEndian(payload, 3);
+        BinaryPrimitives.WriteInt16LittleEndian(payload.AsSpan(), 3);
         BinaryPrimitives.WriteUInt16LittleEndian(payload.AsSpan(2), 500);
         BinaryPrimitives.WriteInt16LittleEndian(payload.AsSpan(4), 60);
         PacketView packet = PacketView.FromPayload(PacketTypes.NpcAddBuff, payload);
 
-        PacketProcessingDecision decision = policy.Process(in Context(packet, 7));
+        PacketProcessingDecision decision = Process(policy, packet, 7);
 
         Assert.That(
             decision,
@@ -128,7 +128,7 @@ public sealed class ExpandedPacketSanityPolicyTests
         payload[9] = 0;
         PacketView packet = PacketView.FromPayload(PacketTypes.NpcStrike, payload);
 
-        PacketProcessingDecision decision = policy.Process(in Context(packet, 7));
+        PacketProcessingDecision decision = Process(policy, packet, 7);
 
         Assert.That(
             decision,
@@ -146,7 +146,7 @@ public sealed class ExpandedPacketSanityPolicyTests
             PacketTypes.Teleport,
             BuildTeleportPayload(flags: 1, target: 10, x: 16f, y: 16f));
 
-        PacketProcessingDecision decision = policy.Process(in Context(packet, 7));
+        PacketProcessingDecision decision = Process(policy, packet, 7);
 
         Assert.That(
             decision,
@@ -163,14 +163,14 @@ public sealed class ExpandedPacketSanityPolicyTests
             prefixCount: 100,
             projectileTypeCount: 1000);
         byte[] payload = new byte[7];
-        BinaryPrimitives.WriteInt16LittleEndian(payload, 1);
+        BinaryPrimitives.WriteInt16LittleEndian(payload.AsSpan(), 1);
         BinaryPrimitives.WriteInt16LittleEndian(payload.AsSpan(2), 1);
         payload[4] = 65;
         payload[5] = 64;
         payload[6] = 0;
         PacketView packet = PacketView.FromPayload(PacketTypes.TileSendSquare, payload);
 
-        PacketProcessingDecision decision = policy.Process(in Context(packet, 7));
+        PacketProcessingDecision decision = Process(policy, packet, 7);
 
         Assert.That(
             decision,
@@ -192,6 +192,15 @@ public sealed class ExpandedPacketSanityPolicyTests
         playerCount: 8,
         worldWidth: static () => 100,
         worldHeight: static () => 100);
+
+    private static PacketProcessingDecision Process(
+        IPacketProcessor<PacketView> policy,
+        PacketView packet,
+        int connectionSlot)
+    {
+        PacketProcessingContext<PacketView> context = Context(packet, connectionSlot);
+        return policy.Process(in context);
+    }
 
     private static PacketProcessingContext<PacketView> Context(PacketView packet, int connectionSlot) =>
         new(
