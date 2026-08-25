@@ -30,7 +30,6 @@ internal sealed class HotModuleRegistrationScope : IHotModuleContext, IVegaPlugi
         IOperationsLogger logger,
         string pluginName,
         string dataDirectory,
-        string configurationDirectory,
         IPlayerDirectory? playerDirectory = null,
         IPlayerMessenger? messenger = null,
         IPlayerOperations? playerOperations = null,
@@ -44,8 +43,13 @@ internal sealed class HotModuleRegistrationScope : IHotModuleContext, IVegaPlugi
         this.logger = logger ?? throw new ArgumentNullException(nameof(logger));
         ArgumentException.ThrowIfNullOrWhiteSpace(pluginName);
         ArgumentException.ThrowIfNullOrWhiteSpace(dataDirectory);
-        ArgumentException.ThrowIfNullOrWhiteSpace(configurationDirectory);
         logSource = $"plugin:{pluginName}";
+
+        string configurationDirectory = Path.Combine(
+            AppContext.BaseDirectory,
+            "config",
+            "plugins",
+            SafeDirectoryName(pluginName));
 
         VegaDebugProcess.EnsureConfigured(logger);
         VegaDebugProcess.RegisterRoot("commands", commands);
@@ -633,6 +637,16 @@ internal sealed class HotModuleRegistrationScope : IHotModuleContext, IVegaPlugi
             ArgumentNullException.ThrowIfNull(message);
             logger.Log(level, source, message, exception);
         }
+    }
+
+    private static string SafeDirectoryName(string pluginName)
+    {
+        char[] name = pluginName
+            .Select(character => char.IsLetterOrDigit(character) || character is '.' or '-' or '_'
+                ? character
+                : '_')
+            .ToArray();
+        return name.Length == 0 ? "plugin" : new string(name);
     }
 
     private sealed class CleanupRegistration(Action cleanup) : IDisposable
