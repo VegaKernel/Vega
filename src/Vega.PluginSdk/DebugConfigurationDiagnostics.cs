@@ -142,11 +142,12 @@ internal static class VegaManagedConfigurationDiagnostics
             }
             catch (Exception ex)
             {
+                var error = new JsonObject { ["error"] = ex.Message };
                 result.Add(new VegaDebugPluginConfigurationSnapshot(
                     entry.Plugin,
                     entry.FileName,
                     entry.Path,
-                    JsonSerializer.Serialize(new { error = ex.Message })));
+                    error.ToJsonString()));
             }
         }
 
@@ -211,10 +212,7 @@ internal static class VegaManagedConfigurationDiagnostics
             JsonNode? target = JsonNode.Parse(current.Json);
             JsonNode? patchNode = JsonNode.Parse(patch.GetRawText());
             JsonNode? merged = Merge(target, patchNode);
-            string json = merged?.ToJsonString(new JsonSerializerOptions(JsonSerializerDefaults.Web)
-            {
-                WriteIndented = true
-            }) ?? "null";
+            string json = merged?.ToJsonString() ?? "null";
             return Replace(plugin, fileName, json);
         }
         catch (Exception ex) when (ex is JsonException or InvalidOperationException)
