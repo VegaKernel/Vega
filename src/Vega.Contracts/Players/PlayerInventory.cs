@@ -22,12 +22,18 @@ public readonly record struct InventorySlotReplacement(
     byte Prefix = 0,
     bool Favorited = false);
 
+public readonly record struct InventoryGrantRequest(
+    int ItemType,
+    int Stack,
+    byte Prefix = 0);
+
 public enum InventoryMutationStatus
 {
     Applied,
     PlayerNotFound,
     RevisionConflict,
     InvalidItem,
+    InventoryFull,
     DispatcherUnavailable,
     Cancelled,
     Failed
@@ -51,6 +57,19 @@ public interface IPlayerInventoryService
         PlayerId playerId,
         long expectedRevision,
         InventorySlotReplacement replacement,
+        CancellationToken cancellationToken = default);
+}
+
+/// <summary>
+/// Atomic item-delivery capability layered on top of optimistic inventory snapshots.
+/// Implementations select and merge slots on the authoritative game thread.
+/// </summary>
+public interface IPlayerInventoryGrantService : IPlayerInventoryService
+{
+    ValueTask<InventoryMutationResult> GrantAsync(
+        PlayerId playerId,
+        long expectedRevision,
+        InventoryGrantRequest request,
         CancellationToken cancellationToken = default);
 }
 
