@@ -64,7 +64,7 @@ internal sealed class HotModuleRegistrationScope : IHotModuleContext, IVegaPlugi
         Commands = new PluginCommands(this, commands);
         Players = new PluginPlayers(this, playerDirectory, messenger, playerOperations, playerLifecycle);
         Tasks = new PluginTasks(this, gameThread);
-        Configuration = new PluginConfiguration(configurationDirectory);
+        Configuration = new PluginConfiguration(this, pluginName, configurationDirectory);
         Storage = new PluginStorage(dataDirectory);
         Log = new PluginLog(logger, logSource);
         Sandboxes = new PluginSandboxFacade(sandboxDirectory, sandboxControl);
@@ -367,14 +367,15 @@ internal sealed class HotModuleRegistrationScope : IHotModuleContext, IVegaPlugi
         }
     }
 
-    private sealed class PluginConfiguration : IPluginConfiguration
+    private sealed class PluginConfiguration(
+        HotModuleRegistrationScope owner,
+        string pluginName,
+        string directory) : IPluginConfiguration
     {
         private readonly object sync = new();
         private readonly Dictionary<string, object> configs = new(StringComparer.OrdinalIgnoreCase);
 
-        public PluginConfiguration(string directory) => Directory = Path.GetFullPath(directory);
-
-        public string Directory { get; }
+        public string Directory { get; } = Path.GetFullPath(directory);
 
         public IPluginConfig<T> Use<T>(
             string fileName,
@@ -384,6 +385,7 @@ internal sealed class HotModuleRegistrationScope : IHotModuleContext, IVegaPlugi
             ArgumentException.ThrowIfNullOrWhiteSpace(fileName);
             ArgumentNullException.ThrowIfNull(defaults);
             string path = Resolve(fileName);
+            string logicalName = fileName.Replace(Path.DirectorySeparatorChar, '/').Replace(Path.AltDirectorySeparatorChar, '/');
             lock (sync)
             {
                 if (configs.TryGetValue(path, out object? existing))
@@ -392,8 +394,16 @@ internal sealed class HotModuleRegistrationScope : IHotModuleContext, IVegaPlugi
                         $"Plugin configuration '{fileName}' is already registered with another value type.");
                 }
 
-                var config = new PluginConfig<T>(path, defaults, validate);
+                var config = new PluginConfig<T>(logicalName, path, defaults, validate);
                 configs.Add(path, config);
+                owner.Track(VegaManagedConfigurationDiagnostics.Register(
+                    pluginName,
+                    logicalName,
+                    path,
+                    config.ReadJson,
+                    config.ValidateJson,
+                    config.ReplaceJson,
+                    config.ReloadUntyped));
                 return config;
             }
         }
@@ -426,12 +436,12 @@ internal sealed class HotModuleRegistrationScope : IHotModuleContext, IVegaPlugi
         private readonly Func<T, string?>? validate;
         private T current;
 
-        public PluginConfig(string path, Func<T> defaults, Func<T, string?>? validate)
+        public PluginConfig(string fileName, string path, Func<T> defaults, Func<T, string?>? validate)
         {
+            FileName = fileName;
             this.path = path;
             this.defaults = defaults;
             this.validate = validate;
-            FileName = Path.GetFileName(path);
             current = Load(writeDefaults: true);
         }
 
@@ -475,6 +485,40 @@ internal sealed class HotModuleRegistrationScope : IHotModuleContext, IVegaPlugi
                 WriteAtomic(current);
             }
         }
+
+        public string ReadJson()
+        {
+            lock (sync)
+            {
+                return JsonSerializer.Serialize(current, JsonOptions);
+            }
+        }
+
+        public string? ValidateJson(string json)
+        {
+            ArgumentNullException.ThrowIfNull(json);
+            try
+            {
+                T value = JsonSerializer.Deserialize<T>(json, JsonOptions) ??
+                    throw new InvalidDataException($"Plugin configuration '{path}' contains null.");
+                Validate(value);
+                return null;
+            }
+            catch (Exception ex) when (ex is JsonException or InvalidDataException or NotSupportedException)
+            {
+                return ex.Message;
+            }
+        }
+
+        public void ReplaceJson(string json)
+        {
+            ArgumentNullException.ThrowIfNull(json);
+            T value = JsonSerializer.Deserialize<T>(json, JsonOptions) ??
+                throw new InvalidDataException($"Plugin configuration '{path}' contains null.");
+            Save(value);
+        }
+
+        public void ReloadUntyped() => Reload();
 
         private T Load(bool writeDefaults)
         {
