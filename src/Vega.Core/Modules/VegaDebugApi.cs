@@ -303,18 +303,18 @@ public sealed class VegaDebugRegistry
                 (object target, Type type) = Resolve(request.Root, request.Path);
                 var candidates = new List<(MethodInfo Method, object?[] Bound)>();
 
-                foreach (MethodInfo method in type.GetMethods(Flags))
+                foreach (MethodInfo candidateMethod in type.GetMethods(Flags))
                 {
-                    if (!string.Equals(method.Name, request.Method, StringComparison.Ordinal) ||
-                        method.ContainsGenericParameters ||
-                        method.IsSpecialName)
+                    if (!string.Equals(candidateMethod.Name, request.Method, StringComparison.Ordinal) ||
+                        candidateMethod.ContainsGenericParameters ||
+                        candidateMethod.IsSpecialName)
                     {
                         continue;
                     }
 
-                    if (TryBind(method, request.Arguments, cancellationToken, out object?[] bound))
+                    if (TryBind(candidateMethod, request.Arguments, cancellationToken, out object?[] bound))
                     {
-                        candidates.Add((method, bound));
+                        candidates.Add((candidateMethod, bound));
                     }
                 }
 
@@ -328,10 +328,10 @@ public sealed class VegaDebugRegistry
                     return FailedInvoke($"Invocation of '{request.Method}' is ambiguous across {candidates.Count} overloads.");
                 }
 
-                (MethodInfo method, object?[] boundArguments) = candidates[0];
-                object? raw = method.Invoke(method.IsStatic ? null : target, boundArguments);
-                object? value = await AwaitAsync(raw, method.ReturnType, cancellationToken).ConfigureAwait(false);
-                return new VegaDebugInvocationResult(true, TypeName(method.ReturnType), Format(value), null);
+                (MethodInfo selectedMethod, object?[] boundArguments) = candidates[0];
+                object? raw = selectedMethod.Invoke(selectedMethod.IsStatic ? null : target, boundArguments);
+                object? value = await AwaitAsync(raw, selectedMethod.ReturnType, cancellationToken).ConfigureAwait(false);
+                return new VegaDebugInvocationResult(true, TypeName(selectedMethod.ReturnType), Format(value), null);
             }
             catch (Exception ex) when (ex is not OperationCanceledException)
             {
@@ -572,11 +572,11 @@ public sealed class VegaDebugRegistry
                 return null;
             }
 
-            if (value is Task task)
+            if (value is Task directTask)
             {
-                await task.WaitAsync(cancellationToken).ConfigureAwait(false);
-                return task.GetType().IsGenericType
-                    ? task.GetType().GetProperty("Result", BindingFlags.Public | BindingFlags.Instance)?.GetValue(task)
+                await directTask.WaitAsync(cancellationToken).ConfigureAwait(false);
+                return directTask.GetType().IsGenericType
+                    ? directTask.GetType().GetProperty("Result", BindingFlags.Public | BindingFlags.Instance)?.GetValue(directTask)
                     : null;
             }
 
@@ -591,10 +591,10 @@ public sealed class VegaDebugRegistry
             {
                 MethodInfo asTask = returnType.GetMethod("AsTask", BindingFlags.Public | BindingFlags.Instance)
                     ?? throw new MissingMethodException(returnType.FullName, "AsTask");
-                Task task = (Task)(asTask.Invoke(value, null)
+                Task genericTask = (Task)(asTask.Invoke(value, null)
                     ?? throw new InvalidOperationException("ValueTask.AsTask returned null."));
-                await task.WaitAsync(cancellationToken).ConfigureAwait(false);
-                return task.GetType().GetProperty("Result", BindingFlags.Public | BindingFlags.Instance)?.GetValue(task);
+                await genericTask.WaitAsync(cancellationToken).ConfigureAwait(false);
+                return genericTask.GetType().GetProperty("Result", BindingFlags.Public | BindingFlags.Instance)?.GetValue(genericTask);
             }
 
             return value;
