@@ -30,8 +30,8 @@ public sealed record VegaDebugRuntimeSnapshot(
     int Gen1Collections,
     int Gen2Collections,
     int ThreadCount,
-    int ThreadPoolWorkerThreads,
-    int ThreadPoolIoThreads,
+    int ThreadPoolMaxWorkerThreads,
+    int ThreadPoolMaxIoThreads,
     int ThreadPoolAvailableWorkerThreads,
     int ThreadPoolAvailableIoThreads,
     DateTimeOffset CapturedAt);
