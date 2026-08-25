@@ -32,7 +32,8 @@ internal sealed class HotModuleRegistrationScope : IHotModuleContext, IVegaPlugi
         IPlayerMessenger? messenger = null,
         IPlayerOperations? playerOperations = null,
         IPlayerSessionLifecycle? playerLifecycle = null,
-        IGameThreadDispatcher? gameThread = null)
+        IGameThreadDispatcher? gameThread = null,
+        IVegaDebugContext? debug = null)
     {
         ArgumentNullException.ThrowIfNull(commands);
         this.logger = logger ?? throw new ArgumentNullException(nameof(logger));
@@ -45,6 +46,7 @@ internal sealed class HotModuleRegistrationScope : IHotModuleContext, IVegaPlugi
         Tasks = new PluginTasks(this, gameThread);
         Storage = new PluginStorage(dataDirectory);
         Log = new PluginLog(logger, logSource);
+        Debug = debug ?? VegaDebug.Disabled;
     }
 
     public IPluginCommands Commands { get; }
@@ -52,6 +54,7 @@ internal sealed class HotModuleRegistrationScope : IHotModuleContext, IVegaPlugi
     public IPluginTasks Tasks { get; }
     public IPluginStorage Storage { get; }
     public IPluginLog Log { get; }
+    public IVegaDebugContext Debug { get; }
 
     public IDisposable RegisterCommand(ICommandHandler handler)
     {
