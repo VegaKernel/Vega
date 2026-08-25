@@ -1,4 +1,5 @@
 using Vega.Contracts.Messaging;
+using Vega.Contracts.Operations;
 using Vega.Contracts.Players;
 
 namespace Vega.Core.Messaging;
@@ -8,15 +9,18 @@ public sealed class ChatPipeline : IChatPipeline
     private readonly IChatContentTransform[] transforms;
     private readonly IChatModerationRule[] moderation;
     private readonly IChatRecipientRenderer[] renderers;
+    private readonly IOperationsLogger? logger;
 
     public ChatPipeline(
         IEnumerable<IChatContentTransform>? transforms = null,
         IEnumerable<IChatModerationRule>? moderation = null,
-        IEnumerable<IChatRecipientRenderer>? renderers = null)
+        IEnumerable<IChatRecipientRenderer>? renderers = null,
+        IOperationsLogger? logger = null)
     {
         this.transforms = Order(transforms ?? []);
         this.moderation = Order(moderation ?? []);
         this.renderers = Order(renderers ?? []);
+        this.logger = logger;
     }
 
     public ChatPipelineResult Process(ChatMessageContext context)
@@ -36,11 +40,15 @@ public sealed class ChatPipeline : IChatPipeline
             ChatModerationDecision decision = rule.Evaluate(context, content);
             if (!decision.Allowed)
             {
+                string reason = decision.Reason ?? "chat.rejected";
+                TryLog(
+                    OperationsLogLevel.Warning,
+                    $"{Sanitize(context.Sender.Name)}: {Sanitize(content)} [rejected: {Sanitize(reason)}]");
                 return new ChatPipelineResult(
                     false,
                     true,
                     Array.Empty<ChatDelivery>(),
-                    decision.Reason ?? "chat.rejected");
+                    reason);
             }
         }
 
@@ -61,11 +69,32 @@ public sealed class ChatPipeline : IChatPipeline
                 $"{context.Sender.Name}: {rendered}");
         }
 
+        TryLog(
+            OperationsLogLevel.Information,
+            $"{Sanitize(context.Sender.Name)}: {Sanitize(content)}");
         return new ChatPipelineResult(
             true,
             changed,
             Array.AsReadOnly(deliveries));
     }
+
+    private void TryLog(OperationsLogLevel level, string text)
+    {
+        try
+        {
+            logger?.Log(level, "chat", text);
+        }
+        catch
+        {
+            // Logging must never change chat delivery or moderation semantics.
+        }
+    }
+
+    private static string Sanitize(string value) => value
+        .Replace("\\", "\\\\", StringComparison.Ordinal)
+        .Replace("\r", "\\r", StringComparison.Ordinal)
+        .Replace("\n", "\\n", StringComparison.Ordinal)
+        .Replace("\t", "\\t", StringComparison.Ordinal);
 
     private static T[] Order<T>(IEnumerable<T> stages) => stages
         .Select((stage, index) => (Stage: stage, Index: index))
