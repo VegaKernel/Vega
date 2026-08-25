@@ -18,13 +18,11 @@ internal sealed class OperationsLogSourceForwarder : IDisposable
     {
         this.logger = logger ?? throw new ArgumentNullException(nameof(logger));
         ArgumentNullException.ThrowIfNull(sources);
-        this.sources = sources
-            .Where(static source => source is not null)
-            .Distinct(ReferenceEqualityComparer.Instance)
-            .ToArray();
+        this.sources = sources.ToArray();
 
         foreach (IOperationsLogSource source in this.sources)
         {
+            ArgumentNullException.ThrowIfNull(source);
             source.LogProduced += OnLogProduced;
         }
     }
