@@ -1,3 +1,4 @@
+using Multiplicity.Packets;
 using Multiplicity.Packets.Views;
 using Vega.Contracts.Networking;
 using Vega.Contracts.Players;
@@ -24,12 +25,25 @@ public static class MultiplicityPacketProcessing
         ArgumentNullException.ThrowIfNull(buffer);
         ArgumentNullException.ThrowIfNull(processor);
 
-        if (!PacketViewParser.TryParsePayload(
-                rawPacketId,
-                buffer,
-                offset,
-                payloadLength,
-                out PacketView packet))
+        if (offset < 0 || payloadLength < 0 || offset > buffer.Length - payloadLength)
+        {
+            return PacketProcessingDecision.Reject("packet.invalid_payload");
+        }
+
+        ReadOnlySpan<byte> payload = new(buffer, offset, payloadLength);
+        PacketView packet;
+        if (TryGetProtocol325CompatibilityLength((PacketTypes)rawPacketId, out int expectedLength))
+        {
+            if (payload.Length != expectedLength)
+            {
+                return PacketProcessingDecision.Reject("packet.invalid_payload");
+            }
+
+            // Multiplicity 2.6.2 still carries the pre-1.4.5.7 layouts for these packets.
+            // Keep the exception narrow and exact. Remove it after Vega consumes the audited package.
+            packet = PacketView.FromPayload(rawPacketId, payload);
+        }
+        else if (!PacketViewParser.TryParsePayload(rawPacketId, payload, out packet))
         {
             return PacketProcessingDecision.Reject("packet.invalid_payload");
         }
@@ -43,5 +57,18 @@ public static class MultiplicityPacketProcessing
             cancellationToken);
 
         return processor.Process(in context);
+    }
+
+    private static bool TryGetProtocol325CompatibilityLength(PacketTypes packetType, out int payloadLength)
+    {
+        payloadLength = packetType switch
+        {
+            PacketTypes.PlayerSpawn => 15,
+            PacketTypes.TileGetSection => 9,
+            PacketTypes.NpcAddBuff => 6,
+            PacketTypes.PlayerAddBuff => 7,
+            _ => 0
+        };
+        return payloadLength != 0;
     }
 }
