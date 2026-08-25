@@ -386,7 +386,10 @@ int Start()
             localization,
             playerBoundary,
             banService,
-            database.RoleLeases);
+            database.RoleLeases,
+            database.AccountIdentities,
+            playerBoundary,
+            logger);
         using IDisposable registerAccountCommandRegistration = commandDispatcher.Register(
             new RegisterAccountCommand(accountSessions));
         using IDisposable loginAccountCommandRegistration = commandDispatcher.Register(
@@ -630,7 +633,10 @@ int Start()
             mutes: database.Mutes,
             scenes: scenes,
             visibility: visibility,
-            backups: backups);
+            backups: backups,
+            accounts: database.Accounts,
+            authorization: database.Authorization,
+            accountIdentities: database.AccountIdentities);
         using var backendReporter = backendLaunch.IsBackend
             ? new SandboxBackendReporter(backendLaunch, lifecycle, operationsState, playerBoundary)
             : null;
