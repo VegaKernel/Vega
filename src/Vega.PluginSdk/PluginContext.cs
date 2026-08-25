@@ -72,6 +72,26 @@ public interface IPluginPlayers
         PlayerPosition destination,
         CancellationToken cancellationToken = default);
 
+    ValueTask<PlayerOperationResult> HealAsync(
+        PlayerId id,
+        int? amount = null,
+        CancellationToken cancellationToken = default);
+
+    ValueTask<PlayerOperationResult> KillAsync(
+        PlayerId id,
+        string reason,
+        CancellationToken cancellationToken = default);
+
+    ValueTask<PlayerOperationResult> ApplyBuffAsync(
+        PlayerId id,
+        int buffType,
+        int durationTicks,
+        CancellationToken cancellationToken = default);
+
+    ValueTask<PlayerOperationResult> RespawnAsync(
+        PlayerId id,
+        CancellationToken cancellationToken = default);
+
     /// <summary>Registers a game-thread player-join callback for this plugin lifetime.</summary>
     void OnJoined(Action<PlayerSessionOpened> handler);
 
