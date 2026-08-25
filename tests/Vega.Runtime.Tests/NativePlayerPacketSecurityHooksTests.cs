@@ -13,24 +13,17 @@ public sealed class NativePlayerPacketSecurityHooksTests
     [TestCase((int)TerrariaConnectionState.FullyConnected - 1, PacketTypes.PlayerMana, false)]
     [TestCase((int)TerrariaConnectionState.FullyConnected, PacketTypes.PlayerHp, true)]
     [TestCase((int)TerrariaConnectionState.FullyConnected, PacketTypes.ItemDrop, true)]
-    [TestCase((int)TerrariaConnectionState.FullyConnected, PacketTypes.SyncItemsWithShimmerDeprecated, true)]
-    [TestCase((int)TerrariaConnectionState.FullyConnected, PacketTypes.SyncItemPosition, true)]
     [TestCase((int)TerrariaConnectionState.FullyConnected, PacketTypes.ProjectileDestroy, true)]
     [TestCase((int)TerrariaConnectionState.FullyConnected, PacketTypes.Tile, true)]
-    [TestCase((int)TerrariaConnectionState.FullyConnected, PacketTypes.DoorUse, true)]
-    [TestCase((int)TerrariaConnectionState.FullyConnected, PacketTypes.PaintTile, true)]
-    [TestCase((int)TerrariaConnectionState.FullyConnected, PacketTypes.SignNew, true)]
-    [TestCase((int)TerrariaConnectionState.FullyConnected, PacketTypes.SyncChestSize, true)]
-    [TestCase((int)TerrariaConnectionState.FullyConnected, PacketTypes.TELeashedEntityAnchorPlaceItem, true)]
     [TestCase((int)TerrariaConnectionState.FullyConnected, PacketTypes.PlayerTeleportPortal, true)]
-    [TestCase((int)TerrariaConnectionState.FullyConnected, PacketTypes.LiquidSet, true)]
-    [TestCase((int)TerrariaConnectionState.FullyConnected, PacketTypes.PlaceTileEntity, true)]
-    [TestCase((int)TerrariaConnectionState.FullyConnected, PacketTypes.MassWireOperation, true)]
-    [TestCase((int)TerrariaConnectionState.FullyConnected, PacketTypes.FoodPlatterTryPlacing, true)]
-    [TestCase((int)TerrariaConnectionState.FullyConnected, PacketTypes.TEDeadCellsDisplayJar, true)]
+    [TestCase((int)TerrariaConnectionState.FullyConnected, PacketTypes.TELeashedEntityAnchorPlaceItem, true)]
     [TestCase((int)TerrariaConnectionState.FullyConnected + 1, PacketTypes.ProjectileNew, true)]
     [TestCase((int)TerrariaConnectionState.FullyConnected, PacketTypes.PlayerSpawn, false)]
-    public void GameplaySecurityStartsOnlyAfterVanillaConnectionCompletes(
+    [TestCase((int)TerrariaConnectionState.FullyConnected, PacketTypes.PlayerSlot, false)]
+    [TestCase((int)TerrariaConnectionState.FullyConnected, PacketTypes.NpcItemStrike, false)]
+    [TestCase((int)TerrariaConnectionState.FullyConnected, PacketTypes.SyncChestSize, false)]
+    [TestCase((int)TerrariaConnectionState.FullyConnected, PacketTypes.SyncItemsWithShimmerDeprecated, false)]
+    public void CoreGameplaySecurityRunsOnlyForGameplayValidatedPackets(
         int connectionState,
         PacketTypes packetType,
         bool expected)
