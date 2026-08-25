@@ -4,13 +4,17 @@ using Vega.Contracts.Operations;
 
 namespace Vega.Core.Commands;
 
-public sealed class CommandDispatcher : ICommandDispatcher, ICommandRegistry, ICommandCatalog, ICommandRegistrationCatalog
+public sealed class CommandDispatcher :
+    ICommandDispatcher,
+    ICommandRegistry,
+    ICommandCatalog,
+    ICommandRegistrationCatalog,
+    IOperationsLogSource
 {
     private readonly object sync = new();
-    private readonly IOperationsLogger? logger;
     private IReadOnlyDictionary<string, ICommandHandler> handlers;
 
-    public CommandDispatcher(IEnumerable<ICommandHandler> handlers, IOperationsLogger? logger = null)
+    public CommandDispatcher(IEnumerable<ICommandHandler> handlers)
     {
         ArgumentNullException.ThrowIfNull(handlers);
 
@@ -19,12 +23,15 @@ public sealed class CommandDispatcher : ICommandDispatcher, ICommandRegistry, IC
         {
             Register(map, handler.Descriptor.Name, handler);
             foreach (string alias in handler.Descriptor.Aliases)
+            {
                 Register(map, alias, handler);
+            }
         }
 
         this.handlers = map;
-        this.logger = logger;
     }
+
+    public event Action<OperationsLogMessage>? LogProduced;
 
     public bool CanDispatch(string name) =>
         !string.IsNullOrWhiteSpace(name) && Volatile.Read(ref handlers).ContainsKey(name);
@@ -79,7 +86,7 @@ public sealed class CommandDispatcher : ICommandDispatcher, ICommandRegistry, IC
                 CommandExecutionStatus.Failed,
                 "command.not_found",
                 "Unknown command.");
-            TryLog(invocation.Name, invocation, result);
+            PublishLog(invocation.Name, invocation, result);
             return result;
         }
 
@@ -90,7 +97,7 @@ public sealed class CommandDispatcher : ICommandDispatcher, ICommandRegistry, IC
                 CommandExecutionStatus.Forbidden,
                 "command.server_not_allowed",
                 "This command cannot be executed from the server console.");
-            TryLog(descriptor.Name, invocation, result);
+            PublishLog(descriptor.Name, invocation, result);
             return result;
         }
 
@@ -100,19 +107,19 @@ public sealed class CommandDispatcher : ICommandDispatcher, ICommandRegistry, IC
                 CommandExecutionStatus.Forbidden,
                 "command.permission_denied",
                 "You do not have permission to use this command.");
-            TryLog(descriptor.Name, invocation, result);
+            PublishLog(descriptor.Name, invocation, result);
             return result;
         }
 
         try
         {
             CommandExecutionResult result = await handler.ExecuteAsync(invocation, cancellationToken).ConfigureAwait(false);
-            TryLog(descriptor.Name, invocation, result);
+            PublishLog(descriptor.Name, invocation, result);
             return result;
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
-            TryLog(
+            PublishLog(
                 descriptor.Name,
                 invocation,
                 new CommandExecutionResult(CommandExecutionStatus.Failed, "command.cancelled"));
@@ -120,7 +127,7 @@ public sealed class CommandDispatcher : ICommandDispatcher, ICommandRegistry, IC
         }
         catch
         {
-            TryLog(
+            PublishLog(
                 descriptor.Name,
                 invocation,
                 new CommandExecutionResult(CommandExecutionStatus.Failed, "command.exception"));
@@ -132,32 +139,42 @@ public sealed class CommandDispatcher : ICommandDispatcher, ICommandRegistry, IC
         .Values
         .DistinctBy(static handler => handler.Descriptor.Name, StringComparer.OrdinalIgnoreCase);
 
-    private void TryLog(
+    private void PublishLog(
         string commandName,
         CommandInvocation invocation,
         CommandExecutionResult result)
     {
-        if (logger is null)
+        OperationsLogLevel level = result.Status is CommandExecutionStatus.Forbidden or CommandExecutionStatus.Failed
+            ? OperationsLogLevel.Warning
+            : OperationsLogLevel.Information;
+        string error = string.IsNullOrWhiteSpace(result.ErrorCode)
+            ? string.Empty
+            : $" error={EscapeLogValue(result.ErrorCode)}";
+        var message = new OperationsLogMessage(
+            level,
+            "command",
+            $"principal={EscapeLogValue(invocation.Principal.Name)} type={(invocation.Principal.IsServer ? "server" : "player")} command={EscapeLogValue(commandName)} status={result.Status}{error}");
+        Publish(message);
+    }
+
+    private void Publish(OperationsLogMessage message)
+    {
+        Action<OperationsLogMessage>? subscribers = LogProduced;
+        if (subscribers is null)
         {
             return;
         }
 
-        try
+        foreach (Delegate subscriber in subscribers.GetInvocationList())
         {
-            OperationsLogLevel level = result.Status is CommandExecutionStatus.Forbidden or CommandExecutionStatus.Failed
-                ? OperationsLogLevel.Warning
-                : OperationsLogLevel.Information;
-            string error = string.IsNullOrWhiteSpace(result.ErrorCode)
-                ? string.Empty
-                : $" error={EscapeLogValue(result.ErrorCode)}";
-            logger.Log(
-                level,
-                "command",
-                $"principal={EscapeLogValue(invocation.Principal.Name)} type={(invocation.Principal.IsServer ? "server" : "player")} command={EscapeLogValue(commandName)} status={result.Status}{error}");
-        }
-        catch
-        {
-            // Logging must never change command execution semantics.
+            try
+            {
+                ((Action<OperationsLogMessage>)subscriber)(message);
+            }
+            catch
+            {
+                // Observability must never change command execution semantics or block later observers.
+            }
         }
     }
 
@@ -182,10 +199,14 @@ public sealed class CommandDispatcher : ICommandDispatcher, ICommandRegistry, IC
         ICommandHandler handler)
     {
         if (string.IsNullOrWhiteSpace(name))
+        {
             throw new ArgumentException("Command names and aliases must not be empty.", nameof(name));
+        }
 
         if (!handlers.TryAdd(name, handler))
+        {
             throw new InvalidOperationException($"Command name or alias '{name}' is already registered.");
+        }
     }
 
     private void Unregister(ICommandHandler handler)
