@@ -24,6 +24,32 @@ public sealed class StructuredOperationsLoggerTests
     }
 
     [Test]
+    public void InlineStoreIsVisibleImmediatelyWhileBlockingSinkRunsInBackground()
+    {
+        var store = new BoundedOperationsLogStore();
+        using var sink = new BlockingSink();
+        var logger = new StructuredOperationsLogger([store, sink], queueCapacity: 4);
+        try
+        {
+            logger.Log(OperationsLogLevel.Information, "test", "visible-now");
+
+            OperationsLogRecord[] records = store.Query(new OperationsLogFilter(Source: "test"))
+                .ToArray();
+            Assert.Multiple(() =>
+            {
+                Assert.That(records, Has.Length.EqualTo(1));
+                Assert.That(records[0].Text, Is.EqualTo("visible-now"));
+                Assert.That(sink.Started.Wait(TimeSpan.FromSeconds(2)), Is.True);
+            });
+        }
+        finally
+        {
+            sink.Release();
+            logger.Dispose();
+        }
+    }
+
+    [Test]
     public void FullQueueDropsRecordsInsteadOfBlockingProducer()
     {
         using var sink = new BlockingSink();
