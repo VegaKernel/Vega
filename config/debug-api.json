@@ -1,0 +1,12 @@
+{
+  "enabled": false,
+  "allowedPlugins": [
+    "VegaToolsMCP"
+  ],
+  "allowNonPublicMembers": false,
+  "allowMethodInvoke": false,
+  "allowStateMutation": false,
+  "allowGarbageCollection": false,
+  "maxMembers": 256,
+  "maxStringLength": 4096
+}

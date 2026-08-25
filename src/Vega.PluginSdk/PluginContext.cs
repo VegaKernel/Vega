@@ -5,7 +5,7 @@ using Vega.Contracts.Players;
 namespace Vega.PluginSdk;
 
 /// <summary>
-/// Curated capabilities available to an ordinary plugin. This is a fixed facade,
+/// Curated capabilities available to a Vega plugin. This is a fixed facade,
 /// not a service locator and not a runtime implementation surface.
 /// </summary>
 public interface IVegaPluginContext
@@ -16,9 +16,22 @@ public interface IVegaPluginContext
 
     IPluginTasks Tasks { get; }
 
+    /// <summary>Managed plugin configuration with typed load, validation, reload and atomic save.</summary>
+    IPluginConfiguration Configuration { get; }
+
+    /// <summary>Arbitrary plugin-owned data files. Use <see cref="Configuration"/> for settings.</summary>
     IPluginStorage Storage { get; }
 
     IPluginLog Log { get; }
+
+    /// <summary>Sandbox discovery and lifecycle control supplied by the host.</summary>
+    IPluginSandboxes Sandboxes { get; }
+
+    /// <summary>
+    /// Process-internal diagnostics. The host always supplies a context; its capabilities may be None
+    /// unless DEBUG API access is enabled for this plugin.
+    /// </summary>
+    IVegaDebugContext Debug { get; }
 }
 
 public interface IPluginCommands
