@@ -199,11 +199,34 @@ internal sealed class NativePlayerPacketSecurityHooks : IDisposable
                 : OperationsLogLevel.Debug,
             "packet-security",
             $"Inbound packet {args.PacketId} from slot {slot}: {decision.Kind} ({decision.Reason ?? "no-reason"}).");
+
+        if (args.PacketId == (byte)PacketTypes.NpcStrike &&
+            connectionState >= TerrariaConnectionState.FullyConnected)
+        {
+            TryAcknowledgeNpcStrike(slot);
+        }
+
         args.Result = HookResult.Cancel;
 
         if (ShouldTerminateConnection(connectionState, decision.Kind))
         {
             TerminateConnection(slot, decision.Reason);
+        }
+    }
+
+    private void TryAcknowledgeNpcStrike(int slot)
+    {
+        try
+        {
+            global::Terraria.NetMessage.TrySendData((int)PacketTypes.DamageNPCAck, slot);
+        }
+        catch (Exception ex)
+        {
+            logger.Log(
+                OperationsLogLevel.Warning,
+                "packet-security",
+                $"Failed to acknowledge rejected NPC strike for slot {slot}.",
+                ex);
         }
     }
 
