@@ -8,7 +8,8 @@ public sealed class RegisterAccountCommand(PlayerAccountSessionService sessions)
 {
     public CommandDescriptor Descriptor { get; } = new(
         "register", [], [], AllowServer: false,
-        Syntax: "register <password> | register <account> <password>");
+        Syntax: "register <password> | register <account> <password>",
+        AuditMode: CommandAuditMode.NameOnly);
 
     public async ValueTask<CommandExecutionResult> ExecuteAsync(
         CommandInvocation invocation,
@@ -32,7 +33,8 @@ public sealed class LoginAccountCommand(PlayerAccountSessionService sessions) : 
 {
     public CommandDescriptor Descriptor { get; } = new(
         "login", ["auth"], [], AllowServer: false,
-        Syntax: "login <password> | login <account> <password>");
+        Syntax: "login <password> | login <account> <password>",
+        AuditMode: CommandAuditMode.NameOnly);
 
     public async ValueTask<CommandExecutionResult> ExecuteAsync(
         CommandInvocation invocation,
@@ -80,7 +82,8 @@ public sealed class PasswordAccountCommand(PlayerAccountSessionService sessions)
 {
     public CommandDescriptor Descriptor { get; } = new(
         "password", ["passwd"], [], AllowServer: false,
-        Syntax: "password <current> <new>");
+        Syntax: "password <current> <new>",
+        AuditMode: CommandAuditMode.NameOnly);
 
     public async ValueTask<CommandExecutionResult> ExecuteAsync(
         CommandInvocation invocation,
