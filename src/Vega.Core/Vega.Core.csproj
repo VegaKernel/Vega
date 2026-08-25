@@ -24,10 +24,4 @@
     <ProjectReference Include="..\Vega.Contracts\Vega.Contracts.csproj" />
     <ProjectReference Include="..\Vega.PluginSdk\Vega.PluginSdk.csproj" />
   </ItemGroup>
-
-  <ItemGroup>
-    <EmbeddedResource Include="..\..\config\*.json">
-      <LogicalName>Vega.DefaultConfig.%(Filename)%(Extension)</LogicalName>
-    </EmbeddedResource>
-  </ItemGroup>
 </Project>
