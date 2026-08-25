@@ -14,4 +14,8 @@
   <ItemGroup>
     <ProjectReference Include="..\Vega.Contracts\Vega.Contracts.csproj" />
   </ItemGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="Vega.Core" />
+  </ItemGroup>
 </Project>
