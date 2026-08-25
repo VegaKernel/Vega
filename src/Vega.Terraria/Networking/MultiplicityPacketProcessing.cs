@@ -32,7 +32,8 @@ public static class MultiplicityPacketProcessing
 
         ReadOnlySpan<byte> payload = new(buffer, offset, payloadLength);
         PacketView packet;
-        if (TryGetProtocol325CompatibilityLength((PacketTypes)rawPacketId, out int expectedLength))
+        PacketTypes packetType = (PacketTypes)rawPacketId;
+        if (TryGetProtocol325CompatibilityLength(packetType, out int expectedLength))
         {
             if (payload.Length != expectedLength)
             {
@@ -41,6 +42,19 @@ public static class MultiplicityPacketProcessing
 
             // Multiplicity 2.6.2 still carries the pre-1.4.5.7 layouts for these packets.
             // Keep the exception narrow and exact. Remove it after Vega consumes the audited package.
+            packet = PacketView.FromPayload(rawPacketId, payload);
+        }
+        else if (packetType == PacketTypes.PlayerBuff)
+        {
+            int buffBytes = payload.Length - 1;
+            if (payload.Length < 3 || (buffBytes & 1) != 0 ||
+                buffBytes / sizeof(ushort) > global::Terraria.Player.maxBuffs)
+            {
+                return PacketProcessingDecision.Reject("packet.invalid_payload");
+            }
+
+            // Protocol 325 uses UInt16 buff ids. 2.6.2 still materializes 22 bytes, so preserve the
+            // exact bounded payload and let Vega's policy parse the UInt16 list directly.
             packet = PacketView.FromPayload(rawPacketId, payload);
         }
         else if (!PacketViewParser.TryParsePayload(rawPacketId, payload, out packet))
