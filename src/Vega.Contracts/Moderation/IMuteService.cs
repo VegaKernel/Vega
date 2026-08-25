@@ -43,7 +43,11 @@ public interface IMuteService
 
     MuteSnapshot? FindActive(
         MuteIdentity identity,
-        DateTimeOffset now);
+        DateTimeOffset now)
+    {
+        ArgumentNullException.ThrowIfNull(identity);
+        return FindActive(identity.PlayerName, identity.AccountName, now);
+    }
 
     ValueTask<MuteMutationResult> CreateAsync(
         MuteSnapshot mute,
