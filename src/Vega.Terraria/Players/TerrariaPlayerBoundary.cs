@@ -15,7 +15,7 @@ namespace Vega.Terraria.Players;
 public sealed class TerrariaPlayerBoundary :
 	IPlayerDirectory,
 	IPlayerCombatDirectory,
-	IPlayerOperations,
+	IPlayerLifecycleOperations,
 	IPlayerMessenger,
 	IPlayerSessionLifecycle,
 	IWorldInteractionState,
