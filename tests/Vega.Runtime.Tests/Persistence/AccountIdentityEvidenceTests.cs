@@ -107,6 +107,36 @@ public sealed class AccountIdentityEvidenceTests
     }
 
     [Test]
+    public async Task OpaqueClientUuidEvidencePreservesExactCaseAndWhitespace()
+    {
+        SqliteVegaDatabase database = await SqliteVegaDatabase.OpenAsync(
+            new SqliteVegaDatabaseOptions(databasePath));
+        AccountSnapshot alice = (await database.Accounts.CreateAsync(
+            "Alice", "correct horse battery staple", "default", "Server")).After!;
+        AccountSnapshot bob = (await database.Accounts.CreateAsync(
+            "Bob", "correct horse battery staple", "default", "Server")).After!;
+        DateTimeOffset now = DateTimeOffset.Parse("2026-08-25T12:00:00Z");
+
+        await database.AccountIdentities.RecordAsync(
+            alice.Id, alice.Name, " Device-A ", null, now);
+        await database.AccountIdentities.RecordAsync(
+            bob.Id, bob.Name, "device-a", null, now.AddSeconds(1));
+
+        AccountIdentityEvidenceSnapshot aliceUuid = database.AccountIdentities
+            .SnapshotEvidence()
+            .Single(item => item.AccountId == alice.Id && item.Kind == AccountIdentityEvidenceKind.ClientUuid);
+        PossibleAccountLinkSnapshot[] links = database.AccountIdentities
+            .FindPossibleAccounts(alice.Id)
+            .ToArray();
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(aliceUuid.Value, Is.EqualTo(" Device-A "));
+            Assert.That(links, Is.Empty);
+        });
+    }
+
+    [Test]
     public async Task EvidenceIsPartOfSingleBaselineWithoutSchemaMigration()
     {
         SqliteVegaDatabase database = await SqliteVegaDatabase.OpenAsync(
