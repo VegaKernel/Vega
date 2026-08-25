@@ -180,6 +180,7 @@ int Start()
         configuredCulture.StartsWith('<') ? "en-US" : configuredCulture);
     using IDisposable coreRussianCatalog = RegisterCoreRussianCatalog(localization);
 
+    // Explicit composition root: no assembly scanning or reflection-based handler discovery.
     IEventPipeline<WorldHardmodeStarting> hardmodeStarting = new EventPipeline<WorldHardmodeStarting>(
         Array.Empty<IEventHandler<WorldHardmodeStarting>>(),
         Array.Empty<IEventMonitor<WorldHardmodeStarting>>());
@@ -528,7 +529,7 @@ int Start()
             accountSessions));
 
         using IDisposable banCommandRegistration = commandDispatcher.Register(
-            new BanCommand(playerBoundary, playerBoundary, banService));
+            new BanCommand(playerBoundary, playerBoundary, banService, accountSessions: accountSessions));
         using IDisposable muteCommandRegistration = commandDispatcher.Register(
             new MuteCommand(playerBoundary, accountSessions, database.Mutes));
         using IDisposable accountCommandRegistration = commandDispatcher.Register(
