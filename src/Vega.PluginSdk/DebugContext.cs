@@ -164,11 +164,31 @@ public interface IVegaDebugContext
     /// Starts a bounded, temporary network and packet-pipeline trace. The trace automatically stops
     /// after the requested duration so diagnostics cannot accidentally become a permanent packet sniffer.
     /// </summary>
-    void StartNetworkTrace(VegaDebugNetworkTraceOptions options);
+    void StartNetworkTrace(VegaDebugNetworkTraceOptions options)
+    {
+        EnsureDebugAccess();
+        VegaDebugNetworkDiagnostics.Start(options);
+    }
 
-    void StopNetworkTrace();
+    void StopNetworkTrace()
+    {
+        EnsureDebugAccess();
+        VegaDebugNetworkDiagnostics.Stop();
+    }
 
-    VegaDebugNetworkTraceSnapshot CaptureNetworkTrace();
+    VegaDebugNetworkTraceSnapshot CaptureNetworkTrace()
+    {
+        EnsureDebugAccess();
+        return VegaDebugNetworkDiagnostics.Capture();
+    }
+
+    private void EnsureDebugAccess()
+    {
+        if (Capabilities == VegaDebugCapabilities.None)
+        {
+            throw new InvalidOperationException("The Vega DEBUG API is disabled or this plugin is not trusted.");
+        }
+    }
 }
 
 public static class VegaDebug
