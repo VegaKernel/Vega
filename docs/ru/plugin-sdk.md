@@ -48,6 +48,20 @@ public sealed class HelloPlugin : VegaPlugin
 
 Host владеет командами, подписками, repeating tasks, scene leases и async-операциями, созданными через эти фасады. При unload он отменяет и дожидается background work, снимает регистрации и освобождает collectible context.
 
+## Логирование
+
+Каждый обычный плагин получает доступ к общему operations logger Vega через `plugin.Log`:
+
+```csharp
+plugin.Log.Write(
+    OperationsLogLevel.Information,
+    "Кэш успешно перестроен.");
+```
+
+SDK намеренно выдаёт scoped-фасад `IPluginLog`, а не сырой host logger. Vega фиксирует source как `plugin:<PluginName>`, поэтому плагин не может выдать собственную запись за `runtime`, `packet-security`, `chat` или другой системный источник. Содержимое сообщения формирует сам плагин, поэтому пароли, токены и другие секреты туда писать нельзя.
+
+Записи плагина используют тот же транспорт, что и остальные логи сервера. Ограниченный in-memory store для Operations/TUI обновляется сразу, а потенциально блокирующие sink'и, например консоль и JSON-файл, обслуживаются через bounded background queue. Медленный диск или терминал поэтому не превращает `plugin.Log.Write` в I/O на game thread. При переполнении очереди записи для queued sink'ов отбрасываются вместо блокировки сервера.
+
 ## Мир, NPC, сундуки и инвентарь
 
 `plugin.World` является обычной игровой границей. Он никогда не выдаёт `Terraria.Main`, `Terraria.NPC`, `Terraria.Chest` или живые mutable tiles. Чтение возвращает immutable snapshots, а изменения выполняются host'ом на авторитетном game thread.
