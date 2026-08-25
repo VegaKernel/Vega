@@ -13,7 +13,8 @@ public enum VegaDebugCapabilities
     NonPublicMembers = 1 << 4,
     MethodInvoke = 1 << 5,
     StateMutation = 1 << 6,
-    GarbageCollection = 1 << 7
+    GarbageCollection = 1 << 7,
+    NetworkTrace = 1 << 8
 }
 
 public sealed record VegaDebugRuntimeSnapshot(
@@ -99,6 +100,40 @@ public sealed record VegaDebugMutationResult(
     bool Succeeded,
     string? Error);
 
+public sealed record VegaDebugNetworkTraceOptions(
+    int DurationSeconds = 10,
+    int MaxEvents = 4096,
+    int? Slot = null,
+    IReadOnlyList<int>? PacketIds = null,
+    bool IncludeInbound = true,
+    bool IncludeOutbound = true);
+
+public sealed record VegaDebugNetworkPacket(
+    DateTimeOffset Timestamp,
+    string Direction,
+    int? PacketId,
+    int Size,
+    int? Slot);
+
+public sealed record VegaDebugPacketProcessorMetric(
+    string Processor,
+    string PacketType,
+    long Calls,
+    double TotalMicroseconds,
+    double AverageMicroseconds,
+    double MaxMicroseconds,
+    long NonAllowDecisions,
+    string? LastDecision,
+    string? LastReason);
+
+public sealed record VegaDebugNetworkTraceSnapshot(
+    bool Active,
+    DateTimeOffset? StartedAt,
+    DateTimeOffset? ExpiresAt,
+    IReadOnlyList<VegaDebugNetworkPacket> Packets,
+    IReadOnlyList<VegaDebugPacketProcessorMetric> ProcessorMetrics,
+    long DroppedPackets);
+
 /// <summary>
 /// Process-internal diagnostics intended for explicitly trusted tooling plugins.
 /// Dangerous capabilities are separately gated by the host configuration.
@@ -124,6 +159,16 @@ public interface IVegaDebugContext
     VegaDebugMutationResult SetValue(VegaDebugMutationRequest request);
 
     void CollectGarbage(int generation = -1, bool compact = false);
+
+    /// <summary>
+    /// Starts a bounded, temporary network and packet-pipeline trace. The trace automatically stops
+    /// after the requested duration so diagnostics cannot accidentally become a permanent packet sniffer.
+    /// </summary>
+    void StartNetworkTrace(VegaDebugNetworkTraceOptions options);
+
+    void StopNetworkTrace();
+
+    VegaDebugNetworkTraceSnapshot CaptureNetworkTrace();
 }
 
 public static class VegaDebug
@@ -153,6 +198,12 @@ public static class VegaDebug
         public VegaDebugMutationResult SetValue(VegaDebugMutationRequest request) => throw Disabled();
 
         public void CollectGarbage(int generation = -1, bool compact = false) => throw Disabled();
+
+        public void StartNetworkTrace(VegaDebugNetworkTraceOptions options) => throw Disabled();
+
+        public void StopNetworkTrace() => throw Disabled();
+
+        public VegaDebugNetworkTraceSnapshot CaptureNetworkTrace() => throw Disabled();
 
         private static InvalidOperationException Disabled() =>
             new("The Vega DEBUG API is disabled or this plugin is not trusted.");
