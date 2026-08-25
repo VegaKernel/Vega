@@ -5,7 +5,7 @@ using Vega.Contracts.Players;
 namespace Vega.Terraria.Networking;
 
 /// <summary>
-/// Adapts Terraria payload windows into Multiplicity packet views before entering Vega packet policy.
+/// Adapts an exact Terraria packet payload into a Multiplicity view before entering Vega packet policy.
 /// Raw buffer parsing remains inside the Terraria/protocol boundary.
 /// </summary>
 public static class MultiplicityPacketProcessing
@@ -14,7 +14,7 @@ public static class MultiplicityPacketProcessing
         byte rawPacketId,
         byte[] buffer,
         int offset,
-        int availableLength,
+        int payloadLength,
         ConnectionId connectionId,
         PlayerId? playerId,
         IPacketProcessor<PacketView> processor,
@@ -24,14 +24,14 @@ public static class MultiplicityPacketProcessing
         ArgumentNullException.ThrowIfNull(buffer);
         ArgumentNullException.ThrowIfNull(processor);
 
-        if (!PacketViewParser.TryParsePayloadBounded(
+        if (!PacketViewParser.TryParsePayload(
                 rawPacketId,
                 buffer,
                 offset,
-                availableLength,
-                out var packet))
+                payloadLength,
+                out PacketView packet))
         {
-            return new PacketProcessingDecision(PacketDecisionKind.Reject, "packet.invalid_payload");
+            return PacketProcessingDecision.Reject("packet.invalid_payload");
         }
 
         var context = new PacketProcessingContext<PacketView>(
