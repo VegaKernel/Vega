@@ -36,6 +36,7 @@ TShock много лет накапливал проверки входящих 
 | Tile rectangle decompression abuse | TShock ограничивает и валидирует world mutations | Большой compressed rectangle мог быть дорогим до проверки | лимит площади до decompression + полный payload validation | **[закрыто]** |
 | Packet flood | TShock содержит packet-specific spam protection | Vega имела rate limits только для нескольких пакетов | расширенный `PacketRateLimitPolicy` | **[частично]** |
 | Наблюдаемость атак | TShock пишет diagnostic/admin logs | Ранние отказы Vega были хуже видны | security signals, metrics, structured operation logs | **[закрыто]** |
+| Широкая server-side mutation surface | TShock исторически предоставляет плагинам `TSPlayer` и доступ к большому объёму mutable Terraria state | Команды Vega могли бы повторить этот путь прямыми обращениями к `Main.player`/`Main.npc` | Built-in commands и Plugin SDK используют узкие `IPlayerOperations`, world/NPC/inventory capabilities с game-thread dispatch | **[частично]** |
 
 ## 1. Явная ingress-матрица вместо неявного fallback
 
@@ -414,9 +415,53 @@ NaN, out-of-range index, forged owner и server-only injection являются 
 
 Vega уже классифицирует все protocol-325 packet IDs, но отдельная человекочитаемая таблица «TShock handler -> Vega policy -> test» ещё может быть расширена. Это полезно как audit ledger, хотя runtime safety от неё не зависит.
 
-### [в работе] Командный административный surface
+### [частично] Командный административный surface
 
-Расширение серверных команд идёт параллельно, но не относится напрямую к wire security. Команды должны использовать те же Vega capabilities (`IPlayerOperations`, world/NPC/inventory contracts), а не обходить security/authorization boundary прямыми обращениями к `Terraria.Main`.
+Расширение серверных команд идёт параллельно и использует те же Vega capabilities, что Plugin SDK. Уже перенесены world/player/NPC операции, включая teleport, spawn, heal, kill, buff и respawn. Следующие команды, особенно `give/item`, не должны обходить revision-aware inventory contracts прямой записью в `Terraria.Player.inventory`.
+
+## 19. Административные мутации через capability boundary
+
+### Почему это относится к security
+
+Это не сетевой exploit в обычном смысле. Речь о server-side blast radius: чем больше mutable runtime state доступно встроенной команде или плагину, тем проще ошибке, уязвимому плагину или плохо проверенному MCP-tool нарушить инварианты Terraria в обход общей модели доступа.
+
+Исторически TShock строился вокруг очень удобного, но широкого объекта `TSPlayer`. Плагины также часто имеют прямой доступ к `TPlayer`, `Main.player`, `Main.npc` и другим runtime структурам. Это удобно для экосистемы, но делает границу между «поддерживаемой операцией» и «произвольной мутацией процесса» размытой.
+
+### Модель Vega
+
+Vega намеренно не выдаёт обычному Plugin SDK объект Terraria player. Вместо этого разделены:
+
+- immutable `PlayerSnapshot` для чтения;
+- `IPlayerOperations` для целевых действий;
+- `IPlayerInventoryService`/plugin inventory facade для revision-aware изменения inventory;
+- `IWorldNpcService` с handle + revision для NPC;
+- world/environment contracts;
+- отдельный DEBUG API, который выключен по умолчанию и имеет явные unsafe capabilities.
+
+Встроенные команды следуют той же модели. Например:
+
+```text
+heal command   -> IPlayerOperations.HealAsync    -> game-thread dispatch -> Terraria.Player.Heal
+kill command   -> IPlayerOperations.KillAsync    -> game-thread dispatch -> Terraria.Player.KillMe
+buff command   -> IPlayerOperations.ApplyBuffAsync -> validation -> game-thread dispatch
+respawn command -> IPlayerOperations.RespawnAsync -> game-thread dispatch -> normal Terraria respawn path
+```
+
+Command handler отвечает только за permission, разрешение target и проверку пользовательских аргументов. Он не получает права самостоятельно менять `statLife`, `dead`, buff arrays или `respawnTimer` из произвольного потока.
+
+Тот же `IPlayerOperations` прокинут через `IPluginPlayers`, поэтому расширение Plugin SDK не создаёт вторую, менее безопасную реализацию этих действий.
+
+### Что это закрывает
+
+- mutation из неправильного потока;
+- размножение прямых обращений к `Main.player[]` по handlers/plugins;
+- расхождение семантики одной операции между console command, plugin и будущим MCP;
+- отсутствие единообразной validation/error model;
+- более широкий ущерб от ошибки обычного плагина, которому для одной операции пришлось бы дать доступ ко всему player object graph.
+
+Это не является полноценной sandbox-изоляцией плагина: загруженный managed code внутри процесса в принципе остаётся доверенным кодом процесса. Но поддерживаемый API больше не поощряет прямую мутацию Terraria как нормальный способ расширения сервера.
+
+**Статус: [частично].** Основной player/world/NPC capability boundary уже действует. Аудит продолжается для inventory/item выдачи, будущих boss/event operations и остальных административных команд.
 
 ## Инварианты, которые нельзя потерять при будущих изменениях
 
@@ -430,6 +475,8 @@ Vega уже классифицирует все protocol-325 packet IDs, но о
 8. Live-state проверки выполняются только там, где pure protocol validation недостаточно.
 9. Любое изменение wire layout сначала исправляется в Multiplicity, а не дублируется постоянным compatibility parser в Vega.
 10. Security rejection остаётся наблюдаемым через reason, metrics и bounded signals.
+11. Built-in command, Plugin SDK и MCP не должны получать отдельные обходные пути к mutable Terraria state, если операция уже выражается узким Vega capability.
+12. Terraria-dependent service constructors не должны инициировать `Terraria.Main` до bootstrap/save-path initialization.
 
 ---
 
