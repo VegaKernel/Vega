@@ -23,6 +23,12 @@
 	</ItemGroup>
 
 	<ItemGroup>
+		<EmbeddedResource Include="..\..\config\*.json">
+			<LogicalName>Vega.DefaultConfig.%(Filename)%(Extension)</LogicalName>
+		</EmbeddedResource>
+	</ItemGroup>
+
+	<ItemGroup>
 		<ProjectReference Include="..\Vega.Core\Vega.Core.csproj" />
 		<ProjectReference Include="..\Vega.PluginSdk\Vega.PluginSdk.csproj" />
 		<ProjectReference Include="..\Vega.Backups\Vega.Backups.csproj" />
