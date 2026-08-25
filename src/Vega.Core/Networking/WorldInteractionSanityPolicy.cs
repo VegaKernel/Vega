@@ -15,6 +15,7 @@ public sealed class WorldInteractionSanityPolicy(
     int projectileTypeCount) : IPacketProcessor<PacketView>
 {
     private const int MaximumStack = 9_999;
+    private const int MaximumTileRectangleArea = 4_096;
 
     public PacketProcessingDecision Process(scoped in PacketProcessingContext<PacketView> context)
     {
@@ -39,10 +40,15 @@ public sealed class WorldInteractionSanityPolicy(
 
     private PacketProcessingDecision ValidateTileRectangle(TileSendSquareView value)
     {
+        int area = value.Width * value.Height;
+        if (value.Width == 0 || value.Height == 0 || area > MaximumTileRectangleArea)
+        {
+            return PacketProcessingDecision.Violation("packet.tile_square.rectangle_too_large");
+        }
+
         int width = worldWidth();
         int height = worldHeight();
-        if (width <= 0 || height <= 0 || value.Width == 0 || value.Height == 0 ||
-            value.TileX < 0 || value.TileY < 0 ||
+        if (width <= 0 || height <= 0 || value.TileX < 0 || value.TileY < 0 ||
             value.TileX + value.Width > width || value.TileY + value.Height > height)
         {
             return PacketProcessingDecision.Violation("packet.tile_square.rectangle_out_of_world");
