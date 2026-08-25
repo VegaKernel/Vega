@@ -29,7 +29,9 @@ public sealed class PlayerPacketOwnershipPolicy : IPacketProcessor<PacketView>
             PacketTypes.PlayerTeam => context.Packet.AsPlayerTeamView().PlayerId,
             PacketTypes.TeamChangeFromUI => context.Packet.AsTeamChangeFromUIView().PlayerId,
             PacketTypes.TogglePvp => context.Packet.AsTogglePvpView().PlayerId,
-            PacketTypes.PlayerBuff => new PlayerBuffView(context.Packet).PlayerId,
+            // Multiplicity 2.6.2 still models this protocol-325 packet as byte buff ids.
+            // The first byte remains the sender player id and is safe to read directly.
+            PacketTypes.PlayerBuff => context.Packet.PayloadSpan[0],
             PacketTypes.NpcSpecial => new NpcSpecialView(context.Packet).SubjectId,
             PacketTypes.PlayHarp => new PlayHarpView(context.Packet).PlayerId,
             PacketTypes.PlayerDodge => new PlayerDodgeView(context.Packet).PlayerId,
