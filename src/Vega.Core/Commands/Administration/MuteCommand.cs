@@ -1,4 +1,5 @@
 using System.Globalization;
+using System.Net;
 using Vega.Contracts.Accounts;
 using Vega.Contracts.Commands;
 using Vega.Contracts.Messaging;
@@ -68,9 +69,11 @@ public sealed class MuteCommand(
 
         PlayerSnapshot target = matches[0];
         accountSessions.TryGetAccount(target.Id, out AccountSnapshot? account);
+        MuteSubject[] subjects = BuildOnlineSubjects(target, account);
         return await CreateAsync(
             account is null ? MuteSubjectKind.PlayerName : MuteSubjectKind.Account,
             account?.Name ?? target.Name,
+            subjects,
             duration,
             invocation.Arguments.Count > 2 ? string.Join(" ", invocation.Arguments.Skip(2)) : "Muted by an operator.",
             invocation.Principal.Name,
@@ -88,9 +91,11 @@ public sealed class MuteCommand(
             return Usage();
         }
 
+        string subject = invocation.Arguments[2].Trim();
         return await CreateAsync(
             kind,
-            invocation.Arguments[2],
+            subject,
+            [new MuteSubject((MuteIdentityKind)kind, subject)],
             duration,
             invocation.Arguments.Count > 4 ? string.Join(" ", invocation.Arguments.Skip(4)) : "Muted by an operator.",
             invocation.Principal.Name,
@@ -100,6 +105,7 @@ public sealed class MuteCommand(
     private async ValueTask<CommandExecutionResult> CreateAsync(
         MuteSubjectKind kind,
         string subject,
+        IReadOnlyList<MuteSubject> subjects,
         TimeSpan duration,
         string reason,
         string actor,
@@ -107,7 +113,10 @@ public sealed class MuteCommand(
     {
         DateTimeOffset now = time.GetUtcNow();
         var mute = new MuteSnapshot(
-            MuteId.New(), kind, subject.Trim(), reason.Trim(), actor, now, now.Add(duration), 1);
+            MuteId.New(), kind, subject.Trim(), reason.Trim(), actor, now, now.Add(duration), 1)
+        {
+            Subjects = subjects
+        };
         MuteMutationResult result;
         try
         {
@@ -171,6 +180,41 @@ public sealed class MuteCommand(
                 mute.Reason,
                 mute.Revision)
             .WithDefaultText("{0} | {1} | expires {2:u} | by {3} | {4} | revision {5}");
+
+    private static MuteSubject[] BuildOnlineSubjects(PlayerSnapshot target, AccountSnapshot? account)
+    {
+        var subjects = new List<MuteSubject>
+        {
+            new(MuteIdentityKind.PlayerName, target.Name)
+        };
+        if (!string.IsNullOrWhiteSpace(account?.Name))
+            subjects.Add(new MuteSubject(MuteIdentityKind.Account, account.Name));
+        if (!string.IsNullOrWhiteSpace(target.Connection?.ClientUuid))
+            subjects.Add(new MuteSubject(MuteIdentityKind.ClientUuid, target.Connection.ClientUuid));
+        if (TryExtractIp(target.Connection?.EffectiveEndpoint ?? target.RemoteEndpoint, out string? ip))
+            subjects.Add(new MuteSubject(MuteIdentityKind.IpAddress, ip!));
+        return subjects.ToArray();
+    }
+
+    private static bool TryExtractIp(string? endpoint, out string? value)
+    {
+        value = null;
+        if (string.IsNullOrWhiteSpace(endpoint)) return false;
+        if (IPAddress.TryParse(endpoint, out IPAddress? address))
+        {
+            value = NormalizeAddress(address).ToString();
+            return true;
+        }
+        if (IPEndPoint.TryParse(endpoint, out IPEndPoint? parsed))
+        {
+            value = NormalizeAddress(parsed.Address).ToString();
+            return true;
+        }
+        return false;
+    }
+
+    private static IPAddress NormalizeAddress(IPAddress address) =>
+        address.IsIPv4MappedToIPv6 ? address.MapToIPv4() : address;
 
     private PlayerSnapshot[] FindPlayers(string search)
     {
