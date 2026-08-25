@@ -44,12 +44,13 @@ public sealed class GenericLoggerIntegrationTests
     }
 
     [Test]
-    public void ChatPipelineFormatsChatAndLeavesTransportToGenericLogger()
+    public void ChatPipelineProducesReadyGenericLogMessage()
     {
-        var logger = new RecordingLogger();
         PlayerSnapshot sender = Player(3, "Alice");
         PlayerSnapshot recipient = Player(4, "Bob");
-        var chat = new ChatPipeline(logger: logger);
+        var chat = new ChatPipeline();
+        var entries = new List<OperationsLogMessage>();
+        chat.LogProduced += entries.Add;
 
         ChatPipelineResult result = chat.Process(new ChatMessageContext(
             WorldId.Primary,
@@ -57,7 +58,7 @@ public sealed class GenericLoggerIntegrationTests
             "hello world",
             [recipient]));
 
-        Entry entry = logger.Entries.Single();
+        OperationsLogMessage entry = entries.Single();
         Assert.Multiple(() =>
         {
             Assert.That(result.Allowed, Is.True);
