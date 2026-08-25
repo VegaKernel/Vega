@@ -32,6 +32,7 @@ public sealed class PlayerActionSanityPolicy(
             PacketTypes.PlayerAnimation => ValidateAnimation(new PlayerAnimationView(context.Packet)),
             PacketTypes.PlayerTeam => ValidateTeam(new PlayerTeamView(context.Packet).Team),
             PacketTypes.TeamChangeFromUI => ValidateTeam(new TeamChangeFromUIView(context.Packet).Team),
+            PacketTypes.PlayerBuff => ValidatePlayerBuffList(context.Packet.PayloadSpan),
             PacketTypes.PlayerStealth => ValidateStealth(new PlayerStealthView(context.Packet)),
             PacketTypes.PlayHarp => ValidateHarp(new PlayHarpView(context.Packet)),
             PacketTypes.UpdateMinionTarget => ValidateMinionRestTarget(new UpdateMinionTargetView(context.Packet)),
@@ -61,6 +62,37 @@ public sealed class PlayerActionSanityPolicy(
         team > MaximumVanillaTeam
             ? PacketProcessingDecision.Violation("packet.player_team.team_out_of_range")
             : PacketProcessingDecision.Allow;
+
+    private PacketProcessingDecision ValidatePlayerBuffList(ReadOnlySpan<byte> payload)
+    {
+        if (payload.Length < 3 || ((payload.Length - 1) & 1) != 0)
+        {
+            return PacketProcessingDecision.Reject("packet.player_buff_list.malformed");
+        }
+
+        bool reachedTerminator = false;
+        for (int offset = 1; offset < payload.Length; offset += sizeof(ushort))
+        {
+            ushort buff = BinaryPrimitives.ReadUInt16LittleEndian(payload[offset..]);
+            if (buff == 0)
+            {
+                reachedTerminator = true;
+                continue;
+            }
+
+            if (reachedTerminator)
+            {
+                return PacketProcessingDecision.Violation("packet.player_buff_list.nonzero_after_terminator");
+            }
+
+            if (buff >= buffTypeCount)
+            {
+                return PacketProcessingDecision.Violation("packet.player_buff_list.type_out_of_range");
+            }
+        }
+
+        return PacketProcessingDecision.Allow;
+    }
 
     private static PacketProcessingDecision ValidateStealth(PlayerStealthView value) =>
         !float.IsFinite(value.Stealth)
