@@ -46,7 +46,7 @@ internal sealed class HotModuleRegistrationScope : IHotModuleContext, IVegaPlugi
         Tasks = new PluginTasks(this, gameThread);
         Storage = new PluginStorage(dataDirectory);
         Log = new PluginLog(logger, logSource);
-        Debug = debug ?? VegaDebug.Disabled;
+        Debug = debug ?? VegaDebugProcess.CreateContext(pluginName);
     }
 
     public IPluginCommands Commands { get; }
