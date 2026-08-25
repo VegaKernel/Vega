@@ -1,4 +1,4 @@
-using System.Net;
+using Vega.Contracts.Accounts;
 using Vega.Contracts.Bans;
 using Vega.Contracts.Cluster.Events;
 using Vega.Contracts.Commands;
@@ -11,7 +11,8 @@ public sealed class BanCommand(
     IPlayerDirectory players,
     IPlayerOperations playerOperations,
     IBanService bans,
-    TimeProvider? timeProvider = null) : ICommandHandler
+    TimeProvider? timeProvider = null,
+    IPlayerAccountSessionService? accountSessions = null) : ICommandHandler
 {
     private const string BanPermission = "vega.admin.ban";
     private readonly TimeProvider time = timeProvider ?? TimeProvider.System;
@@ -81,14 +82,7 @@ public sealed class BanCommand(
             ? string.Join(" ", invocation.Arguments.Skip(1))
             : "Misbehaviour.";
         DateTimeOffset now = time.GetUtcNow();
-        var subjects = new List<GlobalBanSubject>
-        {
-            new(GlobalBanSubjectKind.PlayerName, target.Name)
-        };
-        if (TryGetIpAddress(target.RemoteEndpoint, out string? ipAddress) && ipAddress is not null)
-        {
-            subjects.Add(new GlobalBanSubject(GlobalBanSubjectKind.IpAddress, ipAddress));
-        }
+        IReadOnlyList<GlobalBanSubject> subjects = PlayerBanSubjectResolver.Resolve(target, accountSessions);
 
         foreach (GlobalBanSubject subject in subjects)
         {
@@ -344,28 +338,8 @@ public sealed class BanCommand(
                 .ToArray();
     }
 
-    internal static bool TryGetIpAddress(string? remoteEndpoint, out string? address)
-    {
-        address = null;
-        if (string.IsNullOrWhiteSpace(remoteEndpoint))
-        {
-            return false;
-        }
-
-        if (IPAddress.TryParse(remoteEndpoint, out IPAddress? direct))
-        {
-            address = direct.ToString();
-            return true;
-        }
-
-        if (IPEndPoint.TryParse(remoteEndpoint, out IPEndPoint? endpoint))
-        {
-            address = endpoint.Address.ToString();
-            return true;
-        }
-
-        return false;
-    }
+    internal static bool TryGetIpAddress(string? remoteEndpoint, out string? address) =>
+        PlayerBanSubjectResolver.TryGetIpAddress(remoteEndpoint, out address);
 
     private static CommandExecutionResult InvalidUsage(string errorCode, string defaultText) =>
         new(
