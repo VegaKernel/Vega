@@ -1,6 +1,8 @@
 using NUnit.Framework;
+using Vega.Contracts.Accounts;
 using Vega.Contracts.Cluster.Events;
 using Vega.Contracts.Commands;
+using Vega.Contracts.Networking;
 using Vega.Contracts.Players;
 using Vega.Core.Bans;
 using Vega.Core.Commands.Administration;
@@ -11,15 +13,30 @@ namespace Vega.Runtime.Tests.Core;
 public sealed class BanCommandTests
 {
     [Test]
-    public async Task PersistsNameAndIpAndDisconnectsPlayer()
+    public async Task PersistsAccountUuidAndIpAndDisconnectsPlayer()
     {
-        PlayerSnapshot target = Player(4, "Trouble") with { RemoteEndpoint = "203.0.113.7:7777" };
+        PlayerSnapshot target = Player(4, "Trouble") with
+        {
+            RemoteEndpoint = "203.0.113.7:7777",
+            Connection = new ConnectionMetadataSnapshot(
+                new ConnectionId(4),
+                "203.0.113.7:7777",
+                "203.0.113.7:7777",
+                ConnectionForwardingProvenance.Direct,
+                ClientPlatformInfo.Unknown,
+                "client-uuid-4",
+                ConnectionLoginPhase.FullyConnected)
+        };
         var bans = new FakeBans();
         var operations = new FakeOperations();
+        var sessions = new FakeAccountSessions(
+            target.Id,
+            new AccountSnapshot(new AccountId(12), "TroubleAccount", "default", DateTimeOffset.UtcNow));
         var command = new BanCommand(
             new FakeDirectory([target]),
             operations,
-            new GlobalBanService(bans));
+            new GlobalBanService(bans),
+            accountSessions: sessions);
 
         CommandExecutionResult result = await command.ExecuteAsync(
             Invocation(["tsi:4", "griefing", "spawn"]),
@@ -29,13 +46,45 @@ public sealed class BanCommandTests
         {
             Assert.That(result.Status, Is.EqualTo(CommandExecutionStatus.Success));
             Assert.That(bans.Created.Select(static ban => ban.Subject.Kind),
-                Is.EquivalentTo(new[] { GlobalBanSubjectKind.PlayerName, GlobalBanSubjectKind.IpAddress }));
-            Assert.That(bans.Created.Single(ban => ban.Subject.Kind == GlobalBanSubjectKind.PlayerName).Subject.Value,
-                Is.EqualTo("Trouble"));
+                Is.EquivalentTo(new[]
+                {
+                    GlobalBanSubjectKind.Account,
+                    GlobalBanSubjectKind.Uuid,
+                    GlobalBanSubjectKind.IpAddress
+                }));
+            Assert.That(bans.Created.Single(ban => ban.Subject.Kind == GlobalBanSubjectKind.Account).Subject.Value,
+                Is.EqualTo("TroubleAccount"));
+            Assert.That(bans.Created.Single(ban => ban.Subject.Kind == GlobalBanSubjectKind.Uuid).Subject.Value,
+                Is.EqualTo("client-uuid-4"));
             Assert.That(bans.Created.Single(ban => ban.Subject.Kind == GlobalBanSubjectKind.IpAddress).Subject.Value,
                 Is.EqualTo("203.0.113.7"));
+            Assert.That(bans.Created.Any(ban => ban.Subject.Kind == GlobalBanSubjectKind.PlayerName), Is.False);
             Assert.That(operations.KickedPlayer, Is.EqualTo(target.Id));
             Assert.That(operations.KickReason, Is.EqualTo("Banned: griefing spawn"));
+        });
+    }
+
+    [Test]
+    public async Task FallsBackToPlayerNameWhenNoStableIdentityIsAvailable()
+    {
+        PlayerSnapshot target = Player(4, "Trouble");
+        var bans = new FakeBans();
+        var command = new BanCommand(
+            new FakeDirectory([target]),
+            new FakeOperations(),
+            new GlobalBanService(bans),
+            accountSessions: new FakeAccountSessions(target.Id, null));
+
+        CommandExecutionResult result = await command.ExecuteAsync(
+            Invocation(["Trouble"]),
+            CancellationToken.None);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(result.Status, Is.EqualTo(CommandExecutionStatus.Success));
+            Assert.That(bans.Created, Has.Count.EqualTo(1));
+            Assert.That(bans.Created[0].Subject,
+                Is.EqualTo(new GlobalBanSubject(GlobalBanSubjectKind.PlayerName, "Trouble")));
         });
     }
 
@@ -200,6 +249,22 @@ public sealed class BanCommandTests
             PlayerPosition destination,
             CancellationToken cancellationToken = default) =>
             ValueTask.FromResult(PlayerOperationResult.Applied());
+    }
+
+    private sealed class FakeAccountSessions(PlayerId playerId, AccountSnapshot? account)
+        : IPlayerAccountSessionService
+    {
+        public bool TryGetAccount(PlayerId candidate, out AccountSnapshot? snapshot)
+        {
+            snapshot = candidate == playerId ? account : null;
+            return snapshot is not null;
+        }
+
+        public ValueTask<bool> SetCultureAsync(
+            PlayerId candidate,
+            string? culture,
+            CancellationToken cancellationToken = default) =>
+            ValueTask.FromResult(false);
     }
 
     private sealed class FakePrincipal(IReadOnlyCollection<string>? permissions = null) : ICommandPrincipal
