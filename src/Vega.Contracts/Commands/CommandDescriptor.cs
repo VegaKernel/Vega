@@ -7,11 +7,12 @@ public sealed record CommandDescriptor(
     IReadOnlyList<string> Aliases,
     IReadOnlyList<string> Permissions,
     bool AllowServer = true,
-    string Syntax = "")
+    string Syntax = "",
+    CommandAuditMode AuditMode = CommandAuditMode.NameOnly)
 {
     public bool IsAvailableTo(ICommandPrincipal principal)
     {
-         ArgumentNullException.ThrowIfNull(principal);
+        ArgumentNullException.ThrowIfNull(principal);
         return (AllowServer || !principal.IsServer) &&
             (Permissions.Count == 0 || Permissions.Any(principal.HasPermission));
     }
