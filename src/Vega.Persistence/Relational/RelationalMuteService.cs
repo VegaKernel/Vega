@@ -1,6 +1,8 @@
 using System.Data.Common;
 using System.Globalization;
+using System.Net;
 using Vega.Contracts.Moderation;
+using Vega.Contracts.Networking;
 
 namespace Vega.Persistence.Relational;
 
@@ -26,30 +28,28 @@ internal sealed class RelationalMuteService(
         }
     }
 
-    public MuteSnapshot? FindActive(string playerName, string? accountName, DateTimeOffset now)
+    public MuteSnapshot? FindActive(string playerName, string? accountName, DateTimeOffset now) =>
+        FindActive(new MuteIdentity(playerName, accountName), now);
+
+    public MuteSnapshot? FindActive(MuteIdentity identity, DateTimeOffset now)
     {
-        string normalizedPlayer = Normalize(playerName, nameof(playerName));
-        string? normalizedAccount = string.IsNullOrWhiteSpace(accountName) ? null : accountName.Trim();
+        ArgumentNullException.ThrowIfNull(identity);
+        MuteSubject[] candidates = BuildIdentitySubjects(identity);
         EnsureCache();
         lock (cacheSync)
         {
             MuteSnapshot? best = null;
+            int bestSpecificity = -1;
             foreach (MuteSnapshot mute in active!.Values)
             {
                 if (mute.ExpiresAt <= now) continue;
-                bool matches = mute.SubjectKind switch
-                {
-                    MuteSubjectKind.Account => normalizedAccount is not null &&
-                        mute.SubjectValue.Equals(normalizedAccount, StringComparison.OrdinalIgnoreCase),
-                    MuteSubjectKind.PlayerName =>
-                        mute.SubjectValue.Equals(normalizedPlayer, StringComparison.OrdinalIgnoreCase),
-                    _ => false
-                };
-                if (matches && (best is null ||
-                    mute.SubjectKind > best.SubjectKind ||
-                    mute.SubjectKind == best.SubjectKind && mute.IssuedAt > best.IssuedAt))
+                int specificity = MatchSpecificity(GetSubjects(mute), candidates);
+                if (specificity >= 0 &&
+                    (specificity > bestSpecificity ||
+                     specificity == bestSpecificity && (best is null || mute.IssuedAt > best.IssuedAt)))
                 {
                     best = mute;
+                    bestSpecificity = specificity;
                 }
             }
 
@@ -62,6 +62,8 @@ internal sealed class RelationalMuteService(
         CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(mute);
+        MuteSubject[] subjects = NormalizeSubjects(mute);
+        mute = mute with { Subjects = subjects };
         Validate(mute);
         ensureReady();
         EnsureCache();
@@ -88,6 +90,16 @@ internal sealed class RelationalMuteService(
                 {
                     AddParameters(command, mute);
                     await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
+                }
+
+                foreach (MuteSubject subject in subjects)
+                {
+                    await using DbCommand subjectCommand = CreateCommand(connection, transaction,
+                        "INSERT INTO vega_mute_subjects (mute_id, kind, value) VALUES (@id, @kind, @value);");
+                    subjectCommand.AddParameter("@id", mute.Id.ToString());
+                    subjectCommand.AddParameter("@kind", (int)subject.Kind);
+                    subjectCommand.AddParameter("@value", subject.Value);
+                    await subjectCommand.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
                 }
 
                 await WriteAuditAsync(connection, transaction, mute.IssuedBy, "mute.create", mute.Id.ToString(), 0, mute.Revision, cancellationToken)
@@ -185,6 +197,36 @@ internal sealed class RelationalMuteService(
                 MuteSnapshot mute = Read(reader);
                 active[mute.Id] = mute;
             }
+            reader.Close();
+
+            if (active.Count == 0) return;
+            var subjects = new Dictionary<MuteId, List<MuteSubject>>();
+            using DbCommand subjectCommand = connection.CreateCommand();
+            subjectCommand.CommandText = "SELECT mute_id, kind, value FROM vega_mute_subjects ORDER BY mute_id, kind, value;";
+            using DbDataReader subjectReader = subjectCommand.ExecuteReader();
+            while (subjectReader.Read())
+            {
+                var id = new MuteId(Guid.Parse(subjectReader.GetString(0)));
+                if (!active.ContainsKey(id)) continue;
+                if (!subjects.TryGetValue(id, out List<MuteSubject>? list))
+                {
+                    list = [];
+                    subjects.Add(id, list);
+                }
+                list.Add(new MuteSubject(
+                    (MuteIdentityKind)Convert.ToInt32(subjectReader.GetValue(1), CultureInfo.InvariantCulture),
+                    subjectReader.GetString(2)));
+            }
+
+            foreach ((MuteId id, MuteSnapshot mute) in active.ToArray())
+            {
+                active[id] = mute with
+                {
+                    Subjects = subjects.TryGetValue(id, out List<MuteSubject>? list)
+                        ? list.ToArray()
+                        : GetSubjects(mute)
+                };
+            }
         }
     }
 
@@ -222,6 +264,84 @@ internal sealed class RelationalMuteService(
         command.AddParameter("@revision", mute.Revision);
     }
 
+    private static MuteSubject[] NormalizeSubjects(MuteSnapshot mute)
+    {
+        IEnumerable<MuteSubject> source = mute.Subjects.Count == 0
+            ? [new MuteSubject((MuteIdentityKind)mute.SubjectKind, mute.SubjectValue)]
+            : mute.Subjects;
+        return source
+            .Select(NormalizeSubject)
+            .DistinctBy(static subject => (subject.Kind, subject.Value), MuteSubjectKeyComparer.Instance)
+            .ToArray();
+    }
+
+    private static MuteSubject[] GetSubjects(MuteSnapshot mute) => mute.Subjects.Count == 0
+        ? [new MuteSubject((MuteIdentityKind)mute.SubjectKind, mute.SubjectValue)]
+        : mute.Subjects.ToArray();
+
+    private static MuteSubject[] BuildIdentitySubjects(MuteIdentity identity)
+    {
+        var values = new List<MuteSubject>
+        {
+            NormalizeSubject(new MuteSubject(MuteIdentityKind.PlayerName, identity.PlayerName))
+        };
+        if (!string.IsNullOrWhiteSpace(identity.AccountName))
+            values.Add(NormalizeSubject(new MuteSubject(MuteIdentityKind.Account, identity.AccountName)));
+        if (!string.IsNullOrWhiteSpace(identity.ClientUuid))
+            values.Add(NormalizeSubject(new MuteSubject(MuteIdentityKind.ClientUuid, identity.ClientUuid)));
+        if (!string.IsNullOrWhiteSpace(identity.IpAddress))
+            values.Add(NormalizeSubject(new MuteSubject(MuteIdentityKind.IpAddress, identity.IpAddress)));
+        return values.ToArray();
+    }
+
+    private static int MatchSpecificity(IReadOnlyList<MuteSubject> muteSubjects, IReadOnlyList<MuteSubject> candidates)
+    {
+        int best = -1;
+        foreach (MuteSubject muteSubject in muteSubjects)
+        {
+            foreach (MuteSubject candidate in candidates)
+            {
+                if (muteSubject.Kind != candidate.Kind || !SubjectEquals(muteSubject, candidate)) continue;
+                best = Math.Max(best, muteSubject.Kind switch
+                {
+                    MuteIdentityKind.Account => 400,
+                    MuteIdentityKind.ClientUuid => 400,
+                    MuteIdentityKind.IpAddress => 300,
+                    MuteIdentityKind.PlayerName => 100,
+                    _ => -1
+                });
+            }
+        }
+        return best;
+    }
+
+    private static bool SubjectEquals(MuteSubject left, MuteSubject right) => left.Kind switch
+    {
+        MuteIdentityKind.PlayerName or MuteIdentityKind.Account =>
+            left.Value.Equals(right.Value, StringComparison.OrdinalIgnoreCase),
+        _ => left.Value.Equals(right.Value, StringComparison.Ordinal)
+    };
+
+    private static MuteSubject NormalizeSubject(MuteSubject subject)
+    {
+        ArgumentNullException.ThrowIfNull(subject);
+        string value = Normalize(subject.Value, nameof(subject.Value), 512);
+        return subject.Kind switch
+        {
+            MuteIdentityKind.PlayerName or MuteIdentityKind.Account => subject with { Value = value },
+            MuteIdentityKind.ClientUuid => value.Length <= ConnectionMetadataLimits.MaxClientUuidLength
+                ? subject with { Value = value }
+                : throw new ArgumentOutOfRangeException(nameof(subject.Value)),
+            MuteIdentityKind.IpAddress => IPAddress.TryParse(value, out IPAddress? address)
+                ? subject with { Value = NormalizeAddress(address).ToString() }
+                : throw new ArgumentException("Mute IP subject is invalid.", nameof(subject.Value)),
+            _ => throw new ArgumentOutOfRangeException(nameof(subject.Kind))
+        };
+    }
+
+    private static IPAddress NormalizeAddress(IPAddress address) =>
+        address.IsIPv4MappedToIPv6 ? address.MapToIPv4() : address;
+
     private static async ValueTask WriteAuditAsync(DbConnection connection, DbTransaction transaction, string actor, string operation, string target, long before, long after, CancellationToken cancellationToken)
     {
         await using DbCommand command = CreateCommand(connection, transaction,
@@ -252,6 +372,7 @@ internal sealed class RelationalMuteService(
         _ = Normalize(mute.SubjectValue, nameof(mute.SubjectValue));
         _ = Normalize(mute.Reason, nameof(mute.Reason), 2048);
         _ = Normalize(mute.IssuedBy, nameof(mute.IssuedBy));
+        if (mute.Subjects.Count == 0) throw new ArgumentException("At least one mute identity subject is required.", nameof(mute));
         if (mute.Revision <= 0 || mute.ExpiresAt <= mute.IssuedAt)
         {
             throw new ArgumentException("Mute revision and expiration are invalid.", nameof(mute));
@@ -264,5 +385,20 @@ internal sealed class RelationalMuteService(
         string normalized = value.Trim();
         if (normalized.Length > maximumLength) throw new ArgumentOutOfRangeException(parameter);
         return normalized;
+    }
+
+    private sealed class MuteSubjectKeyComparer : IEqualityComparer<(MuteIdentityKind Kind, string Value)>
+    {
+        public static MuteSubjectKeyComparer Instance { get; } = new();
+
+        public bool Equals((MuteIdentityKind Kind, string Value) x, (MuteIdentityKind Kind, string Value) y) =>
+            x.Kind == y.Kind && (x.Kind is MuteIdentityKind.PlayerName or MuteIdentityKind.Account
+                ? x.Value.Equals(y.Value, StringComparison.OrdinalIgnoreCase)
+                : x.Value.Equals(y.Value, StringComparison.Ordinal));
+
+        public int GetHashCode((MuteIdentityKind Kind, string Value) obj) =>
+            HashCode.Combine(obj.Kind, obj.Kind is MuteIdentityKind.PlayerName or MuteIdentityKind.Account
+                ? StringComparer.OrdinalIgnoreCase.GetHashCode(obj.Value)
+                : StringComparer.Ordinal.GetHashCode(obj.Value));
     }
 }
