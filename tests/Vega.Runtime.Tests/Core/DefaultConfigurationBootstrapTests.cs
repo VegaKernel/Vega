@@ -1,6 +1,6 @@
 using System.Text.Json;
 using NUnit.Framework;
-using Vega.Core.Configuration;
+using Vega.Runtime;
 
 namespace Vega.Runtime.Tests.Core;
 
