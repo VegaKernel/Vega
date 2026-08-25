@@ -7,6 +7,7 @@ using Vega.Contracts.Worlds;
 using Vega.Core.Commands;
 using Vega.Core.Messaging;
 using Vega.Core.Modules;
+using Vega.Terraria.Operations;
 
 namespace Vega.Runtime.Tests.Operations;
 
@@ -67,6 +68,32 @@ public sealed class GenericLoggerIntegrationTests
         });
     }
 
+    [Test]
+    public void ForwarderMovesReadyMessagesToLoggerAndDetachesOnDispose()
+    {
+        var logger = new RecordingLogger();
+        var source = new RecordingSource();
+        using (var forwarder = new OperationsLogSourceForwarder(logger, source))
+        {
+            source.Emit(new OperationsLogMessage(
+                OperationsLogLevel.Warning,
+                "command",
+                "command=kick status=Forbidden"));
+        }
+
+        source.Emit(new OperationsLogMessage(
+            OperationsLogLevel.Information,
+            "command",
+            "command=after-dispose"));
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(logger.Entries, Has.Count.EqualTo(1));
+            Assert.That(logger.Entries[0].Source, Is.EqualTo("command"));
+            Assert.That(logger.Entries[0].Text, Is.EqualTo("command=kick status=Forbidden"));
+        });
+    }
+
     private static PlayerSnapshot Player(int slot, string name) => new(
         new PlayerId(slot),
         name,
@@ -90,6 +117,13 @@ public sealed class GenericLoggerIntegrationTests
             Exception? exception = null,
             string? correlationId = null) =>
             Entries.Add(new Entry(level, source, text));
+    }
+
+    private sealed class RecordingSource : IOperationsLogSource
+    {
+        public event Action<OperationsLogMessage>? LogProduced;
+
+        public void Emit(OperationsLogMessage message) => LogProduced?.Invoke(message);
     }
 
     private sealed record Entry(OperationsLogLevel Level, string Source, string Text);
