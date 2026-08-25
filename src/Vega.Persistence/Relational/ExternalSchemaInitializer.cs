@@ -17,7 +17,7 @@ internal sealed class ExternalSchemaInitializer(
     string regionSchemaSql,
     string moderationSchemaSql)
 {
-    private const int CurrentVersion = 1;
+    private const int CurrentVersion = 2;
 
     public async ValueTask<int> InitializeAsync(CancellationToken cancellationToken)
     {
@@ -60,11 +60,25 @@ internal sealed class ExternalSchemaInitializer(
                 await InsertHistoryAsync(
                         connection,
                         transaction,
-                        CurrentVersion,
+                        1,
                         "vega-1.0-baseline",
                         cancellationToken)
                     .ConfigureAwait(false);
-                version = CurrentVersion;
+                version = 1;
+            }
+
+            if (version < 2)
+            {
+                await ExecuteAsync(connection, transaction, PostgreSqlMuteSubjectsV2Sql, cancellationToken)
+                    .ConfigureAwait(false);
+                await InsertHistoryAsync(
+                        connection,
+                        transaction,
+                        2,
+                        "mute-stable-identities",
+                        cancellationToken)
+                    .ConfigureAwait(false);
+                version = 2;
             }
 
             await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
@@ -93,7 +107,7 @@ internal sealed class ExternalSchemaInitializer(
             if (version == 0)
             {
                 // MySQL implicitly commits DDL. Baseline DDL is idempotent so a crash
-                // before the single history row is safely retried under the same lock.
+                // before the history row is safely retried under the same lock.
                 await ExecuteAsync(connection, null, globalBanSchemaSql, cancellationToken)
                     .ConfigureAwait(false);
                 await ExecuteAsync(connection, null, identitySchemaSql, cancellationToken)
@@ -105,11 +119,25 @@ internal sealed class ExternalSchemaInitializer(
                 await InsertHistoryAsync(
                         connection,
                         null,
-                        CurrentVersion,
+                        1,
                         "vega-1.0-baseline",
                         cancellationToken)
                     .ConfigureAwait(false);
-                version = CurrentVersion;
+                version = 1;
+            }
+
+            if (version < 2)
+            {
+                await ExecuteAsync(connection, null, MySqlMuteSubjectsV2Sql, cancellationToken)
+                    .ConfigureAwait(false);
+                await InsertHistoryAsync(
+                        connection,
+                        null,
+                        2,
+                        "mute-stable-identities",
+                        cancellationToken)
+                    .ConfigureAwait(false);
+                version = 2;
             }
 
             return version;
@@ -141,6 +169,37 @@ internal sealed class ExternalSchemaInitializer(
         );
         """;
 
+    private static string PostgreSqlMuteSubjectsV2Sql =>
+        """
+        CREATE TABLE IF NOT EXISTS vega_mute_subjects (
+            mute_id VARCHAR(36) NOT NULL REFERENCES vega_mutes(id) ON DELETE CASCADE,
+            kind SMALLINT NOT NULL CHECK (kind BETWEEN 0 AND 3),
+            value VARCHAR(512) NOT NULL,
+            PRIMARY KEY (mute_id, kind, value)
+        );
+        CREATE INDEX IF NOT EXISTS ix_vega_mute_subjects_lookup
+            ON vega_mute_subjects (kind, value);
+        INSERT INTO vega_mute_subjects (mute_id, kind, value)
+            SELECT id, subject_kind, subject_value FROM vega_mutes
+            ON CONFLICT DO NOTHING;
+        """;
+
+    private static string MySqlMuteSubjectsV2Sql =>
+        """
+        CREATE TABLE IF NOT EXISTS vega_mute_subjects (
+            mute_id VARCHAR(36) NOT NULL,
+            kind SMALLINT NOT NULL,
+            value VARCHAR(512) NOT NULL,
+            PRIMARY KEY (mute_id, kind, value),
+            INDEX ix_vega_mute_subjects_lookup (kind, value),
+            CONSTRAINT fk_vega_mute_subjects_mute FOREIGN KEY (mute_id)
+                REFERENCES vega_mutes(id) ON DELETE CASCADE,
+            CHECK (kind BETWEEN 0 AND 3)
+        );
+        INSERT IGNORE INTO vega_mute_subjects (mute_id, kind, value)
+            SELECT id, subject_kind, subject_value FROM vega_mutes;
+        """;
+
     private static async ValueTask<int> ReadVersionAsync(
         DbConnection connection,
         DbTransaction? transaction,
@@ -157,7 +216,7 @@ internal sealed class ExternalSchemaInitializer(
         DbConnection connection,
         DbTransaction? transaction,
         int version,
-        string baselineName,
+        string name,
         CancellationToken cancellationToken)
     {
         await using DbCommand command = connection.CreateCommand();
@@ -168,7 +227,7 @@ internal sealed class ExternalSchemaInitializer(
             VALUES (@version, @name, @appliedAt);
             """;
         command.AddParameter("@version", version);
-        command.AddParameter("@name", baselineName);
+        command.AddParameter("@name", name);
         command.AddParameter(
             "@appliedAt",
             DateTimeOffset.UtcNow.ToString("O", CultureInfo.InvariantCulture));
