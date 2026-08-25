@@ -99,7 +99,7 @@ internal static class PacketPipelineClassification
         PacketTypes.PlayerSpawn or
         PacketTypes.RequestSection => PacketIngressDisposition.EarlyValidated,
 
-        // Server-originated protocol. A fully connected client sending one of these is a protocol violation.
+        // Server-originated protocol. A client sending one of these is a protocol violation.
         PacketTypes.Disconnect or
         PacketTypes.ContinueConnecting or
         PacketTypes.WorldInfo or
@@ -157,6 +157,7 @@ internal static class PacketPipelineClassification
         PacketTypes.SyncItemCannotBeTakenByEnemiesDeprecated or
         PacketTypes.SyncItemDespawn or
         PacketTypes.SyncChestSize or
+        PacketTypes.DamageNPCAck or
         PacketTypes.ServerInfo => PacketIngressDisposition.ServerOnly,
 
         // Client-originating gameplay/state requests that require the semantic policy pipeline.
@@ -248,8 +249,7 @@ internal static class PacketPipelineClassification
         PacketTypes.NpcHurtByDebuff or
         PacketTypes.TELeashedEntityAnchorPlaceItem or
         PacketTypes.TeamChangeFromUI or
-        PacketTypes.SyncItemPosition or
-        PacketTypes.DamageNPCAck => PacketIngressDisposition.GameplayValidated,
+        PacketTypes.SyncItemPosition => PacketIngressDisposition.GameplayValidated,
 
         // Ping is intentionally bidirectional and carries no mutable game authority.
         PacketTypes.Ping => PacketIngressDisposition.AllowedByDesign,
