@@ -211,6 +211,16 @@ public sealed class MySqlVegaDatabase : ExternalVegaDatabase
             revoked_at_utc VARCHAR(40) NULL,
             INDEX ix_vega_mutes_active_subject (revoked, subject_kind, subject_value, expires_at_utc)
         ) ENGINE=InnoDB;
+
+        CREATE TABLE IF NOT EXISTS vega_mute_subjects (
+            mute_id CHAR(36) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+            kind SMALLINT NOT NULL CHECK (kind BETWEEN 0 AND 3),
+            value VARCHAR(512) NOT NULL,
+            PRIMARY KEY (mute_id, kind, value),
+            INDEX ix_vega_mute_subjects_lookup (kind, value),
+            CONSTRAINT fk_vega_mute_subjects_mute FOREIGN KEY (mute_id)
+                REFERENCES vega_mutes(id) ON DELETE CASCADE
+        ) ENGINE=InnoDB;
         """;
 
     private static RelationalGlobalBanSql GlobalBanSql { get; } = new(
