@@ -1,18 +1,42 @@
 using System.Text.Json;
+using System.Threading.Channels;
 using Vega.Contracts.Operations;
 
 namespace Vega.Operations.Logging;
 
-public sealed class StructuredOperationsLogger : IOperationsLogger
+public sealed class StructuredOperationsLogger : IOperationsLogger, IDisposable
 {
-    private readonly IReadOnlyList<IOperationsLogSink> sinks;
-    private long sequence;
+    private const int DefaultQueueCapacity = 4096;
 
-    public StructuredOperationsLogger(IEnumerable<IOperationsLogSink> sinks)
+    private readonly IReadOnlyList<IOperationsLogSink> sinks;
+    private readonly Channel<PendingLogRecord> queue;
+    private readonly Task worker;
+    private long sequence;
+    private long droppedRecords;
+    private int disposed;
+
+    public StructuredOperationsLogger(
+        IEnumerable<IOperationsLogSink> sinks,
+        int queueCapacity = DefaultQueueCapacity)
     {
         ArgumentNullException.ThrowIfNull(sinks);
+        if (queueCapacity <= 0)
+        {
+            throw new ArgumentOutOfRangeException(nameof(queueCapacity));
+        }
+
         this.sinks = Array.AsReadOnly(sinks.ToArray());
+        queue = Channel.CreateBounded<PendingLogRecord>(new BoundedChannelOptions(queueCapacity)
+        {
+            SingleReader = true,
+            SingleWriter = false,
+            FullMode = BoundedChannelFullMode.Wait,
+            AllowSynchronousContinuations = false
+        });
+        worker = Task.Run(DrainAsync);
     }
+
+    public long DroppedRecords => Interlocked.Read(ref droppedRecords);
 
     public void Log(
         OperationsLogLevel level,
@@ -24,15 +48,84 @@ public sealed class StructuredOperationsLogger : IOperationsLogger
         ArgumentException.ThrowIfNullOrWhiteSpace(source);
         ArgumentNullException.ThrowIfNull(text);
 
-        var record = new OperationsLogRecord(
-            Interlocked.Increment(ref sequence),
+        if (Volatile.Read(ref disposed) != 0)
+        {
+            return;
+        }
+
+        var pending = new PendingLogRecord(
             DateTimeOffset.UtcNow,
             level,
             source,
             text,
-            exception?.ToString(),
+            exception,
             correlationId);
 
+        if (!queue.Writer.TryWrite(pending) && Volatile.Read(ref disposed) == 0)
+        {
+            Interlocked.Increment(ref droppedRecords);
+        }
+    }
+
+    public void Dispose()
+    {
+        if (Interlocked.Exchange(ref disposed, 1) != 0)
+        {
+            return;
+        }
+
+        queue.Writer.TryComplete();
+        try
+        {
+            worker.GetAwaiter().GetResult();
+        }
+        catch
+        {
+            // Logging shutdown must never prevent the server from terminating.
+        }
+    }
+
+    private async Task DrainAsync()
+    {
+        while (await queue.Reader.WaitToReadAsync().ConfigureAwait(false))
+        {
+            while (queue.Reader.TryRead(out PendingLogRecord pending))
+            {
+                EmitDroppedSummary();
+                Emit(CreateRecord(pending));
+            }
+        }
+
+        EmitDroppedSummary();
+    }
+
+    private OperationsLogRecord CreateRecord(PendingLogRecord pending) => new(
+        Interlocked.Increment(ref sequence),
+        pending.Timestamp,
+        pending.Level,
+        pending.Source,
+        pending.Text,
+        pending.Exception?.ToString(),
+        pending.CorrelationId);
+
+    private void EmitDroppedSummary()
+    {
+        long dropped = Interlocked.Exchange(ref droppedRecords, 0);
+        if (dropped <= 0)
+        {
+            return;
+        }
+
+        Emit(new OperationsLogRecord(
+            Interlocked.Increment(ref sequence),
+            DateTimeOffset.UtcNow,
+            OperationsLogLevel.Warning,
+            "logging",
+            $"Dropped {dropped} log record(s) because the bounded logging queue was full."));
+    }
+
+    private void Emit(OperationsLogRecord record)
+    {
         foreach (IOperationsLogSink sink in sinks)
         {
             try
@@ -45,6 +138,14 @@ public sealed class StructuredOperationsLogger : IOperationsLogger
             }
         }
     }
+
+    private sealed record PendingLogRecord(
+        DateTimeOffset Timestamp,
+        OperationsLogLevel Level,
+        string Source,
+        string Text,
+        Exception? Exception,
+        string? CorrelationId);
 }
 
 public sealed class ConsoleOperationsLogSink : IOperationsLogSink
