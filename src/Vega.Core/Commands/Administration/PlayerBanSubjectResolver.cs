@@ -1,6 +1,6 @@
 using System.Net;
 using Vega.Contracts.Accounts;
-using Vega.Contracts.Bans;
+using Vega.Contracts.Cluster.Events;
 using Vega.Contracts.Players;
 
 namespace Vega.Core.Commands.Administration;
