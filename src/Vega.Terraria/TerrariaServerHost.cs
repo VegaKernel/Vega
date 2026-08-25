@@ -121,6 +121,18 @@ public static class TerrariaServerHost
         using var playerLifecycleCommands = TerrariaPlayerLifecycleCommandRegistration.Register(
             commandDispatcher,
             playerBoundary);
+        using var gameplayUtilityCommands = TerrariaGameplayUtilityCommandRegistration.Register(
+            commandDispatcher,
+            runtimeWorldId,
+            gameThreadDispatcher,
+            playerBoundary,
+            playerBoundary);
+        using var privateMessageCommands = TerrariaPrivateMessageCommandRegistration.Register(
+            commandDispatcher,
+            playerBoundary,
+            playerBoundary,
+            playerBoundary,
+            mutes);
         using var consoleCommandHooks = new NativeConsoleCommandHooks(
             commandDispatcher,
             localization,
@@ -310,5 +322,4 @@ public static class TerrariaServerHost
         TileID.Sets.Hallow[TileID.Pearlsand] = true;
         TileID.Sets.Hallow[TileID.Pearlstone] = true;
     }
-
 }
