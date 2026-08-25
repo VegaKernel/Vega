@@ -104,6 +104,16 @@ public static class TerrariaServerHost
         lifecycle.Advance(RuntimeLifecycleStage.Bootstrap);
 
         AppDomain.CurrentDomain.UnhandledException += ReportUnhandled;
+        IOperationsLogSource[] logSources =
+        [
+            .. commandDispatcher is IOperationsLogSource commandLogSource
+                ? [commandLogSource]
+                : Array.Empty<IOperationsLogSource>(),
+            .. chat is IOperationsLogSource chatLogSource
+                ? [chatLogSource]
+                : Array.Empty<IOperationsLogSource>()
+        ];
+        using var operationsLogForwarder = new OperationsLogSourceForwarder(logger, logSources);
         using var nativeLifecycleHooks = new NativeLifecycleHooks(lifecycle);
         using var networkMetricsHooks = new NativeNetworkMetricsHooks(networkMetrics);
         using var worldDecisionHooks = new NativeWorldDecisionHooks(hardmodeStarting);
