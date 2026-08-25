@@ -1,15 +1,23 @@
+using Vega.Contracts.Players;
+
 namespace Vega.Contracts.Worlds;
 
 public readonly record struct WorldItemCleanupHandle(int Slot, int SpawnAgeTicks);
 
 public readonly record struct WorldProjectileCleanupHandle(int Slot, int Key);
 
-public sealed record WorldItemCleanupSnapshot(WorldItemCleanupHandle Handle);
+public sealed record WorldItemCleanupSnapshot(WorldItemCleanupHandle Handle)
+{
+    public PlayerPosition Position { get; init; }
+}
 
 public sealed record WorldProjectileCleanupSnapshot(
     WorldProjectileCleanupHandle Handle,
     bool IsMinion,
-    bool IsSentry);
+    bool IsSentry)
+{
+    public PlayerPosition Position { get; init; }
+}
 
 public sealed record WorldEntityCleanupSnapshot(
     WorldId WorldId,
