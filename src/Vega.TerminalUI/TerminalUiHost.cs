@@ -165,6 +165,7 @@ public sealed class TerminalUiHost : IDisposable
             };
             var results = new ConcurrentQueue<string>();
             dashboard = new OperationsDashboardView(desktop, layout);
+            TerminalUiFixedLayout.Apply(desktop);
             var terminalSizeWarning = new Label
             {
                 Text = "Terminal too small for dashboard. Resize to at least 72x22.",
@@ -240,6 +241,7 @@ public sealed class TerminalUiHost : IDisposable
                 Text = "Ready. F1 shows keyboard help."
             };
             bool dashboardVisible = false;
+            OperationsSnapshot? latestSnapshot = null;
 
             void FocusCommandPalette()
             {
@@ -254,6 +256,14 @@ public sealed class TerminalUiHost : IDisposable
                 if (dashboardVisible)
                 {
                     dashboard.FocusWindow(TerminalUiLayoutOptions.Logs);
+                }
+            }
+
+            void ShowAdministration()
+            {
+                if (dashboardVisible && latestSnapshot is not null)
+                {
+                    AdministrationBrowser.Show(app, latestSnapshot.Administration);
                 }
             }
 
@@ -308,7 +318,7 @@ public sealed class TerminalUiHost : IDisposable
                 MessageBox.Query(
                     app,
                     "Vega keyboard",
-                    "F1 Help\nF2 Focus logs\nF3 Log filter\nF5 Follow / pause logs\nCtrl+P Command palette\nTab Accept command suggestion / move focus\nCtrl+F5 Arrange focused window\nDouble-click title Maximize / restore\nRight-click Players / Modules Actions\nF10 Main menu\n\nLogs pause never freezes TPS, players, network or graphs.",
+                    "F1 Help\nF2 Focus logs\nF3 Log filter\nF4 Administration search\nF5 Follow / pause logs\nCtrl+P Command palette\nTab Accept command suggestion / move focus\nDrag panel borders Resize adjacent panels\nDouble-click title Maximize / restore\nRight-click Players / Modules Actions\nF10 Main menu\n\nDashboard panels are tiled: they resize but do not move or overlap. Logs pause never freezes TPS, players, network or graphs.",
                     "OK");
             }
 
@@ -338,6 +348,7 @@ public sealed class TerminalUiHost : IDisposable
             var menuBar = CreateMenuBar(
                 dashboard,
                 FocusCommandPalette,
+                ShowAdministration,
                 SaveLayout,
                 ResetLayout,
                 ShowHelp,
@@ -356,6 +367,7 @@ public sealed class TerminalUiHost : IDisposable
                 CreateShortcut("Help", Key.F1, ShowHelp),
                 CreateShortcut("Logs", Key.F2, FocusLogs),
                 CreateShortcut("Filter", Key.F3, ShowLogFilter),
+                CreateShortcut("Admin", Key.F4, ShowAdministration),
                 CreateShortcut("Follow", Key.F5, ToggleFollowing),
                 CreateShortcut("Command", Key.P.WithCtrl, FocusCommandPalette),
                 statusInfo
@@ -368,7 +380,6 @@ public sealed class TerminalUiHost : IDisposable
             window.Add(menuBar, startup, desktop, terminalSizeWarning, commandBar, statusBar);
             DateTimeOffset lastRefreshFailureLoggedAt = DateTimeOffset.MinValue;
             Task<OperationsSnapshot>? snapshotCapture = Task.Run(viewModel.Capture);
-            OperationsSnapshot? latestSnapshot = null;
             app.AddTimeout(TimeSpan.FromMilliseconds(layout.RefreshIntervalMilliseconds), () =>
             {
                 if (shutdown.IsCancellationRequested)
@@ -573,13 +584,15 @@ public sealed class TerminalUiHost : IDisposable
     private static MenuBar CreateMenuBar(
         OperationsDashboardView dashboard,
         Action focusCommandPalette,
+        Action showAdministration,
         Action saveLayout,
         Action resetLayout,
         Action showHelp,
         Action showAbout) =>
         new([
             new MenuBarItem("_Server", [
-                new MenuItem("_Command palette", action: focusCommandPalette)
+                new MenuItem("_Command palette", action: focusCommandPalette),
+                new MenuItem("_Administration", action: showAdministration)
             ]),
             new MenuBarItem("_View", [
                 new MenuItem("_Overview", action: () => { dashboard.ToggleWindowVisibility(TerminalUiLayoutOptions.Overview); }),
