@@ -86,10 +86,10 @@ internal sealed class ClearCommand(
             int skipped = 0;
             foreach (NpcSnapshot npc in selected)
             {
-                NpcOperationResult result = await npcs
+                NpcOperationResult npcResult = await npcs
                     .DespawnAsync(new NpcDespawnRequest(npc.Handle, invocation.Principal.Name), cancellationToken)
                     .ConfigureAwait(false);
-                if (result.IsSuccess) removed++;
+                if (npcResult.IsSuccess) removed++;
                 else skipped++;
             }
 
