@@ -246,7 +246,7 @@ public sealed class TerrariaAdministrationCommandTests
         }
     }
 
-    private sealed class RecordingPlayerOperations : IPlayerOperations
+    private sealed class RecordingPlayerOperations : IPlayerLifecycleOperations
     {
         public PlayerId? TeleportedPlayer { get; private set; }
         public PlayerPosition? TeleportDestination { get; private set; }
