@@ -100,6 +100,19 @@ public sealed class PostgreSqlVegaDatabase : ExternalVegaDatabase
             revision BIGINT NOT NULL CHECK (revision > 0)
         );
 
+        CREATE TABLE vega_account_identity_evidence (
+            account_id INTEGER NOT NULL REFERENCES vega_accounts(id) ON DELETE CASCADE,
+            kind SMALLINT NOT NULL CHECK (kind BETWEEN 0 AND 1),
+            value VARCHAR(512) NOT NULL,
+            first_seen_utc VARCHAR(40) NOT NULL,
+            last_seen_utc VARCHAR(40) NOT NULL,
+            observation_count BIGINT NOT NULL CHECK (observation_count > 0),
+            PRIMARY KEY (account_id, kind, value)
+        );
+
+        CREATE INDEX ix_account_identity_evidence_lookup
+            ON vega_account_identity_evidence (kind, value, last_seen_utc);
+
         CREATE TABLE vega_role_leases (
             id VARCHAR(36) NOT NULL PRIMARY KEY,
             account_id INTEGER NOT NULL REFERENCES vega_accounts(id) ON DELETE CASCADE,
