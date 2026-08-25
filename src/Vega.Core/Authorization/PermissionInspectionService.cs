@@ -62,20 +62,33 @@ public sealed class PermissionInspectionService(
     {
         IReadOnlyList<GroupSnapshot> snapshot = authorization.SnapshotGroups();
         var groups = snapshot.ToDictionary(static group => group.Name, StringComparer.OrdinalIgnoreCase);
-        var children = snapshot
-            .GroupBy(static group => group.ParentName, StringComparer.OrdinalIgnoreCase)
-            .ToDictionary(
-                static group => group.Key,
-                static group => group.OrderBy(static item => item.Name, StringComparer.OrdinalIgnoreCase).ToArray(),
-                StringComparer.OrdinalIgnoreCase);
+        var children = new Dictionary<string, List<GroupSnapshot>>(StringComparer.OrdinalIgnoreCase);
+        var roots = new List<GroupSnapshot>();
+        foreach (GroupSnapshot group in snapshot)
+        {
+            if (group.ParentName is null || !groups.ContainsKey(group.ParentName))
+            {
+                roots.Add(group);
+                continue;
+            }
+
+            if (!children.TryGetValue(group.ParentName, out List<GroupSnapshot>? nested))
+            {
+                nested = [];
+                children.Add(group.ParentName, nested);
+            }
+
+            nested.Add(group);
+        }
+
+        roots.Sort(static (left, right) => StringComparer.OrdinalIgnoreCase.Compare(left.Name, right.Name));
+        foreach (List<GroupSnapshot> nested in children.Values)
+        {
+            nested.Sort(static (left, right) => StringComparer.OrdinalIgnoreCase.Compare(left.Name, right.Name));
+        }
+
         var lines = new List<string>();
         var visited = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-
-        GroupSnapshot[] roots = snapshot
-            .Where(group => group.ParentName is null || !groups.ContainsKey(group.ParentName))
-            .OrderBy(static group => group.Name, StringComparer.OrdinalIgnoreCase)
-            .ToArray();
-
         foreach (GroupSnapshot root in roots)
         {
             AppendTree(root, 0, children, visited, lines);
@@ -193,7 +206,7 @@ public sealed class PermissionInspectionService(
     private static void AppendTree(
         GroupSnapshot group,
         int depth,
-        IReadOnlyDictionary<string?, GroupSnapshot[]> children,
+        IReadOnlyDictionary<string, List<GroupSnapshot>> children,
         ISet<string> visited,
         ICollection<string> lines)
     {
@@ -206,7 +219,7 @@ public sealed class PermissionInspectionService(
         lines.Add(
             $"{new string(' ', depth * 2)}- {group.Name} " +
             $"[grants:{group.Permissions.Count}, denies:{group.DeniedPermissions.Count}]");
-        if (!children.TryGetValue(group.Name, out GroupSnapshot[]? nested))
+        if (!children.TryGetValue(group.Name, out List<GroupSnapshot>? nested))
         {
             return;
         }
