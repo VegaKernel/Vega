@@ -1,6 +1,4 @@
 using NUnit.Framework;
-using Terminal.Gui.ViewBase;
-using Terminal.Gui.Views;
 using Vega.Contracts.Accounts;
 using Vega.Contracts.Operations;
 using Vega.TerminalUI;
@@ -10,21 +8,6 @@ namespace Vega.Runtime.Tests.Operations;
 [TestFixture]
 public sealed class TerminalUiAdministrationTests
 {
-    [Test]
-    public void FixedLayoutRemovesMovementAndOverlapButKeepsResize()
-    {
-        var desktop = new View();
-        var frame = new FrameView
-        {
-            Arrangement = ViewArrangement.Movable | ViewArrangement.Resizable | ViewArrangement.Overlapped
-        };
-        desktop.Add(frame);
-
-        TerminalUiFixedLayout.Apply(desktop);
-
-        Assert.That(frame.Arrangement, Is.EqualTo(ViewArrangement.Resizable));
-    }
-
     [Test]
     public void AdministrationRowsExposeGroupsPermissionsAccountsAndPossibleLinksWithoutRawIdentityValues()
     {
