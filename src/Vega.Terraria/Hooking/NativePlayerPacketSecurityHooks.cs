@@ -281,6 +281,7 @@ internal sealed class NativePlayerPacketSecurityHooks : IDisposable
 
     internal static bool ShouldApplySecurity(TerrariaConnectionState connectionState, byte packetId) =>
         connectionState >= TerrariaConnectionState.FullyConnected &&
+        PacketPipelineClassification.Get(packetId).SecurityProcessed &&
         PacketPipelineClassification.Get(packetId).Ingress == PacketIngressDisposition.GameplayValidated;
 
     internal static bool ShouldTerminateConnection(

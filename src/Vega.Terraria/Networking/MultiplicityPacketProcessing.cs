@@ -7,7 +7,9 @@ namespace Vega.Terraria.Networking;
 
 /// <summary>
 /// Adapts an exact Terraria packet payload into a Multiplicity view before entering Vega packet policy.
-/// Raw buffer parsing remains inside the Terraria/protocol boundary.
+/// Raw buffer parsing remains inside the Terraria/protocol boundary. Security ingress intentionally uses
+/// exact <see cref="PacketViewParser.TryParsePayload(byte, ReadOnlySpan{byte}, out PacketView)"/> semantics;
+/// <c>PacketViewParser.TryParsePayloadBounded</c> is reserved for APIs that expose an upper-bound window.
 /// </summary>
 public static class MultiplicityPacketProcessing
 {
@@ -31,33 +33,7 @@ public static class MultiplicityPacketProcessing
         }
 
         ReadOnlySpan<byte> payload = new(buffer, offset, payloadLength);
-        PacketView packet;
-        PacketTypes packetType = (PacketTypes)rawPacketId;
-        if (TryGetProtocol325CompatibilityLength(packetType, out int expectedLength))
-        {
-            if (payload.Length != expectedLength)
-            {
-                return PacketProcessingDecision.Reject("packet.invalid_payload");
-            }
-
-            // Multiplicity 2.6.2 still carries the pre-1.4.5.7 layouts for these packets.
-            // Keep the exception narrow and exact. Remove it after Vega consumes the audited package.
-            packet = PacketView.FromPayload(rawPacketId, payload);
-        }
-        else if (packetType == PacketTypes.PlayerBuff)
-        {
-            int buffBytes = payload.Length - 1;
-            if (payload.Length < 3 || (buffBytes & 1) != 0 ||
-                buffBytes / sizeof(ushort) > global::Terraria.Player.maxBuffs)
-            {
-                return PacketProcessingDecision.Reject("packet.invalid_payload");
-            }
-
-            // Protocol 325 uses UInt16 buff ids. 2.6.2 still materializes 22 bytes, so preserve the
-            // exact bounded payload and let Vega's policy parse the UInt16 list directly.
-            packet = PacketView.FromPayload(rawPacketId, payload);
-        }
-        else if (!PacketViewParser.TryParsePayloadBounded(rawPacketId, payload, out packet))
+        if (!PacketViewParser.TryParsePayload(rawPacketId, payload, out PacketView packet))
         {
             return PacketProcessingDecision.Reject("packet.invalid_payload");
         }
@@ -71,18 +47,5 @@ public static class MultiplicityPacketProcessing
             cancellationToken);
 
         return processor.Process(in context);
-    }
-
-    private static bool TryGetProtocol325CompatibilityLength(PacketTypes packetType, out int payloadLength)
-    {
-        payloadLength = packetType switch
-        {
-            PacketTypes.PlayerSpawn => 15,
-            PacketTypes.TileGetSection => 9,
-            PacketTypes.NpcAddBuff => 6,
-            PacketTypes.PlayerAddBuff => 7,
-            _ => 0
-        };
-        return payloadLength != 0;
     }
 }
