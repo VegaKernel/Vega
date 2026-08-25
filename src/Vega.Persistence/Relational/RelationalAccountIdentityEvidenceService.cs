@@ -1,4 +1,5 @@
 using System.Data.Common;
+using System.Diagnostics;
 using System.Globalization;
 using System.Net;
 using Vega.Contracts.Accounts;
@@ -10,11 +11,25 @@ internal sealed class RelationalAccountIdentityEvidenceService(
     Func<CancellationToken, ValueTask<DbConnection>> openAsync,
     Action ensureReady) : IAccountIdentityEvidenceService
 {
+    private static readonly TimeSpan ReadCacheLifetime = TimeSpan.FromSeconds(5);
     private readonly SemaphoreSlim mutations = new(1, 1);
+    private readonly object cacheSync = new();
+    private AccountIdentityEvidenceSnapshot[]? cachedEvidence;
+    private long cachedAtTimestamp;
 
     public IReadOnlyList<AccountIdentityEvidenceSnapshot> SnapshotEvidence()
     {
         ensureReady();
+        long now = Stopwatch.GetTimestamp();
+        lock (cacheSync)
+        {
+            if (cachedEvidence is not null &&
+                Stopwatch.GetElapsedTime(cachedAtTimestamp, now) < ReadCacheLifetime)
+            {
+                return Array.AsReadOnly(cachedEvidence);
+            }
+        }
+
         using DbConnection connection = open();
         using DbCommand command = connection.CreateCommand();
         command.CommandText =
@@ -32,7 +47,14 @@ internal sealed class RelationalAccountIdentityEvidenceService(
             evidence.Add(ReadEvidence(reader));
         }
 
-        return evidence.AsReadOnly();
+        AccountIdentityEvidenceSnapshot[] snapshot = evidence.ToArray();
+        lock (cacheSync)
+        {
+            cachedEvidence = snapshot;
+            cachedAtTimestamp = Stopwatch.GetTimestamp();
+        }
+
+        return Array.AsReadOnly(snapshot);
     }
 
     public IReadOnlyList<PossibleAccountLinkSnapshot> FindPossibleAccounts(AccountId accountId)
@@ -131,6 +153,7 @@ internal sealed class RelationalAccountIdentityEvidenceService(
                 }
 
                 await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
+                InvalidateReadCache();
             }
             catch
             {
@@ -141,6 +164,15 @@ internal sealed class RelationalAccountIdentityEvidenceService(
         finally
         {
             mutations.Release();
+        }
+    }
+
+    private void InvalidateReadCache()
+    {
+        lock (cacheSync)
+        {
+            cachedEvidence = null;
+            cachedAtTimestamp = 0;
         }
     }
 
