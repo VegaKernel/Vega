@@ -52,6 +52,87 @@ public sealed class TerrariaAdministrationCommandTests
     }
 
     [Test]
+    public async Task HealDelegatesResolvedTargetAndRequestedAmount()
+    {
+        PlayerSnapshot target = Player(3, "Alice", 100, 200);
+        var players = new RecordingPlayers(target);
+        var operations = new RecordingPlayerOperations();
+        var command = new HealCommand(players, operations);
+
+        CommandExecutionResult result = await command.ExecuteAsync(
+            Invocation("heal", ["Alice", "25"]),
+            CancellationToken.None);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(result.Status, Is.EqualTo(CommandExecutionStatus.Success));
+            Assert.That(operations.HealedPlayer, Is.EqualTo(target.Id));
+            Assert.That(operations.HealAmount, Is.EqualTo(25));
+        });
+    }
+
+    [Test]
+    public async Task BuffConvertsSecondsToTerrariaTicks()
+    {
+        PlayerSnapshot target = Player(3, "Alice", 100, 200);
+        var players = new RecordingPlayers(target);
+        var operations = new RecordingPlayerOperations();
+        var command = new BuffCommand(players, operations);
+
+        CommandExecutionResult result = await command.ExecuteAsync(
+            Invocation("buff", ["7", "30", "Alice"]),
+            CancellationToken.None);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(result.Status, Is.EqualTo(CommandExecutionStatus.Success));
+            Assert.That(operations.BuffedPlayer, Is.EqualTo(target.Id));
+            Assert.That(operations.BuffType, Is.EqualTo(7));
+            Assert.That(operations.BuffDurationTicks, Is.EqualTo(1800));
+        });
+    }
+
+    [Test]
+    public async Task KillUsesResolvedTargetAndAuditableReason()
+    {
+        PlayerSnapshot target = Player(3, "Alice", 100, 200);
+        var players = new RecordingPlayers(target);
+        var operations = new RecordingPlayerOperations();
+        var command = new KillCommand(players, operations);
+
+        CommandExecutionResult result = await command.ExecuteAsync(
+            Invocation("kill", ["Alice"]),
+            CancellationToken.None);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(result.Status, Is.EqualTo(CommandExecutionStatus.Success));
+            Assert.That(operations.KilledPlayer, Is.EqualTo(target.Id));
+            Assert.That(operations.KillReason, Does.Contain("Alice"));
+            Assert.That(operations.KillReason, Does.Contain("server"));
+        });
+    }
+
+    [Test]
+    public async Task RespawnDelegatesResolvedTarget()
+    {
+        PlayerSnapshot target = Player(3, "Alice", 100, 200);
+        var players = new RecordingPlayers(target);
+        var operations = new RecordingPlayerOperations();
+        var command = new RespawnCommand(players, operations);
+
+        CommandExecutionResult result = await command.ExecuteAsync(
+            Invocation("respawn", ["Alice"]),
+            CancellationToken.None);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(result.Status, Is.EqualTo(CommandExecutionStatus.Success));
+            Assert.That(operations.RespawnedPlayer, Is.EqualTo(target.Id));
+        });
+    }
+
+    [Test]
     public async Task ButcherDefaultsToHostileNonTownNpcsOnly()
     {
         NpcSnapshot hostile = Npc(1, "Zombie", friendly: false, town: false, boss: false);
@@ -169,6 +250,14 @@ public sealed class TerrariaAdministrationCommandTests
     {
         public PlayerId? TeleportedPlayer { get; private set; }
         public PlayerPosition? TeleportDestination { get; private set; }
+        public PlayerId? HealedPlayer { get; private set; }
+        public int? HealAmount { get; private set; }
+        public PlayerId? KilledPlayer { get; private set; }
+        public string? KillReason { get; private set; }
+        public PlayerId? BuffedPlayer { get; private set; }
+        public int? BuffType { get; private set; }
+        public int? BuffDurationTicks { get; private set; }
+        public PlayerId? RespawnedPlayer { get; private set; }
 
         public ValueTask<PlayerOperationResult> KickAsync(
             PlayerId playerId,
@@ -183,6 +272,46 @@ public sealed class TerrariaAdministrationCommandTests
         {
             TeleportedPlayer = playerId;
             TeleportDestination = destination;
+            return ValueTask.FromResult(PlayerOperationResult.Applied());
+        }
+
+        public ValueTask<PlayerOperationResult> HealAsync(
+            PlayerId playerId,
+            int? amount = null,
+            CancellationToken cancellationToken = default)
+        {
+            HealedPlayer = playerId;
+            HealAmount = amount;
+            return ValueTask.FromResult(PlayerOperationResult.Applied());
+        }
+
+        public ValueTask<PlayerOperationResult> KillAsync(
+            PlayerId playerId,
+            string reason,
+            CancellationToken cancellationToken = default)
+        {
+            KilledPlayer = playerId;
+            KillReason = reason;
+            return ValueTask.FromResult(PlayerOperationResult.Applied());
+        }
+
+        public ValueTask<PlayerOperationResult> ApplyBuffAsync(
+            PlayerId playerId,
+            int buffType,
+            int durationTicks,
+            CancellationToken cancellationToken = default)
+        {
+            BuffedPlayer = playerId;
+            BuffType = buffType;
+            BuffDurationTicks = durationTicks;
+            return ValueTask.FromResult(PlayerOperationResult.Applied());
+        }
+
+        public ValueTask<PlayerOperationResult> RespawnAsync(
+            PlayerId playerId,
+            CancellationToken cancellationToken = default)
+        {
+            RespawnedPlayer = playerId;
             return ValueTask.FromResult(PlayerOperationResult.Applied());
         }
     }
