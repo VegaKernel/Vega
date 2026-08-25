@@ -147,7 +147,7 @@ public sealed class PlayerActionSanityPolicy(
 
     private PacketProcessingDecision ValidatePlayerAddBuff(ReadOnlySpan<byte> payload)
     {
-        // Multiplicity 2.6.2 models Buff as byte. Terraria protocol 325 uses UInt16.
+        // Protocol 325 encodes the target as UInt8, the buff id as UInt16 and the duration as Int32.
         if (payload.Length != 7)
         {
             return PacketProcessingDecision.Reject("packet.player_buff_add.malformed");
@@ -193,9 +193,7 @@ public sealed class PlayerActionSanityPolicy(
             return PacketProcessingDecision.Violation("packet.golf.cup_out_of_world");
         }
 
-        // Protocol 325 fields after cup X/Y are hit count and projectile type. Multiplicity 2.6.2
-        // still exposes the historical ShotX/ShotY names, so validate the final field as projectile type.
-        return value.ShotY >= projectileTypeCount
+        return value.ProjectileType >= projectileTypeCount
             ? PacketProcessingDecision.Violation("packet.golf.projectile_type_out_of_range")
             : PacketProcessingDecision.Allow;
     }
