@@ -21,7 +21,9 @@ The API is disabled by default. Configuration lives in `config/debug-api.json`:
 
 A plugin receives the API through `IVegaPluginContext.Debug`. When the API is disabled or the plugin name is not present in `allowedPlugins`, `Capabilities` is `None` and DEBUG operations reject access.
 
-## Capabilities
+Ordinary plugin features such as `Configuration` and `Sandboxes` are not DEBUG-only. See [plugin-sdk.md](plugin-sdk.md).
+
+## Runtime and object inspection
 
 The read-only baseline exposes:
 
@@ -31,16 +33,56 @@ The read-only baseline exposes:
 - named live roots registered by Vega;
 - bounded public field/property inspection.
 
-The plugin host currently registers the command registry, player services, player lifecycle, game-thread dispatcher and the plugin scope itself when those services are available.
+The plugin host registers command/player/game-thread/plugin-scope roots available at the plugin boundary. Registered plugin configuration is exposed through a dedicated typed diagnostics registry rather than arbitrary filesystem access.
 
-Additional capabilities are independent switches:
+Additional unsafe capabilities are independent switches:
 
 - `allowNonPublicMembers` permits inspection and path traversal through non-public members;
 - `allowMethodInvoke` permits reflection invocation on a registered root or an object reachable from it;
-- `allowStateMutation` permits assigning fields and properties through JSON-bound values;
+- `allowStateMutation` permits assigning fields and properties through JSON-bound values and modifying registered plugin configurations;
 - `allowGarbageCollection` permits forced GC for unload/leak diagnostics.
 
-These switches are intentionally independent. Enabling the DEBUG API does not implicitly enable mutation or invocation.
+These switches are intentionally independent. Enabling the DEBUG API does not implicitly enable reflection mutation or invocation.
+
+## Bounded network trace
+
+A trusted DEBUG client can start a temporary trace with `StartNetworkTrace`.
+
+```csharp
+plugin.Debug.StartNetworkTrace(new VegaDebugNetworkTraceOptions(
+    DurationSeconds: 15,
+    MaxEvents: 5000,
+    Slot: 7,
+    PacketIds: [17, 20]));
+```
+
+The trace can collect:
+
+- inbound packet id, size, player slot and timestamp;
+- outbound byte counts;
+- execution time for every processor in the Vega packet policy pipeline;
+- processor call count, total/average/max duration and non-allow decisions.
+
+Tracing subscribes to `DiagnosticSource` only while the bounded session is active. It automatically stops after the configured duration, which is clamped to five minutes, and packet storage is bounded. Events beyond the configured capacity are counted as dropped rather than growing memory without limit.
+
+When no trace is active, packet diagnostics only perform an `IsEnabled` check and do not allocate diagnostic payloads or start timers.
+
+Outbound instrumentation currently records byte counts but does not infer packet ids when the native send hook does not expose them. Processor timing is aggregated by processor and packet-view type; it is not a full CLR sampling profiler or a per-packet flame graph.
+
+## Managed plugin configuration diagnostics
+
+Every ordinary plugin can create its own typed configuration with `plugin.Configuration.Use<T>`. DEBUG tooling can inspect registered configurations across plugins:
+
+```csharp
+IReadOnlyList<VegaDebugPluginConfigurationSnapshot> configs =
+    plugin.Debug.SnapshotPluginConfigurations();
+```
+
+A DEBUG client can read, JSON merge-patch, replace or reload a registered configuration. Mutating operations require `allowStateMutation=true`.
+
+Configuration changes do not bypass plugin policy: Vega deserializes the candidate JSON into the owning plugin's actual `TConfig`, executes that plugin's validator and only then performs the same atomic save used by the plugin itself. Invalid candidates are rejected without replacing the file.
+
+The diagnostics registration is owned by the plugin scope and is removed during unload, so the registry does not intentionally retain a collectible plugin load context.
 
 ## Plugin example
 
