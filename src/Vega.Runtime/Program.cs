@@ -533,6 +533,11 @@ int Start()
             new AccountCommand(database.Accounts, database.Authorization, database.RoleLeases));
         using IDisposable groupCommandRegistration = commandDispatcher.Register(
             new GroupCommand(database.Authorization));
+        using IDisposable permissionInspectionCommandRegistration = PermissionInspectionCommandRegistration.Register(
+            commandDispatcher,
+            commandDispatcher,
+            database.Authorization,
+            database.Accounts);
         using IDisposable regionCommandRegistration = commandDispatcher.Register(
             new RegionCommand(database.Regions));
         using var banEnforcer = new PersistentBanEnforcer(
