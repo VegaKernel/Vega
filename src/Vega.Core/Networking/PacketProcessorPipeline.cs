@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using Vega.Contracts.Diagnostics;
 using Vega.Contracts.Networking;
 
 namespace Vega.Core.Networking;
@@ -24,17 +25,15 @@ public sealed class PacketProcessorPipeline<TPacket> : IPacketProcessor<TPacket>
 			PacketProcessingDecision decision = processor.Process(in context);
 			if (diagnose)
 			{
-				Diagnostics.Write("ProcessorCompleted", new
-				{
-					Processor = processor.GetType().FullName ?? processor.GetType().Name,
-					PacketType = typeof(TPacket).FullName ?? typeof(TPacket).Name,
-					Direction = context.Direction.ToString(),
-					Connection = context.ConnectionId.ToString(),
-					Player = context.PlayerId?.ToString(),
-					ElapsedMicroseconds = Stopwatch.GetElapsedTime(startedAt).TotalMicroseconds,
-					Decision = decision.Kind.ToString(),
-					decision.Reason
-				});
+				Diagnostics.Write("ProcessorCompleted", new PacketProcessorDiagnosticEvent(
+					processor.GetType().FullName ?? processor.GetType().Name,
+					typeof(TPacket).FullName ?? typeof(TPacket).Name,
+					context.Direction.ToString(),
+					context.ConnectionId.ToString(),
+					context.PlayerId?.ToString(),
+					Stopwatch.GetElapsedTime(startedAt).TotalMicroseconds,
+					decision.Kind.ToString(),
+					decision.Reason));
 			}
 
 			if (decision.Kind != PacketDecisionKind.Allow)
