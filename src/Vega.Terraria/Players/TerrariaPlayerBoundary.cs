@@ -282,8 +282,7 @@ public sealed class TerrariaPlayerBoundary :
 					return PlayerOperationResult.Failed("player.kill.already_dead");
 				}
 
-				var deathReason = global::Terraria.DataStructures.PlayerDeathReason.ByCustomReason(
-					NetworkText.FromLiteral(reason));
+				var deathReason = global::Terraria.DataStructures.PlayerDeathReason.ByCustomReason(reason);
 				double damage = Math.Max(1d, Math.Max(player.statLife, player.statLifeMax2) + 1d);
 				player.KillMe(deathReason, damage, 0, pvp: false);
 				return PlayerOperationResult.Applied();
@@ -322,7 +321,7 @@ public sealed class TerrariaPlayerBoundary :
 					return PlayerOperationResult.Failed("player.buff.dead");
 				}
 
-				player.AddBuff(buffType, durationTicks, quiet: false);
+				player.AddBuff(buffType, durationTicks, false);
 				global::Terraria.NetMessage.SendData(
 					MessageID.PlayerBuffs,
 					-1,
