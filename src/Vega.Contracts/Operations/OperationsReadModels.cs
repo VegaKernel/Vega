@@ -8,6 +8,8 @@ using Vega.Contracts.Worlds;
 using Vega.Contracts.Scenes;
 using Vega.Contracts.Sandboxes;
 using Vega.Contracts.Backups;
+using Vega.Contracts.Accounts;
+using Vega.Contracts.Authorization;
 
 namespace Vega.Contracts.Operations;
 
@@ -56,7 +58,6 @@ public interface IModuleDirectoryStatusReader
 {
     ModuleDirectoryStatusSnapshot Read();
 }
-
 
 public enum WorldCleanupRunState
 {
@@ -192,6 +193,40 @@ public sealed record ServerDashboardSnapshot(
     public TickRateStatisticsSnapshot TickRate { get; init; } = TickRateStatisticsSnapshot.Empty;
 }
 
+public sealed record PermissionGroupOperationsSnapshot(
+    string Name,
+    string? ParentName,
+    IReadOnlyList<string> GrantedPermissions,
+    IReadOnlyList<string> DeniedPermissions,
+    int AccountCount,
+    long Revision);
+
+public sealed record PossibleAccountOperationsSnapshot(
+    string AccountName,
+    int SharedSignals,
+    bool SharedClientUuid,
+    bool SharedIpAddress,
+    DateTimeOffset LastMatchedAt);
+
+public sealed record AccountOperationsSnapshot(
+    AccountId Id,
+    string Name,
+    string GroupName,
+    DateTimeOffset? LastSeenUtc,
+    string? Culture,
+    IReadOnlyList<PossibleAccountOperationsSnapshot> PossibleAccounts);
+
+public sealed record AdministrationOperationsSnapshot(
+    IReadOnlyList<PermissionGroupOperationsSnapshot> Groups,
+    IReadOnlyList<AccountOperationsSnapshot> Accounts,
+    DateTimeOffset SampledAt)
+{
+    public static AdministrationOperationsSnapshot Empty { get; } = new(
+        Array.Empty<PermissionGroupOperationsSnapshot>(),
+        Array.Empty<AccountOperationsSnapshot>(),
+        DateTimeOffset.MinValue);
+}
+
 public sealed record OperationsSnapshot(
     ServerDashboardSnapshot Server,
     IReadOnlyList<PlayerSnapshot> Players,
@@ -238,6 +273,8 @@ public sealed record OperationsSnapshot(
         Array.Empty<VisibilityLayerSnapshot>();
 
     public DeploymentBackupSnapshot Backup { get; init; } = DeploymentBackupSnapshot.Disabled;
+
+    public AdministrationOperationsSnapshot Administration { get; init; } = AdministrationOperationsSnapshot.Empty;
 }
 
 public interface IOperationsSnapshotProvider
