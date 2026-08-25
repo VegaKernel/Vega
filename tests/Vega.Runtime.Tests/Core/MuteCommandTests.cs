@@ -48,11 +48,58 @@ public sealed class MuteCommandTests
             Assert.That(created.Status, Is.EqualTo(CommandExecutionStatus.Success));
             Assert.That(mute.SubjectKind, Is.EqualTo(MuteSubjectKind.Account));
             Assert.That(mute.SubjectValue, Is.EqualTo("Alice"));
+            Assert.That(mute.Subjects, Has.Count.EqualTo(1));
+            Assert.That(mute.Subjects[0], Is.EqualTo(new MuteSubject(MuteIdentityKind.Account, "Alice")));
             Assert.That(mute.Reason, Is.EqualTo("chat abuse"));
             Assert.That(mute.ExpiresAt, Is.EqualTo(now.AddMinutes(90)));
             Assert.That(listed.Messages, Has.Count.EqualTo(1));
             Assert.That(revoked.Status, Is.EqualTo(CommandExecutionStatus.Success));
             Assert.That(database.Mutes.SnapshotActive(now), Is.Empty);
+        });
+    }
+
+    [Test]
+    public async Task StableSubjectsMatchOneLogicalMuteByAccountUuidOrIp()
+    {
+        DateTimeOffset now = DateTimeOffset.Parse("2026-08-23T12:00:00Z");
+        SqliteVegaDatabase database = await SqliteVegaDatabase.OpenAsync(
+            new SqliteVegaDatabaseOptions(Path.Combine(directory, "vega.db")));
+        var mute = new MuteSnapshot(
+            MuteId.New(),
+            MuteSubjectKind.Account,
+            "Alice",
+            "chat abuse",
+            "Server",
+            now,
+            now.AddHours(1),
+            1)
+        {
+            Subjects =
+            [
+                new(MuteIdentityKind.Account, "Alice"),
+                new(MuteIdentityKind.PlayerName, "AliceCharacter"),
+                new(MuteIdentityKind.ClientUuid, "terraria-opaque-UUID-token"),
+                new(MuteIdentityKind.IpAddress, "::ffff:192.0.2.44")
+            ]
+        };
+
+        MuteMutationResult created = await database.Mutes.CreateAsync(mute);
+        MuteSnapshot? byAccount = database.Mutes.FindActive(new MuteIdentity("Other", "alice"), now);
+        MuteSnapshot? byUuid = database.Mutes.FindActive(
+            new MuteIdentity("Renamed", ClientUuid: "terraria-opaque-UUID-token"), now);
+        MuteSnapshot? byIp = database.Mutes.FindActive(
+            new MuteIdentity("Renamed", IpAddress: "192.0.2.44"), now);
+        MuteSnapshot persisted = database.Mutes.SnapshotActive(now).Single();
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(created.Succeeded, Is.True);
+            Assert.That(byAccount?.Id, Is.EqualTo(mute.Id));
+            Assert.That(byUuid?.Id, Is.EqualTo(mute.Id));
+            Assert.That(byIp?.Id, Is.EqualTo(mute.Id));
+            Assert.That(persisted.Subjects, Has.Count.EqualTo(4));
+            Assert.That(persisted.Subjects.Single(subject => subject.Kind == MuteIdentityKind.IpAddress).Value,
+                Is.EqualTo("192.0.2.44"));
         });
     }
 
