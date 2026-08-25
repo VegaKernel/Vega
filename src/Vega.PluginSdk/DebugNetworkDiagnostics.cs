@@ -1,5 +1,5 @@
 using System.Diagnostics;
-using System.Reflection;
+using Vega.Contracts.Diagnostics;
 
 namespace Vega.PluginSdk;
 
@@ -141,11 +141,6 @@ internal static class VegaDebugNetworkDiagnostics
 
     private static void Record(string eventName, object? payload)
     {
-        if (payload is null)
-        {
-            return;
-        }
-
         lock (Sync)
         {
             if (!active)
@@ -153,35 +148,36 @@ internal static class VegaDebugNetworkDiagnostics
                 return;
             }
 
-            if (eventName is "Packet.Inbound" or "Packet.Outbound")
+            if (eventName is "Packet.Inbound" or "Packet.Outbound" &&
+                payload is NetworkPacketDiagnosticEvent packet)
             {
-                RecordPacket(eventName, payload);
+                RecordPacket(packet);
                 return;
             }
 
-            if (eventName == "ProcessorCompleted")
+            if (eventName == "ProcessorCompleted" &&
+                payload is PacketProcessorDiagnosticEvent processor)
             {
-                RecordProcessor(payload);
+                RecordProcessor(processor);
             }
         }
     }
 
-    private static void RecordPacket(string eventName, object payload)
+    private static void RecordPacket(NetworkPacketDiagnosticEvent packet)
     {
-        bool inbound = eventName == "Packet.Inbound";
+        bool inbound = string.Equals(packet.Direction, "Inbound", StringComparison.OrdinalIgnoreCase);
         if (inbound && !options.IncludeInbound || !inbound && !options.IncludeOutbound)
         {
             return;
         }
 
-        int? slot = ReadInt(payload, "Slot");
-        if (options.Slot is int requestedSlot && slot != requestedSlot)
+        if (options.Slot is int requestedSlot && packet.Slot != requestedSlot)
         {
             return;
         }
 
-        int? packetId = ReadInt(payload, "PacketId");
-        if (packetIds is not null && (packetId is null || !packetIds.Contains(packetId.Value)))
+        if (packetIds is not null &&
+            (packet.PacketId is null || !packetIds.Contains(packet.PacketId.Value)))
         {
             return;
         }
@@ -193,74 +189,27 @@ internal static class VegaDebugNetworkDiagnostics
         }
 
         Packets.Add(new VegaDebugNetworkPacket(
-            ReadDateTimeOffset(payload, "Timestamp") ?? DateTimeOffset.UtcNow,
-            inbound ? "Inbound" : "Outbound",
-            packetId,
-            ReadInt(payload, "Size") ?? 0,
-            slot));
+            packet.Timestamp,
+            packet.Direction,
+            packet.PacketId,
+            packet.Size,
+            packet.Slot));
     }
 
-    private static void RecordProcessor(object payload)
+    private static void RecordProcessor(PacketProcessorDiagnosticEvent processor)
     {
-        string processor = ReadString(payload, "Processor") ?? "<unknown>";
-        string packetType = ReadString(payload, "PacketType") ?? "<unknown>";
-        var key = (processor, packetType);
+        var key = (processor.Processor, processor.PacketType);
         if (!Metrics.TryGetValue(key, out MutableMetric? metric))
         {
-            metric = new MutableMetric(processor, packetType);
+            metric = new MutableMetric(processor.Processor, processor.PacketType);
             Metrics.Add(key, metric);
         }
 
         metric.Record(
-            ReadDouble(payload, "ElapsedMicroseconds") ?? 0,
-            ReadString(payload, "Decision"),
-            ReadString(payload, "Reason"));
+            processor.ElapsedMicroseconds,
+            processor.Decision,
+            processor.Reason);
     }
-
-    private static object? Read(object payload, string propertyName) =>
-        payload.GetType().GetProperty(propertyName, BindingFlags.Instance | BindingFlags.Public)?.GetValue(payload);
-
-    private static string? ReadString(object payload, string propertyName) =>
-        Read(payload, propertyName)?.ToString();
-
-    private static int? ReadInt(object payload, string propertyName)
-    {
-        object? value = Read(payload, propertyName);
-        if (value is null)
-        {
-            return null;
-        }
-
-        try
-        {
-            return Convert.ToInt32(value, System.Globalization.CultureInfo.InvariantCulture);
-        }
-        catch (Exception ex) when (ex is FormatException or InvalidCastException or OverflowException)
-        {
-            return null;
-        }
-    }
-
-    private static double? ReadDouble(object payload, string propertyName)
-    {
-        object? value = Read(payload, propertyName);
-        if (value is null)
-        {
-            return null;
-        }
-
-        try
-        {
-            return Convert.ToDouble(value, System.Globalization.CultureInfo.InvariantCulture);
-        }
-        catch (Exception ex) when (ex is FormatException or InvalidCastException or OverflowException)
-        {
-            return null;
-        }
-    }
-
-    private static DateTimeOffset? ReadDateTimeOffset(object payload, string propertyName) =>
-        Read(payload, propertyName) is DateTimeOffset timestamp ? timestamp : null;
 
     private sealed class ListenerObserver : IObserver<DiagnosticListener>
     {
