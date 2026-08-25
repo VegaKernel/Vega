@@ -1,7 +1,7 @@
 # Vega
 
 <p align="center">
-  <img src="logo.png" alt="Vega" width="180">
+  <img src="docs/assets/logo.png" alt="Vega" width="180">
 </p>
 
 <p align="center">

@@ -14,6 +14,9 @@ public interface IVegaPluginContext
 
     IPluginPlayers Players { get; }
 
+    /// <summary>Curated immutable-snapshot access to the world hosted by this process.</summary>
+    IPluginWorld World => VegaPluginRuntime.World(this);
+
     IPluginTasks Tasks { get; }
 
     /// <summary>Managed plugin configuration with typed load, validation, reload and atomic save.</summary>
@@ -43,6 +46,9 @@ public interface IPluginCommands
 public interface IPluginPlayers
 {
     IReadOnlyList<PlayerSnapshot> Online { get; }
+
+    /// <summary>Optimistic, game-thread-dispatched access to player inventory.</summary>
+    IPluginPlayerInventory Inventory => VegaPluginRuntime.Inventory;
 
     bool TryGet(PlayerId id, out PlayerSnapshot? player);
 

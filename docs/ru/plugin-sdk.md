@@ -34,20 +34,119 @@ public sealed class HelloPlugin : VegaPlugin
 }
 ```
 
-Фиксированный context предоставляет пять понятных фасадов:
+Фиксированный context предоставляет понятные фасады:
 
 - `Commands` регистрирует типизированные command handlers;
-- `Players` даёт immutable snapshots, поиск, сообщения, kick/teleport и join/leave hooks;
+- `Players` даёт immutable snapshots, поиск, сообщения, kick/teleport, join/leave hooks и оптимистичный доступ к инвентарю;
+- `World` даёт безопасный доступ к текущему миру: environment, tiles, chests, NPC и plugin-owned scenes;
 - `Tasks` возвращает работу на game thread, планирует повторяющиеся действия и связывает async I/O с game-thread apply;
-- `Storage` читает и атомарно пишет plugin-scoped JSON под `data/plugins/<plugin-name>/`;
-- `Log` пишет структурные записи с собственным source плагина.
+- `Configuration` создаёт типизированные, валидируемые и перезагружаемые настройки под `config/plugins/<plugin-name>/`;
+- `Storage` хранит произвольные данные плагина под `data/plugins/<plugin-name>/`;
+- `Log` пишет структурные записи с собственным source плагина;
+- `Sandboxes` показывает управляемые миры и на control-plane процессе даёт lifecycle-операции;
+- `Debug` является отдельным привилегированным диагностическим API для явно доверенных tooling-плагинов.
 
-Host владеет всеми командами, подписками, повторяющимися задачами и async-операциями, созданными через эти фасады. При unload он отменяет и дожидается background work, затем снимает регистрации и освобождает collectible context. Плагин не хранит leases и списки обратной регистрации.
+Host владеет командами, подписками, repeating tasks, scene leases и async-операциями, созданными через эти фасады. При unload он отменяет и дожидается background work, снимает регистрации и освобождает collectible context.
+
+## Мир, NPC, сундуки и инвентарь
+
+`plugin.World` является обычной игровой границей. Он никогда не выдаёт `Terraria.Main`, `Terraria.NPC`, `Terraria.Chest` или живые mutable tiles. Чтение возвращает immutable snapshots, а изменения выполняются host'ом на авторитетном game thread.
+
+```csharp
+WorldEnvironmentSnapshot? state = await plugin.World.Environment.CaptureAsync();
+IReadOnlyList<NpcSnapshot> npcs = await plugin.World.Npcs.SnapshotAsync();
+WorldTileAreaSnapshot? tiles = await plugin.World.Tiles.CaptureAsync(
+    new SceneBounds(100, 200, 20, 10));
+ChestSnapshot? chest = await plugin.World.Chests.CaptureAsync(120, 220);
+```
+
+Изменяемые ресурсы используют optimistic revision. Плагин меняет ровно тот snapshot, который видел. Если Terraria или другой плагин успел изменить объект раньше, Vega возвращает revision conflict вместо применения устаревшего состояния.
+
+```csharp
+if (chest is not null)
+{
+    ChestMutationResult result = await plugin.World.Chests.ReplaceAsync(
+        chest,
+        chest.Items,
+        "Event rewards");
+}
+
+PlayerInventorySnapshot? inventory = await plugin.Players.Inventory.CaptureAsync(playerId);
+if (inventory is not null)
+{
+    InventoryMutationResult result = await plugin.Players.Inventory.ReplaceSlotAsync(
+        inventory,
+        new InventorySlotReplacement(0, itemType: 1, stack: 100));
+}
+```
+
+`World.Environment` показывает размеры мира, spawn, день/ночь, время, фазу луны, blood moon, eclipse, дождь, ветер и hardmode. Валидируемый patch API меняет время, погоду и event flags. Hardmode намеренно не сделан обычным boolean setter.
+
+`World.Npcs` поддерживает snapshot, guarded capture, spawn, teleport и despawn. `NpcHandle` содержит world, slot, type и revision, поэтому устаревший slot не сможет внезапно изменить другого NPC после переиспользования Terraria.
+
+`World.Tiles` читает ограниченную `SceneTileArea` и атомарно заменяет ранее снятую область. `World.Chests` использует ту же модель snapshot + revision. `World.Scenes.Create` создаёт `ISceneLease`, которым владеет lifetime плагина, поэтому host автоматически снимает сцену при unload.
+
+`World.Current` соответствует процессу: primary server получает `WorldId.Primary`, sandbox backend получает собственный `WorldId`. Управление жизненным циклом других миров выполняется через `plugin.Sandboxes`, а не через facade живого мира.
+
+## Конфигурация
+
+Любой обычный плагин может создать конфигурацию без DEBUG-прав. Vega использует единый каталог:
+
+```text
+config/plugins/<PluginName>/
+```
+
+```csharp
+public sealed record Settings(
+    bool Enabled = true,
+    int IntervalSeconds = 30);
+
+private IPluginConfig<Settings>? settings;
+
+protected override void Configure(IVegaPluginContext plugin)
+{
+    settings = plugin.Configuration.Use(
+        "settings.json",
+        static () => new Settings(),
+        static value => value.IntervalSeconds > 0
+            ? null
+            : "IntervalSeconds must be positive.");
+}
+```
+
+Если файла нет, Vega валидирует и записывает default. `Reload()` перечитывает файл, `Save(value)` валидирует и атомарно заменяет его, `Save()` сохраняет текущее значение. Путь не может выйти за каталог конфигурации плагина.
+
+`Storage` предназначен для произвольных данных плагина, а `Configuration` для operator-editable settings с defaults, validation и reload semantics.
+
+Привилегированный DEBUG tooling может перечислять зарегистрированные конфиги, читать, merge-patch, replace и reload их. Запись требует `StateMutation` и всё равно проходит через типизированную десериализацию и валидатор владельца.
+
+## Sandboxes
+
+Каждый плагин получает `Sandboxes`:
+
+```csharp
+IReadOnlyList<SandboxStatus> worlds = plugin.Sandboxes.Snapshot();
+
+if (plugin.Sandboxes.CanControl)
+{
+    await plugin.Sandboxes.RestartAsync(new WorldId("event-world"));
+}
+```
+
+Доступны `Snapshot`, `CreateAsync`, `StartAsync`, `StopAsync`, `RestartAsync`, `ResetAsync` и `DestroyAsync`. `CanControl` явно показывает, владеет ли текущий процесс sandbox control plane.
 
 ## Асинхронный I/O
 
 Используйте `Tasks.RunIo` только для настоящего database/HTTP/file I/O. Операция выполняется без доступа к Terraria, а callback `apply` отправляется на авторитетный game thread. Cancellation, логирование исключений и ожидание при unload выполняет host.
 
-Низкоуровневые `IPacketProcessor<T>` и packet-security contracts отделены от `IVegaPluginContext`: они требуют явного понимания pure/concurrent/buffer-lifetime правил. Специалист по lifecycle может реализовать `IHotReloadableVegaModule` напрямую, осознанно принимая дополнительную сложность.
+## DEBUG и advanced boundary
 
-Соответствие типичных TShock-паттернов определяется поведением: `Initialize` заменяется `Configure`, ручные add/remove команд — `Commands.Register`, player hooks — `Players.OnJoined`, `TSPlayer` — immutable lookup плюс узкая операция, timer/dispose — `Tasks.Every`, background I/O/main-thread callback — `Tasks.RunIo`, config/data — scoped `Storage`. Исходная и бинарная совместимость с TShock не обещается.
+`Debug` обычному gameplay-плагину не нужен. Его capabilities равны `None`, пока конкретный плагин явно не разрешён в `config/debug-api.json`. DEBUG предназначен для tooling вроде `VegaToolsMCP`: runtime inspection, packet tracing и отдельно разрешаемые опасные операции описаны в `docs/debug-api.md`.
+
+Низкоуровневые `IPacketProcessor<T>` и packet-security contracts отделены от `IVegaPluginContext`. Они требуют явного понимания pure/concurrent/buffer-lifetime правил и остаются advanced API.
+
+Generic cancellable gameplay hooks не имитируются декоративным API. Они добавляются только там, где Vega реально владеет авторитетным event pipeline, deterministic registration и unload semantics. Join/leave уже соответствуют этому правилу; packet-level обработка остаётся advanced boundary.
+
+Типичные TShock-паттерны переводятся по поведению: `Initialize` → `Configure`, ручные add/remove команд → `Commands.Register`, player hooks → `Players.OnJoined`, `TSPlayer` → immutable snapshot + узкая операция, inventory → `Players.Inventory`, world/NPC/chests → `World`, timer/dispose → `Tasks.Every`, config → `Configuration.Use<T>`, произвольные данные → `Storage`, lifecycle управляемых миров → `Sandboxes`.
+
+Исходная и бинарная совместимость с TShock не обещается.

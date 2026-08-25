@@ -37,7 +37,8 @@ public sealed class HelloPlugin : VegaPlugin
 The fixed context exposes these discoverable facets:
 
 - `Commands` registers typed command handlers;
-- `Players` provides immutable online snapshots, lookup, messaging, kick/teleport operations and join/leave hooks;
+- `Players` provides immutable online snapshots, lookup, messaging, kick/teleport operations, join/leave hooks and optimistic inventory access;
+- `World` exposes the active world through immutable environment, tile, chest and NPC snapshots plus plugin-owned scenes;
 - `Tasks` posts to the game thread, schedules repeating game-thread work and runs async I/O with a game-thread apply callback;
 - `Configuration` owns typed, validated and reloadable operator settings under `config/plugins/<plugin-name>/`;
 - `Storage` stores arbitrary plugin-owned JSON beneath `data/plugins/<plugin-name>/`;
@@ -46,6 +47,46 @@ The fixed context exposes these discoverable facets:
 - `Debug` is a separately gated process-internal diagnostic surface for explicitly trusted tooling plugins.
 
 The host owns every command, event subscription, repeating task and async operation created through these facets. Unload first cancels and joins background work, then removes registrations before releasing the collectible context. Ordinary plugins do not keep registration leases or reverse-registration lists.
+
+## World capabilities
+
+`plugin.World` is the ordinary gameplay boundary. It never returns `Terraria.Main`, `Terraria.NPC`, `Terraria.Chest` or mutable tile references. Read operations return immutable snapshots; mutations are dispatched by the host to the authoritative game thread.
+
+```csharp
+WorldEnvironmentSnapshot? state = await plugin.World.Environment.CaptureAsync();
+IReadOnlyList<NpcSnapshot> npcs = await plugin.World.Npcs.SnapshotAsync();
+WorldTileAreaSnapshot? tiles = await plugin.World.Tiles.CaptureAsync(
+    new SceneBounds(100, 200, 20, 10));
+ChestSnapshot? chest = await plugin.World.Chests.CaptureAsync(120, 220);
+```
+
+Mutable resources use optimistic revisions. A plugin changes the exact snapshot it observed; if Terraria or another plugin changed the resource first, Vega returns a revision conflict instead of applying a stale mutation.
+
+```csharp
+if (chest is not null)
+{
+    ChestMutationResult result = await plugin.World.Chests.ReplaceAsync(
+        chest,
+        chest.Items,
+        "Event rewards");
+}
+
+PlayerInventorySnapshot? inventory = await plugin.Players.Inventory.CaptureAsync(playerId);
+if (inventory is not null)
+{
+    InventoryMutationResult result = await plugin.Players.Inventory.ReplaceSlotAsync(
+        inventory,
+        new InventorySlotReplacement(0, itemType: 1, stack: 100));
+}
+```
+
+`World.Environment` exposes dimensions, spawn, day/night time, moon phase, blood moon, eclipse, rain, wind and hardmode state. Its validated patch surface can change time and weather/event flags but deliberately does not make hardmode a generic boolean assignment.
+
+`World.Npcs` supports snapshot, guarded capture, spawn, teleport and despawn. NPC handles carry world, slot, type and revision so a stale slot cannot accidentally mutate a different NPC after Terraria reuses it.
+
+`World.Tiles` captures bounded `SceneTileArea` values and atomically replaces an observed area. `World.Chests` uses the same snapshot/revision model. `World.Scenes.Create` returns an `ISceneLease` owned by the plugin lifetime; the host automatically disposes the lease during unload.
+
+The active `WorldId` follows the process. A primary process exposes `WorldId.Primary`; a sandbox backend exposes its own world id. Cross-world lifecycle belongs to `plugin.Sandboxes`, not to the live world facade.
 
 ## Managed configuration
 
@@ -125,6 +166,8 @@ DEBUG is intended for diagnostic tooling such as `VegaToolsMCP`. It includes pro
 
 Low-level `IPacketProcessor<T>` and packet-security contracts remain separate from ordinary gameplay APIs. They require explicit pure/concurrent/buffer-lifetime reasoning and are not registered by the normal convenience facade. Dynamic lifecycle specialists may implement `IHotReloadableVegaModule` directly, but then own the extra ceremony intentionally.
 
+Generic cancellable gameplay hooks are not fabricated by the SDK. They are added only where Vega owns an authoritative event pipeline with deterministic plugin registration and unload semantics. Player join/leave already use that rule; low-level packet processing remains the advanced boundary.
+
 `samples/Vega.AdvancedPacketPlugin` shows the separate typed validator shape and states its concurrency/buffer rules in code. It is deliberately not referenced by the ordinary template or usability sample.
 
 Typical TShock patterns map by behavior, not API shape:
@@ -135,6 +178,8 @@ Typical TShock patterns map by behavior, not API shape:
 | add/remove chat command | `plugin.Commands.Register`; host removes it |
 | player greet hook | `plugin.Players.OnJoined` plus `Message` |
 | `TSPlayer` lookup/mutation | immutable snapshot lookup plus narrow player operation |
+| player inventory edit | `plugin.Players.Inventory` snapshot + optimistic mutation |
+| world/NPC/chest edit | `plugin.World` immutable snapshots + guarded mutations |
 | timer and manual dispose | `plugin.Tasks.Every`; host cancels it |
 | background I/O then main-thread callback | `plugin.Tasks.RunIo` |
 | plugin configuration | `plugin.Configuration.Use<T>` |

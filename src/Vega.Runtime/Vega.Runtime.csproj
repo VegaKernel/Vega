@@ -24,6 +24,7 @@
 
 	<ItemGroup>
 		<ProjectReference Include="..\Vega.Core\Vega.Core.csproj" />
+		<ProjectReference Include="..\Vega.PluginSdk\Vega.PluginSdk.csproj" />
 		<ProjectReference Include="..\Vega.Backups\Vega.Backups.csproj" />
 		<ProjectReference Include="..\Vega.Cluster\Vega.Cluster.csproj" />
 		<ProjectReference Include="..\Vega.Modules.Administration\Vega.Modules.Administration.csproj" />

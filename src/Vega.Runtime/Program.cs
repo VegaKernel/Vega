@@ -41,6 +41,7 @@ using Vega.Operations.Logging;
 using Vega.Operations.Metrics;
 using Vega.Operations.ReadModels;
 using Vega.Persistence;
+using Vega.PluginSdk;
 using Vega.Regions;
 using Vega.Sandboxes;
 using Vega.TerminalUI;
@@ -282,7 +283,10 @@ int Start()
             Path.Combine(AppContext.BaseDirectory, "config", "auto-world-cleaner.json"),
             logger);
         var worldEntities = new TerrariaWorldEntityMaintenance(gameThreadDispatcher);
-        var chestBackend = new TerrariaChestBackend(gameThreadDispatcher);
+        var worldTiles = new TerrariaWorldTileService(gameThreadDispatcher, runtimeWorldId);
+        var worldNpcs = new TerrariaWorldNpcService(gameThreadDispatcher, runtimeWorldId);
+        var worldEnvironment = new TerrariaWorldEnvironmentService(gameThreadDispatcher, runtimeWorldId);
+        var chestBackend = new TerrariaChestBackend(gameThreadDispatcher, runtimeWorldId);
         var chestService = new ChestService(
             chestBackend,
             new AsyncEventPipeline<ChestChanging>([]),
@@ -539,6 +543,14 @@ int Start()
         ServerPluginHotReloadOptions hotReloadOptions = ServerPluginHotReloadOptionsStore.Load(
             Path.Combine(AppContext.BaseDirectory, "config", "modules.json"),
             logger);
+        VegaPluginRuntime.Configure(new VegaPluginRuntimeServices(
+            runtimeWorldId,
+            worldEnvironment,
+            worldTiles,
+            chestService,
+            worldNpcs,
+            scenes,
+            inventoryService));
         using var serverPlugins = new ServerPluginHotReloadHost(
             Path.Combine(AppContext.BaseDirectory, "ServerPlugins"),
             hotReloadOptions,
