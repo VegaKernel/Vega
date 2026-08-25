@@ -1,6 +1,7 @@
 using Vega.Contracts.Commands;
 using Vega.Contracts.Modules;
 using Vega.Contracts.Operations;
+using Vega.Contracts.Scenes;
 using Vega.PluginSdk;
 
 namespace Vega.PluginSamples;
@@ -27,6 +28,8 @@ public sealed class UsabilityPlugin : VegaPlugin
 
         plugin.Commands.Register(new WelcomeCommand(plugin));
         plugin.Commands.Register(new PlayerActionCommand(plugin));
+        plugin.Commands.Register(new WorldCopyCommand(plugin));
+        plugin.Commands.Register(new ChestRefillCommand(plugin));
         plugin.Players.OnJoined(OnJoined);
         plugin.Players.OnLeft(_ => SaveState());
         plugin.Tasks.Every("sample-heartbeat", TimeSpan.FromMinutes(1),
@@ -121,6 +124,87 @@ public sealed class UsabilityPlugin : VegaPlugin
             return result.IsSuccess
                 ? CommandExecutionResult.Success
                 : CommandExecutionResult.Failed(result.ErrorCode ?? "player.operation_failed");
+        }
+    }
+
+    private sealed class WorldCopyCommand(IVegaPluginContext plugin) : ICommandHandler
+    {
+        public CommandDescriptor Descriptor { get; } = new(
+            "sampleworldcopy",
+            [],
+            ["vega.samples.world"],
+            Syntax: "sampleworldcopy <sourceX> <sourceY> <targetX> <targetY> <width> <height>");
+
+        public async ValueTask<CommandExecutionResult> ExecuteAsync(
+            CommandInvocation invocation,
+            CancellationToken cancellationToken)
+        {
+            if (invocation.Arguments.Count != 6 ||
+                !int.TryParse(invocation.Arguments[0], out int sourceX) ||
+                !int.TryParse(invocation.Arguments[1], out int sourceY) ||
+                !int.TryParse(invocation.Arguments[2], out int targetX) ||
+                !int.TryParse(invocation.Arguments[3], out int targetY) ||
+                !int.TryParse(invocation.Arguments[4], out int width) ||
+                !int.TryParse(invocation.Arguments[5], out int height) ||
+                width <= 0 || height <= 0)
+            {
+                return CommandExecutionResult.Failed("command.invalid_usage");
+            }
+
+            var sourceBounds = new SceneBounds(sourceX, sourceY, width, height);
+            var targetBounds = new SceneBounds(targetX, targetY, width, height);
+            var source = await plugin.World.Tiles.CaptureAsync(sourceBounds, cancellationToken);
+            var target = await plugin.World.Tiles.CaptureAsync(targetBounds, cancellationToken);
+            if (source is null || target is null)
+            {
+                return CommandExecutionResult.Failed("world.tiles.not_found");
+            }
+
+            var result = await plugin.World.Tiles.ReplaceAsync(target, source.Tiles, cancellationToken);
+            return result.IsSuccess
+                ? CommandExecutionResult.Success
+                : CommandExecutionResult.Failed(result.ErrorCode ?? "world.tiles.replace_failed");
+        }
+    }
+
+    private sealed class ChestRefillCommand(IVegaPluginContext plugin) : ICommandHandler
+    {
+        public CommandDescriptor Descriptor { get; } = new(
+            "samplechestrefill",
+            [],
+            ["vega.samples.chest"],
+            Syntax: "samplechestrefill <x> <y> <stack>");
+
+        public async ValueTask<CommandExecutionResult> ExecuteAsync(
+            CommandInvocation invocation,
+            CancellationToken cancellationToken)
+        {
+            if (invocation.Arguments.Count != 3 ||
+                !int.TryParse(invocation.Arguments[0], out int x) ||
+                !int.TryParse(invocation.Arguments[1], out int y) ||
+                !int.TryParse(invocation.Arguments[2], out int stack) ||
+                stack <= 0)
+            {
+                return CommandExecutionResult.Failed("command.invalid_usage");
+            }
+
+            var chest = await plugin.World.Chests.CaptureAsync(x, y, cancellationToken);
+            if (chest is null)
+            {
+                return CommandExecutionResult.Failed("chest.not_found");
+            }
+
+            var items = chest.Items
+                .Select(item => item.ItemType == 0 ? item : item with { Stack = stack })
+                .ToArray();
+            var result = await plugin.World.Chests.ReplaceAsync(
+                chest,
+                items,
+                chest.Name,
+                cancellationToken);
+            return result.IsSuccess
+                ? CommandExecutionResult.Success
+                : CommandExecutionResult.Failed(result.ErrorCode ?? "chest.replace_failed");
         }
     }
 
