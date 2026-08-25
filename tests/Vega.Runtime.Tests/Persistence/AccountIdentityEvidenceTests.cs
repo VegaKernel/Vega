@@ -68,7 +68,7 @@ public sealed class AccountIdentityEvidenceTests
             Assert.That(aliceEvidence, Has.Length.EqualTo(2));
             Assert.That(aliceEvidence.Single(item => item.Kind == AccountIdentityEvidenceKind.ClientUuid).ObservationCount,
                 Is.EqualTo(2));
-            Assert.That(links.Select(static item => item.AccountName), Is.EqualTo(new[] { "Bob", "Carol" }));
+            Assert.That(links.Select(static item => item.AccountName), Is.EqualTo(new[] { bob.Name, carol.Name }));
             Assert.That(links[0].SharedClientUuid, Is.True);
             Assert.That(links[0].SharedIpAddress, Is.False);
             Assert.That(links[1].SharedClientUuid, Is.False);
