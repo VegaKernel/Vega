@@ -50,7 +50,7 @@ internal static class TerrariaPlayerLifecycleCommandRegistration
 
 internal sealed class HealCommand(
     IPlayerDirectory players,
-    IPlayerOperations operations) : ICommandHandler
+    IPlayerLifecycleOperations operations) : ICommandHandler
 {
     public CommandDescriptor Descriptor { get; } = new(
         "heal",
@@ -83,18 +83,18 @@ internal sealed class HealCommand(
                 return AdminCommandResults.Failure("command.heal.invalid-player", error!);
             }
 
-            if (invocation.Arguments.Count == 2 &&
-                (!int.TryParse(
-                    invocation.Arguments[1],
-                    NumberStyles.Integer,
-                    CultureInfo.InvariantCulture,
-                    out int parsed) || parsed <= 0))
+            if (invocation.Arguments.Count == 2)
             {
-                return Usage();
-            }
-            else if (invocation.Arguments.Count == 2)
-            {
-                amount = int.Parse(invocation.Arguments[1], CultureInfo.InvariantCulture);
+                if (!int.TryParse(
+                        invocation.Arguments[1],
+                        NumberStyles.Integer,
+                        CultureInfo.InvariantCulture,
+                        out int parsed) || parsed <= 0)
+                {
+                    return Usage();
+                }
+
+                amount = parsed;
             }
         }
         else
@@ -120,7 +120,7 @@ internal sealed class HealCommand(
 
 internal sealed class KillCommand(
     IPlayerDirectory players,
-    IPlayerOperations operations) : ICommandHandler
+    IPlayerLifecycleOperations operations) : ICommandHandler
 {
     public CommandDescriptor Descriptor { get; } = new(
         "kill",
@@ -173,7 +173,7 @@ internal sealed class KillCommand(
 
 internal sealed class BuffCommand(
     IPlayerDirectory players,
-    IPlayerOperations operations) : ICommandHandler
+    IPlayerLifecycleOperations operations) : ICommandHandler
 {
     private const int MaxSeconds = 86_400;
 
@@ -236,7 +236,7 @@ internal sealed class BuffCommand(
 
 internal sealed class RespawnCommand(
     IPlayerDirectory players,
-    IPlayerOperations operations) : ICommandHandler
+    IPlayerLifecycleOperations operations) : ICommandHandler
 {
     public CommandDescriptor Descriptor { get; } = new(
         "respawn",
