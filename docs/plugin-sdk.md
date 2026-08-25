@@ -48,6 +48,20 @@ The fixed context exposes these discoverable facets:
 
 The host owns every command, event subscription, repeating task and async operation created through these facets. Unload first cancels and joins background work, then removes registrations before releasing the collectible context. Ordinary plugins do not keep registration leases or reverse-registration lists.
 
+## Logging
+
+Every ordinary plugin has access to the shared Vega operations logger through `plugin.Log`:
+
+```csharp
+plugin.Log.Write(
+    OperationsLogLevel.Information,
+    "Cache rebuilt successfully.");
+```
+
+The SDK deliberately exposes the scoped `IPluginLog` facade instead of the raw host logger. Vega fixes the source to `plugin:<PluginName>`, so a plugin cannot impersonate `runtime`, `packet-security`, `chat` or another subsystem. The plugin owns the message contents and must not place credentials or other secrets in them.
+
+Plugin records use the same logging transport as the server. The bounded in-memory store used by operations/TUI is updated immediately, while potentially blocking sinks such as console and JSON files are delivered through the bounded background queue. A slow sink therefore does not turn a plugin log call into game-thread I/O, and queue overflow drops queued-sink records rather than blocking the server.
+
 ## Player capabilities
 
 `plugin.Players` exposes immutable `PlayerSnapshot` values for reads and narrow authoritative operations for mutations. Ordinary plugins do not receive `Terraria.Player`, `Main.player` or another mutable Terraria object graph.
