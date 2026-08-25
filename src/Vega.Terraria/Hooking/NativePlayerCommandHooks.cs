@@ -132,12 +132,6 @@ internal sealed class NativePlayerCommandHooks : IDisposable
             args.Result = HookResult.Cancel;
             _ = DeliverChatAsync(chatResult.Deliveries);
         }
-
-        logger.Log(
-            OperationsLogLevel.Information,
-            "chat",
-            $"{player.Name}: {messageText}",
-            correlationId: player.SessionId?.ToString());
     }
 
     private static bool TryGetPlayerCommand(
