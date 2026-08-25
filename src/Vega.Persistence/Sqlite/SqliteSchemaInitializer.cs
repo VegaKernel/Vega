@@ -160,6 +160,16 @@ internal static class SqliteSchemaInitializer
 
             CREATE INDEX ix_vega_mutes_active_subject
                 ON vega_mutes (revoked, subject_kind, subject_value, expires_at_utc);
+
+            CREATE TABLE vega_mute_subjects (
+                mute_id TEXT NOT NULL REFERENCES vega_mutes(id) ON DELETE CASCADE,
+                kind INTEGER NOT NULL CHECK (kind BETWEEN 0 AND 3),
+                value TEXT NOT NULL,
+                PRIMARY KEY (mute_id, kind, value)
+            );
+
+            CREATE INDEX ix_vega_mute_subjects_lookup
+                ON vega_mute_subjects (kind, value);
             """)
     ];
 
@@ -181,11 +191,7 @@ internal static class SqliteSchemaInitializer
                 .ConfigureAwait(false);
             int version = await ReadVersionAsync(connection, transaction, cancellationToken)
                 .ConfigureAwait(false);
-            if (version > CurrentVersion)
-            {
-                throw new InvalidDataException(
-                    $"Database schema {version} is newer than supported schema {CurrentVersion}.");
-            }
+            EnsureSupported(version);
 
             if (version == 0)
             {
@@ -199,34 +205,14 @@ internal static class SqliteSchemaInitializer
                         .ConfigureAwait(false);
                 }
 
-                await InsertHistoryAsync(connection, transaction, 1, "vega-1.0-baseline", cancellationToken)
-                    .ConfigureAwait(false);
-                version = 1;
-            }
-
-            if (version < 2)
-            {
-                await ExecuteSchemaSectionAsync(
+                await InsertHistoryAsync(
                         connection,
                         transaction,
-                        new SchemaSection(
-                            """
-                            CREATE TABLE IF NOT EXISTS vega_mute_subjects (
-                                mute_id TEXT NOT NULL REFERENCES vega_mutes(id) ON DELETE CASCADE,
-                                kind INTEGER NOT NULL CHECK (kind BETWEEN 0 AND 3),
-                                value TEXT NOT NULL,
-                                PRIMARY KEY (mute_id, kind, value)
-                            );
-                            CREATE INDEX IF NOT EXISTS ix_vega_mute_subjects_lookup
-                                ON vega_mute_subjects (kind, value);
-                            INSERT OR IGNORE INTO vega_mute_subjects (mute_id, kind, value)
-                                SELECT id, subject_kind, subject_value FROM vega_mutes;
-                            """),
+                        CurrentVersion,
+                        "vega-current-baseline",
                         cancellationToken)
                     .ConfigureAwait(false);
-                await InsertHistoryAsync(connection, transaction, 2, "mute-stable-identities", cancellationToken)
-                    .ConfigureAwait(false);
-                version = 2;
+                version = CurrentVersion;
             }
 
             await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
@@ -236,6 +222,16 @@ internal static class SqliteSchemaInitializer
         {
             await transaction.RollbackAsync(CancellationToken.None).ConfigureAwait(false);
             throw;
+        }
+    }
+
+    private static void EnsureSupported(int version)
+    {
+        if (version != 0 && version != CurrentVersion)
+        {
+            throw new InvalidDataException(
+                $"Database schema {version} does not match required schema {CurrentVersion}. " +
+                "Vega does not migrate persistence schemas; recreate the database with the current baseline.");
         }
     }
 
