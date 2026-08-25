@@ -446,6 +446,25 @@ int Start()
         [
             packetRateLimits,
             gameplayEnforcement,
+            new PlayerPacketOwnershipPolicy(),
+            new PlayerActionSanityPolicy(
+                TerrariaPacketSecurityLimits.PlayerCount,
+                TerrariaPacketSecurityLimits.NpcCount,
+                TerrariaPacketSecurityLimits.BuffTypeCount,
+                TerrariaPacketSecurityLimits.ProjectileTypeCount,
+                static () => TerrariaPacketSecurityLimits.WorldWidth,
+                static () => TerrariaPacketSecurityLimits.WorldHeight),
+            new NpcPacketSanityPolicy(
+                TerrariaPacketSecurityLimits.NpcCount,
+                TerrariaPacketSecurityLimits.NpcTypeCount,
+                TerrariaPacketSecurityLimits.BuffTypeCount,
+                TerrariaPacketSecurityLimits.PlayerCount,
+                static () => TerrariaPacketSecurityLimits.WorldWidth,
+                static () => TerrariaPacketSecurityLimits.WorldHeight),
+            new TeleportSanityPolicy(
+                TerrariaPacketSecurityLimits.NpcCount,
+                static () => TerrariaPacketSecurityLimits.WorldWidth,
+                static () => TerrariaPacketSecurityLimits.WorldHeight),
             new ChestInteractionAuthorityPolicy(playerBoundary),
             new TileEntityInteractionAuthorityPolicy(playerBoundary),
             new SceneInteractionAuthorityPolicy(scenes),
@@ -463,6 +482,7 @@ int Start()
             new ProjectileSpawnSanityPolicy(
                 TerrariaPacketSecurityLimits.ProjectileCount,
                 TerrariaPacketSecurityLimits.ProjectileTypeCount),
+            new TerrariaProjectileExploitPolicy(),
             new PlayerDeathDamageAuthorityPolicy(),
             new PlayerStateSanityPolicy(
                 static () => TerrariaPacketSecurityLimits.WorldWidth,
@@ -478,7 +498,15 @@ int Start()
                 TerrariaPacketSecurityLimits.ItemTypeCount,
                 TerrariaPacketSecurityLimits.PrefixCount,
                 TerrariaPacketSecurityLimits.PaintColorCount),
-            new PlayerPacketOwnershipPolicy(),
+            new WorldInteractionSanityPolicy(
+                static () => TerrariaPacketSecurityLimits.WorldWidth,
+                static () => TerrariaPacketSecurityLimits.WorldHeight,
+                TerrariaPacketSecurityLimits.ItemTypeCount,
+                TerrariaPacketSecurityLimits.PrefixCount,
+                TerrariaPacketSecurityLimits.ProjectileTypeCount),
+            new TerrariaNpcGenerationPolicy(),
+            new TerrariaPortalAuthorityPolicy(),
+            new TerrariaTileRectanglePayloadPolicy(),
             moduleRouter
         ]);
         using IDisposable? sandboxCommandRegistration = sandboxControl is null
