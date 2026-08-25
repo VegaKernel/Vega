@@ -57,7 +57,7 @@ public static class MultiplicityPacketProcessing
             // exact bounded payload and let Vega's policy parse the UInt16 list directly.
             packet = PacketView.FromPayload(rawPacketId, payload);
         }
-        else if (!PacketViewParser.TryParsePayload(rawPacketId, payload, out packet))
+        else if (!PacketViewParser.TryParsePayloadBounded(rawPacketId, payload, out packet))
         {
             return PacketProcessingDecision.Reject("packet.invalid_payload");
         }
