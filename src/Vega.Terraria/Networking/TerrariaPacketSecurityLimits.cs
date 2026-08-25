@@ -2,10 +2,14 @@ namespace Vega.Terraria.Networking;
 
 /// <summary>
 /// Concrete Terraria limits supplied to packet policies without leaking Terraria types across the Core boundary.
+/// Protocol-fixed limits must not touch <c>Terraria.Main</c>: the policy graph is composed before Terraria's save path
+/// is initialized, and forcing the Main type initializer at that point aborts clean deployment startup.
 /// </summary>
 public static class TerrariaPacketSecurityLimits
 {
-    public static int PlayerCount => global::Terraria.Main.maxPlayers;
+    // Terraria 1.4.5.7 / protocol 325 fixed runtime capacities. Keep these explicit so packet-policy
+    // construction stays independent from Terraria.Main static initialization.
+    public const int PlayerCount = 255;
 
     public static int PlayerItemSlotCount => global::Terraria.ID.PlayerItemSlotID.Count;
 
@@ -15,9 +19,11 @@ public static class TerrariaPacketSecurityLimits
 
     public static int ProjectileTypeCount => global::Terraria.ID.ProjectileID.Count;
 
-    public static int ProjectileCount => global::Terraria.Main.maxProjectiles + 1;
+    // Main.projectile has maxProjectiles + 1 entries; security policies intentionally validate against
+    // the same count used by the previous live getter.
+    public const int ProjectileCount = 1001;
 
-    public static int NpcCount => global::Terraria.Main.maxNPCs;
+    public const int NpcCount = 200;
 
     public static int NpcTypeCount => global::Terraria.ID.NPCID.Count;
 
@@ -27,8 +33,10 @@ public static class TerrariaPacketSecurityLimits
 
     public static int WallTypeCount => global::Terraria.ID.WallID.Count;
 
-    public static int PaintColorCount => global::Terraria.Main.numTileColors + 1;
+    // Main.numTileColors is 31 for this protocol baseline; valid packet values include zero.
+    public const int PaintColorCount = 32;
 
+    // World-dependent values are intentionally lazy. Their delegates are evaluated only after Terraria startup.
     public static int WorldWidth => global::Terraria.Main.maxTilesX;
 
     public static int WorldHeight => global::Terraria.Main.maxTilesY;
