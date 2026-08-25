@@ -16,19 +16,13 @@ public sealed class MultiplicityPacketProcessingTests
         var processor = new CapturingProcessor();
         var timestamp = new DateTimeOffset(2026, 8, 20, 6, 0, 0, TimeSpan.Zero);
         using var cancellation = new CancellationTokenSource();
-        var payloadWindow = new byte[]
-        {
-            7,
-            100, 0,
-            120, 0,
-            0x7f
-        };
+        byte[] payload = [7, 100, 0, 120, 0];
 
-        var decision = MultiplicityPacketProcessing.ProcessInboundPayload(
+        PacketProcessingDecision decision = MultiplicityPacketProcessing.ProcessInboundPayload(
             (byte)PacketTypes.PlayerHp,
-            payloadWindow,
+            payload,
             0,
-            payloadWindow.Length,
+            payload.Length,
             new ConnectionId(7),
             new PlayerId(7),
             processor,
@@ -50,12 +44,36 @@ public sealed class MultiplicityPacketProcessingTests
     }
 
     [Test]
+    public void Trailing_bytes_inside_declared_payload_are_rejected()
+    {
+        var processor = new CapturingProcessor();
+        byte[] payload = [7, 100, 0, 120, 0, 0x7f];
+
+        PacketProcessingDecision decision = MultiplicityPacketProcessing.ProcessInboundPayload(
+            (byte)PacketTypes.PlayerHp,
+            payload,
+            0,
+            payload.Length,
+            new ConnectionId(7),
+            new PlayerId(7),
+            processor,
+            DateTimeOffset.UtcNow);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(decision.Kind, Is.EqualTo(PacketDecisionKind.Reject));
+            Assert.That(decision.Reason, Is.EqualTo("packet.invalid_payload"));
+            Assert.That(processor.Called, Is.False);
+        });
+    }
+
+    [Test]
     public void Invalid_payload_is_rejected_before_policy_processor_runs()
     {
         var processor = new CapturingProcessor();
         var payload = new byte[4];
 
-        var decision = MultiplicityPacketProcessing.ProcessInboundPayload(
+        PacketProcessingDecision decision = MultiplicityPacketProcessing.ProcessInboundPayload(
             (byte)PacketTypes.PlayerHp,
             payload,
             0,
@@ -101,7 +119,7 @@ public sealed class MultiplicityPacketProcessingTests
             PlayerId = context.PlayerId;
             Timestamp = context.Timestamp;
             CancellationToken = context.CancellationToken;
-            return new PacketProcessingDecision(PacketDecisionKind.Allow);
+            return PacketProcessingDecision.Allow;
         }
     }
 }
