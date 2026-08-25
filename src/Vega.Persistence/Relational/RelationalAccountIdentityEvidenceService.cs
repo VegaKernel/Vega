@@ -238,7 +238,7 @@ internal sealed class RelationalAccountIdentityEvidenceService(
         Convert.ToInt64(reader.GetValue(6), CultureInfo.InvariantCulture));
 
     private static string? NormalizeUuid(string? value) =>
-        string.IsNullOrWhiteSpace(value) ? null : value.Trim().ToLowerInvariant();
+        string.IsNullOrWhiteSpace(value) ? null : value;
 
     private static string? NormalizeIp(string? value)
     {
