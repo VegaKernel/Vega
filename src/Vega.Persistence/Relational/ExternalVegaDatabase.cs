@@ -41,6 +41,10 @@ public abstract class ExternalVegaDatabase : IVegaDatabase
             EnsureReady);
         Accounts = identities;
         Authorization = identities;
+        AccountIdentities = new RelationalAccountIdentityEvidenceService(
+            connections.Open,
+            connections.OpenAsync,
+            EnsureReady);
         RoleLeases = new RelationalRoleLeaseService(
             connections.Open,
             connections.OpenAsync,
@@ -68,6 +72,8 @@ public abstract class ExternalVegaDatabase : IVegaDatabase
     public IGlobalBanReplica GlobalBans { get; }
 
     public IAccountService Accounts { get; }
+
+    public IAccountIdentityEvidenceService AccountIdentities { get; }
 
     public IAuthorizationService Authorization { get; }
 
