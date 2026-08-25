@@ -17,11 +17,17 @@
 
   <ItemGroup>
     <PackageReference Include="MaxMind.GeoIP2" Version="6.1.0" />
-    <PackageReference Include="Multiplicity" Version="2.6.2" />
+    <PackageReference Include="Multiplicity" Version="2.6.3" />
   </ItemGroup>
 
   <ItemGroup>
     <ProjectReference Include="..\Vega.Contracts\Vega.Contracts.csproj" />
     <ProjectReference Include="..\Vega.PluginSdk\Vega.PluginSdk.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <EmbeddedResource Include="..\..\config\*.json">
+      <LogicalName>Vega.DefaultConfig.%(Filename)%(Extension)</LogicalName>
+    </EmbeddedResource>
   </ItemGroup>
 </Project>
