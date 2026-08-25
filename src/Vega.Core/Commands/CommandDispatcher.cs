@@ -6,9 +6,10 @@ namespace Vega.Core.Commands;
 public sealed class CommandDispatcher : ICommandDispatcher, ICommandRegistry, ICommandCatalog, ICommandRegistrationCatalog
 {
     private readonly object sync = new();
+    private readonly ICommandAuditSink? auditSink;
     private IReadOnlyDictionary<string, ICommandHandler> handlers;
 
-    public CommandDispatcher(IEnumerable<ICommandHandler> handlers)
+    public CommandDispatcher(IEnumerable<ICommandHandler> handlers, ICommandAuditSink? auditSink = null)
     {
         ArgumentNullException.ThrowIfNull(handlers);
 
@@ -21,6 +22,7 @@ public sealed class CommandDispatcher : ICommandDispatcher, ICommandRegistry, IC
         }
 
         this.handlers = map;
+        this.auditSink = auditSink;
     }
 
     public bool CanDispatch(string name) =>
@@ -64,7 +66,7 @@ public sealed class CommandDispatcher : ICommandDispatcher, ICommandRegistry, IC
         return new Registration(this, handler);
     }
 
-    public ValueTask<CommandExecutionResult> DispatchAsync(
+    public async ValueTask<CommandExecutionResult> DispatchAsync(
         CommandInvocation invocation,
         CancellationToken cancellationToken = default)
     {
@@ -72,35 +74,93 @@ public sealed class CommandDispatcher : ICommandDispatcher, ICommandRegistry, IC
 
         if (!Volatile.Read(ref handlers).TryGetValue(invocation.Name, out ICommandHandler? handler))
         {
-            return ValueTask.FromResult(CreateFailure(
+            return CreateFailure(
                 CommandExecutionStatus.Failed,
                 "command.not_found",
-                "Unknown command."));
+                "Unknown command.");
         }
 
         CommandDescriptor descriptor = handler.Descriptor;
+        string[] auditArguments = descriptor.AuditMode == CommandAuditMode.NameAndArguments
+            ? invocation.Arguments.ToArray()
+            : [];
+
         if (!descriptor.AllowServer && invocation.Principal.IsServer)
         {
-            return ValueTask.FromResult(CreateFailure(
+            CommandExecutionResult result = CreateFailure(
                 CommandExecutionStatus.Forbidden,
                 "command.server_not_allowed",
-                "This command cannot be executed from the server console."));
+                "This command cannot be executed from the server console.");
+            TryAudit(descriptor, invocation, auditArguments, result);
+            return result;
         }
 
         if (descriptor.Permissions.Count > 0 && !descriptor.Permissions.Any(invocation.Principal.HasPermission))
         {
-            return ValueTask.FromResult(CreateFailure(
+            CommandExecutionResult result = CreateFailure(
                 CommandExecutionStatus.Forbidden,
                 "command.permission_denied",
-                "You do not have permission to use this command."));
+                "You do not have permission to use this command.");
+            TryAudit(descriptor, invocation, auditArguments, result);
+            return result;
         }
 
-        return handler.ExecuteAsync(invocation, cancellationToken);
+        try
+        {
+            CommandExecutionResult result = await handler.ExecuteAsync(invocation, cancellationToken).ConfigureAwait(false);
+            TryAudit(descriptor, invocation, auditArguments, result);
+            return result;
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            TryAudit(
+                descriptor,
+                invocation,
+                auditArguments,
+                new CommandExecutionResult(CommandExecutionStatus.Failed, "command.cancelled"));
+            throw;
+        }
+        catch
+        {
+            TryAudit(
+                descriptor,
+                invocation,
+                auditArguments,
+                new CommandExecutionResult(CommandExecutionStatus.Failed, "command.exception"));
+            throw;
+        }
     }
 
     private IEnumerable<ICommandHandler> UniqueHandlers() => Volatile.Read(ref handlers)
         .Values
         .DistinctBy(static handler => handler.Descriptor.Name, StringComparer.OrdinalIgnoreCase);
+
+    private void TryAudit(
+        CommandDescriptor descriptor,
+        CommandInvocation invocation,
+        IReadOnlyList<string> auditArguments,
+        CommandExecutionResult result)
+    {
+        if (auditSink is null || descriptor.AuditMode == CommandAuditMode.None)
+        {
+            return;
+        }
+
+        try
+        {
+            auditSink.Record(new CommandAuditRecord(
+                descriptor.Name,
+                auditArguments,
+                invocation.Principal.Name,
+                invocation.Principal.IsServer,
+                result.Status,
+                result.ErrorCode));
+        }
+        catch
+        {
+            // Audit output must never turn an otherwise valid administrative command into a failure.
+        }
+    }
 
     private static CommandExecutionResult CreateFailure(
         CommandExecutionStatus status,
