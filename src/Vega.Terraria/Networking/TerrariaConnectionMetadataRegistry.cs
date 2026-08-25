@@ -9,8 +9,6 @@ namespace Vega.Terraria.Networking;
 
 public sealed class TerrariaConnectionMetadataRegistry
 {
-    private const int MaxClientUuidLength = 128;
-
     private readonly object sync = new();
     private readonly Dictionary<int, MutableMetadata> connections = [];
     private bool dimensionsEnabled;
@@ -235,7 +233,7 @@ public sealed class TerrariaConnectionMetadataRegistry
             PacketReader reader = packet.CreatePayloadReader();
             string value = reader.ReadStringUtf8();
             reader.EnsureEnd();
-            if (string.IsNullOrWhiteSpace(value) || value.Length > MaxClientUuidLength)
+            if (string.IsNullOrWhiteSpace(value) || value.Length > ConnectionMetadataLimits.MaxClientUuidLength)
             {
                 return Reject("connection_metadata.uuid_invalid");
             }
