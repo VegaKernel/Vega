@@ -1,7 +1,7 @@
 using Multiplicity.Packets;
-using Multiplicity.Packets.Models;
 using Multiplicity.Packets.Views;
 using Vega.Contracts.Networking;
+using TileModel = Multiplicity.Packets.Models.Tile;
 
 namespace Vega.Terraria.Networking;
 
@@ -20,12 +20,12 @@ public sealed class TerrariaTileRectanglePayloadPolicy : IPacketProcessor<Packet
         try
         {
             var view = new TileSendSquareView(context.Packet);
-            Tile[,] tiles = view.ReadTiles(IsFrameImportant);
+            TileModel[,] tiles = view.ReadTiles(IsFrameImportant);
             for (int x = 0; x < tiles.GetLength(0); x++)
             {
                 for (int y = 0; y < tiles.GetLength(1); y++)
                 {
-                    Tile tile = tiles[x, y];
+                    TileModel tile = tiles[x, y];
                     if (tile.IsActive && tile.Type >= global::Terraria.ID.TileID.Count)
                     {
                         return PacketProcessingDecision.Violation("packet.tile_square.tile_type_out_of_range");
