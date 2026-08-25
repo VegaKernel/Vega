@@ -1,5 +1,6 @@
 using System.Diagnostics;
 using TerrariaRuntime;
+using Vega.Contracts.Diagnostics;
 using Vega.Contracts.Operations;
 
 namespace Vega.Terraria.Hooking;
@@ -44,13 +45,12 @@ internal sealed class NativeNetworkMetricsHooks : IDisposable
         metrics.RecordInbound(args.Length);
         if (Diagnostics.IsEnabled("Packet.Inbound"))
         {
-            Diagnostics.Write("Packet.Inbound", new
-            {
-                PacketId = args.PacketId,
-                Size = args.Length,
-                Slot = args.Instance.whoAmI,
-                Timestamp = DateTimeOffset.UtcNow
-            });
+            Diagnostics.Write("Packet.Inbound", new NetworkPacketDiagnosticEvent(
+                "Inbound",
+                args.PacketId,
+                args.Length,
+                args.Instance.whoAmI,
+                DateTimeOffset.UtcNow));
         }
     }
 
@@ -59,11 +59,12 @@ internal sealed class NativeNetworkMetricsHooks : IDisposable
         metrics.RecordOutbound(args.Size);
         if (Diagnostics.IsEnabled("Packet.Outbound"))
         {
-            Diagnostics.Write("Packet.Outbound", new
-            {
-                Size = args.Size,
-                Timestamp = DateTimeOffset.UtcNow
-            });
+            Diagnostics.Write("Packet.Outbound", new NetworkPacketDiagnosticEvent(
+                "Outbound",
+                null,
+                args.Size,
+                null,
+                DateTimeOffset.UtcNow));
         }
     }
 }
