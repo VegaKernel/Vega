@@ -3,7 +3,7 @@ using Vega.Contracts.Messaging;
 
 namespace Vega.Core.Commands;
 
-public sealed class CommandDispatcher : ICommandDispatcher, ICommandRegistry, ICommandCatalog
+public sealed class CommandDispatcher : ICommandDispatcher, ICommandRegistry, ICommandCatalog, ICommandRegistrationCatalog
 {
     private readonly object sync = new();
     private IReadOnlyDictionary<string, ICommandHandler> handlers;
@@ -27,11 +27,22 @@ public sealed class CommandDispatcher : ICommandDispatcher, ICommandRegistry, IC
         !string.IsNullOrWhiteSpace(name) && Volatile.Read(ref handlers).ContainsKey(name);
 
     public IReadOnlyList<CommandDescriptor> SnapshotCommands() => Array.AsReadOnly(
-        Volatile.Read(ref handlers)
-            .Values
+        UniqueHandlers()
             .Select(static handler => handler.Descriptor)
-            .DistinctBy(static descriptor => descriptor.Name, StringComparer.OrdinalIgnoreCase)
             .OrderBy(static descriptor => descriptor.Name, StringComparer.OrdinalIgnoreCase)
+            .ToArray());
+
+    public IReadOnlyList<CommandRegistrationSnapshot> SnapshotRegistrations() => Array.AsReadOnly(
+        UniqueHandlers()
+            .Select(static handler =>
+            {
+                Type type = handler.GetType();
+                return new CommandRegistrationSnapshot(
+                    handler.Descriptor,
+                    type.Assembly.GetName().Name ?? "unknown",
+                    type.FullName ?? type.Name);
+            })
+            .OrderBy(static registration => registration.Descriptor.Name, StringComparer.OrdinalIgnoreCase)
             .ToArray());
 
     public IDisposable Register(ICommandHandler handler)
@@ -86,6 +97,10 @@ public sealed class CommandDispatcher : ICommandDispatcher, ICommandRegistry, IC
 
         return handler.ExecuteAsync(invocation, cancellationToken);
     }
+
+    private IEnumerable<ICommandHandler> UniqueHandlers() => Volatile.Read(ref handlers)
+        .Values
+        .Distinct(ReferenceEqualityComparer.Instance);
 
     private static CommandExecutionResult CreateFailure(
         CommandExecutionStatus status,
