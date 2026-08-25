@@ -325,13 +325,19 @@ internal sealed class TeleportCommand(
 
     public async ValueTask<CommandExecutionResult> ExecuteAsync(CommandInvocation invocation, CancellationToken cancellationToken)
     {
-        if (invocation.Arguments.Count != 2 ||
-            !PlayerResolver.TryResolve(players, invocation.Arguments[0], out PlayerSnapshot? player, out string? error) ||
-            !PlayerResolver.TryResolve(players, invocation.Arguments[1], out PlayerSnapshot? target, out string? targetError))
+        if (invocation.Arguments.Count != 2)
         {
-            return AdminCommandResults.Failure(
-                "command.tp.invalid-target",
-                error ?? targetError ?? "Usage: tp <player> <target>.");
+            return AdminCommandResults.Usage("command.tp.usage", "Usage: tp <player> <target>.");
+        }
+
+        if (!PlayerResolver.TryResolve(players, invocation.Arguments[0], out PlayerSnapshot? player, out string? error))
+        {
+            return AdminCommandResults.Failure("command.tp.invalid-player", error!);
+        }
+
+        if (!PlayerResolver.TryResolve(players, invocation.Arguments[1], out PlayerSnapshot? target, out string? targetError))
+        {
+            return AdminCommandResults.Failure("command.tp.invalid-target", targetError!);
         }
 
         PlayerOperationResult result = await operations
@@ -353,12 +359,16 @@ internal sealed class TeleportHereCommand(
 
     public async ValueTask<CommandExecutionResult> ExecuteAsync(CommandInvocation invocation, CancellationToken cancellationToken)
     {
-        if (invocation.Arguments.Count is < 1 or > 2 ||
-            !PlayerResolver.TryResolve(players, invocation.Arguments[0], out PlayerSnapshot? target, out string? error))
+        if (invocation.Arguments.Count is < 1 or > 2)
         {
-            return AdminCommandResults.Failure(
-                "command.tphere.invalid-target",
-                error ?? "Usage: tphere <player> [destination-player].");
+            return AdminCommandResults.Usage(
+                "command.tphere.usage",
+                "Usage: tphere <player> [destination-player].");
+        }
+
+        if (!PlayerResolver.TryResolve(players, invocation.Arguments[0], out PlayerSnapshot? target, out string? error))
+        {
+            return AdminCommandResults.Failure("command.tphere.invalid-target", error!);
         }
 
         PlayerSnapshot? destination;
@@ -539,7 +549,7 @@ internal sealed class NpcListCommand(IWorldNpcService npcs) : ICommandHandler
         return CommandExecutionResult.WithMessages(visible.Select(npc =>
             MessageDescriptor.Info("command.npcs.entry")
                 .WithDefaultText(
-                    $"#{npc.Handle.Slot} gen={npc.Handle.Revision} type={npc.NetId} {npc.Name} " +
+                    $"#{npc.Handle.Slot} rev={npc.Handle.Revision} type={npc.NetId} {npc.Name} " +
                     $"life={npc.Life}/{npc.LifeMax} pos=({npc.Position.X:F0},{npc.Position.Y:F0}) boss={npc.Boss} town={npc.TownNpc}"))
             .ToArray());
     }
