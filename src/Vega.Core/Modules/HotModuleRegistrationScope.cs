@@ -67,7 +67,9 @@ internal sealed class HotModuleRegistrationScope : IHotModuleContext, IVegaPlugi
         Configuration = new PluginConfiguration(this, pluginName, configurationDirectory);
         Storage = new PluginStorage(dataDirectory);
         Log = new PluginLog(logger, logSource);
-        Sandboxes = new PluginSandboxFacade(sandboxDirectory, sandboxControl);
+        Sandboxes = new PluginSandboxFacade(
+            sandboxDirectory ?? VegaPluginSandboxRuntime.Directory,
+            sandboxControl ?? VegaPluginSandboxRuntime.Control);
         Debug = debug ?? VegaDebugProcess.CreateContext(pluginName);
         VegaDebugProcess.RegisterRoot($"plugin:{pluginName}", this);
         VegaDebugProcess.RegisterRoot($"plugin-config:{pluginName}", Configuration);
