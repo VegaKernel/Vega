@@ -47,7 +47,9 @@ internal static class TerrariaAdministrationCommandRegistration
             new ButcherCommand(npcs)
         ];
 
-        return new CommandRegistrationSet(handlers.Select(registry.Register).ToArray());
+        var registrations = handlers.Select(registry.Register).ToList();
+        registrations.Add(TerrariaItemCommandRegistration.Register(dispatcher, gameThread, players));
+        return new CommandRegistrationSet(registrations.ToArray());
     }
 
     private sealed class CommandRegistrationSet(IDisposable[] registrations) : IDisposable
