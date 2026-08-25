@@ -217,6 +217,155 @@ public sealed class TerrariaPlayerBoundary :
 			cancellationToken);
 	}
 
+	public ValueTask<PlayerOperationResult> HealAsync(
+		PlayerId id,
+		int? amount = null,
+		CancellationToken cancellationToken = default)
+	{
+		if (amount is <= 0)
+		{
+			return ValueTask.FromResult(PlayerOperationResult.Failed("player.heal.invalid_amount"));
+		}
+
+		return DispatchAsync(
+			"player.heal",
+			() =>
+			{
+				if (!TryGetActivePlayer(id, out global::Terraria.Player player))
+				{
+					return PlayerOperationResult.NotFound();
+				}
+
+				if (player.dead)
+				{
+					return PlayerOperationResult.Failed("player.heal.dead");
+				}
+
+				int maximum = Math.Max(1, player.statLifeMax2);
+				int missing = Math.Max(0, maximum - player.statLife);
+				int applied = Math.Min(missing, amount ?? missing);
+				if (applied > 0)
+				{
+					player.Heal(applied);
+					global::Terraria.NetMessage.SendData(
+						MessageID.PlayerLifeMana,
+						-1,
+						-1,
+						null,
+						id.Slot);
+				}
+
+				return PlayerOperationResult.Applied();
+			},
+			"player.heal_failed",
+			cancellationToken);
+	}
+
+	public ValueTask<PlayerOperationResult> KillAsync(
+		PlayerId id,
+		string reason,
+		CancellationToken cancellationToken = default)
+	{
+		ArgumentException.ThrowIfNullOrWhiteSpace(reason);
+
+		return DispatchAsync(
+			"player.kill",
+			() =>
+			{
+				if (!TryGetActivePlayer(id, out global::Terraria.Player player))
+				{
+					return PlayerOperationResult.NotFound();
+				}
+
+				if (player.dead)
+				{
+					return PlayerOperationResult.Failed("player.kill.already_dead");
+				}
+
+				var deathReason = global::Terraria.DataStructures.PlayerDeathReason.ByCustomReason(
+					NetworkText.FromLiteral(reason));
+				double damage = Math.Max(1d, Math.Max(player.statLife, player.statLifeMax2) + 1d);
+				player.KillMe(deathReason, damage, 0, pvp: false);
+				return PlayerOperationResult.Applied();
+			},
+			"player.kill_failed",
+			cancellationToken);
+	}
+
+	public ValueTask<PlayerOperationResult> ApplyBuffAsync(
+		PlayerId id,
+		int buffType,
+		int durationTicks,
+		CancellationToken cancellationToken = default)
+	{
+		if (buffType <= 0 || buffType >= BuffID.Count)
+		{
+			return ValueTask.FromResult(PlayerOperationResult.Failed("player.buff.invalid_type"));
+		}
+
+		if (durationTicks <= 0)
+		{
+			return ValueTask.FromResult(PlayerOperationResult.Failed("player.buff.invalid_duration"));
+		}
+
+		return DispatchAsync(
+			"player.buff",
+			() =>
+			{
+				if (!TryGetActivePlayer(id, out global::Terraria.Player player))
+				{
+					return PlayerOperationResult.NotFound();
+				}
+
+				if (player.dead)
+				{
+					return PlayerOperationResult.Failed("player.buff.dead");
+				}
+
+				player.AddBuff(buffType, durationTicks, quiet: false);
+				global::Terraria.NetMessage.SendData(
+					MessageID.PlayerBuffs,
+					-1,
+					-1,
+					null,
+					id.Slot);
+				return PlayerOperationResult.Applied();
+			},
+			"player.buff_failed",
+			cancellationToken);
+	}
+
+	public ValueTask<PlayerOperationResult> RespawnAsync(
+		PlayerId id,
+		CancellationToken cancellationToken = default) =>
+		DispatchAsync(
+			"player.respawn",
+			() =>
+			{
+				if (!TryGetActivePlayer(id, out global::Terraria.Player player))
+				{
+					return PlayerOperationResult.NotFound();
+				}
+
+				if (!player.dead)
+				{
+					return PlayerOperationResult.Failed("player.respawn.not_dead");
+				}
+
+				player.respawnTimer = 0;
+				player.Spawn(global::Terraria.PlayerSpawnContext.ReviveFromDeath);
+				global::Terraria.NetMessage.SendData(
+					MessageID.PlayerSpawn,
+					-1,
+					-1,
+					null,
+					id.Slot,
+					(float)global::Terraria.PlayerSpawnContext.ReviveFromDeath);
+				return PlayerOperationResult.Applied();
+			},
+			"player.respawn_failed",
+			cancellationToken);
+
 	public void Dispose()
 	{
 		if (attached)
