@@ -30,6 +30,15 @@ public interface IOperationsLogSink
     void Emit(OperationsLogRecord record);
 }
 
+/// <summary>
+/// Marker for sinks whose <see cref="IOperationsLogSink.Emit"/> implementation is guaranteed to be
+/// bounded, non-blocking and safe to execute on the caller thread. Potentially blocking sinks such
+/// as files, terminals or remote transports must not implement this interface.
+/// </summary>
+public interface IInlineOperationsLogSink : IOperationsLogSink
+{
+}
+
 public interface IOperationsLogStore
 {
     int Capacity { get; }
