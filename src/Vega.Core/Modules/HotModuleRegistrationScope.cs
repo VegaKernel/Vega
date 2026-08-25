@@ -41,12 +41,21 @@ internal sealed class HotModuleRegistrationScope : IHotModuleContext, IVegaPlugi
         ArgumentException.ThrowIfNullOrWhiteSpace(dataDirectory);
         logSource = $"plugin:{pluginName}";
 
+        VegaDebugProcess.EnsureConfigured(logger);
+        VegaDebugProcess.RegisterRoot("commands", commands);
+        if (playerDirectory is not null) VegaDebugProcess.RegisterRoot("players", playerDirectory);
+        if (messenger is not null) VegaDebugProcess.RegisterRoot("player-messenger", messenger);
+        if (playerOperations is not null) VegaDebugProcess.RegisterRoot("player-operations", playerOperations);
+        if (playerLifecycle is not null) VegaDebugProcess.RegisterRoot("player-lifecycle", playerLifecycle);
+        if (gameThread is not null) VegaDebugProcess.RegisterRoot("game-thread", gameThread);
+
         Commands = new PluginCommands(this, commands);
         Players = new PluginPlayers(this, playerDirectory, messenger, playerOperations, playerLifecycle);
         Tasks = new PluginTasks(this, gameThread);
         Storage = new PluginStorage(dataDirectory);
         Log = new PluginLog(logger, logSource);
         Debug = debug ?? VegaDebugProcess.CreateContext(pluginName);
+        VegaDebugProcess.RegisterRoot($"plugin:{pluginName}", this);
     }
 
     public IPluginCommands Commands { get; }
