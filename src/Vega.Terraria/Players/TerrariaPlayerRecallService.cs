@@ -39,18 +39,6 @@ public sealed class TerrariaPlayerRecallService(IGameThreadDispatcher dispatcher
             "player.recall-home.failed",
             cancellationToken);
 
-    public ValueTask<PlayerOperationResult> KickAsync(
-        PlayerId id,
-        string reason,
-        CancellationToken cancellationToken = default) =>
-        ValueTask.FromResult(PlayerOperationResult.Failed("player.recall.kick_unsupported"));
-
-    public ValueTask<PlayerOperationResult> TeleportAsync(
-        PlayerId id,
-        PlayerPosition destination,
-        CancellationToken cancellationToken = default) =>
-        ValueTask.FromResult(PlayerOperationResult.Failed("player.recall.teleport_unsupported"));
-
     private static bool TryGetActivePlayer(PlayerId id, out global::Terraria.Player? player)
     {
         global::Terraria.Player[] all = global::Terraria.Main.player;
