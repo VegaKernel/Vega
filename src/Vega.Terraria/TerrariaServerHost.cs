@@ -118,6 +118,9 @@ public static class TerrariaServerHost
             runtimeWorldId,
             gameThreadDispatcher,
             playerBoundary);
+        using var playerLifecycleCommands = TerrariaPlayerLifecycleCommandRegistration.Register(
+            commandDispatcher,
+            playerBoundary);
         using var consoleCommandHooks = new NativeConsoleCommandHooks(
             commandDispatcher,
             localization,
