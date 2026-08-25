@@ -5,7 +5,9 @@ using Vega.Contracts.Networking;
 namespace Vega.Core.Networking;
 
 /// <summary>
-/// Rejects inbound player-state packets that try to mutate another connection's player slot.
+/// Rejects inbound packets whose player identity is required to match the sending connection.
+/// Packets that legitimately target another player (for example heal/buff/damage requests) are intentionally
+/// excluded and validated by their own semantic policies instead.
 /// </summary>
 public sealed class PlayerPacketOwnershipPolicy : IPacketProcessor<PacketView>
 {
@@ -20,10 +22,24 @@ public sealed class PlayerPacketOwnershipPolicy : IPacketProcessor<PacketView>
         {
             PacketTypes.PlayerUpdate => context.Packet.AsPlayerUpdateView().PlayerId,
             PacketTypes.PlayerHp => context.Packet.AsPlayerHpView().PlayerId,
+            PacketTypes.Zones => context.Packet.AsZonesView().PlayerId,
+            PacketTypes.NpcTalk => context.Packet.AsNpcTalkView().PlayerId,
+            PacketTypes.PlayerAnimation => context.Packet.AsPlayerAnimationView().PlayerId,
             PacketTypes.PlayerMana => context.Packet.AsPlayerManaView().PlayerId,
             PacketTypes.PlayerTeam => context.Packet.AsPlayerTeamView().PlayerId,
             PacketTypes.TeamChangeFromUI => context.Packet.AsTeamChangeFromUIView().PlayerId,
             PacketTypes.TogglePvp => context.Packet.AsTogglePvpView().PlayerId,
+            PacketTypes.PlayerBuff => context.Packet.AsPlayerBuffView().PlayerId,
+            PacketTypes.NpcSpecial => context.Packet.AsNpcSpecialView().SubjectId,
+            PacketTypes.PlayerDodge => context.Packet.AsPlayerDodgeView().PlayerId,
+            PacketTypes.PlayerStealth => context.Packet.AsPlayerStealthView().Player,
+            PacketTypes.WiredCannonShot => context.Packet.AsWiredCannonShotView().PlayerId,
+            PacketTypes.MassWireOperationPay => context.Packet.AsMassWireOperationPayView().PlayerId,
+            PacketTypes.UpdateMinionTarget => context.Packet.AsUpdateMinionTargetView().PlayerId,
+            PacketTypes.MinionAttackTargetUpdate => context.Packet.AsMinionAttackTargetUpdateView().PlayerId,
+            PacketTypes.Emoji => context.Packet.AsEmojiView().PlayerId,
+            PacketTypes.UpdatePlayerLuckFactors => context.Packet.AsUpdatePlayerLuckFactorsView().PlayerId,
+            PacketTypes.SyncLoadout => context.Packet.AsSyncLoadoutView().PlayerId,
             PacketTypes.SpectatePlayer => context.Packet.AsSpectatePlayerView().PlayerId,
             PacketTypes.PlayerTeleportPortal => context.Packet.AsPlayerTeleportPortalView().PlayerId,
             PacketTypes.PlayerDeathV2 => context.Packet.AsPlayerDeathV2View().PlayerId,
