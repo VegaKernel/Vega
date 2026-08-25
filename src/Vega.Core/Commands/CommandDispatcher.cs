@@ -100,7 +100,7 @@ public sealed class CommandDispatcher : ICommandDispatcher, ICommandRegistry, IC
 
     private IEnumerable<ICommandHandler> UniqueHandlers() => Volatile.Read(ref handlers)
         .Values
-        .Distinct(ReferenceEqualityComparer.Instance);
+        .DistinctBy(static handler => handler.Descriptor.Name, StringComparer.OrdinalIgnoreCase);
 
     private static CommandExecutionResult CreateFailure(
         CommandExecutionStatus status,
