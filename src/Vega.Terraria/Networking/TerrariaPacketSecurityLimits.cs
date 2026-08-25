@@ -1,10 +1,14 @@
 namespace Vega.Terraria.Networking;
 
 /// <summary>
-/// Concrete Terraria limits supplied to Core packet policies without leaking Terraria types across the boundary.
+/// Concrete Terraria limits supplied to packet policies without leaking Terraria types across the Core boundary.
 /// </summary>
 public static class TerrariaPacketSecurityLimits
 {
+    public static int PlayerCount => global::Terraria.Main.maxPlayers;
+
+    public static int PlayerItemSlotCount => global::Terraria.ID.PlayerItemSlotID.Count;
+
     public static int ItemTypeCount => global::Terraria.ID.ItemID.Count;
 
     public static int PrefixCount => global::Terraria.ID.PrefixID.Count;
@@ -12,6 +16,12 @@ public static class TerrariaPacketSecurityLimits
     public static int ProjectileTypeCount => global::Terraria.ID.ProjectileID.Count;
 
     public static int ProjectileCount => global::Terraria.Main.maxProjectiles + 1;
+
+    public static int NpcCount => global::Terraria.Main.maxNPCs;
+
+    public static int NpcTypeCount => global::Terraria.ID.NPCID.Count;
+
+    public static int BuffTypeCount => global::Terraria.ID.BuffID.Count;
 
     public static int TileTypeCount => global::Terraria.ID.TileID.Count;
 
