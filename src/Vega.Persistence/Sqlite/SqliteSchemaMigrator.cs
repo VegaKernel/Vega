@@ -5,7 +5,23 @@ namespace Vega.Persistence.Sqlite;
 
 internal static class SqliteSchemaInitializer
 {
-    private const int CurrentVersion = 1;
+    private const int CurrentVersion = 2;
+
+    private const string IdentityEvidenceSchemaSql =
+        """
+        CREATE TABLE vega_account_identity_evidence (
+            account_id INTEGER NOT NULL REFERENCES vega_accounts(id) ON DELETE CASCADE,
+            kind INTEGER NOT NULL CHECK (kind BETWEEN 0 AND 1),
+            value TEXT NOT NULL,
+            first_seen_utc TEXT NOT NULL,
+            last_seen_utc TEXT NOT NULL,
+            observation_count INTEGER NOT NULL CHECK (observation_count > 0),
+            PRIMARY KEY (account_id, kind, value)
+        );
+
+        CREATE INDEX ix_account_identity_evidence_lookup
+            ON vega_account_identity_evidence (kind, value, last_seen_utc);
+        """;
 
     private static readonly SchemaSection[] BaselineSections =
     [
@@ -89,6 +105,7 @@ internal static class SqliteSchemaInitializer
             INSERT INTO vega_group_permissions (group_name, permission, effect)
                 VALUES ('administrator', '*', 1);
             """),
+        new(IdentityEvidenceSchemaSql),
         new(
             """
             CREATE TABLE vega_regions (
@@ -184,9 +201,28 @@ internal static class SqliteSchemaInitializer
                         .ConfigureAwait(false);
                 }
 
-                await InsertBaselineHistoryAsync(connection, transaction, cancellationToken)
-                    .ConfigureAwait(false);
+                await InsertHistoryAsync(
+                    connection,
+                    transaction,
+                    CurrentVersion,
+                    "vega-1.1-identity-evidence-baseline",
+                    cancellationToken).ConfigureAwait(false);
                 version = CurrentVersion;
+            }
+            else if (version < 2)
+            {
+                await ExecuteSchemaSectionAsync(
+                    connection,
+                    transaction,
+                    new SchemaSection(IdentityEvidenceSchemaSql),
+                    cancellationToken).ConfigureAwait(false);
+                await InsertHistoryAsync(
+                    connection,
+                    transaction,
+                    2,
+                    "account-identity-evidence",
+                    cancellationToken).ConfigureAwait(false);
+                version = 2;
             }
 
             await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
@@ -250,9 +286,11 @@ internal static class SqliteSchemaInitializer
         await schema.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
     }
 
-    private static async ValueTask InsertBaselineHistoryAsync(
+    private static async ValueTask InsertHistoryAsync(
         SqliteConnection connection,
         SqliteTransaction transaction,
+        int version,
+        string name,
         CancellationToken cancellationToken)
     {
         await using SqliteCommand history = connection.CreateCommand();
@@ -262,8 +300,8 @@ internal static class SqliteSchemaInitializer
             INSERT INTO vega_schema_history (version, name, applied_at_utc)
             VALUES ($version, $name, $appliedAt);
             """;
-        history.Parameters.AddWithValue("$version", CurrentVersion);
-        history.Parameters.AddWithValue("$name", "vega-1.0-baseline");
+        history.Parameters.AddWithValue("$version", version);
+        history.Parameters.AddWithValue("$name", name);
         history.Parameters.AddWithValue(
             "$appliedAt",
             DateTimeOffset.UtcNow.ToString("O", CultureInfo.InvariantCulture));
