@@ -17,6 +17,7 @@
 
   <ItemGroup>
     <InternalsVisibleTo Include="Vega.Core" />
+    <InternalsVisibleTo Include="Vega.Runtime" />
     <InternalsVisibleTo Include="Vega.Sandboxes" />
   </ItemGroup>
 </Project>
