@@ -2,7 +2,7 @@ using Vega.Contracts.Operations;
 
 namespace Vega.Operations.Logging;
 
-public sealed class BoundedOperationsLogStore : IOperationsLogSink, IOperationsLogStore
+public sealed class BoundedOperationsLogStore : IInlineOperationsLogSink, IOperationsLogStore
 {
     private readonly object sync = new();
     private readonly OperationsLogRecord?[] records;
