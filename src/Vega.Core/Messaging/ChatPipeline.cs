@@ -4,24 +4,23 @@ using Vega.Contracts.Players;
 
 namespace Vega.Core.Messaging;
 
-public sealed class ChatPipeline : IChatPipeline
+public sealed class ChatPipeline : IChatPipeline, IOperationsLogSource
 {
     private readonly IChatContentTransform[] transforms;
     private readonly IChatModerationRule[] moderation;
     private readonly IChatRecipientRenderer[] renderers;
-    private readonly IOperationsLogger? logger;
 
     public ChatPipeline(
         IEnumerable<IChatContentTransform>? transforms = null,
         IEnumerable<IChatModerationRule>? moderation = null,
-        IEnumerable<IChatRecipientRenderer>? renderers = null,
-        IOperationsLogger? logger = null)
+        IEnumerable<IChatRecipientRenderer>? renderers = null)
     {
         this.transforms = Order(transforms ?? []);
         this.moderation = Order(moderation ?? []);
         this.renderers = Order(renderers ?? []);
-        this.logger = logger;
     }
+
+    public event Action<OperationsLogMessage>? LogProduced;
 
     public ChatPipelineResult Process(ChatMessageContext context)
     {
@@ -41,9 +40,10 @@ public sealed class ChatPipeline : IChatPipeline
             if (!decision.Allowed)
             {
                 string reason = decision.Reason ?? "chat.rejected";
-                TryLog(
+                Publish(new OperationsLogMessage(
                     OperationsLogLevel.Warning,
-                    $"{Sanitize(context.Sender.Name)}: {Sanitize(content)} [rejected: {Sanitize(reason)}]");
+                    "chat",
+                    $"{Sanitize(context.Sender.Name)}: {Sanitize(content)} [rejected: {Sanitize(reason)}]"));
                 return new ChatPipelineResult(
                     false,
                     true,
@@ -69,24 +69,34 @@ public sealed class ChatPipeline : IChatPipeline
                 $"{context.Sender.Name}: {rendered}");
         }
 
-        TryLog(
+        Publish(new OperationsLogMessage(
             OperationsLogLevel.Information,
-            $"{Sanitize(context.Sender.Name)}: {Sanitize(content)}");
+            "chat",
+            $"{Sanitize(context.Sender.Name)}: {Sanitize(content)}"));
         return new ChatPipelineResult(
             true,
             changed,
             Array.AsReadOnly(deliveries));
     }
 
-    private void TryLog(OperationsLogLevel level, string text)
+    private void Publish(OperationsLogMessage message)
     {
-        try
+        Action<OperationsLogMessage>? subscribers = LogProduced;
+        if (subscribers is null)
         {
-            logger?.Log(level, "chat", text);
+            return;
         }
-        catch
+
+        foreach (Delegate subscriber in subscribers.GetInvocationList())
         {
-            // Logging must never change chat delivery or moderation semantics.
+            try
+            {
+                ((Action<OperationsLogMessage>)subscriber)(message);
+            }
+            catch
+            {
+                // Observability must never change chat delivery or block later observers.
+            }
         }
     }
 
