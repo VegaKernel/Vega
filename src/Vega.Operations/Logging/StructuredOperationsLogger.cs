@@ -89,8 +89,13 @@ public sealed class StructuredOperationsLogger : IOperationsLogger, IDisposable
     {
         while (await queue.Reader.WaitToReadAsync().ConfigureAwait(false))
         {
-            while (queue.Reader.TryRead(out PendingLogRecord pending))
+            while (queue.Reader.TryRead(out PendingLogRecord? pending))
             {
+                if (pending is null)
+                {
+                    continue;
+                }
+
                 EmitDroppedSummary();
                 Emit(CreateRecord(pending));
             }
