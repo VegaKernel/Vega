@@ -1,15 +1,16 @@
 using Vega.Contracts.Commands;
 using Vega.Contracts.Messaging;
+using Vega.Contracts.Operations;
 
 namespace Vega.Core.Commands;
 
 public sealed class CommandDispatcher : ICommandDispatcher, ICommandRegistry, ICommandCatalog, ICommandRegistrationCatalog
 {
     private readonly object sync = new();
-    private readonly ICommandAuditSink? auditSink;
+    private readonly IOperationsLogger? logger;
     private IReadOnlyDictionary<string, ICommandHandler> handlers;
 
-    public CommandDispatcher(IEnumerable<ICommandHandler> handlers, ICommandAuditSink? auditSink = null)
+    public CommandDispatcher(IEnumerable<ICommandHandler> handlers, IOperationsLogger? logger = null)
     {
         ArgumentNullException.ThrowIfNull(handlers);
 
@@ -22,7 +23,7 @@ public sealed class CommandDispatcher : ICommandDispatcher, ICommandRegistry, IC
         }
 
         this.handlers = map;
-        this.auditSink = auditSink;
+        this.logger = logger;
     }
 
     public bool CanDispatch(string name) =>
@@ -74,24 +75,22 @@ public sealed class CommandDispatcher : ICommandDispatcher, ICommandRegistry, IC
 
         if (!Volatile.Read(ref handlers).TryGetValue(invocation.Name, out ICommandHandler? handler))
         {
-            return CreateFailure(
+            CommandExecutionResult result = CreateFailure(
                 CommandExecutionStatus.Failed,
                 "command.not_found",
                 "Unknown command.");
+            TryLog(invocation.Name, invocation, result);
+            return result;
         }
 
         CommandDescriptor descriptor = handler.Descriptor;
-        string[] auditArguments = descriptor.AuditMode == CommandAuditMode.NameAndArguments
-            ? invocation.Arguments.ToArray()
-            : [];
-
         if (!descriptor.AllowServer && invocation.Principal.IsServer)
         {
             CommandExecutionResult result = CreateFailure(
                 CommandExecutionStatus.Forbidden,
                 "command.server_not_allowed",
                 "This command cannot be executed from the server console.");
-            TryAudit(descriptor, invocation, auditArguments, result);
+            TryLog(descriptor.Name, invocation, result);
             return result;
         }
 
@@ -101,31 +100,29 @@ public sealed class CommandDispatcher : ICommandDispatcher, ICommandRegistry, IC
                 CommandExecutionStatus.Forbidden,
                 "command.permission_denied",
                 "You do not have permission to use this command.");
-            TryAudit(descriptor, invocation, auditArguments, result);
+            TryLog(descriptor.Name, invocation, result);
             return result;
         }
 
         try
         {
             CommandExecutionResult result = await handler.ExecuteAsync(invocation, cancellationToken).ConfigureAwait(false);
-            TryAudit(descriptor, invocation, auditArguments, result);
+            TryLog(descriptor.Name, invocation, result);
             return result;
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
-            TryAudit(
-                descriptor,
+            TryLog(
+                descriptor.Name,
                 invocation,
-                auditArguments,
                 new CommandExecutionResult(CommandExecutionStatus.Failed, "command.cancelled"));
             throw;
         }
         catch
         {
-            TryAudit(
-                descriptor,
+            TryLog(
+                descriptor.Name,
                 invocation,
-                auditArguments,
                 new CommandExecutionResult(CommandExecutionStatus.Failed, "command.exception"));
             throw;
         }
@@ -135,32 +132,40 @@ public sealed class CommandDispatcher : ICommandDispatcher, ICommandRegistry, IC
         .Values
         .DistinctBy(static handler => handler.Descriptor.Name, StringComparer.OrdinalIgnoreCase);
 
-    private void TryAudit(
-        CommandDescriptor descriptor,
+    private void TryLog(
+        string commandName,
         CommandInvocation invocation,
-        IReadOnlyList<string> auditArguments,
         CommandExecutionResult result)
     {
-        if (auditSink is null || descriptor.AuditMode == CommandAuditMode.None)
+        if (logger is null)
         {
             return;
         }
 
         try
         {
-            auditSink.Record(new CommandAuditRecord(
-                descriptor.Name,
-                auditArguments,
-                invocation.Principal.Name,
-                invocation.Principal.IsServer,
-                result.Status,
-                result.ErrorCode));
+            OperationsLogLevel level = result.Status is CommandExecutionStatus.Forbidden or CommandExecutionStatus.Failed
+                ? OperationsLogLevel.Warning
+                : OperationsLogLevel.Information;
+            string error = string.IsNullOrWhiteSpace(result.ErrorCode)
+                ? string.Empty
+                : $" error={EscapeLogValue(result.ErrorCode)}";
+            logger.Log(
+                level,
+                "command",
+                $"principal={EscapeLogValue(invocation.Principal.Name)} type={(invocation.Principal.IsServer ? "server" : "player")} command={EscapeLogValue(commandName)} status={result.Status}{error}");
         }
         catch
         {
-            // Audit output must never turn an otherwise valid administrative command into a failure.
+            // Logging must never change command execution semantics.
         }
     }
+
+    private static string EscapeLogValue(string value) => value
+        .Replace("\\", "\\\\", StringComparison.Ordinal)
+        .Replace("\r", "\\r", StringComparison.Ordinal)
+        .Replace("\n", "\\n", StringComparison.Ordinal)
+        .Replace("\t", "\\t", StringComparison.Ordinal);
 
     private static CommandExecutionResult CreateFailure(
         CommandExecutionStatus status,
