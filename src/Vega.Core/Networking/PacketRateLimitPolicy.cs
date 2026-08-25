@@ -14,8 +14,37 @@ public sealed class PacketRateLimitPolicy : IPacketProcessor<PacketView>, IDispo
             [PacketTypes.PlaceChest] = 3,
             [PacketTypes.SpectatePlayer] = 2,
             [PacketTypes.PlayerDeathV2] = 2,
+            [PacketTypes.SpawnBossorInvasion] = 4,
+            [PacketTypes.CrystalInvasionStart] = 2,
+            [PacketTypes.CrystalInvasionRequestedToSkipWaitTime] = 2,
+            [PacketTypes.ToggleParty] = 4,
+            [PacketTypes.CompleteAnglerQuest] = 4,
+            [PacketTypes.RequestQuestEffect] = 10,
+            [PacketTypes.Teleport] = 20,
+            [PacketTypes.PlayerTeleportPortal] = 20,
+            [PacketTypes.CatchNPC] = 20,
+            [PacketTypes.ReleaseNPC] = 20,
+            [PacketTypes.FishOutNPC] = 20,
+            [PacketTypes.TamperWithNPC] = 30,
+            [PacketTypes.RequestNPCBuffRemoval] = 30,
+            [PacketTypes.NpcAddBuff] = 60,
+            [PacketTypes.PlayerAddBuff] = 60,
+            [PacketTypes.NpcStrike] = 120,
+            [PacketTypes.TileSendSquare] = 20,
+            [PacketTypes.PlaceObject] = 40,
+            [PacketTypes.HitSwitch] = 60,
             [PacketTypes.LiquidSet] = 60,
-            [PacketTypes.MassWireOperation] = 60
+            [PacketTypes.MassWireOperation] = 30,
+            [PacketTypes.MassWireOperationPay] = 60,
+            [PacketTypes.WiredCannonShot] = 60,
+            [PacketTypes.PlaceTileEntity] = 30,
+            [PacketTypes.RequestTileEntityInteraction] = 60,
+            [PacketTypes.TileEntityDisplayDollItemSync] = 60,
+            [PacketTypes.TileEntityHatRackItemSync] = 60,
+            [PacketTypes.WeaponsRackTryPlacing] = 30,
+            [PacketTypes.FoodPlatterTryPlacing] = 30,
+            [PacketTypes.TEDeadCellsDisplayJar] = 30,
+            [PacketTypes.LoadNetModule] = 120
         };
 
     private readonly object sync = new();
@@ -31,7 +60,8 @@ public sealed class PacketRateLimitPolicy : IPacketProcessor<PacketView>, IDispo
 
     public PacketProcessingDecision Process(scoped in PacketProcessingContext<PacketView> context)
     {
-        if (!Limits.TryGetValue(context.Packet.PacketType, out int limit))
+        if (context.Direction != PacketDirection.Inbound ||
+            !Limits.TryGetValue(context.Packet.PacketType, out int limit))
         {
             return PacketProcessingDecision.Allow;
         }
