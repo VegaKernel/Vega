@@ -3,7 +3,9 @@ using Vega.Contracts.Commands;
 using Vega.Contracts.Modules;
 using Vega.Contracts.Operations;
 using Vega.Contracts.Players;
+using Vega.Contracts.Sandboxes;
 using Vega.Contracts.Threading;
+using Vega.Contracts.Worlds;
 using Vega.PluginSdk;
 
 namespace Vega.Core.Modules;
@@ -28,17 +30,21 @@ internal sealed class HotModuleRegistrationScope : IHotModuleContext, IVegaPlugi
         IOperationsLogger logger,
         string pluginName,
         string dataDirectory,
+        string configurationDirectory,
         IPlayerDirectory? playerDirectory = null,
         IPlayerMessenger? messenger = null,
         IPlayerOperations? playerOperations = null,
         IPlayerSessionLifecycle? playerLifecycle = null,
         IGameThreadDispatcher? gameThread = null,
+        ISandboxDirectory? sandboxDirectory = null,
+        ISandboxControlService? sandboxControl = null,
         IVegaDebugContext? debug = null)
     {
         ArgumentNullException.ThrowIfNull(commands);
         this.logger = logger ?? throw new ArgumentNullException(nameof(logger));
         ArgumentException.ThrowIfNullOrWhiteSpace(pluginName);
         ArgumentException.ThrowIfNullOrWhiteSpace(dataDirectory);
+        ArgumentException.ThrowIfNullOrWhiteSpace(configurationDirectory);
         logSource = $"plugin:{pluginName}";
 
         VegaDebugProcess.EnsureConfigured(logger);
@@ -48,21 +54,28 @@ internal sealed class HotModuleRegistrationScope : IHotModuleContext, IVegaPlugi
         if (playerOperations is not null) VegaDebugProcess.RegisterRoot("player-operations", playerOperations);
         if (playerLifecycle is not null) VegaDebugProcess.RegisterRoot("player-lifecycle", playerLifecycle);
         if (gameThread is not null) VegaDebugProcess.RegisterRoot("game-thread", gameThread);
+        if (sandboxDirectory is not null) VegaDebugProcess.RegisterRoot("sandboxes", sandboxDirectory);
+        if (sandboxControl is not null) VegaDebugProcess.RegisterRoot("sandbox-control", sandboxControl);
 
         Commands = new PluginCommands(this, commands);
         Players = new PluginPlayers(this, playerDirectory, messenger, playerOperations, playerLifecycle);
         Tasks = new PluginTasks(this, gameThread);
+        Configuration = new PluginConfiguration(configurationDirectory);
         Storage = new PluginStorage(dataDirectory);
         Log = new PluginLog(logger, logSource);
+        Sandboxes = new PluginSandboxFacade(sandboxDirectory, sandboxControl);
         Debug = debug ?? VegaDebugProcess.CreateContext(pluginName);
         VegaDebugProcess.RegisterRoot($"plugin:{pluginName}", this);
+        VegaDebugProcess.RegisterRoot($"plugin-config:{pluginName}", Configuration);
     }
 
     public IPluginCommands Commands { get; }
     public IPluginPlayers Players { get; }
     public IPluginTasks Tasks { get; }
+    public IPluginConfiguration Configuration { get; }
     public IPluginStorage Storage { get; }
     public IPluginLog Log { get; }
+    public IPluginSandboxes Sandboxes { get; }
     public IVegaDebugContext Debug { get; }
 
     public IDisposable RegisterCommand(ICommandHandler handler)
@@ -350,6 +363,170 @@ internal sealed class HotModuleRegistrationScope : IHotModuleContext, IVegaPlugi
         }
     }
 
+    private sealed class PluginConfiguration : IPluginConfiguration
+    {
+        private readonly object sync = new();
+        private readonly Dictionary<string, object> configs = new(StringComparer.OrdinalIgnoreCase);
+
+        public PluginConfiguration(string directory) => Directory = Path.GetFullPath(directory);
+
+        public string Directory { get; }
+
+        public IPluginConfig<T> Use<T>(
+            string fileName,
+            Func<T> defaults,
+            Func<T, string?>? validate = null)
+        {
+            ArgumentException.ThrowIfNullOrWhiteSpace(fileName);
+            ArgumentNullException.ThrowIfNull(defaults);
+            string path = Resolve(fileName);
+            lock (sync)
+            {
+                if (configs.TryGetValue(path, out object? existing))
+                {
+                    return existing as IPluginConfig<T> ?? throw new InvalidOperationException(
+                        $"Plugin configuration '{fileName}' is already registered with another value type.");
+                }
+
+                var config = new PluginConfig<T>(path, defaults, validate);
+                configs.Add(path, config);
+                return config;
+            }
+        }
+
+        private string Resolve(string fileName)
+        {
+            if (Path.IsPathRooted(fileName))
+            {
+                throw new ArgumentException("Plugin configuration paths must be relative.", nameof(fileName));
+            }
+
+            string path = Path.GetFullPath(Path.Combine(Directory, fileName));
+            string prefix = Directory.EndsWith(Path.DirectorySeparatorChar)
+                ? Directory
+                : Directory + Path.DirectorySeparatorChar;
+            if (!path.StartsWith(prefix, StringComparison.OrdinalIgnoreCase))
+            {
+                throw new ArgumentException("Plugin configuration paths cannot leave the plugin configuration directory.", nameof(fileName));
+            }
+
+            return path;
+        }
+    }
+
+    private sealed class PluginConfig<T> : IPluginConfig<T>
+    {
+        private readonly object sync = new();
+        private readonly string path;
+        private readonly Func<T> defaults;
+        private readonly Func<T, string?>? validate;
+        private T current;
+
+        public PluginConfig(string path, Func<T> defaults, Func<T, string?>? validate)
+        {
+            this.path = path;
+            this.defaults = defaults;
+            this.validate = validate;
+            FileName = Path.GetFileName(path);
+            current = Load(writeDefaults: true);
+        }
+
+        public string FileName { get; }
+
+        public T Current
+        {
+            get
+            {
+                lock (sync)
+                {
+                    return current;
+                }
+            }
+        }
+
+        public T Reload()
+        {
+            lock (sync)
+            {
+                current = Load(writeDefaults: false);
+                return current;
+            }
+        }
+
+        public void Save(T value)
+        {
+            lock (sync)
+            {
+                Validate(value);
+                WriteAtomic(value);
+                current = value;
+            }
+        }
+
+        public void Save()
+        {
+            lock (sync)
+            {
+                Validate(current);
+                WriteAtomic(current);
+            }
+        }
+
+        private T Load(bool writeDefaults)
+        {
+            T value;
+            if (File.Exists(path))
+            {
+                value = JsonSerializer.Deserialize<T>(File.ReadAllText(path), JsonOptions) ??
+                    throw new InvalidDataException($"Plugin configuration '{path}' contains null.");
+            }
+            else
+            {
+                value = defaults();
+                Validate(value);
+                if (writeDefaults)
+                {
+                    WriteAtomic(value);
+                }
+            }
+
+            Validate(value);
+            return value;
+        }
+
+        private void Validate(T value)
+        {
+            string? error = validate?.Invoke(value);
+            if (!string.IsNullOrWhiteSpace(error))
+            {
+                throw new InvalidDataException($"Plugin configuration '{path}' is invalid: {error}");
+            }
+        }
+
+        private void WriteAtomic(T value)
+        {
+            string? directory = Path.GetDirectoryName(path);
+            if (directory is not null)
+            {
+                System.IO.Directory.CreateDirectory(directory);
+            }
+
+            string temporary = $"{path}.{Guid.NewGuid():N}.tmp";
+            try
+            {
+                File.WriteAllText(temporary, JsonSerializer.Serialize(value, JsonOptions));
+                File.Move(temporary, path, overwrite: true);
+            }
+            finally
+            {
+                if (File.Exists(temporary))
+                {
+                    File.Delete(temporary);
+                }
+            }
+        }
+    }
+
     private sealed class PluginStorage : IPluginStorage
     {
         public PluginStorage(string dataDirectory) => DataDirectory = Path.GetFullPath(dataDirectory);
@@ -401,6 +578,52 @@ internal sealed class HotModuleRegistrationScope : IHotModuleContext, IVegaPlugi
 
             return path;
         }
+    }
+
+    private sealed class PluginSandboxFacade(
+        ISandboxDirectory? directory,
+        ISandboxControlService? control) : IPluginSandboxes
+    {
+        public bool CanControl => control is not null;
+
+        public IReadOnlyList<SandboxStatus> Snapshot() => directory?.Snapshot() ?? [];
+
+        public ValueTask<SandboxOperationResult> CreateAsync(
+            SandboxCreateRequest request,
+            CancellationToken cancellationToken = default) =>
+            control?.CreateAsync(request, cancellationToken) ?? Unavailable();
+
+        public ValueTask<SandboxOperationResult> StartAsync(
+            WorldId worldId,
+            CancellationToken cancellationToken = default) =>
+            control?.StartAsync(worldId, cancellationToken) ?? Unavailable();
+
+        public ValueTask<SandboxOperationResult> StopAsync(
+            WorldId worldId,
+            CancellationToken cancellationToken = default) =>
+            control?.StopAsync(worldId, cancellationToken) ?? Unavailable();
+
+        public ValueTask<SandboxOperationResult> RestartAsync(
+            WorldId worldId,
+            CancellationToken cancellationToken = default) =>
+            control?.RestartAsync(worldId, cancellationToken) ?? Unavailable();
+
+        public ValueTask<SandboxOperationResult> ResetAsync(
+            WorldId worldId,
+            string? replacementSource = null,
+            CancellationToken cancellationToken = default) =>
+            control?.ResetAsync(worldId, replacementSource, cancellationToken) ?? Unavailable();
+
+        public ValueTask<SandboxOperationResult> DestroyAsync(
+            WorldId worldId,
+            CancellationToken cancellationToken = default) =>
+            control?.DestroyAsync(worldId, cancellationToken) ?? Unavailable();
+
+        private static ValueTask<SandboxOperationResult> Unavailable() => ValueTask.FromResult(
+            new SandboxOperationResult(
+                SandboxOperationStatus.Rejected,
+                ErrorCode: "sandbox.control_unavailable",
+                Message: "Sandbox control is unavailable in this Vega process."));
     }
 
     private sealed class PluginLog(IOperationsLogger logger, string source) : IPluginLog
