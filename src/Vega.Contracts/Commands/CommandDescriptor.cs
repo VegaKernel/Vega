@@ -7,8 +7,7 @@ public sealed record CommandDescriptor(
     IReadOnlyList<string> Aliases,
     IReadOnlyList<string> Permissions,
     bool AllowServer = true,
-    string Syntax = "",
-    CommandAuditMode AuditMode = CommandAuditMode.NameOnly)
+    string Syntax = "")
 {
     public bool IsAvailableTo(ICommandPrincipal principal)
     {
