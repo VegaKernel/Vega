@@ -1,0 +1,770 @@
+using System.Globalization;
+using Vega.Contracts.Commands;
+using Vega.Contracts.Messaging;
+using Vega.Contracts.Players;
+using Vega.Contracts.Worlds;
+using Vega.Terraria.Players;
+using Vega.Terraria.Threading;
+using Vega.Terraria.Worlds;
+
+namespace Vega.Terraria.Commands;
+
+internal static class TerrariaAdministrationCommandRegistration
+{
+    public static IDisposable Register(
+        ICommandDispatcher dispatcher,
+        WorldId runtimeWorldId,
+        TerrariaRuntimeGameThreadDispatcher gameThread,
+        TerrariaPlayerBoundary players)
+    {
+        ArgumentNullException.ThrowIfNull(dispatcher);
+        ArgumentNullException.ThrowIfNull(gameThread);
+        ArgumentNullException.ThrowIfNull(players);
+
+        if (dispatcher is not ICommandRegistry registry)
+        {
+            throw new InvalidOperationException(
+                "The Vega command dispatcher must also expose ICommandRegistry for built-in Terraria administration commands.");
+        }
+
+        IWorldEnvironmentService environment = new TerrariaWorldEnvironmentService(gameThread, runtimeWorldId);
+        IWorldNpcService npcs = new TerrariaWorldNpcService(gameThread, runtimeWorldId);
+
+        ICommandHandler[] handlers =
+        [
+            new BroadcastCommand(players, players),
+            new WorldInfoCommand(environment),
+            new TimeCommand(environment),
+            new WeatherCommand(environment),
+            new WindCommand(environment),
+            new TeleportCommand(players, players),
+            new TeleportHereCommand(players, players),
+            new TeleportPositionCommand(players, players, environment),
+            new SpawnTeleportCommand(players, players, environment),
+            new PositionCommand(players),
+            new NpcListCommand(npcs),
+            new SpawnMobCommand(players, npcs, environment),
+            new ButcherCommand(npcs)
+        ];
+
+        return new CommandRegistrationSet(handlers.Select(registry.Register).ToArray());
+    }
+
+    private sealed class CommandRegistrationSet(IDisposable[] registrations) : IDisposable
+    {
+        private IDisposable[]? owned = registrations;
+
+        public void Dispose()
+        {
+            IDisposable[]? snapshot = Interlocked.Exchange(ref owned, null);
+            if (snapshot is null)
+            {
+                return;
+            }
+
+            for (int i = snapshot.Length - 1; i >= 0; i--)
+            {
+                snapshot[i].Dispose();
+            }
+        }
+    }
+}
+
+internal sealed class BroadcastCommand(
+    IPlayerDirectory players,
+    IPlayerMessenger messenger) : ICommandHandler
+{
+    public CommandDescriptor Descriptor { get; } = new(
+        "broadcast",
+        ["bc", "say"],
+        ["vega.admin.broadcast"],
+        Syntax: "broadcast <message>");
+
+    public async ValueTask<CommandExecutionResult> ExecuteAsync(
+        CommandInvocation invocation,
+        CancellationToken cancellationToken)
+    {
+        if (invocation.Arguments.Count == 0)
+        {
+            return AdminCommandResults.Usage("command.broadcast.usage", "Usage: broadcast <message>.");
+        }
+
+        string message = string.Join(" ", invocation.Arguments);
+        int delivered = 0;
+        int failed = 0;
+        foreach (PlayerSnapshot player in players.SnapshotOnlinePlayers())
+        {
+            PlayerOperationResult result = await messenger
+                .SendMessageAsync(player.Id, message, cancellationToken)
+                .ConfigureAwait(false);
+            if (result.IsSuccess) delivered++;
+            else failed++;
+        }
+
+        return CommandExecutionResult.WithMessages(
+            MessageDescriptor.Success("command.broadcast.sent", delivered, failed)
+                .WithDefaultText("Broadcast delivered to {0} player(s); {1} delivery failure(s)."));
+    }
+}
+
+internal sealed class WorldInfoCommand(IWorldEnvironmentService environment) : ICommandHandler
+{
+    public CommandDescriptor Descriptor { get; } = new(
+        "worldinfo",
+        ["world"],
+        ["vega.world.info"],
+        Syntax: "worldinfo");
+
+    public async ValueTask<CommandExecutionResult> ExecuteAsync(
+        CommandInvocation invocation,
+        CancellationToken cancellationToken)
+    {
+        if (invocation.Arguments.Count != 0)
+        {
+            return AdminCommandResults.Usage("command.worldinfo.usage", "Usage: worldinfo.");
+        }
+
+        WorldEnvironmentSnapshot? snapshot = await environment
+            .CaptureAsync(invocation.WorldId, cancellationToken)
+            .ConfigureAwait(false);
+        if (snapshot is null)
+        {
+            return AdminCommandResults.Failure("command.worldinfo.unavailable", "World state is unavailable.");
+        }
+
+        return CommandExecutionResult.WithMessages(
+            MessageDescriptor.Info("command.worldinfo.summary")
+                .WithDefaultText(
+                    $"World {snapshot.WorldId}: {snapshot.WidthTiles}x{snapshot.HeightTiles} tiles, " +
+                    $"spawn=({snapshot.SpawnTileX},{snapshot.SpawnTileY}), " +
+                    $"{(snapshot.IsDaytime ? "day" : "night")} time={snapshot.TimeTicks:F0}, moon={snapshot.MoonPhase}, " +
+                    $"hardmode={snapshot.Hardmode}, bloodMoon={snapshot.BloodMoon}, eclipse={snapshot.Eclipse}, " +
+                    $"rain={snapshot.Raining} ({snapshot.RainIntensity:F2}), wind={snapshot.WindSpeed:F2}."));
+    }
+}
+
+internal sealed class TimeCommand(IWorldEnvironmentService environment) : ICommandHandler
+{
+    public CommandDescriptor Descriptor { get; } = new(
+        "time",
+        [],
+        ["vega.world.time"],
+        Syntax: "time [day|night|dawn|noon|dusk|midnight|<ticks>]");
+
+    public async ValueTask<CommandExecutionResult> ExecuteAsync(
+        CommandInvocation invocation,
+        CancellationToken cancellationToken)
+    {
+        if (invocation.Arguments.Count == 0)
+        {
+            WorldEnvironmentSnapshot? current = await environment
+                .CaptureAsync(invocation.WorldId, cancellationToken)
+                .ConfigureAwait(false);
+            return current is null
+                ? AdminCommandResults.Failure("command.time.unavailable", "World time is unavailable.")
+                : CommandExecutionResult.WithMessages(
+                    MessageDescriptor.Info("command.time.current")
+                        .WithDefaultText($"{(current.IsDaytime ? "Day" : "Night")}, time={current.TimeTicks:F0}."));
+        }
+
+        if (invocation.Arguments.Count != 1 || !TryParse(invocation.Arguments[0], out WorldEnvironmentPatch patch))
+        {
+            return AdminCommandResults.Usage(
+                "command.time.usage",
+                "Usage: time [day|night|dawn|noon|dusk|midnight|<ticks>].");
+        }
+
+        WorldEnvironmentMutationResult result = await environment
+            .PatchAsync(new WorldEnvironmentMutationRequest(invocation.WorldId, patch, invocation.Principal.Name), cancellationToken)
+            .ConfigureAwait(false);
+        return AdminCommandResults.WorldMutation(result, "command.time.changed", "World time changed.");
+    }
+
+    private static bool TryParse(string value, out WorldEnvironmentPatch patch)
+    {
+        switch (value.ToLowerInvariant())
+        {
+            case "day":
+            case "dawn":
+                patch = new WorldEnvironmentPatch(IsDaytime: true, TimeTicks: 0);
+                return true;
+            case "noon":
+                patch = new WorldEnvironmentPatch(IsDaytime: true, TimeTicks: 27000);
+                return true;
+            case "night":
+            case "dusk":
+                patch = new WorldEnvironmentPatch(IsDaytime: false, TimeTicks: 0);
+                return true;
+            case "midnight":
+                patch = new WorldEnvironmentPatch(IsDaytime: false, TimeTicks: 16200);
+                return true;
+            default:
+                if (double.TryParse(value, NumberStyles.Float, CultureInfo.InvariantCulture, out double ticks) &&
+                    double.IsFinite(ticks) && ticks >= 0 && ticks <= 54000)
+                {
+                    patch = new WorldEnvironmentPatch(TimeTicks: ticks);
+                    return true;
+                }
+
+                patch = default!;
+                return false;
+        }
+    }
+}
+
+internal sealed class WeatherCommand(IWorldEnvironmentService environment) : ICommandHandler
+{
+    public CommandDescriptor Descriptor { get; } = new(
+        "weather",
+        ["rain"],
+        ["vega.world.weather"],
+        Syntax: "weather [clear|rain [0..1]]");
+
+    public async ValueTask<CommandExecutionResult> ExecuteAsync(
+        CommandInvocation invocation,
+        CancellationToken cancellationToken)
+    {
+        if (invocation.Arguments.Count == 0)
+        {
+            WorldEnvironmentSnapshot? current = await environment
+                .CaptureAsync(invocation.WorldId, cancellationToken)
+                .ConfigureAwait(false);
+            return current is null
+                ? AdminCommandResults.Failure("command.weather.unavailable", "Weather state is unavailable.")
+                : CommandExecutionResult.WithMessages(
+                    MessageDescriptor.Info("command.weather.current")
+                        .WithDefaultText($"Rain={current.Raining}, intensity={current.RainIntensity:F2}."));
+        }
+
+        WorldEnvironmentPatch patch;
+        if (invocation.Arguments.Count == 1 &&
+            string.Equals(invocation.Arguments[0], "clear", StringComparison.OrdinalIgnoreCase))
+        {
+            patch = new WorldEnvironmentPatch(Raining: false, RainIntensity: 0);
+        }
+        else if (invocation.Arguments.Count is 1 or 2 &&
+                 string.Equals(invocation.Arguments[0], "rain", StringComparison.OrdinalIgnoreCase))
+        {
+            float intensity = 1f;
+            if (invocation.Arguments.Count == 2 &&
+                (!float.TryParse(invocation.Arguments[1], NumberStyles.Float, CultureInfo.InvariantCulture, out intensity) ||
+                 !float.IsFinite(intensity) || intensity is < 0 or > 1))
+            {
+                return Usage();
+            }
+            patch = new WorldEnvironmentPatch(Raining: true, RainIntensity: intensity);
+        }
+        else
+        {
+            return Usage();
+        }
+
+        WorldEnvironmentMutationResult result = await environment
+            .PatchAsync(new WorldEnvironmentMutationRequest(invocation.WorldId, patch, invocation.Principal.Name), cancellationToken)
+            .ConfigureAwait(false);
+        return AdminCommandResults.WorldMutation(result, "command.weather.changed", "Weather changed.");
+    }
+
+    private static CommandExecutionResult Usage() => AdminCommandResults.Usage(
+        "command.weather.usage",
+        "Usage: weather [clear|rain [0..1]].");
+}
+
+internal sealed class WindCommand(IWorldEnvironmentService environment) : ICommandHandler
+{
+    public CommandDescriptor Descriptor { get; } = new(
+        "wind",
+        [],
+        ["vega.world.weather"],
+        Syntax: "wind [speed:-1..1]");
+
+    public async ValueTask<CommandExecutionResult> ExecuteAsync(
+        CommandInvocation invocation,
+        CancellationToken cancellationToken)
+    {
+        if (invocation.Arguments.Count == 0)
+        {
+            WorldEnvironmentSnapshot? current = await environment
+                .CaptureAsync(invocation.WorldId, cancellationToken)
+                .ConfigureAwait(false);
+            return current is null
+                ? AdminCommandResults.Failure("command.wind.unavailable", "Wind state is unavailable.")
+                : CommandExecutionResult.WithMessages(
+                    MessageDescriptor.Info("command.wind.current")
+                        .WithDefaultText($"Wind speed={current.WindSpeed:F2}."));
+        }
+
+        if (invocation.Arguments.Count != 1 ||
+            !float.TryParse(invocation.Arguments[0], NumberStyles.Float, CultureInfo.InvariantCulture, out float speed) ||
+            !float.IsFinite(speed) || speed is < -1 or > 1)
+        {
+            return AdminCommandResults.Usage("command.wind.usage", "Usage: wind [speed:-1..1].");
+        }
+
+        WorldEnvironmentMutationResult result = await environment
+            .PatchAsync(
+                new WorldEnvironmentMutationRequest(
+                    invocation.WorldId,
+                    new WorldEnvironmentPatch(WindSpeed: speed),
+                    invocation.Principal.Name),
+                cancellationToken)
+            .ConfigureAwait(false);
+        return AdminCommandResults.WorldMutation(result, "command.wind.changed", "Wind speed changed.");
+    }
+}
+
+internal sealed class TeleportCommand(
+    IPlayerDirectory players,
+    IPlayerOperations operations) : ICommandHandler
+{
+    public CommandDescriptor Descriptor { get; } = new(
+        "tp",
+        ["teleport"],
+        ["vega.players.teleport"],
+        Syntax: "tp <player> <target>");
+
+    public async ValueTask<CommandExecutionResult> ExecuteAsync(CommandInvocation invocation, CancellationToken cancellationToken)
+    {
+        if (invocation.Arguments.Count != 2 ||
+            !PlayerResolver.TryResolve(players, invocation.Arguments[0], out PlayerSnapshot? player, out string? error) ||
+            !PlayerResolver.TryResolve(players, invocation.Arguments[1], out PlayerSnapshot? target, out string? targetError))
+        {
+            return AdminCommandResults.Failure(
+                "command.tp.invalid-target",
+                error ?? targetError ?? "Usage: tp <player> <target>.");
+        }
+
+        PlayerOperationResult result = await operations
+            .TeleportAsync(player!.Id, target!.Position, cancellationToken)
+            .ConfigureAwait(false);
+        return AdminCommandResults.PlayerMutation(result, "command.tp.applied", $"Teleported {player.Name} to {target.Name}.");
+    }
+}
+
+internal sealed class TeleportHereCommand(
+    IPlayerDirectory players,
+    IPlayerOperations operations) : ICommandHandler
+{
+    public CommandDescriptor Descriptor { get; } = new(
+        "tphere",
+        ["teleporthere"],
+        ["vega.players.teleport"],
+        Syntax: "tphere <player> [destination-player]");
+
+    public async ValueTask<CommandExecutionResult> ExecuteAsync(CommandInvocation invocation, CancellationToken cancellationToken)
+    {
+        if (invocation.Arguments.Count is < 1 or > 2 ||
+            !PlayerResolver.TryResolve(players, invocation.Arguments[0], out PlayerSnapshot? target, out string? error))
+        {
+            return AdminCommandResults.Failure(
+                "command.tphere.invalid-target",
+                error ?? "Usage: tphere <player> [destination-player].");
+        }
+
+        PlayerSnapshot? destination;
+        if (invocation.Arguments.Count == 2)
+        {
+            if (!PlayerResolver.TryResolve(players, invocation.Arguments[1], out destination, out string? destinationError))
+            {
+                return AdminCommandResults.Failure("command.tphere.invalid-destination", destinationError!);
+            }
+        }
+        else if (!PlayerResolver.TryCaller(players, invocation, out destination))
+        {
+            return AdminCommandResults.Usage(
+                "command.tphere.server-usage",
+                "Server usage: tphere <player> <destination-player>.");
+        }
+
+        PlayerOperationResult result = await operations
+            .TeleportAsync(target!.Id, destination!.Position, cancellationToken)
+            .ConfigureAwait(false);
+        return AdminCommandResults.PlayerMutation(
+            result,
+            "command.tphere.applied",
+            $"Teleported {target.Name} to {destination.Name}.");
+    }
+}
+
+internal sealed class TeleportPositionCommand(
+    IPlayerDirectory players,
+    IPlayerOperations operations,
+    IWorldEnvironmentService environment) : ICommandHandler
+{
+    public CommandDescriptor Descriptor { get; } = new(
+        "tppos",
+        [],
+        ["vega.players.teleport"],
+        Syntax: "tppos [player] <tile-x> <tile-y>");
+
+    public async ValueTask<CommandExecutionResult> ExecuteAsync(CommandInvocation invocation, CancellationToken cancellationToken)
+    {
+        PlayerSnapshot? player;
+        string xText;
+        string yText;
+        if (invocation.Arguments.Count == 2 && PlayerResolver.TryCaller(players, invocation, out player))
+        {
+            xText = invocation.Arguments[0];
+            yText = invocation.Arguments[1];
+        }
+        else if (invocation.Arguments.Count == 3 &&
+                 PlayerResolver.TryResolve(players, invocation.Arguments[0], out player, out string? error))
+        {
+            xText = invocation.Arguments[1];
+            yText = invocation.Arguments[2];
+        }
+        else
+        {
+            return AdminCommandResults.Usage("command.tppos.usage", "Usage: tppos [player] <tile-x> <tile-y>.");
+        }
+
+        if (!double.TryParse(xText, NumberStyles.Float, CultureInfo.InvariantCulture, out double tileX) ||
+            !double.TryParse(yText, NumberStyles.Float, CultureInfo.InvariantCulture, out double tileY) ||
+            !double.IsFinite(tileX) || !double.IsFinite(tileY))
+        {
+            return AdminCommandResults.Usage("command.tppos.usage", "Usage: tppos [player] <tile-x> <tile-y>.");
+        }
+
+        WorldEnvironmentSnapshot? world = await environment.CaptureAsync(invocation.WorldId, cancellationToken).ConfigureAwait(false);
+        if (world is null || tileX < 0 || tileY < 0 || tileX >= world.WidthTiles || tileY >= world.HeightTiles)
+        {
+            return AdminCommandResults.Failure("command.tppos.out-of-world", "Teleport position is outside the current world.");
+        }
+
+        var destination = new PlayerPosition((float)(tileX * 16d), (float)(tileY * 16d));
+        PlayerOperationResult result = await operations.TeleportAsync(player!.Id, destination, cancellationToken).ConfigureAwait(false);
+        return AdminCommandResults.PlayerMutation(
+            result,
+            "command.tppos.applied",
+            $"Teleported {player.Name} to tile ({tileX:F1}, {tileY:F1}).");
+    }
+}
+
+internal sealed class SpawnTeleportCommand(
+    IPlayerDirectory players,
+    IPlayerOperations operations,
+    IWorldEnvironmentService environment) : ICommandHandler
+{
+    public CommandDescriptor Descriptor { get; } = new(
+        "spawn",
+        ["tospawn"],
+        ["vega.players.teleport"],
+        Syntax: "spawn [player]");
+
+    public async ValueTask<CommandExecutionResult> ExecuteAsync(CommandInvocation invocation, CancellationToken cancellationToken)
+    {
+        PlayerSnapshot? player;
+        if (invocation.Arguments.Count == 0 && PlayerResolver.TryCaller(players, invocation, out player))
+        {
+        }
+        else if (invocation.Arguments.Count == 1 &&
+                 PlayerResolver.TryResolve(players, invocation.Arguments[0], out player, out string? error))
+        {
+        }
+        else
+        {
+            return AdminCommandResults.Usage("command.spawn.usage", "Usage: spawn [player].");
+        }
+
+        WorldEnvironmentSnapshot? world = await environment.CaptureAsync(invocation.WorldId, cancellationToken).ConfigureAwait(false);
+        if (world is null)
+        {
+            return AdminCommandResults.Failure("command.spawn.unavailable", "World spawn is unavailable.");
+        }
+
+        var destination = new PlayerPosition(world.SpawnTileX * 16f, world.SpawnTileY * 16f);
+        PlayerOperationResult result = await operations.TeleportAsync(player!.Id, destination, cancellationToken).ConfigureAwait(false);
+        return AdminCommandResults.PlayerMutation(result, "command.spawn.applied", $"Teleported {player.Name} to world spawn.");
+    }
+}
+
+internal sealed class PositionCommand(IPlayerDirectory players) : ICommandHandler
+{
+    public CommandDescriptor Descriptor { get; } = new(
+        "pos",
+        ["position"],
+        ["vega.players.position"],
+        Syntax: "pos [player]");
+
+    public ValueTask<CommandExecutionResult> ExecuteAsync(CommandInvocation invocation, CancellationToken cancellationToken)
+    {
+        PlayerSnapshot? player;
+        if (invocation.Arguments.Count == 0 && PlayerResolver.TryCaller(players, invocation, out player))
+        {
+        }
+        else if (invocation.Arguments.Count == 1 &&
+                 PlayerResolver.TryResolve(players, invocation.Arguments[0], out player, out string? error))
+        {
+        }
+        else
+        {
+            return ValueTask.FromResult(AdminCommandResults.Usage("command.pos.usage", "Usage: pos [player]."));
+        }
+
+        double tileX = player!.Position.X / 16d;
+        double tileY = player.Position.Y / 16d;
+        return ValueTask.FromResult(CommandExecutionResult.WithMessages(
+            MessageDescriptor.Info("command.pos.current")
+                .WithDefaultText(
+                    $"{player.Name}: tile=({tileX:F1},{tileY:F1}), pixels=({player.Position.X:F1},{player.Position.Y:F1}), world={player.WorldId}.")));
+    }
+}
+
+internal sealed class NpcListCommand(IWorldNpcService npcs) : ICommandHandler
+{
+    public CommandDescriptor Descriptor { get; } = new(
+        "npcs",
+        ["npclist"],
+        ["vega.npc.inspect"],
+        Syntax: "npcs [limit]");
+
+    public async ValueTask<CommandExecutionResult> ExecuteAsync(CommandInvocation invocation, CancellationToken cancellationToken)
+    {
+        int limit = 20;
+        if (invocation.Arguments.Count > 1 ||
+            (invocation.Arguments.Count == 1 &&
+             (!int.TryParse(invocation.Arguments[0], NumberStyles.Integer, CultureInfo.InvariantCulture, out limit) || limit is < 1 or > 200)))
+        {
+            return AdminCommandResults.Usage("command.npcs.usage", "Usage: npcs [limit:1..200].");
+        }
+
+        IReadOnlyList<NpcSnapshot> snapshot = await npcs.SnapshotAsync(invocation.WorldId, cancellationToken).ConfigureAwait(false);
+        NpcSnapshot[] visible = snapshot.Take(limit).ToArray();
+        if (visible.Length == 0)
+        {
+            return CommandExecutionResult.WithMessages(
+                MessageDescriptor.Info("command.npcs.empty").WithDefaultText("There are no active NPCs."));
+        }
+
+        return CommandExecutionResult.WithMessages(visible.Select(npc =>
+            MessageDescriptor.Info("command.npcs.entry")
+                .WithDefaultText(
+                    $"#{npc.Handle.Slot} gen={npc.Handle.Revision} type={npc.NetId} {npc.Name} " +
+                    $"life={npc.Life}/{npc.LifeMax} pos=({npc.Position.X:F0},{npc.Position.Y:F0}) boss={npc.Boss} town={npc.TownNpc}"))
+            .ToArray());
+    }
+}
+
+internal sealed class SpawnMobCommand(
+    IPlayerDirectory players,
+    IWorldNpcService npcs,
+    IWorldEnvironmentService environment) : ICommandHandler
+{
+    public CommandDescriptor Descriptor { get; } = new(
+        "spawnmob",
+        ["sm"],
+        ["vega.npc.spawn"],
+        Syntax: "spawnmob <npc-type> [count:1..200] [player]");
+
+    public async ValueTask<CommandExecutionResult> ExecuteAsync(CommandInvocation invocation, CancellationToken cancellationToken)
+    {
+        if (invocation.Arguments.Count is < 1 or > 3 ||
+            !int.TryParse(invocation.Arguments[0], NumberStyles.Integer, CultureInfo.InvariantCulture, out int type) ||
+            type <= 0)
+        {
+            return Usage();
+        }
+
+        int count = 1;
+        if (invocation.Arguments.Count >= 2 &&
+            (!int.TryParse(invocation.Arguments[1], NumberStyles.Integer, CultureInfo.InvariantCulture, out count) || count is < 1 or > 200))
+        {
+            return Usage();
+        }
+
+        PlayerSnapshot? target = null;
+        if (invocation.Arguments.Count == 3 &&
+            !PlayerResolver.TryResolve(players, invocation.Arguments[2], out target, out string? error))
+        {
+            return AdminCommandResults.Failure("command.spawnmob.invalid-player", error!);
+        }
+        if (target is null)
+        {
+            PlayerResolver.TryCaller(players, invocation, out target);
+        }
+
+        PlayerPosition position;
+        int? targetSlot = target?.Id.Slot;
+        if (target is not null)
+        {
+            position = target.Position;
+        }
+        else
+        {
+            WorldEnvironmentSnapshot? world = await environment.CaptureAsync(invocation.WorldId, cancellationToken).ConfigureAwait(false);
+            if (world is null)
+            {
+                return AdminCommandResults.Failure("command.spawnmob.world-unavailable", "World state is unavailable.");
+            }
+            position = new PlayerPosition(world.SpawnTileX * 16f, world.SpawnTileY * 16f);
+        }
+
+        int spawned = 0;
+        string? lastError = null;
+        for (int i = 0; i < count; i++)
+        {
+            NpcOperationResult result = await npcs.SpawnAsync(
+                new NpcSpawnRequest(invocation.WorldId, type, position, invocation.Principal.Name, targetSlot),
+                cancellationToken).ConfigureAwait(false);
+            if (!result.IsSuccess)
+            {
+                lastError = result.ErrorCode ?? result.Status.ToString();
+                break;
+            }
+            spawned++;
+        }
+
+        return spawned == count
+            ? CommandExecutionResult.WithMessages(
+                MessageDescriptor.Success("command.spawnmob.applied")
+                    .WithDefaultText($"Spawned {spawned} NPC(s) of type {type}."))
+            : AdminCommandResults.Failure(
+                "command.spawnmob.failed",
+                $"Spawned {spawned}/{count} NPC(s); last failure: {lastError ?? "unknown"}.");
+    }
+
+    private static CommandExecutionResult Usage() => AdminCommandResults.Usage(
+        "command.spawnmob.usage",
+        "Usage: spawnmob <npc-type> [count:1..200] [player].");
+}
+
+internal sealed class ButcherCommand(IWorldNpcService npcs) : ICommandHandler
+{
+    public CommandDescriptor Descriptor { get; } = new(
+        "butcher",
+        ["killnpcs"],
+        ["vega.npc.butcher"],
+        Syntax: "butcher [hostile|bosses|all]");
+
+    public async ValueTask<CommandExecutionResult> ExecuteAsync(CommandInvocation invocation, CancellationToken cancellationToken)
+    {
+        string mode = invocation.Arguments.Count == 0 ? "hostile" : invocation.Arguments[0].ToLowerInvariant();
+        if (invocation.Arguments.Count > 1 || mode is not ("hostile" or "bosses" or "all"))
+        {
+            return AdminCommandResults.Usage("command.butcher.usage", "Usage: butcher [hostile|bosses|all].");
+        }
+
+        IReadOnlyList<NpcSnapshot> snapshot = await npcs.SnapshotAsync(invocation.WorldId, cancellationToken).ConfigureAwait(false);
+        IEnumerable<NpcSnapshot> selected = mode switch
+        {
+            "bosses" => snapshot.Where(static npc => npc.Boss),
+            "all" => snapshot,
+            _ => snapshot.Where(static npc => !npc.Friendly && !npc.TownNpc)
+        };
+
+        int removed = 0;
+        int conflicts = 0;
+        foreach (NpcSnapshot npc in selected.ToArray())
+        {
+            NpcOperationResult result = await npcs
+                .DespawnAsync(new NpcDespawnRequest(npc.Handle, invocation.Principal.Name), cancellationToken)
+                .ConfigureAwait(false);
+            if (result.IsSuccess) removed++;
+            else conflicts++;
+        }
+
+        return CommandExecutionResult.WithMessages(
+            MessageDescriptor.Success("command.butcher.applied")
+                .WithDefaultText($"Removed {removed} NPC(s); {conflicts} changed or failed before removal."));
+    }
+}
+
+internal static class PlayerResolver
+{
+    public static bool TryCaller(IPlayerDirectory players, CommandInvocation invocation, out PlayerSnapshot? player)
+    {
+        if (invocation.Principal is IPlayerCommandPrincipal caller)
+        {
+            return players.TryGet(caller.PlayerId, out player) && player is not null;
+        }
+
+        player = null;
+        return false;
+    }
+
+    public static bool TryResolve(
+        IPlayerDirectory players,
+        string rawSearch,
+        out PlayerSnapshot? player,
+        out string? error)
+    {
+        player = null;
+        error = null;
+        string search = rawSearch.Trim();
+        if (search.Length == 0)
+        {
+            error = "Player name is empty.";
+            return false;
+        }
+
+        bool slotOnly = search.StartsWith("tsi:", StringComparison.OrdinalIgnoreCase);
+        bool nameOnly = search.StartsWith("tsn:", StringComparison.OrdinalIgnoreCase);
+        if (slotOnly || nameOnly)
+        {
+            search = search[4..];
+        }
+
+        IReadOnlyList<PlayerSnapshot> online = players.SnapshotOnlinePlayers();
+        if (!nameOnly && int.TryParse(search, NumberStyles.Integer, CultureInfo.InvariantCulture, out int slot))
+        {
+            player = online.FirstOrDefault(candidate => candidate.Id.Slot == slot);
+            if (player is not null || slotOnly)
+            {
+                error = player is null ? $"Player slot {slot} is not online." : null;
+                return player is not null;
+            }
+        }
+        else if (slotOnly)
+        {
+            error = "Invalid player slot.";
+            return false;
+        }
+
+        if (nameOnly)
+        {
+            player = online.FirstOrDefault(candidate =>
+                string.Equals(candidate.Name, search, StringComparison.OrdinalIgnoreCase));
+            error = player is null ? $"Player '{search}' is not online." : null;
+            return player is not null;
+        }
+
+        PlayerSnapshot[] matches = online
+            .Where(candidate => candidate.Name.StartsWith(search, StringComparison.OrdinalIgnoreCase))
+            .Take(3)
+            .ToArray();
+        if (matches.Length == 1)
+        {
+            player = matches[0];
+            return true;
+        }
+
+        error = matches.Length == 0
+            ? $"Player '{search}' was not found."
+            : $"Player name is ambiguous: {string.Join(", ", matches.Select(static match => match.Name))}.";
+        return false;
+    }
+}
+
+internal static class AdminCommandResults
+{
+    public static CommandExecutionResult Usage(string code, string text) => new(
+        CommandExecutionStatus.InvalidUsage,
+        code,
+        [MessageDescriptor.Error(code).WithDefaultText(text)]);
+
+    public static CommandExecutionResult Failure(string code, string text) =>
+        CommandExecutionResult.Failed(code, MessageDescriptor.Error(code).WithDefaultText(text));
+
+    public static CommandExecutionResult PlayerMutation(PlayerOperationResult result, string key, string successText) =>
+        result.IsSuccess
+            ? CommandExecutionResult.WithMessages(MessageDescriptor.Success(key).WithDefaultText(successText))
+            : Failure(result.ErrorCode ?? "player.operation.failed", $"Player operation failed: {result.ErrorCode ?? result.Status.ToString()}.");
+
+    public static CommandExecutionResult WorldMutation(
+        WorldEnvironmentMutationResult result,
+        string key,
+        string successText) =>
+        result.IsSuccess
+            ? CommandExecutionResult.WithMessages(MessageDescriptor.Success(key).WithDefaultText(successText))
+            : Failure(result.ErrorCode ?? "world.environment.failed", $"World operation failed: {result.ErrorCode ?? result.Status.ToString()}.");
+}

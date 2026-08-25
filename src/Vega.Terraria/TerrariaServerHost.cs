@@ -13,6 +13,7 @@ using Vega.Contracts.Localization;
 using Vega.Contracts.Moderation;
 using Vega.Contracts.Messaging;
 using Vega.Contracts.Scenes;
+using Vega.Terraria.Commands;
 using Vega.Terraria.Hooking;
 using Vega.Terraria.Operations;
 using Vega.Terraria.Players;
@@ -112,6 +113,11 @@ public static class TerrariaServerHost
             logger,
             networkMetrics,
             securitySignals);
+        using var administrationCommands = TerrariaAdministrationCommandRegistration.Register(
+            commandDispatcher,
+            runtimeWorldId,
+            gameThreadDispatcher,
+            playerBoundary);
         using var consoleCommandHooks = new NativeConsoleCommandHooks(
             commandDispatcher,
             localization,
