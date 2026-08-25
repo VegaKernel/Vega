@@ -1,6 +1,10 @@
 # Vega
 
 <p align="center">
+  <img src="logo.png" alt="Vega" width="180">
+</p>
+
+<p align="center">
   <strong>Русский</strong>
   · <a href="docs/en/README.md">English</a>
   · <a href="docs/ru/project-guide.md">Документация</a>
@@ -21,19 +25,38 @@ flowchart TB
 
     Runtime["Vega.Runtime<br/>host + composition root"] --> TerrariaAdapter
     Runtime --> Core["Vega.Core<br/>серверная логика"]
-    Runtime --> Operations["Vega.Operations<br/>логи + метрики + read models"]
-    Runtime --> Cluster["Vega.Cluster<br/>опциональные межсерверные сценарии"]
-    Runtime --> Persistence["Vega.Persistence<br/>доменные хранилища + schema baseline"]
-    Runtime --> Regions["Vega.Regions<br/>команды + ACL регионов"]
-    Runtime --> Sandboxes["Vega.Sandboxes<br/>изолированные миры + supervisor"]
-    Runtime --> Backups["Vega.Backups<br/>world + database archives"]
     Runtime -. "явная регистрация" .-> Modules["ServerPlugins<br/>Vega.Modules.*"]
+
+    subgraph ControlPlane["Операционный слой"]
+        direction TB
+        Operations["Vega.Operations<br/>логи + метрики + read models"]
+        Persistence["Vega.Persistence<br/>доменные хранилища + schema baseline"]
+        Cluster["Vega.Cluster<br/>межсерверные сценарии"]
+        Operations ~~~ Persistence
+        Persistence ~~~ Cluster
+    end
+
+    subgraph WorldServices["Сервисы мира"]
+        direction TB
+        Regions["Vega.Regions<br/>команды + ACL регионов"]
+        Sandboxes["Vega.Sandboxes<br/>изолированные миры + supervisor"]
+        Backups["Vega.Backups<br/>world + database archives"]
+        Regions ~~~ Sandboxes
+        Sandboxes ~~~ Backups
+    end
+
+    Runtime --> Operations
+    Runtime --> Persistence
+    Runtime --> Cluster
+    Runtime --> Regions
+    Runtime --> Sandboxes
+    Runtime --> Backups
 
     TerrariaAdapter --> Contracts["Vega.Contracts<br/>контракты + snapshots"]
     Core --> Contracts
     Operations --> Contracts
-    Cluster --> Contracts
     Persistence --> Contracts
+    Cluster --> Contracts
     Regions --> Contracts
     Sandboxes --> Contracts
     Backups --> Contracts
