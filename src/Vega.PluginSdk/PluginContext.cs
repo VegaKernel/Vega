@@ -19,6 +19,12 @@ public interface IVegaPluginContext
     IPluginStorage Storage { get; }
 
     IPluginLog Log { get; }
+
+    /// <summary>
+    /// Process-internal diagnostics. Disabled unless the host explicitly enables the DEBUG API
+    /// and trusts this plugin by name.
+    /// </summary>
+    IVegaDebugContext Debug => VegaDebug.Disabled;
 }
 
 public interface IPluginCommands
