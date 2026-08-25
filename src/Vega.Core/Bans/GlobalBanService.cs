@@ -2,6 +2,7 @@ using System.Net;
 using System.Net.Sockets;
 using Vega.Contracts.Bans;
 using Vega.Contracts.Cluster.Events;
+using Vega.Contracts.Networking;
 
 namespace Vega.Core.Bans;
 
@@ -19,6 +20,12 @@ public sealed class GlobalBanService(
         ArgumentNullException.ThrowIfNull(subject);
         normalized = null;
         error = null;
+
+        if (subject.Kind == GlobalBanSubjectKind.Uuid)
+        {
+            return TryNormalizeUuidSubject(subject, out normalized, out error);
+        }
+
         string value = subject.Value.Trim();
         if (value.Length == 0)
         {
@@ -31,15 +38,6 @@ public sealed class GlobalBanService(
             case GlobalBanSubjectKind.PlayerName:
             case GlobalBanSubjectKind.Account:
                 normalized = subject with { Value = value };
-                return true;
-            case GlobalBanSubjectKind.Uuid:
-                if (!Guid.TryParse(value, out Guid uuid))
-                {
-                    error = "The UUID ban subject is not a valid UUID.";
-                    return false;
-                }
-
-                normalized = subject with { Value = uuid.ToString("D") };
                 return true;
             case GlobalBanSubjectKind.IpAddress:
                 if (!IPAddress.TryParse(value, out IPAddress? address))
@@ -116,7 +114,7 @@ public sealed class GlobalBanService(
         {
             GlobalBanSubjectKind.Account when EqualsIgnoreCase(subject.Value, identity.AccountName) => 600,
             GlobalBanSubjectKind.Uuid when TryNormalizeUuid(identity.Uuid, out string? uuid) &&
-                EqualsIgnoreCase(subject.Value, uuid) => 600,
+                string.Equals(subject.Value, uuid, StringComparison.Ordinal) => 600,
             GlobalBanSubjectKind.PlayerName when EqualsIgnoreCase(subject.Value, identity.PlayerName) => 500,
             GlobalBanSubjectKind.IpAddress when identity.IpAddress is not null &&
                 IPAddress.Parse(subject.Value).Equals(NormalizeAddress(identity.IpAddress)) => 400,
@@ -141,10 +139,37 @@ public sealed class GlobalBanService(
         !string.IsNullOrWhiteSpace(right) &&
         string.Equals(left, right.Trim(), StringComparison.OrdinalIgnoreCase);
 
+    private static bool TryNormalizeUuidSubject(
+        GlobalBanSubject subject,
+        out GlobalBanSubject? normalized,
+        out string? error)
+    {
+        normalized = null;
+        error = null;
+        if (!TryNormalizeUuid(subject.Value, out string? value))
+        {
+            error = $"The UUID ban subject must be a non-whitespace Terraria ClientUUID up to {ConnectionMetadataLimits.MaxClientUuidLength} characters.";
+            return false;
+        }
+
+        normalized = subject with { Value = value! };
+        return true;
+    }
+
     private static bool TryNormalizeUuid(string? value, out string? normalized)
     {
-        normalized = Guid.TryParse(value, out Guid uuid) ? uuid.ToString("D") : null;
-        return normalized is not null;
+        normalized = null;
+        if (string.IsNullOrWhiteSpace(value) || value.Length > ConnectionMetadataLimits.MaxClientUuidLength)
+        {
+            return false;
+        }
+
+        // Terraria persists ClientUUID as an opaque token. Canonicalize actual GUID values so
+        // historical GUID-form bans remain format-insensitive, but preserve every non-GUID token exactly.
+        normalized = Guid.TryParse(value, out Guid uuid)
+            ? uuid.ToString("D")
+            : value;
+        return true;
     }
 
     private static IPAddress NormalizeAddress(IPAddress address) =>
