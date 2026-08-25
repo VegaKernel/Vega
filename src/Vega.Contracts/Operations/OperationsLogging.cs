@@ -19,6 +19,26 @@ public sealed record OperationsLogRecord(
     string? Exception = null,
     string? CorrelationId = null);
 
+/// <summary>
+/// A ready-to-write operations log message produced by a subsystem. The logger transports this
+/// message; it does not interpret command, chat, moderation or other domain semantics.
+/// </summary>
+public sealed record OperationsLogMessage(
+    OperationsLogLevel Level,
+    string Source,
+    string Text,
+    Exception? Exception = null,
+    string? CorrelationId = null);
+
+/// <summary>
+/// Source of preformatted operations log messages. Subsystems own message semantics while the
+/// operations logger owns delivery, buffering and sinks.
+/// </summary>
+public interface IOperationsLogSource
+{
+    event Action<OperationsLogMessage>? LogProduced;
+}
+
 public sealed record OperationsLogFilter(
     OperationsLogLevel? MinimumLevel = null,
     string? Source = null,
