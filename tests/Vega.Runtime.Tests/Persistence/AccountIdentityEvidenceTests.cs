@@ -77,6 +77,36 @@ public sealed class AccountIdentityEvidenceTests
     }
 
     [Test]
+    public async Task RecordingNewEvidenceInvalidatesTheReadCacheImmediately()
+    {
+        SqliteVegaDatabase database = await SqliteVegaDatabase.OpenAsync(
+            new SqliteVegaDatabaseOptions(databasePath));
+        AccountSnapshot alice = (await database.Accounts.CreateAsync(
+            "Alice", "correct horse battery staple", "default", "Server")).After!;
+        AccountSnapshot bob = (await database.Accounts.CreateAsync(
+            "Bob", "correct horse battery staple", "default", "Server")).After!;
+        DateTimeOffset now = DateTimeOffset.Parse("2026-08-25T12:00:00Z");
+
+        await database.AccountIdentities.RecordAsync(
+            alice.Id, alice.Name, "shared-device", null, now);
+        Assert.That(database.AccountIdentities.SnapshotEvidence(), Has.Count.EqualTo(1));
+
+        await database.AccountIdentities.RecordAsync(
+            bob.Id, bob.Name, "shared-device", null, now.AddSeconds(1));
+        PossibleAccountLinkSnapshot[] links = database.AccountIdentities
+            .FindPossibleAccounts(alice.Id)
+            .ToArray();
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(database.AccountIdentities.SnapshotEvidence(), Has.Count.EqualTo(2));
+            Assert.That(links, Has.Length.EqualTo(1));
+            Assert.That(links[0].AccountName, Is.EqualTo(bob.Name));
+            Assert.That(links[0].SharedClientUuid, Is.True);
+        });
+    }
+
+    [Test]
     public async Task EvidenceIsPartOfSingleBaselineWithoutSchemaMigration()
     {
         SqliteVegaDatabase database = await SqliteVegaDatabase.OpenAsync(
