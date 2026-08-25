@@ -197,6 +197,15 @@ public sealed class PostgreSqlVegaDatabase : ExternalVegaDatabase
         );
         CREATE INDEX ix_vega_mutes_active_subject
             ON vega_mutes (revoked, subject_kind, subject_value, expires_at_utc);
+
+        CREATE TABLE vega_mute_subjects (
+            mute_id VARCHAR(36) NOT NULL REFERENCES vega_mutes(id) ON DELETE CASCADE,
+            kind SMALLINT NOT NULL CHECK (kind BETWEEN 0 AND 3),
+            value VARCHAR(512) NOT NULL,
+            PRIMARY KEY (mute_id, kind, value)
+        );
+        CREATE INDEX ix_vega_mute_subjects_lookup
+            ON vega_mute_subjects (kind, value);
         """;
 
     private static RelationalGlobalBanSql GlobalBanSql { get; } = new(
