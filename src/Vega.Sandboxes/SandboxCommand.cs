@@ -5,14 +5,18 @@ using Vega.Contracts.Messaging;
 using Vega.Contracts.Operations;
 using Vega.Contracts.Sandboxes;
 using Vega.Contracts.Worlds;
+using Vega.PluginSdk;
 
 namespace Vega.Sandboxes;
 
 public sealed class SandboxCommand(
     ISandboxControlService sandboxes,
     ISandboxRoutingService routing,
-    IOperationsLogger logger) : ICommandHandler
+    IOperationsLogger logger) : ICommandHandler, IDisposable
 {
+    private readonly IDisposable pluginRuntimeRegistration =
+        VegaPluginSandboxRuntime.Register(sandboxes, sandboxes);
+
     public CommandDescriptor Descriptor { get; } = new(
         "sandbox",
         ["worlds"],
@@ -45,6 +49,8 @@ public sealed class SandboxCommand(
             $"actor={invocation.Principal.Name}; action={string.Join(' ', invocation.Arguments)}; outcome={result.Status}; error={result.ErrorCode ?? "none"}");
         return result;
     }
+
+    public void Dispose() => pluginRuntimeRegistration.Dispose();
 
     private CommandExecutionResult List()
     {
