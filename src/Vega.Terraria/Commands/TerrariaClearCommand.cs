@@ -4,6 +4,7 @@ using Vega.Contracts.Messaging;
 using Vega.Contracts.Players;
 using Vega.Contracts.Threading;
 using Vega.Contracts.Worlds;
+using Vega.Terraria.Worlds;
 
 namespace Vega.Terraria.Commands;
 
@@ -11,10 +12,9 @@ internal static class TerrariaClearCommandRegistration
 {
     public static IDisposable Register(
         ICommandDispatcher dispatcher,
+        WorldId runtimeWorldId,
         IGameThreadDispatcher gameThread,
-        IPlayerDirectory players,
-        IWorldEntityMaintenance entities,
-        IWorldNpcService npcs)
+        IPlayerDirectory players)
     {
         if (dispatcher is not ICommandRegistry registry)
         {
@@ -22,6 +22,8 @@ internal static class TerrariaClearCommandRegistration
                 "The Vega command dispatcher must expose ICommandRegistry for clear command registration.");
         }
 
+        var entities = new TerrariaWorldEntityMaintenance(gameThread);
+        var npcs = new TerrariaWorldNpcService(gameThread, runtimeWorldId);
         return registry.Register(new ClearCommand(gameThread, players, entities, npcs));
     }
 }
