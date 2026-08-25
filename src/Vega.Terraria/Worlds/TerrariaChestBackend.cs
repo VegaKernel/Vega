@@ -5,8 +5,11 @@ using Vega.Contracts.Worlds;
 
 namespace Vega.Terraria.Worlds;
 
-public sealed class TerrariaChestBackend(IGameThreadDispatcher dispatcher) : IChestBackend
+public sealed class TerrariaChestBackend(
+    IGameThreadDispatcher dispatcher,
+    WorldId? worldId = null) : IChestBackend
 {
+    private readonly WorldId worldId = worldId ?? WorldId.Primary;
     private readonly ConcurrentDictionary<ChestIdentity, VersionState> versions = new();
 
     public ValueTask<ChestSnapshot?> CaptureAsync(
@@ -27,7 +30,7 @@ public sealed class TerrariaChestBackend(IGameThreadDispatcher dispatcher) : ICh
     private ChestSnapshot? Capture(ChestIdentity identity)
     {
         dispatcher.AssertGameThread();
-        if (identity.WorldId != WorldId.Primary || !TryFind(identity, out _, out global::Terraria.Chest? chest) || chest is null)
+        if (identity.WorldId != worldId || !TryFind(identity, out _, out global::Terraria.Chest? chest) || chest is null)
         {
             return null;
         }
