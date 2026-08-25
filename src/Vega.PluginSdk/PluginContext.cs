@@ -20,6 +20,9 @@ public interface IVegaPluginContext
 
     IPluginLog Log { get; }
 
+    /// <summary>Sandbox discovery and lifecycle control supplied by the host when available.</summary>
+    IPluginSandboxes Sandboxes => VegaPluginSandboxes.Unavailable;
+
     /// <summary>
     /// Process-internal diagnostics. Disabled unless the host explicitly enables the DEBUG API
     /// and trusts this plugin by name.
