@@ -256,6 +256,34 @@ internal sealed class HotModuleRegistrationScope : IHotModuleContext, IVegaPlugi
             operations?.TeleportAsync(id, destination, cancellationToken) ??
             ValueTask.FromResult(PlayerOperationResult.DispatcherUnavailable());
 
+        public ValueTask<PlayerOperationResult> HealAsync(
+            PlayerId id,
+            int? amount = null,
+            CancellationToken cancellationToken = default) =>
+            operations?.HealAsync(id, amount, cancellationToken) ??
+            ValueTask.FromResult(PlayerOperationResult.DispatcherUnavailable());
+
+        public ValueTask<PlayerOperationResult> KillAsync(
+            PlayerId id,
+            string reason,
+            CancellationToken cancellationToken = default) =>
+            operations?.KillAsync(id, reason, cancellationToken) ??
+            ValueTask.FromResult(PlayerOperationResult.DispatcherUnavailable());
+
+        public ValueTask<PlayerOperationResult> ApplyBuffAsync(
+            PlayerId id,
+            int buffType,
+            int durationTicks,
+            CancellationToken cancellationToken = default) =>
+            operations?.ApplyBuffAsync(id, buffType, durationTicks, cancellationToken) ??
+            ValueTask.FromResult(PlayerOperationResult.DispatcherUnavailable());
+
+        public ValueTask<PlayerOperationResult> RespawnAsync(
+            PlayerId id,
+            CancellationToken cancellationToken = default) =>
+            operations?.RespawnAsync(id, cancellationToken) ??
+            ValueTask.FromResult(PlayerOperationResult.DispatcherUnavailable());
+
         public void OnJoined(Action<PlayerSessionOpened> handler)
         {
             ArgumentNullException.ThrowIfNull(handler);
