@@ -9,12 +9,12 @@ namespace Vega.Runtime.Tests.Commands;
 public sealed class CommandDispatcherLoggingTests
 {
     [Test]
-    public async Task LogsCanonicalCommandWithoutArguments()
+    public async Task PublishesCanonicalCommandWithoutArguments()
     {
-        var logger = new RecordingLogger();
         var dispatcher = new CommandDispatcher(
-            [new StubHandler(new CommandDescriptor("login", ["auth"], []))],
-            logger);
+            [new StubHandler(new CommandDescriptor("login", ["auth"], []))]);
+        var entries = new List<OperationsLogMessage>();
+        dispatcher.LogProduced += entries.Add;
 
         CommandExecutionResult result = await dispatcher.DispatchAsync(
             Invocation("auth", ["account", "top-secret-password"]));
@@ -22,20 +22,21 @@ public sealed class CommandDispatcherLoggingTests
         Assert.Multiple(() =>
         {
             Assert.That(result.Status, Is.EqualTo(CommandExecutionStatus.Success));
-            Assert.That(logger.Entries, Has.Count.EqualTo(1));
-            Assert.That(logger.Entries[0].Source, Is.EqualTo("command"));
-            Assert.That(logger.Entries[0].Text, Does.Contain("command=login"));
-            Assert.That(logger.Entries[0].Text, Does.Contain("principal=tester"));
-            Assert.That(logger.Entries[0].Text, Does.Not.Contain("account"));
-            Assert.That(logger.Entries[0].Text, Does.Not.Contain("top-secret-password"));
+            Assert.That(entries, Has.Count.EqualTo(1));
+            Assert.That(entries[0].Source, Is.EqualTo("command"));
+            Assert.That(entries[0].Text, Does.Contain("command=login"));
+            Assert.That(entries[0].Text, Does.Contain("principal=tester"));
+            Assert.That(entries[0].Text, Does.Not.Contain("account"));
+            Assert.That(entries[0].Text, Does.Not.Contain("top-secret-password"));
         });
     }
 
     [Test]
-    public async Task UnknownCommandIsLoggedWithoutArguments()
+    public async Task UnknownCommandIsPublishedWithoutArguments()
     {
-        var logger = new RecordingLogger();
-        var dispatcher = new CommandDispatcher([], logger);
+        var dispatcher = new CommandDispatcher([]);
+        var entries = new List<OperationsLogMessage>();
+        dispatcher.LogProduced += entries.Add;
 
         CommandExecutionResult result = await dispatcher.DispatchAsync(
             Invocation("not-a-command", ["secret"]));
@@ -43,20 +44,20 @@ public sealed class CommandDispatcherLoggingTests
         Assert.Multiple(() =>
         {
             Assert.That(result.Status, Is.EqualTo(CommandExecutionStatus.Failed));
-            Assert.That(logger.Entries, Has.Count.EqualTo(1));
-            Assert.That(logger.Entries[0].Text, Does.Contain("command=not-a-command"));
-            Assert.That(logger.Entries[0].Text, Does.Not.Contain("secret"));
-            Assert.That(logger.Entries[0].Level, Is.EqualTo(OperationsLogLevel.Warning));
+            Assert.That(entries, Has.Count.EqualTo(1));
+            Assert.That(entries[0].Text, Does.Contain("command=not-a-command"));
+            Assert.That(entries[0].Text, Does.Not.Contain("secret"));
+            Assert.That(entries[0].Level, Is.EqualTo(OperationsLogLevel.Warning));
         });
     }
 
     [Test]
-    public async Task ForbiddenInvocationIsLoggedWithoutArguments()
+    public async Task ForbiddenInvocationIsPublishedWithoutArguments()
     {
-        var logger = new RecordingLogger();
         var dispatcher = new CommandDispatcher(
-            [new StubHandler(new CommandDescriptor("login", [], ["vega.login"]))],
-            logger);
+            [new StubHandler(new CommandDescriptor("login", [], ["vega.login"]))]);
+        var entries = new List<OperationsLogMessage>();
+        dispatcher.LogProduced += entries.Add;
 
         CommandExecutionResult result = await dispatcher.DispatchAsync(
             Invocation("login", ["top-secret-password"], hasPermission: false));
@@ -64,23 +65,30 @@ public sealed class CommandDispatcherLoggingTests
         Assert.Multiple(() =>
         {
             Assert.That(result.Status, Is.EqualTo(CommandExecutionStatus.Forbidden));
-            Assert.That(logger.Entries, Has.Count.EqualTo(1));
-            Assert.That(logger.Entries[0].Text, Does.Contain("status=Forbidden"));
-            Assert.That(logger.Entries[0].Text, Does.Contain("error=command.permission_denied"));
-            Assert.That(logger.Entries[0].Text, Does.Not.Contain("top-secret-password"));
+            Assert.That(entries, Has.Count.EqualTo(1));
+            Assert.That(entries[0].Text, Does.Contain("status=Forbidden"));
+            Assert.That(entries[0].Text, Does.Contain("error=command.permission_denied"));
+            Assert.That(entries[0].Text, Does.Not.Contain("top-secret-password"));
         });
     }
 
     [Test]
-    public async Task LoggerFailureDoesNotFailCommand()
+    public async Task ObserverFailureDoesNotFailCommandOrBlockLaterObservers()
     {
         var dispatcher = new CommandDispatcher(
-            [new StubHandler(new CommandDescriptor("safe", [], []))],
-            new ThrowingLogger());
+            [new StubHandler(new CommandDescriptor("safe", [], []))]);
+        var entries = new List<OperationsLogMessage>();
+        dispatcher.LogProduced += static _ => throw new InvalidOperationException("observer unavailable");
+        dispatcher.LogProduced += entries.Add;
 
         CommandExecutionResult result = await dispatcher.DispatchAsync(Invocation("safe", []));
 
-        Assert.That(result.Status, Is.EqualTo(CommandExecutionStatus.Success));
+        Assert.Multiple(() =>
+        {
+            Assert.That(result.Status, Is.EqualTo(CommandExecutionStatus.Success));
+            Assert.That(entries, Has.Count.EqualTo(1));
+            Assert.That(entries[0].Text, Does.Contain("command=safe"));
+        });
     }
 
     private static CommandInvocation Invocation(
@@ -98,32 +106,6 @@ public sealed class CommandDispatcherLoggingTests
             CancellationToken cancellationToken) =>
             ValueTask.FromResult(CommandExecutionResult.Success);
     }
-
-    private sealed class RecordingLogger : IOperationsLogger
-    {
-        public List<Entry> Entries { get; } = [];
-
-        public void Log(
-            OperationsLogLevel level,
-            string source,
-            string text,
-            Exception? exception = null,
-            string? correlationId = null) =>
-            Entries.Add(new Entry(level, source, text));
-    }
-
-    private sealed class ThrowingLogger : IOperationsLogger
-    {
-        public void Log(
-            OperationsLogLevel level,
-            string source,
-            string text,
-            Exception? exception = null,
-            string? correlationId = null) =>
-            throw new InvalidOperationException("logging unavailable");
-    }
-
-    private sealed record Entry(OperationsLogLevel Level, string Source, string Text);
 
     private sealed class TestPrincipal(bool hasPermission) : ICommandPrincipal
     {
