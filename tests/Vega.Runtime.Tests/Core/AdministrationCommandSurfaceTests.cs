@@ -5,6 +5,7 @@ using Vega.Contracts.Worlds;
 using Vega.Core.Commands;
 using Vega.Core.Commands.Administration;
 using Vega.Core.Configuration;
+using Vega.Core.Events;
 using Vega.Persistence.Sqlite;
 using Vega.Regions;
 
@@ -35,8 +36,10 @@ public sealed class AdministrationCommandSurfaceTests
             """{"port":7788,"maximumPlayers":12,"defaultCulture":"en-US","uiMode":"plain"}""");
         SqliteVegaDatabase database = await SqliteVegaDatabase.OpenAsync(
             new SqliteVegaDatabaseOptions(Path.Combine(directory, "data", "vega.db")));
+        var configuration = new VegaServerConfigurationState(configPath, []);
+        var reload = new ServerReloadService(configuration, new AsyncEventHub());
         var dispatcher = new CommandDispatcher([
-            new ConfigurationCommand(new VegaServerConfigurationState(configPath, [])),
+            new ConfigurationCommand(configuration, reload),
             new GroupCommand(database.Authorization),
             new RegionCommand(database.Regions)
         ]);
