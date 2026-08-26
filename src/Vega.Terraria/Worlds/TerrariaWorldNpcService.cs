@@ -1,3 +1,4 @@
+using Multiplicity.Packets;
 using Terraria.DataStructures;
 using Terraria.ID;
 using Vega.Contracts.Players;
@@ -65,6 +66,32 @@ public sealed class TerrariaWorldNpcService(
         return DispatchAsync(
             "world.npcs.despawn",
             () => Despawn(request),
+            cancellationToken,
+            Unavailable(),
+            Cancelled());
+    }
+
+    public ValueTask<NpcOperationResult> KillAsync(
+        NpcKillRequest request,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+        return DispatchAsync(
+            "world.npcs.kill",
+            () => Kill(request),
+            cancellationToken,
+            Unavailable(),
+            Cancelled());
+    }
+
+    public ValueTask<NpcOperationResult> RenameAsync(
+        NpcRenameRequest request,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+        return DispatchAsync(
+            "world.npcs.rename",
+            () => Rename(request),
             cancellationToken,
             Unavailable(),
             Cancelled());
@@ -207,6 +234,76 @@ public sealed class TerrariaWorldNpcService(
         return new NpcOperationResult(NpcOperationStatus.Applied, before);
     }
 
+    private NpcOperationResult Kill(NpcKillRequest request)
+    {
+        dispatcher.AssertGameThread();
+        if (!TryExpected(request.Expected, out global::Terraria.NPC? npc, out NpcOperationResult? failure))
+        {
+            return failure!;
+        }
+
+        int slot = request.Expected.Slot;
+        NpcSnapshot before = CreateSnapshot(slot, npc!, revisions[slot]);
+        long damage = (long)npc!.life + (long)(npc.defense * 0.6d);
+        int appliedDamage = (int)Math.Clamp(damage, 1, int.MaxValue);
+        global::Terraria.Main.rand ??= new global::Terraria.Utilities.UnifiedRandom();
+        npc.StrikeNPC(appliedDamage, 0f, 0);
+        if (global::Terraria.Main.netMode == 2)
+        {
+            global::Terraria.NetMessage.SendData(
+                (int)PacketTypes.NpcStrike,
+                -1,
+                -1,
+                global::Terraria.Localization.NetworkText.Empty,
+                slot,
+                appliedDamage);
+        }
+
+        if (npc.active)
+        {
+            fingerprints[slot] = Fingerprint(npc);
+            revisions[slot]++;
+        }
+        else
+        {
+            ObserveInactive(slot);
+        }
+
+        return new NpcOperationResult(NpcOperationStatus.Applied, before);
+    }
+
+    private NpcOperationResult Rename(NpcRenameRequest request)
+    {
+        dispatcher.AssertGameThread();
+        if (string.IsNullOrWhiteSpace(request.Name) || request.Name.Length > 200)
+        {
+            return Invalid("npc.invalid_name");
+        }
+
+        if (!TryExpected(request.Expected, out global::Terraria.NPC? npc, out NpcOperationResult? failure))
+        {
+            return failure!;
+        }
+
+        int slot = request.Expected.Slot;
+        npc!.GivenName = request.Name;
+        fingerprints[slot] = Fingerprint(npc);
+        long revision = ++revisions[slot];
+        if (global::Terraria.Main.netMode == 2)
+        {
+            global::Terraria.NetMessage.SendData(
+                (int)PacketTypes.UpdateNPCName,
+                -1,
+                -1,
+                global::Terraria.Localization.NetworkText.FromLiteral(request.Name),
+                slot);
+        }
+
+        return new NpcOperationResult(
+            NpcOperationStatus.Applied,
+            CreateSnapshot(slot, npc, revision));
+    }
+
     private bool TryExpected(
         NpcHandle expected,
         out global::Terraria.NPC? npc,
@@ -252,7 +349,8 @@ public sealed class TerrariaWorldNpcService(
         npc.townNPC,
         npc.boss,
         npc.target,
-        DateTimeOffset.UtcNow);
+        DateTimeOffset.UtcNow,
+        npc.GivenName);
 
     private void EnsureTrackingCapacity()
     {
@@ -309,6 +407,7 @@ public sealed class TerrariaWorldNpcService(
         hash.Add(npc.velocity.X);
         hash.Add(npc.velocity.Y);
         hash.Add(npc.target);
+        hash.Add(npc.GivenName, StringComparer.Ordinal);
         return hash.ToHashCode();
     }
 

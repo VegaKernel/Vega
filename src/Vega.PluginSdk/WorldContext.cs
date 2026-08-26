@@ -74,6 +74,15 @@ public interface IPluginWorldNpcs
     ValueTask<NpcOperationResult> DespawnAsync(
         NpcHandle expected,
         CancellationToken cancellationToken = default);
+
+    ValueTask<NpcOperationResult> KillAsync(
+        NpcHandle expected,
+        CancellationToken cancellationToken = default);
+
+    ValueTask<NpcOperationResult> RenameAsync(
+        NpcHandle expected,
+        string name,
+        CancellationToken cancellationToken = default);
 }
 
 public interface IPluginWorldScenes
@@ -328,6 +337,42 @@ internal static class VegaPluginRuntime
 
             return current.Npcs?.DespawnAsync(
                 new NpcDespawnRequest(expected, Actor(context)),
+                cancellationToken) ?? Unavailable();
+        }
+
+        public ValueTask<NpcOperationResult> KillAsync(
+            NpcHandle expected,
+            CancellationToken cancellationToken = default)
+        {
+            VegaPluginRuntimeServices current = Services;
+            if (expected.WorldId != current.WorldId)
+            {
+                return ValueTask.FromResult(new NpcOperationResult(
+                    NpcOperationStatus.Invalid,
+                    ErrorCode: "npc.wrong_world"));
+            }
+
+            return current.Npcs?.KillAsync(
+                new NpcKillRequest(expected, Actor(context)),
+                cancellationToken) ?? Unavailable();
+        }
+
+        public ValueTask<NpcOperationResult> RenameAsync(
+            NpcHandle expected,
+            string name,
+            CancellationToken cancellationToken = default)
+        {
+            ArgumentException.ThrowIfNullOrWhiteSpace(name);
+            VegaPluginRuntimeServices current = Services;
+            if (expected.WorldId != current.WorldId)
+            {
+                return ValueTask.FromResult(new NpcOperationResult(
+                    NpcOperationStatus.Invalid,
+                    ErrorCode: "npc.wrong_world"));
+            }
+
+            return current.Npcs?.RenameAsync(
+                new NpcRenameRequest(expected, name, Actor(context)),
                 cancellationToken) ?? Unavailable();
         }
 

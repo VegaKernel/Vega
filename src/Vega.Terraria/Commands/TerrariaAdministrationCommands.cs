@@ -44,7 +44,8 @@ internal static class TerrariaAdministrationCommandRegistration
             new PositionCommand(players),
             new NpcListCommand(npcs),
             new SpawnMobCommand(players, npcs, environment),
-            new ButcherCommand(npcs)
+            new ButcherCommand(npcs, new TerrariaNpcCatalog(), players, players),
+            new RenameNpcCommand(npcs, new TerrariaNpcCatalog(), players, players)
         ];
 
         var registrations = handlers.Select(registry.Register).ToList();
@@ -640,44 +641,193 @@ internal sealed class SpawnMobCommand(
         "Usage: spawnmob <npc-type> [count:1..200] [player].");
 }
 
-internal sealed class ButcherCommand(IWorldNpcService npcs) : ICommandHandler
+internal sealed class ButcherCommand(
+    IWorldNpcService npcs,
+    INpcCatalog catalog,
+    IPlayerDirectory players,
+    IPlayerMessenger messenger) : ICommandHandler
 {
     public CommandDescriptor Descriptor { get; } = new(
         "butcher",
-        ["killnpcs"],
+        [],
         ["vega.npc.butcher"],
-        Syntax: "butcher [hostile|bosses|all]");
+        Syntax: "butcher [npc-name|id]");
 
     public async ValueTask<CommandExecutionResult> ExecuteAsync(CommandInvocation invocation, CancellationToken cancellationToken)
     {
-        string mode = invocation.Arguments.Count == 0 ? "hostile" : invocation.Arguments[0].ToLowerInvariant();
-        if (invocation.Arguments.Count > 1 || mode is not ("hostile" or "bosses" or "all"))
+        if (invocation.Arguments.Count > 1)
         {
-            return AdminCommandResults.Usage("command.butcher.usage", "Usage: butcher [hostile|bosses|all].");
+            return AdminCommandResults.Usage("command.butcher.usage", "Usage: butcher [npc-name|id].");
         }
 
         IReadOnlyList<NpcSnapshot> snapshot = await npcs.SnapshotAsync(invocation.WorldId, cancellationToken).ConfigureAwait(false);
-        IEnumerable<NpcSnapshot> selected = mode switch
+        IEnumerable<NpcSnapshot> selected;
+        if (invocation.Arguments.Count == 0)
         {
-            "bosses" => snapshot.Where(static npc => npc.Boss),
-            "all" => snapshot,
-            _ => snapshot.Where(static npc => !npc.Friendly && !npc.TownNpc)
-        };
+            selected = snapshot.Where(static npc =>
+                !npc.TownNpc && npc.NetId != global::Terraria.ID.NPCID.TargetDummy);
+        }
+        else
+        {
+            NpcResolutionResult resolution = catalog.Resolve(invocation.Arguments[0]);
+            if (resolution.Status == NpcResolutionStatus.NotFound)
+            {
+                return AdminCommandResults.Failure(
+                    "command.butcher.npc-not-found",
+                    $"'{invocation.Arguments[0]}' is not a valid NPC.");
+            }
 
-        int removed = 0;
+            if (resolution.Status == NpcResolutionStatus.Ambiguous)
+            {
+                return AdminCommandResults.Failure(
+                    "command.butcher.npc-ambiguous",
+                    $"NPC is ambiguous: {string.Join(", ", resolution.Candidates.Select(static npc => $"{npc.Name} ({npc.NetId})"))}.");
+            }
+
+            int netId = resolution.Npc!.NetId;
+            selected = netId == 0
+                ? snapshot.Where(static npc =>
+                    !npc.TownNpc && npc.NetId != global::Terraria.ID.NPCID.TargetDummy)
+                : snapshot.Where(npc => npc.NetId == netId);
+        }
+
+        int killed = 0;
         int conflicts = 0;
         foreach (NpcSnapshot npc in selected.ToArray())
         {
             NpcOperationResult result = await npcs
-                .DespawnAsync(new NpcDespawnRequest(npc.Handle, invocation.Principal.Name), cancellationToken)
+                .KillAsync(new NpcKillRequest(npc.Handle, invocation.Principal.Name), cancellationToken)
                 .ConfigureAwait(false);
-            if (result.IsSuccess) removed++;
+            if (result.IsSuccess) killed++;
             else conflicts++;
+        }
+
+        string message = $"{invocation.Principal.Name} butchered {killed} NPC(s).";
+        if (!invocation.Silent)
+        {
+            await NpcCommandBroadcast.SendToOthersAsync(
+                players,
+                messenger,
+                invocation,
+                message,
+                cancellationToken).ConfigureAwait(false);
         }
 
         return CommandExecutionResult.WithMessages(
             MessageDescriptor.Success("command.butcher.applied")
-                .WithDefaultText($"Removed {removed} NPC(s); {conflicts} changed or failed before removal."));
+                .WithDefaultText(conflicts == 0
+                    ? message
+                    : $"{message} {conflicts} changed or failed before the strike."));
+    }
+}
+
+internal sealed class RenameNpcCommand(
+    IWorldNpcService npcs,
+    INpcCatalog catalog,
+    IPlayerDirectory players,
+    IPlayerMessenger messenger) : ICommandHandler
+{
+    public CommandDescriptor Descriptor { get; } = new(
+        "renamenpc",
+        [],
+        ["vega.npc.rename"],
+        Syntax: "renamenpc <npc-name|id> <new-name>");
+
+    public async ValueTask<CommandExecutionResult> ExecuteAsync(
+        CommandInvocation invocation,
+        CancellationToken cancellationToken)
+    {
+        if (invocation.Arguments.Count != 2)
+        {
+            return AdminCommandResults.Usage(
+                "command.renamenpc.usage",
+                "Usage: renamenpc <npc-name|id> <new-name>.");
+        }
+
+        string newName = invocation.Arguments[1];
+        if (string.IsNullOrWhiteSpace(newName) || newName.Length > 200)
+        {
+            return AdminCommandResults.Failure(
+                "command.renamenpc.invalid-name",
+                "The new NPC name must contain 1..200 characters.");
+        }
+
+        NpcResolutionResult resolution = catalog.Resolve(invocation.Arguments[0]);
+        if (resolution.Status == NpcResolutionStatus.NotFound)
+        {
+            return AdminCommandResults.Failure(
+                "command.renamenpc.npc-not-found",
+                $"'{invocation.Arguments[0]}' is not a valid NPC.");
+        }
+
+        if (resolution.Status == NpcResolutionStatus.Ambiguous)
+        {
+            return AdminCommandResults.Failure(
+                "command.renamenpc.npc-ambiguous",
+                $"NPC is ambiguous: {string.Join(", ", resolution.Candidates.Select(static npc => $"{npc.Name} ({npc.NetId})"))}.");
+        }
+
+        int netId = resolution.Npc!.NetId;
+        IReadOnlyList<NpcSnapshot> snapshot = await npcs
+            .SnapshotAsync(invocation.WorldId, cancellationToken)
+            .ConfigureAwait(false);
+        NpcSnapshot[] selected = snapshot
+            .Where(npc => netId == 0 ? !npc.TownNpc : npc.TownNpc && npc.NetId == netId)
+            .ToArray();
+        int renamed = 0;
+        int conflicts = 0;
+        foreach (NpcSnapshot npc in selected)
+        {
+            NpcOperationResult result = await npcs
+                .RenameAsync(
+                    new NpcRenameRequest(npc.Handle, newName, invocation.Principal.Name),
+                    cancellationToken)
+                .ConfigureAwait(false);
+            if (result.IsSuccess) renamed++;
+            else conflicts++;
+        }
+
+        if (renamed == 0)
+        {
+            return AdminCommandResults.Failure(
+                "command.renamenpc.no-active-match",
+                $"Could not rename {invocation.Arguments[0]}.");
+        }
+
+        string message = $"{invocation.Principal.Name} renamed the {invocation.Arguments[0]}.";
+        await NpcCommandBroadcast.SendToOthersAsync(
+            players,
+            messenger,
+            invocation,
+            message,
+            cancellationToken).ConfigureAwait(false);
+        return CommandExecutionResult.WithMessages(
+            MessageDescriptor.Success("command.renamenpc.applied")
+                .WithDefaultText(conflicts == 0
+                    ? message
+                    : $"{message} {conflicts} changed or failed before rename."));
+    }
+}
+
+internal static class NpcCommandBroadcast
+{
+    public static async ValueTask SendToOthersAsync(
+        IPlayerDirectory players,
+        IPlayerMessenger messenger,
+        CommandInvocation invocation,
+        string message,
+        CancellationToken cancellationToken)
+    {
+        PlayerId? callerId = (invocation.Principal as IPlayerCommandPrincipal)?.PlayerId;
+        foreach (PlayerSnapshot player in players.SnapshotOnlinePlayers())
+        {
+            if (player.Id == callerId)
+            {
+                continue;
+            }
+
+            await messenger.SendMessageAsync(player.Id, message, cancellationToken).ConfigureAwait(false);
+        }
     }
 }
 

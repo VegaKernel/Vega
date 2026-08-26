@@ -133,13 +133,21 @@ public sealed class TerrariaAdministrationCommandTests
     }
 
     [Test]
-    public async Task ButcherDefaultsToHostileNonTownNpcsOnly()
+    public async Task ButcherDefaultsToAllNonTownNpcsExceptTargetDummyAndUsesKillPath()
     {
         NpcSnapshot hostile = Npc(1, "Zombie", friendly: false, town: false, boss: false);
         NpcSnapshot guide = Npc(2, "Guide", friendly: true, town: true, boss: false);
         NpcSnapshot boss = Npc(3, "Eye", friendly: false, town: false, boss: true);
-        var npcs = new RecordingNpcs(hostile, guide, boss);
-        var command = new ButcherCommand(npcs);
+        NpcSnapshot bunny = Npc(4, "Bunny", friendly: true, town: false, boss: false);
+        NpcSnapshot dummy = Npc(
+            5,
+            "Target Dummy",
+            friendly: false,
+            town: false,
+            boss: false,
+            netId: global::Terraria.ID.NPCID.TargetDummy);
+        var npcs = new RecordingNpcs(hostile, guide, boss, bunny, dummy);
+        var command = new ButcherCommand(npcs, new RecordingNpcCatalog(), new RecordingPlayers(), new NullMessenger());
 
         CommandExecutionResult result = await command.ExecuteAsync(
             Invocation("butcher", []),
@@ -148,10 +156,84 @@ public sealed class TerrariaAdministrationCommandTests
         Assert.Multiple(() =>
         {
             Assert.That(result.Status, Is.EqualTo(CommandExecutionStatus.Success));
-            Assert.That(npcs.Despawned, Does.Contain(hostile.Handle));
-            Assert.That(npcs.Despawned, Does.Contain(boss.Handle));
-            Assert.That(npcs.Despawned, Does.Not.Contain(guide.Handle));
-            Assert.That(npcs.Despawned.Count, Is.EqualTo(2));
+            Assert.That(npcs.Killed, Does.Contain(hostile.Handle));
+            Assert.That(npcs.Killed, Does.Contain(boss.Handle));
+            Assert.That(npcs.Killed, Does.Contain(bunny.Handle));
+            Assert.That(npcs.Killed, Does.Not.Contain(guide.Handle));
+            Assert.That(npcs.Killed, Does.Not.Contain(dummy.Handle));
+            Assert.That(npcs.Killed.Count, Is.EqualTo(3));
+        });
+    }
+
+    [Test]
+    public async Task ButcherWithNpcSelectorKillsOnlyMatchingNetId()
+    {
+        NpcSnapshot first = Npc(1, "Zombie", friendly: false, town: false, boss: false, netId: 20);
+        NpcSnapshot second = Npc(2, "Zombie", friendly: false, town: false, boss: false, netId: 20);
+        NpcSnapshot other = Npc(3, "Demon Eye", friendly: false, town: false, boss: false, netId: 21);
+        var npcs = new RecordingNpcs(first, second, other);
+        var command = new ButcherCommand(
+            npcs,
+            new RecordingNpcCatalog(new NpcDefinition(20, "Zombie")),
+            new RecordingPlayers(),
+            new NullMessenger());
+
+        CommandExecutionResult result = await command.ExecuteAsync(
+            Invocation("butcher", ["Zombie"]),
+            CancellationToken.None);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(result.Status, Is.EqualTo(CommandExecutionStatus.Success));
+            Assert.That(npcs.Killed, Is.EqualTo(new[] { first.Handle, second.Handle }));
+        });
+    }
+
+    [Test]
+    public async Task RenameNpcRenamesEveryActiveTownNpcOfResolvedType()
+    {
+        NpcSnapshot firstGuide = Npc(1, "Guide", friendly: true, town: true, boss: false, netId: 22);
+        NpcSnapshot secondGuide = Npc(2, "Guide", friendly: true, town: true, boss: false, netId: 22);
+        NpcSnapshot zombie = Npc(3, "Zombie", friendly: false, town: false, boss: false, netId: 20);
+        var npcs = new RecordingNpcs(firstGuide, secondGuide, zombie);
+        var command = new RenameNpcCommand(
+            npcs,
+            new RecordingNpcCatalog(new NpcDefinition(22, "Guide")),
+            new RecordingPlayers(),
+            new NullMessenger());
+
+        CommandExecutionResult result = await command.ExecuteAsync(
+            Invocation("renamenpc", ["Guide", "Andrew"]),
+            CancellationToken.None);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(result.Status, Is.EqualTo(CommandExecutionStatus.Success));
+            Assert.That(npcs.Renamed.Select(static entry => entry.Handle),
+                Is.EqualTo(new[] { firstGuide.Handle, secondGuide.Handle }));
+            Assert.That(npcs.Renamed.Select(static entry => entry.Name),
+                Is.All.EqualTo("Andrew"));
+        });
+    }
+
+    [Test]
+    public async Task RenameNpcRejectsNamesLongerThanTShockLimit()
+    {
+        var npcs = new RecordingNpcs();
+        var command = new RenameNpcCommand(
+            npcs,
+            new RecordingNpcCatalog(new NpcDefinition(22, "Guide")),
+            new RecordingPlayers(),
+            new NullMessenger());
+
+        CommandExecutionResult result = await command.ExecuteAsync(
+            Invocation("renamenpc", ["Guide", new string('x', 201)]),
+            CancellationToken.None);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(result.ErrorCode, Is.EqualTo("command.renamenpc.invalid-name"));
+            Assert.That(npcs.Renamed, Is.Empty);
         });
     }
 
@@ -174,10 +256,16 @@ public sealed class TerrariaAdministrationCommandTests
             IsHostile: false,
             Team: 0);
 
-    private static NpcSnapshot Npc(int slot, string name, bool friendly, bool town, bool boss) =>
+    private static NpcSnapshot Npc(
+        int slot,
+        string name,
+        bool friendly,
+        bool town,
+        bool boss,
+        int? netId = null) =>
         new(
-            new NpcHandle(WorldId.Primary, slot, 100 + slot, slot),
-            NetId: 100 + slot,
+            new NpcHandle(WorldId.Primary, slot, netId ?? 100 + slot, slot),
+            NetId: netId ?? 100 + slot,
             name,
             new PlayerPosition(slot * 16, slot * 16),
             new WorldVelocity(0, 0),
@@ -321,6 +409,8 @@ public sealed class TerrariaAdministrationCommandTests
         private readonly NpcSnapshot[] snapshot = initial;
 
         public List<NpcHandle> Despawned { get; } = [];
+        public List<NpcHandle> Killed { get; } = [];
+        public List<(NpcHandle Handle, string Name)> Renamed { get; } = [];
 
         public ValueTask<IReadOnlyList<NpcSnapshot>> SnapshotAsync(
             WorldId worldId,
@@ -349,6 +439,48 @@ public sealed class TerrariaAdministrationCommandTests
             Despawned.Add(request.Expected);
             return ValueTask.FromResult(new NpcOperationResult(NpcOperationStatus.Applied));
         }
+
+        public ValueTask<NpcOperationResult> KillAsync(
+            NpcKillRequest request,
+            CancellationToken cancellationToken = default)
+        {
+            Killed.Add(request.Expected);
+            return ValueTask.FromResult(new NpcOperationResult(NpcOperationStatus.Applied));
+        }
+
+        public ValueTask<NpcOperationResult> RenameAsync(
+            NpcRenameRequest request,
+            CancellationToken cancellationToken = default)
+        {
+            Renamed.Add((request.Expected, request.Name));
+            return ValueTask.FromResult(new NpcOperationResult(NpcOperationStatus.Applied));
+        }
+    }
+
+    private sealed class RecordingNpcCatalog(params NpcDefinition[] definitions) : INpcCatalog
+    {
+        public NpcResolutionResult Resolve(string query)
+        {
+            NpcDefinition[] matches = definitions
+                .Where(npc => npc.NetId.ToString() == query ||
+                    npc.Name.StartsWith(query, StringComparison.OrdinalIgnoreCase))
+                .ToArray();
+            return matches.Length switch
+            {
+                0 => new NpcResolutionResult(NpcResolutionStatus.NotFound),
+                1 => new NpcResolutionResult(NpcResolutionStatus.Found, matches[0]),
+                _ => new NpcResolutionResult(NpcResolutionStatus.Ambiguous, Matches: matches)
+            };
+        }
+    }
+
+    private sealed class NullMessenger : IPlayerMessenger
+    {
+        public ValueTask<PlayerOperationResult> SendMessageAsync(
+            PlayerId id,
+            string message,
+            CancellationToken cancellationToken = default) =>
+            ValueTask.FromResult(PlayerOperationResult.Applied());
     }
 
     private sealed class ServerPrincipal : ICommandPrincipal
