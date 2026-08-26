@@ -23,6 +23,38 @@ public sealed class TerrariaServerControl(
         CancellationToken cancellationToken = default) =>
         ShutdownCoreAsync(reason, saveWorld: false, cancellationToken);
 
+    public async ValueTask SetPasswordAsync(
+        string password,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(password);
+        var completion = new TaskCompletionSource(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+        if (!gameThread.TryPost("server-password", () =>
+            {
+                try
+                {
+                    global::Terraria.Netplay.ServerPassword = password;
+                    logger.Log(
+                        OperationsLogLevel.Information,
+                        "server-control",
+                        string.IsNullOrEmpty(password)
+                            ? "Live server password was cleared."
+                            : "Live server password was changed.");
+                    completion.TrySetResult();
+                }
+                catch (Exception ex)
+                {
+                    completion.TrySetException(ex);
+                }
+            }))
+        {
+            throw new InvalidOperationException("The Terraria game-thread queue is full.");
+        }
+
+        await completion.Task.WaitAsync(cancellationToken).ConfigureAwait(false);
+    }
+
     private async ValueTask ShutdownCoreAsync(
         string reason,
         bool saveWorld,
