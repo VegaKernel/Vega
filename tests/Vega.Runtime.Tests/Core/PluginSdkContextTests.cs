@@ -1,10 +1,12 @@
 using NUnit.Framework;
 using Vega.Contracts.Commands;
+using Vega.Contracts.Events;
 using Vega.Contracts.Messaging;
 using Vega.Contracts.Modules;
 using Vega.Contracts.Operations;
 using Vega.Contracts.Players;
 using Vega.Contracts.Threading;
+using Vega.Core.Events;
 using Vega.Core.Modules;
 using Vega.PluginSdk;
 
@@ -14,13 +16,15 @@ namespace Vega.Runtime.Tests.Core;
 public sealed class PluginSdkContextTests
 {
     [Test]
-    public async Task ScopeOwnsCommandsHooksTasksAndStorageUntilUnload()
+    public async Task ScopeOwnsCommandsHooksTasksEventsAndStorageUntilUnload()
     {
         string dataDirectory = Path.Combine(
             Path.GetTempPath(), "vega-plugin-sdk-tests", Guid.NewGuid().ToString("N"));
         var commands = new RecordingCommandRegistry();
         var players = new RecordingPlayers();
         var dispatcher = new ImmediateDispatcher();
+        var eventHub = new AsyncEventHub();
+        VegaPluginEventRuntime.Configure(eventHub);
         var scope = new HotModuleRegistrationScope(
             commands,
             new RecordingLogger(),
@@ -34,12 +38,14 @@ public sealed class PluginSdkContextTests
         IVegaPluginContext plugin = scope;
         var joins = 0;
         var leaves = 0;
+        var eventCalls = 0;
         var repeats = 0;
         var applied = 0;
 
         plugin.Commands.Register(new ProbeCommand());
         plugin.Players.OnJoined(_ => Interlocked.Increment(ref joins));
         plugin.Players.OnLeft(_ => Interlocked.Increment(ref leaves));
+        plugin.Events.On<ProbeEvent>(_ => Interlocked.Increment(ref eventCalls));
         plugin.Tasks.Every("probe-repeat", TimeSpan.FromMilliseconds(5),
             () => Interlocked.Increment(ref repeats));
         plugin.Tasks.RunIo("probe-io",
@@ -49,6 +55,7 @@ public sealed class PluginSdkContextTests
 
         players.RaiseOpened();
         players.RaiseClosed();
+        await eventHub.DispatchAsync(new ProbeEvent());
         await WaitUntilAsync(() => Volatile.Read(ref repeats) > 0 && Volatile.Read(ref applied) == 42);
         ProbeSettings stored = plugin.Storage.LoadJson(
             "settings.json",
@@ -62,6 +69,7 @@ public sealed class PluginSdkContextTests
             Assert.That(players.ClosedSubscribers, Is.EqualTo(1));
             Assert.That(joins, Is.EqualTo(1));
             Assert.That(leaves, Is.EqualTo(1));
+            Assert.That(eventCalls, Is.EqualTo(1));
             Assert.That(stored.Value, Is.EqualTo("ready"));
             Assert.That(
                 () => plugin.Storage.LoadJson("../escape.json", () => new ProbeSettings("bad")),
@@ -72,6 +80,7 @@ public sealed class PluginSdkContextTests
         int repeatsAfterUnload = Volatile.Read(ref repeats);
         players.RaiseOpened();
         players.RaiseClosed();
+        await eventHub.DispatchAsync(new ProbeEvent());
         await Task.Delay(20);
 
         Assert.Multiple(() =>
@@ -81,6 +90,7 @@ public sealed class PluginSdkContextTests
             Assert.That(players.ClosedSubscribers, Is.Zero);
             Assert.That(joins, Is.EqualTo(1));
             Assert.That(leaves, Is.EqualTo(1));
+            Assert.That(eventCalls, Is.EqualTo(1));
             Assert.That(repeats, Is.EqualTo(repeatsAfterUnload));
         });
     }
@@ -94,6 +104,7 @@ public sealed class PluginSdkContextTests
         }
     }
 
+    private sealed record ProbeEvent;
     private sealed record ProbeSettings(string Value);
 
     private sealed class ProbeCommand : ICommandHandler
