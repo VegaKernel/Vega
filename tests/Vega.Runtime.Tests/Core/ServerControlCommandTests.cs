@@ -4,6 +4,7 @@ using Vega.Contracts.Runtime;
 using Vega.Contracts.Worlds;
 using Vega.Core.Commands;
 using Vega.Core.Commands.Administration;
+using Vega.Core.Commands.System;
 
 namespace Vega.Runtime.Tests.Core;
 
@@ -11,7 +12,7 @@ namespace Vega.Runtime.Tests.Core;
 public sealed class ServerControlCommandTests
 {
     [Test]
-    public async Task SaveAndShutdownUseOneAuthorizedServerControlBoundary()
+    public async Task SaveOffAndOffNoSaveUseOneAuthorizedServerControlBoundary()
     {
         var control = new RecordingServerControl();
         var dispatcher = new CommandDispatcher([
@@ -27,14 +28,39 @@ public sealed class ServerControlCommandTests
             Invocation("save", [], operatorPrincipal));
         CommandExecutionResult stopped = await dispatcher.DispatchAsync(
             Invocation("stop", ["Planned", "maintenance"], operatorPrincipal));
+        CommandExecutionResult stoppedWithoutSave = await dispatcher.DispatchAsync(
+            Invocation("off-nosave", ["Emergency", "stop"], operatorPrincipal));
 
         Assert.Multiple(() =>
         {
             Assert.That(deniedSave.Status, Is.EqualTo(CommandExecutionStatus.Forbidden));
             Assert.That(saved.Status, Is.EqualTo(CommandExecutionStatus.Success));
             Assert.That(stopped.Status, Is.EqualTo(CommandExecutionStatus.Success));
+            Assert.That(stoppedWithoutSave.Status, Is.EqualTo(CommandExecutionStatus.Success));
             Assert.That(control.SaveCount, Is.EqualTo(1));
-            Assert.That(control.ShutdownReason, Is.EqualTo("Planned maintenance"));
+            Assert.That(control.Shutdowns, Has.Count.EqualTo(2));
+            Assert.That(control.Shutdowns[0], Is.EqualTo(("Planned maintenance", true)));
+            Assert.That(control.Shutdowns[1], Is.EqualTo(("Emergency stop", false)));
+        });
+    }
+
+    [Test]
+    public async Task VersionAliasIsRegisteredAndDoesNotReadHostMetrics()
+    {
+        var dispatcher = new CommandDispatcher([
+            new ServerInfoCommand(null!)
+        ]);
+        var principal = new Principal("operator", ["vega.info"]);
+
+        CommandExecutionResult result = await dispatcher.DispatchAsync(
+            Invocation("version", [], principal));
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(dispatcher.CanDispatch("version"), Is.True);
+            Assert.That(result.Status, Is.EqualTo(CommandExecutionStatus.Success));
+            Assert.That(result.Messages, Has.Count.EqualTo(1));
+            Assert.That(result.Messages[0].Key, Is.EqualTo("command.version.current"));
         });
     }
 
@@ -47,7 +73,7 @@ public sealed class ServerControlCommandTests
     private sealed class RecordingServerControl : IServerControl
     {
         public int SaveCount { get; private set; }
-        public string? ShutdownReason { get; private set; }
+        public List<(string Reason, bool SaveWorld)> Shutdowns { get; } = [];
 
         public ValueTask SaveAsync(CancellationToken cancellationToken = default)
         {
@@ -57,7 +83,13 @@ public sealed class ServerControlCommandTests
 
         public ValueTask ShutdownAsync(string reason, CancellationToken cancellationToken = default)
         {
-            ShutdownReason = reason;
+            Shutdowns.Add((reason, true));
+            return ValueTask.CompletedTask;
+        }
+
+        public ValueTask ShutdownWithoutSaveAsync(string reason, CancellationToken cancellationToken = default)
+        {
+            Shutdowns.Add((reason, false));
             return ValueTask.CompletedTask;
         }
     }
