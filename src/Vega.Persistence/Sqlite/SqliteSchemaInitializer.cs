@@ -5,7 +5,7 @@ namespace Vega.Persistence.Sqlite;
 
 internal static class SqliteSchemaInitializer
 {
-    private const int CurrentVersion = 2;
+    private const int CurrentVersion = 1;
 
     private static readonly SchemaSection[] BaselineSections =
     [
@@ -191,7 +191,11 @@ internal static class SqliteSchemaInitializer
                 .ConfigureAwait(false);
             int version = await ReadVersionAsync(connection, transaction, cancellationToken)
                 .ConfigureAwait(false);
-            EnsureSupported(version);
+            if (version > CurrentVersion)
+            {
+                throw new InvalidDataException(
+                    $"Database schema {version} is newer than supported schema {CurrentVersion}.");
+            }
 
             if (version == 0)
             {
@@ -205,12 +209,7 @@ internal static class SqliteSchemaInitializer
                         .ConfigureAwait(false);
                 }
 
-                await InsertHistoryAsync(
-                        connection,
-                        transaction,
-                        CurrentVersion,
-                        "vega-current-baseline",
-                        cancellationToken)
+                await InsertBaselineHistoryAsync(connection, transaction, cancellationToken)
                     .ConfigureAwait(false);
                 version = CurrentVersion;
             }
@@ -222,16 +221,6 @@ internal static class SqliteSchemaInitializer
         {
             await transaction.RollbackAsync(CancellationToken.None).ConfigureAwait(false);
             throw;
-        }
-    }
-
-    private static void EnsureSupported(int version)
-    {
-        if (version != 0 && version != CurrentVersion)
-        {
-            throw new InvalidDataException(
-                $"Database schema {version} does not match required schema {CurrentVersion}. " +
-                "Vega does not migrate persistence schemas; recreate the database with the current baseline.");
         }
     }
 
@@ -286,11 +275,9 @@ internal static class SqliteSchemaInitializer
         await schema.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
     }
 
-    private static async ValueTask InsertHistoryAsync(
+    private static async ValueTask InsertBaselineHistoryAsync(
         SqliteConnection connection,
         SqliteTransaction transaction,
-        int version,
-        string name,
         CancellationToken cancellationToken)
     {
         await using SqliteCommand history = connection.CreateCommand();
@@ -300,8 +287,8 @@ internal static class SqliteSchemaInitializer
             INSERT INTO vega_schema_history (version, name, applied_at_utc)
             VALUES ($version, $name, $appliedAt);
             """;
-        history.Parameters.AddWithValue("$version", version);
-        history.Parameters.AddWithValue("$name", name);
+        history.Parameters.AddWithValue("$version", CurrentVersion);
+        history.Parameters.AddWithValue("$name", "vega-1.0-baseline");
         history.Parameters.AddWithValue(
             "$appliedAt",
             DateTimeOffset.UtcNow.ToString("O", CultureInfo.InvariantCulture));

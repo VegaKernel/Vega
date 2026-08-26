@@ -17,7 +17,7 @@ internal sealed class ExternalSchemaInitializer(
     string regionSchemaSql,
     string moderationSchemaSql)
 {
-    private const int CurrentVersion = 2;
+    private const int CurrentVersion = 1;
 
     public async ValueTask<int> InitializeAsync(CancellationToken cancellationToken)
     {
@@ -61,7 +61,7 @@ internal sealed class ExternalSchemaInitializer(
                         connection,
                         transaction,
                         CurrentVersion,
-                        "vega-current-baseline",
+                        "vega-1.0-baseline",
                         cancellationToken)
                     .ConfigureAwait(false);
                 version = CurrentVersion;
@@ -106,7 +106,7 @@ internal sealed class ExternalSchemaInitializer(
                         connection,
                         null,
                         CurrentVersion,
-                        "vega-current-baseline",
+                        "vega-1.0-baseline",
                         cancellationToken)
                     .ConfigureAwait(false);
                 version = CurrentVersion;
@@ -125,11 +125,10 @@ internal sealed class ExternalSchemaInitializer(
 
     private static void EnsureSupported(int version)
     {
-        if (version != 0 && version != CurrentVersion)
+        if (version > CurrentVersion)
         {
             throw new InvalidDataException(
-                $"Database schema {version} does not match required schema {CurrentVersion}. " +
-                "Vega does not migrate persistence schemas; recreate the database with the current baseline.");
+                $"Database schema {version} is newer than supported schema {CurrentVersion}.");
         }
     }
 
@@ -158,7 +157,7 @@ internal sealed class ExternalSchemaInitializer(
         DbConnection connection,
         DbTransaction? transaction,
         int version,
-        string name,
+        string baselineName,
         CancellationToken cancellationToken)
     {
         await using DbCommand command = connection.CreateCommand();
@@ -169,7 +168,7 @@ internal sealed class ExternalSchemaInitializer(
             VALUES (@version, @name, @appliedAt);
             """;
         command.AddParameter("@version", version);
-        command.AddParameter("@name", name);
+        command.AddParameter("@name", baselineName);
         command.AddParameter(
             "@appliedAt",
             DateTimeOffset.UtcNow.ToString("O", CultureInfo.InvariantCulture));
