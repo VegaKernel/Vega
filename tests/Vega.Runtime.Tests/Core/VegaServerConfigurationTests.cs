@@ -82,6 +82,33 @@ public sealed class VegaServerConfigurationTests
         });
     }
 
+    [Test]
+    public void ReloadReplacesCurrentSnapshotAfterSuccessfulValidation()
+    {
+        string path = Write("{ \"port\": 7000 }");
+        var state = new VegaServerConfigurationState(path, Array.Empty<string>(), _ => null);
+        File.WriteAllText(path, "{ \"port\": 7001 }");
+
+        EffectiveVegaServerConfiguration reloaded = state.Reload();
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(reloaded.Values["port"].DisplayValue, Is.EqualTo("7001"));
+            Assert.That(state.Current.Values["port"].DisplayValue, Is.EqualTo("7001"));
+        });
+    }
+
+    [Test]
+    public void InvalidReloadPreservesPreviousCurrentSnapshot()
+    {
+        string path = Write("{ \"port\": 7000 }");
+        var state = new VegaServerConfigurationState(path, Array.Empty<string>(), _ => null);
+        File.WriteAllText(path, "{ \"port\": 0 }");
+
+        Assert.That(state.Reload, Throws.TypeOf<InvalidDataException>());
+        Assert.That(state.Current.Values["port"].DisplayValue, Is.EqualTo("7000"));
+    }
+
     [TestCase("{ \"port\": 0 }")]
     [TestCase("{ \"maximumPlayers\": 999 }")]
     [TestCase("{ \"defaultCulture\": \"definitely-not-a-culture\" }")]
