@@ -441,7 +441,7 @@ public sealed class SqliteVegaDatabaseTests
         GlobalBanCreated active = CreateBan(now) with
         {
             BanId = GlobalBanId.New(),
-            Subject = new GlobalBanSubject(GlobalBanSubjectKind.Network, "2001:db8::/48")
+            Subject = new GlobalBanSubject(GlobalBanSubjectKind.Network, "198.51.100.0/24")
         };
 
         await database.GlobalBans.ApplyCreatedAsync(expired);

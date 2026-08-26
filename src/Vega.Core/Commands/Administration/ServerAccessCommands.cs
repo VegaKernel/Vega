@@ -123,12 +123,13 @@ public sealed class FileServerAccessStore
     public bool TryRemove(string value, out string? normalized, out string? error)
     {
         if (!TryNormalizeIpv4Network(value, out normalized, out error)) return false;
+        string target = normalized!;
 
         lock (gate)
         {
             int index = Array.FindIndex(
                 state.Entries,
-                entry => string.Equals(entry, normalized, StringComparison.OrdinalIgnoreCase));
+                entry => string.Equals(entry, target, StringComparison.OrdinalIgnoreCase));
             if (index < 0)
             {
                 error = "The IPv4 address or network is not whitelisted.";
@@ -528,8 +529,9 @@ public sealed class PersistentServerAccessEnforcer : IDisposable
         try
         {
             players.TryGet(opened.PlayerId, out PlayerSnapshot? player);
+            IPAddress? address = null;
             bool hasIpv4 = BanCommand.TryGetIpAddress(player?.RemoteEndpoint, out string? rawAddress) &&
-                IPAddress.TryParse(rawAddress, out IPAddress? address) &&
+                IPAddress.TryParse(rawAddress, out address) &&
                 address.AddressFamily == AddressFamily.InterNetwork;
             if (hasIpv4 && access.IsAllowed(address!)) return;
 
