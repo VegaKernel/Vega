@@ -782,6 +782,126 @@ TerraZ TShock           = security and operator behavior reference
 Vega                    = independent implementation with explicit evidence
 ```
 
+## Phase 26 — structured logging, durable indexing and observability foundation
+
+Phase 6 introduced the minimum structured event feed required by Operations/TUI. That completed slice is not the end-state logging architecture. This phase replaces the TShock-style "formatted string is the log" model with a Vega-owned infrastructure subsystem for durable structured events, searchable local indexing, live consumption and future observability backends. It is infrastructure for diagnostics, administration, MCP/debug APIs and later observability work, not a cosmetic logging refactor.
+
+### Stable structured logging API and event model
+
+- [ ] Define one Vega logging API with `Microsoft.Extensions.Logging` semantics, either directly through compatible `ILogger` abstractions or through a narrow Vega-owned compatibility layer. Backend selection such as Serilog must remain composition/infrastructure detail.
+- [ ] Do not expose a concrete logging backend to plugins. The public Plugin SDK must provide a stable plugin-scoped logger/context whose source/plugin identity is supplied by the host rather than repeated manually at every call site.
+- [ ] Define a durable structured event schema containing at least UTC timestamp, level, category, event type / event id, source/subsystem, plugin identity, player id, player name, IPv4 address where authorized, connection id, command, packet id/type, world, exception and arbitrary additional structured properties.
+- [ ] Define stable Vega event ids/types for important runtime, security, command, persistence, world, plugin and administration events instead of relying only on rendered message text as machine identity.
+- [ ] Preserve message templates and typed properties independently from the human-rendered console message. A structured property must not need to be reparsed from a formatted string later.
+- [ ] Support nested scopes/context so common fields propagate automatically through player/session handling, a connection lifetime, command execution, packet processing, plugin invocation and other related operations.
+- [ ] Keep context lifetime explicit and bounded. Disconnect, slot reuse, plugin unload, soft restart and sandbox/world transition must not leak stale scope fields into later unrelated events.
+
+### Asynchronous pipeline, authoritative storage and rotation
+
+- [ ] Make an append-only JSONL/NDJSON event log the default authoritative long-term local log storage. The log file is the source of truth; secondary indexes and views are disposable derived state.
+- [ ] Route producers through a bounded asynchronous pipeline/channel so file I/O, compression and secondary indexing never block the Terraria game/server tick path.
+- [ ] Define measured queue capacity and backpressure behavior instead of an unbounded buffer. Record queue depth, queue age, dropped/deferred event counts and sink failures through bounded diagnostics that cannot recursively flood the same failed pipeline.
+- [ ] Define severity-aware overflow behavior explicitly. Critical/error and audit/security-significant events must not disappear silently; if durability cannot be maintained, surface a deterministic degraded/failure signal and use a bounded emergency fallback rather than blocking the game thread indefinitely.
+- [ ] Preserve event ordering metadata sufficient to diagnose concurrent producers without pretending that unrelated concurrent operations have one magical global execution order.
+- [ ] Implement log rotation by date and maximum file size, with deterministic file naming and safe continuation across process restart.
+- [ ] Support optional post-rotation compression of closed files. Compression must run outside the game thread and failure must leave the original closed log intact.
+- [ ] Define flush/shutdown semantics so orderly shutdown drains a bounded amount of pending logging work without hanging the server forever; crash recovery must tolerate a truncated final JSONL record.
+- [ ] Keep human-readable console output as a presentation sink derived from the structured event. Plain console, TUI and headless modes must not require changing the stored event shape.
+
+### Secret and sensitive-data policy
+
+- [ ] Introduce centralized redaction/suppression for passwords, authentication tokens, API keys, session secrets and other explicitly classified secret values before events reach durable or live sinks.
+- [ ] Do not depend on authors remembering to redact every interpolation manually. Provide safe helpers/types and tests for known secret-bearing configuration, authentication and command paths.
+- [ ] Keep authorization for sensitive identity fields such as IP separate from secret redaction: an address may be queryable by an authorized administrator without making passwords or tokens loggable.
+- [ ] Add structured tests proving that server passwords, auth tokens, API keys and session secrets cannot appear in JSONL, SQLite FTS content, console rendering or the live event stream through the supported APIs.
+
+### Rebuildable SQLite search index
+
+- [ ] Build a local SQLite index as a performance layer over JSONL, never as the only storage of log events. Deleting or corrupting the index must not destroy the authoritative log history.
+- [ ] Index at minimum timestamp, level, category, event type/id, player id, normalized player name, plugin, command, packet id/type, IPv4 address and connection id, plus stable file/record identity needed to locate the authoritative event.
+- [ ] Evaluate and use SQLite FTS5 where it is operationally justified for full-text search across rendered/template message text, exception text and selected textual properties.
+- [ ] Keep indexing asynchronous from gameplay producers and define bounded catch-up behavior when the indexer falls behind or is temporarily unavailable.
+- [ ] Add `vega logs reindex` plus the equivalent internal administration API. Reindex must rebuild a fresh index entirely from JSONL, validate it and promote it atomically rather than mutating a damaged index in place.
+- [ ] Make startup tolerant of a missing/stale/corrupt index: durable logging continues, index state is reported as degraded/rebuilding, and operators can recover without losing the source log.
+- [ ] Version the JSON event schema and SQLite index schema independently. An index schema change must be resolvable by reindexing rather than rewriting authoritative historical log files.
+
+### Query service and live event consumption
+
+- [ ] Introduce one Core/Operations-facing Log Query API so TUI, REST API, MCP/debug tooling and future administration clients never parse JSONL files or query the SQLite schema directly.
+- [ ] Support structured filters, inclusive/exclusive time ranges, deterministic sorting, limit, cursor-based pagination and full-text search without exposing storage-specific SQL through public contracts.
+- [ ] Support combining multiple filters in one request, including player identity, plugin, command, packet, connection, source/category, level/event type and time window.
+- [ ] Optimize and cover the common operator queries: all events for one player; errors in the last N minutes; commands executed by a player; events from one plugin; rejected/malformed packets; events for one connection id; exception-text search; and mixed multi-field filters.
+- [ ] Provide a bounded live stream/subscription of newly accepted structured events for TUI, REST streaming and MCP/debug consumers without repeatedly rereading log files.
+- [ ] Define live-stream overflow and slow-consumer behavior separately from durable storage. A slow UI subscriber may lose live presentation events, but it must not be able to stall durable logging or the game thread.
+- [ ] Enforce sensitive-field authorization and redaction consistently in historical queries and live streams instead of allowing each frontend to invent its own security policy.
+
+### Logging levels and sink extensibility
+
+- [ ] Support independent configured minimum levels for Vega Core, named subsystems/categories and each plugin, with safe runtime reload where practical.
+- [ ] Preserve the stable plugin logging API if the default backend changes. Plugin assemblies must not take a source dependency on Serilog sinks, SQLite, JSONL serializers or future remote collectors.
+- [ ] Define sink/export extension points that can later add PostgreSQL, ClickHouse, Loki, OpenTelemetry or a remote collector without changing plugin code or the authoritative event model.
+- [ ] Keep every external observability system optional. A standalone Vega installation must retain complete local structured logging, indexing and querying with no network service or external database.
+- [ ] Treat remote sinks as additional consumers, not as the local source of truth unless a future separately reviewed architecture deliberately changes that invariant.
+
+### Migration of existing logging call sites
+
+- [ ] Inventory existing Core/runtime/module/plugin logging and Operations structured-event calls before replacing them. Classify which strings already contain player, command, packet, connection, world, plugin, result or exception semantics that belong in fields.
+- [ ] Migrate by semantic event, not by mechanical text substitution. A call such as `Log.Info($"{player.Name} executed command {command}")` must become a message template with `PlayerName`, `Command` and an appropriate stable event id/type rather than one preformatted opaque string.
+- [ ] Migrate security, command audit, lifecycle, persistence, world/sandbox, plugin lifecycle and packet rejection paths first because they are the primary consumers for MCP/debug and incident analysis.
+- [ ] Preserve intentional human wording independently from machine properties so localization/presentation changes do not break search or automation.
+- [ ] Remove obsolete parallel logging/event stores only after TUI/Operations and all runtime consumers use the new pipeline; do not keep two authoritative log histories indefinitely.
+
+Example target shape:
+
+```csharp
+_logger.LogInformation(
+    VegaEvents.CommandExecuted,
+    "Player {PlayerName} executed command {Command}",
+    player.Name,
+    command);
+```
+
+Target architecture:
+
+```text
+Core / Plugins
+      │
+      ▼
+Structured Logging API
+      │
+      ├── Console sink
+      ├── JSONL append-only authoritative storage
+      └── Live event stream
+                │
+                ▼
+        SQLite rebuildable index
+                │
+                ▼
+          Log Query Service
+          ├── TUI
+          ├── REST API
+          └── MCP / debug tooling
+```
+
+### Validation and exit criteria
+
+- [ ] Add tests for structured property preservation, scopes, plugin identity, disconnect/slot-reuse cleanup, exception capture, secret redaction and independent per-category/plugin log levels.
+- [ ] Add rotation/restart/truncated-record/compression tests plus complete reindex tests from multiple rotated JSONL files, including missing/corrupt/stale SQLite state and FTS queries.
+- [ ] Add overload tests for bounded producer queues, slow disk/indexer/live consumers and sink failures. Prove that gameplay/server tick execution is never synchronously coupled to normal log file writes.
+- [ ] Benchmark producer overhead and allocations on representative command, packet and security hot paths; define a regression budget before completing migration of high-frequency events.
+- [ ] Validate the common query shapes against production-like log volumes and record latency/index-size/reindex-time evidence rather than assuming SQLite is fast enough at any scale.
+- [ ] Update Operations/TUI and future REST/MCP integrations to consume only the Log Query/Live APIs, then document storage, rotation, retention, reindex, redaction and troubleshooting in English and Russian operator guides.
+- [ ] Close the phase only when JSONL is the tested authoritative source, SQLite is demonstrably rebuildable from it, existing semantic log calls are migrated, secrets are covered by regression tests and logging backpressure cannot silently destroy critical diagnostics or stall the game thread.
+
+Logging invariant:
+
+```text
+JSONL/NDJSON = authoritative append-only history
+SQLite       = disposable searchable index
+console/TUI  = presentation consumers
+plugins      = stable Vega logging API, never backend-specific sinks
+```
+
 ## Architectural guardrails
 
 These apply across all phases:
@@ -798,5 +918,8 @@ These apply across all phases:
 - Keep the main dynamic server on CoreCLR; use NativeAOT selectively for isolated fixed-function executables only when compatibility and benchmarks justify it.
 - Plugin developer ergonomics is an architectural release criterion: ordinary commands/hooks/gameplay plugins must not require knowledge of runtime scheduling, buffer ownership, generation routing or internal composition.
 - Do not expose a universal plugin service locator or global replaceable-service model merely to reduce constructor parameters; prefer curated convenience surfaces over hidden runtime magic.
+- Structured logs are durable structured events, not formatted strings with optional metadata; JSONL remains authoritative and every search index is rebuildable derived state.
+- Logging producers on gameplay/server tick paths must never perform normal durable sink I/O synchronously; queue/backpressure and critical-event failure behavior must be explicit and observable.
+- Plugin logging depends only on the stable Vega API and structured event model, never on a concrete sink/backend such as Serilog, SQLite, Loki or OpenTelemetry.
 - `.vworld` is a cache, not a hidden second source of truth or mandatory persistence path.
 - Prefer one working vertical slice over ten unused abstractions.
