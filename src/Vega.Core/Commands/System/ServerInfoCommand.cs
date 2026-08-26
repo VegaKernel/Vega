@@ -8,14 +8,31 @@ public sealed class ServerInfoCommand(IHostMetricsReader metricsReader) : IComma
 {
     public CommandDescriptor Descriptor { get; } = new(
         "serverinfo",
-        Array.Empty<string>(),
+        ["version"],
         ["vega.info"],
-        Syntax: "serverinfo");
+        Syntax: "serverinfo | version");
 
     public ValueTask<CommandExecutionResult> ExecuteAsync(
         CommandInvocation invocation,
         CancellationToken cancellationToken)
     {
+        if (string.Equals(invocation.Name, "version", StringComparison.OrdinalIgnoreCase))
+        {
+            if (invocation.Arguments.Count != 0)
+            {
+                const string code = "command.version.usage";
+                return ValueTask.FromResult(new CommandExecutionResult(
+                    CommandExecutionStatus.InvalidUsage,
+                    code,
+                    [MessageDescriptor.Error(code).WithDefaultText("Usage: version.")]));
+            }
+
+            string version = typeof(ServerInfoCommand).Assembly.GetName().Version?.ToString() ?? "unknown";
+            return ValueTask.FromResult(CommandExecutionResult.WithMessages(
+                MessageDescriptor.Info("command.version.current", version)
+                    .WithDefaultText("Vega version {0}.")));
+        }
+
         HostMetricsSnapshot metrics = metricsReader.Read();
 
         return ValueTask.FromResult(CommandExecutionResult.WithMessages(
