@@ -569,7 +569,8 @@ public sealed class RuntimeDependencyTests
 
         Assert.Multiple(() =>
         {
-            Assert.That(source, Does.Contain("PacketViewParser.TryParsePayloadBounded"));
+            Assert.That(source, Does.Contain("PacketViewParser.TryParsePayload"));
+            Assert.That(source, Does.Contain("NativePlayerPacketSecurityHooks.GetPayload(args)"));
             Assert.That(source, Does.Contain("NetTextModuleView"));
             Assert.That(source, Does.Contain("IPlayerMessenger"));
             Assert.That(source, Does.Not.Contain("Commands.HandleCommand"));

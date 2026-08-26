@@ -65,7 +65,7 @@ public sealed class NpcPacketSanityPolicy(
 
     private PacketProcessingDecision ValidateNpcAddBuff(ReadOnlySpan<byte> payload)
     {
-        // Multiplicity 2.6.2 models Buff as byte. Protocol 325 uses UInt16.
+        // Multiplicity 2.6.2 models Buff as byte. Protocol 326 uses UInt16.
         if (payload.Length != 6)
         {
             return PacketProcessingDecision.Reject("packet.npc.buff_malformed");

@@ -140,11 +140,9 @@ internal sealed class NativePlayerCommandHooks : IDisposable
     {
         commandText = string.Empty;
 
-        if (!PacketViewParser.TryParsePayloadBounded(
+        if (!PacketViewParser.TryParsePayload(
                 args.PacketId,
-                args.Instance.readBuffer,
-                args.ReadOffset,
-                args.Length,
+                NativePlayerPacketSecurityHooks.GetPayload(args),
                 out PacketView packet))
         {
             return false;

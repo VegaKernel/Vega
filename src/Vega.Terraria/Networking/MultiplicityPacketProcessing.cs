@@ -15,6 +15,33 @@ public static class MultiplicityPacketProcessing
 {
     public static PacketProcessingDecision ProcessInboundPayload(
         byte rawPacketId,
+        ReadOnlySpan<byte> payload,
+        ConnectionId connectionId,
+        PlayerId? playerId,
+        IPacketProcessor<PacketView> processor,
+        DateTimeOffset timestamp,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(processor);
+
+        if (!PacketViewParser.TryParsePayload(rawPacketId, payload, out PacketView packet))
+        {
+            return PacketProcessingDecision.Reject("packet.invalid_payload");
+        }
+
+        var context = new PacketProcessingContext<PacketView>(
+            packet,
+            PacketDirection.Inbound,
+            connectionId,
+            playerId,
+            timestamp,
+            cancellationToken);
+
+        return processor.Process(in context);
+    }
+
+    public static PacketProcessingDecision ProcessInboundPayload(
+        byte rawPacketId,
         byte[] buffer,
         int offset,
         int payloadLength,
@@ -32,20 +59,13 @@ public static class MultiplicityPacketProcessing
             return PacketProcessingDecision.Reject("packet.invalid_payload");
         }
 
-        ReadOnlySpan<byte> payload = new(buffer, offset, payloadLength);
-        if (!PacketViewParser.TryParsePayload(rawPacketId, payload, out PacketView packet))
-        {
-            return PacketProcessingDecision.Reject("packet.invalid_payload");
-        }
-
-        var context = new PacketProcessingContext<PacketView>(
-            packet,
-            PacketDirection.Inbound,
+        return ProcessInboundPayload(
+            rawPacketId,
+            new ReadOnlySpan<byte>(buffer, offset, payloadLength),
             connectionId,
             playerId,
+            processor,
             timestamp,
             cancellationToken);
-
-        return processor.Process(in context);
     }
 }

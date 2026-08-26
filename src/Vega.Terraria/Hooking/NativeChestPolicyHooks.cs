@@ -40,11 +40,9 @@ internal sealed class NativeChestPolicyHooks(
     private void OnReceiveData(object? sender, Hooks.MessageBuffer.GetDataEventArgs args)
     {
         if (args.Result == HookResult.Cancel || args.PacketId != (byte)PacketTypes.ChestItem ||
-            !PacketViewParser.TryParsePayloadBounded(
+            !PacketViewParser.TryParsePayload(
                 args.PacketId,
-                args.Instance.readBuffer,
-                args.ReadOffset,
-                args.Length,
+                NativePlayerPacketSecurityHooks.GetPayload(args),
                 out PacketView packet))
         {
             return;

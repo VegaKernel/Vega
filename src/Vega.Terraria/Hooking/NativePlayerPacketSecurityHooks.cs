@@ -142,9 +142,7 @@ internal sealed class NativePlayerPacketSecurityHooks : IDisposable
         {
             PacketProcessingDecision decision = MultiplicityPacketProcessing.ProcessInboundPayload(
                 args.PacketId,
-                args.Instance.readBuffer,
-                args.ReadOffset,
-                args.Length,
+                payload,
                 new ConnectionId(slot),
                 new PlayerId(slot),
                 packetProcessor,

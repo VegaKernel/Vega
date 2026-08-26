@@ -501,6 +501,7 @@ int Start()
                 TerrariaPacketSecurityLimits.ItemTypeCount,
                 TerrariaPacketSecurityLimits.PrefixCount,
                 TerrariaPacketSecurityLimits.PaintColorCount),
+            new TerrariaWorldMutationHardeningPolicy(),
             new WorldInteractionSanityPolicy(
                 static () => TerrariaPacketSecurityLimits.WorldWidth,
                 static () => TerrariaPacketSecurityLimits.WorldHeight,
