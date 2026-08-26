@@ -95,7 +95,7 @@ public sealed class MultiplicityPacketProcessingTests
     [TestCase(PacketTypes.TileGetSection, 9)]
     [TestCase(PacketTypes.NpcAddBuff, 6)]
     [TestCase(PacketTypes.PlayerAddBuff, 7)]
-    public void Protocol325AuditedCompatibilityLayoutsUseExactLengths(PacketTypes packetType, int expectedLength)
+    public void Protocol326AuditedCompatibilityLayoutsUseExactLengths(PacketTypes packetType, int expectedLength)
     {
         var accepted = new CapturingProcessor();
         byte[] exact = new byte[expectedLength];
@@ -133,7 +133,7 @@ public sealed class MultiplicityPacketProcessingTests
     }
 
     [Test]
-    public void Protocol325PlayerBuffAcceptsBoundedUInt16ListWithoutOldMultiplicityMaterialization()
+    public void Protocol326PlayerBuffAcceptsBoundedUInt16ListWithoutMaterialization()
     {
         var processor = new CapturingProcessor();
         byte[] payload =
@@ -163,7 +163,7 @@ public sealed class MultiplicityPacketProcessingTests
     }
 
     [Test]
-    public void Protocol325PlayerBuffRejectsOddUInt16TailBeforePoliciesRun()
+    public void Protocol326PlayerBuffRejectsOddUInt16TailBeforePoliciesRun()
     {
         var processor = new CapturingProcessor();
         byte[] payload = [7, 1, 0, 0x7f];

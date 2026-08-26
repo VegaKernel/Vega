@@ -29,6 +29,7 @@ public sealed class PlayerActionSanityPolicy(
 
         return context.Packet.PacketType switch
         {
+            PacketTypes.PlayerHp => ValidateHealth(context.Packet.AsPlayerHpView()),
             PacketTypes.PlayerAnimation => ValidateAnimation(new PlayerAnimationView(context.Packet)),
             PacketTypes.PlayerTeam => ValidateTeam(new PlayerTeamView(context.Packet).Team),
             PacketTypes.TeamChangeFromUI => ValidateTeam(new TeamChangeFromUIView(context.Packet).Team),
@@ -45,6 +46,11 @@ public sealed class PlayerActionSanityPolicy(
             _ => PacketProcessingDecision.Allow
         };
     }
+
+    private static PacketProcessingDecision ValidateHealth(PlayerHpView value) =>
+        value.Hp <= 0 || value.MaxHp <= 0
+            ? PacketProcessingDecision.Violation("packet.player_health.non_positive")
+            : PacketProcessingDecision.Allow;
 
     private static PacketProcessingDecision ValidateAnimation(PlayerAnimationView value)
     {
@@ -147,7 +153,7 @@ public sealed class PlayerActionSanityPolicy(
 
     private PacketProcessingDecision ValidatePlayerAddBuff(ReadOnlySpan<byte> payload)
     {
-        // Protocol 325 encodes the target as UInt8, the buff id as UInt16 and the duration as Int32.
+        // Protocol 326 encodes the target as UInt8, the buff id as UInt16 and the duration as Int32.
         if (payload.Length != 7)
         {
             return PacketProcessingDecision.Reject("packet.player_buff_add.malformed");

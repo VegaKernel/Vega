@@ -6,7 +6,7 @@ namespace Vega.Terraria.Players;
 
 public sealed class TerrariaPlayerInventoryService(IGameThreadDispatcher dispatcher) : IPlayerInventoryGrantService
 {
-    // Terraria 1.4.5.7 / protocol 325 has 255 player slots. Do not read Main.maxPlayers here:
+    // Terraria 1.4.5.8 / protocol 326 has 255 player slots. Do not read Main.maxPlayers here:
     // this service is composed before Terraria's save path and Main static initialization are ready.
     private const int PlayerCapacity = 255;
     private const int MainInventorySlotCount = 50;

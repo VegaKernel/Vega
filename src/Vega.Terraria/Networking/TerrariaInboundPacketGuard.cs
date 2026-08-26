@@ -146,8 +146,7 @@ internal static class TerrariaInboundPacketGuard
 
     private static PacketProcessingDecision ValidateTileGetSection(ReadOnlySpan<byte> payload)
     {
-        // Multiplicity 2.6.2 still models the old eight-byte form. Protocol 325 appends team.
-        // Keep this reader exact so Vega is safe while the protocol-325 package fix is staged.
+        // Protocol 326 retains the nine-byte section request introduced in 1.4.5.7, including team.
         if (payload.Length != 9)
         {
             return PacketProcessingDecision.Reject("packet.tile_get_section.malformed");
@@ -173,7 +172,7 @@ internal static class TerrariaInboundPacketGuard
 
     private static PacketProcessingDecision ValidatePlayerSpawn(ReadOnlySpan<byte> payload)
     {
-        // Protocol 325 payload: player, spawnX/Y, respawn timer, PvE/PvP deaths, team, context.
+        // Protocol 326 payload: player, spawnX/Y, respawn timer, PvE/PvP deaths, team, context.
         if (payload.Length != 15)
         {
             return PacketProcessingDecision.Reject("packet.player_spawn.malformed");
@@ -185,6 +184,7 @@ internal static class TerrariaInboundPacketGuard
         short deathsPve = BinaryPrimitives.ReadInt16LittleEndian(payload[9..]);
         short deathsPvp = BinaryPrimitives.ReadInt16LittleEndian(payload[11..]);
         byte team = payload[13];
+        byte context = payload[14];
 
         if (spawnX < -1 || spawnY < -1 ||
             spawnX >= TerrariaPacketSecurityLimits.WorldWidth ||
@@ -196,6 +196,11 @@ internal static class TerrariaInboundPacketGuard
         if (respawnTimer < 0 || deathsPve < 0 || deathsPvp < 0)
         {
             return PacketProcessingDecision.Violation("packet.player_spawn.counter_out_of_range");
+        }
+
+        if (context > (byte)global::Terraria.PlayerSpawnContext.TeamSwap)
+        {
+            return PacketProcessingDecision.Violation("packet.player_spawn.context_out_of_range");
         }
 
         return team > MaximumVanillaTeam

@@ -89,7 +89,7 @@ public sealed class TerrariaInboundPacketGuardTests
     }
 
     [Test]
-    public void PlayerSpawnRequiresProtocol325FifteenBytePayload()
+    public void PlayerSpawnRequiresProtocol326FifteenBytePayload()
     {
         PacketProcessingDecision decision = TerrariaInboundPacketGuard.Validate(
             (byte)PacketTypes.PlayerSpawn,
@@ -105,7 +105,24 @@ public sealed class TerrariaInboundPacketGuardTests
     }
 
     [Test]
-    public void TileGetSectionRequiresProtocol325TeamByte()
+    public void PlayerSpawnRejectsUnknownContextBeforeTerrariaMutation()
+    {
+        byte[] payload = new byte[15];
+        payload[14] = 4;
+
+        PacketProcessingDecision decision = TerrariaInboundPacketGuard.Validate(
+            (byte)PacketTypes.PlayerSpawn,
+            TerrariaConnectionState.SendingWorld,
+            4,
+            payload);
+
+        Assert.That(
+            decision,
+            Is.EqualTo(PacketProcessingDecision.Violation("packet.player_spawn.context_out_of_range")));
+    }
+
+    [Test]
+    public void TileGetSectionRequiresProtocol326TeamByte()
     {
         PacketProcessingDecision decision = TerrariaInboundPacketGuard.Validate(
             (byte)PacketTypes.TileGetSection,

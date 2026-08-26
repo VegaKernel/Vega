@@ -11,7 +11,22 @@ namespace Vega.Runtime.Tests;
 public sealed class ExpandedPacketSanityPolicyTests
 {
     [Test]
-    public void PlayerBuffOwnershipReadsProtocol325SenderWithoutOldMaterializer()
+    public void PlayerHealthRejectsNonPositiveValuesBeforeTerrariaMutation()
+    {
+        var policy = PlayerActions();
+        PacketView packet = PacketView.FromPayload(
+            PacketTypes.PlayerHp,
+            new PlayerHp { PlayerId = 7, Hp = 0, MaxHp = 100 }.ToPayloadArray());
+
+        PacketProcessingDecision decision = Process(policy, packet, 7);
+
+        Assert.That(
+            decision,
+            Is.EqualTo(PacketProcessingDecision.Violation("packet.player_health.non_positive")));
+    }
+
+    [Test]
+    public void PlayerBuffOwnershipReadsProtocol326SenderWithoutMaterialization()
     {
         PacketView packet = PacketView.FromPayload(
             PacketTypes.PlayerBuff,
@@ -63,7 +78,7 @@ public sealed class ExpandedPacketSanityPolicyTests
     }
 
     [Test]
-    public void PlayerAddBuffValidatesProtocol325UInt16TargetAndBuffRange()
+    public void PlayerAddBuffValidatesProtocol326UInt16TargetAndBuffRange()
     {
         var policy = PlayerActions();
         byte[] payload = new byte[7];
@@ -80,7 +95,7 @@ public sealed class ExpandedPacketSanityPolicyTests
     }
 
     [Test]
-    public void GolfProjectileTypeUsesProtocol325FinalUInt16Field()
+    public void GolfProjectileTypeUsesProtocol326FinalUInt16Field()
     {
         var policy = PlayerActions();
         byte[] payload = new byte[9];

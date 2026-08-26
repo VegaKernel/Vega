@@ -7,7 +7,7 @@ namespace Vega.Terraria.Networking;
 /// </summary>
 public static class TerrariaPacketSecurityLimits
 {
-    // Terraria 1.4.5.7 / protocol 325 fixed runtime capacities. Keep these explicit so packet-policy
+    // Terraria 1.4.5.8 / protocol 326 fixed runtime capacities. Keep these explicit so packet-policy
     // construction stays independent from Terraria.Main static initialization.
     public const int PlayerCount = 255;
 

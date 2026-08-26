@@ -55,7 +55,7 @@ public sealed class WorldItemSyncSanityPolicyTests
 
     [TestCase(PacketTypes.SyncItemsWithShimmerDeprecated)]
     [TestCase(PacketTypes.SyncItemCannotBeTakenByEnemiesDeprecated)]
-    public void Protocol325DeprecatedItemPacketsAreViolation(PacketTypes packetType)
+    public void Protocol326DeprecatedItemPacketsAreViolation(PacketTypes packetType)
     {
         AssertViolation(
             packetType,

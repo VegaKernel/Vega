@@ -71,7 +71,7 @@ internal sealed class NativePlayerPacketSecurityHooks : IDisposable
         ReadOnlySpan<byte> payload;
         try
         {
-            payload = args.Instance.readBuffer.AsSpan(args.ReadOffset, args.Length);
+            payload = GetPayload(args);
             ConnectionMetadataObservation metadata = connectionMetadata.ObserveInboundDetailed(
                 args.PacketId,
                 payload,
@@ -171,6 +171,14 @@ internal sealed class NativePlayerPacketSecurityHooks : IDisposable
                 slot,
                 PacketProcessingDecision.Violation("packet.security.processor_exception"));
         }
+    }
+
+    internal static ReadOnlySpan<byte> GetPayload(Hooks.MessageBuffer.GetDataEventArgs args)
+    {
+        ArgumentNullException.ThrowIfNull(args);
+        // MessageBuffer.GetData length includes the packet-id byte at start. ReadOffset already points
+        // one byte past it, so the actual payload is one byte shorter than the hook length.
+        return args.Instance.readBuffer.AsSpan(args.ReadOffset, checked(args.Length - 1));
     }
 
     private void RecordRejection(
