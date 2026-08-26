@@ -586,6 +586,8 @@ int Start()
             new SaveCommand(serverControl));
         using IDisposable shutdownCommandRegistration = commandDispatcher.Register(
             new ShutdownCommand(serverControl));
+        using IDisposable serverPasswordCommandRegistration = commandDispatcher.Register(
+            new ServerPasswordCommand(serverControl));
         var hostMetrics = new ProcessHostMetricsReader();
         var runtimeMetrics = new SampledRuntimeMetricsReader(hostMetrics);
         WorldClockOptions worldClockOptions = WorldClockOptionsStore.Load(
@@ -779,7 +781,7 @@ IReadOnlyList<ModuleOperationsSnapshot> CreateModuleSnapshots(IModuleOperationsC
     Module("Vega.Backups", typeof(DeploymentBackupService).Assembly, ["Vega.Contracts"]),
     Module("Vega.Core", typeof(CommandDispatcher).Assembly, ["Vega.Contracts"]),
     Module("Vega.Modules.Administration", typeof(AccountCommand).Assembly, ["Vega.Contracts"]),
-    Module("Vega.Cluster", typeof(UnavailableClusterClient).Assembly, ["Vega.Contracts"]),
+    Module("Vega.Cluster", typeof(UnavailableClusterClient.Instance.GetType().Assembly), ["Vega.Contracts"]),
     Module("Vega.Operations", typeof(OperationsSnapshotProvider).Assembly, ["Vega.Contracts"]),
     Module("Vega.Persistence", typeof(IVegaDatabase).Assembly, ["Vega.Contracts", "System.Data.Common"]),
     Module("Vega.Regions", typeof(RegionCommand).Assembly, ["Vega.Contracts", "Multiplicity"]),
