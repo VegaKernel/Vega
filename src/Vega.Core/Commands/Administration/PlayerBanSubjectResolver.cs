@@ -28,7 +28,10 @@ internal static class PlayerBanSubjectResolver
             subjects.Add(new GlobalBanSubject(GlobalBanSubjectKind.Uuid, clientUuid));
         }
 
-        if (TryGetIpAddress(player.RemoteEndpoint, out string? ipAddress) && ipAddress is not null)
+        if (TryGetIpAddress(
+                player.Connection?.EffectiveEndpoint ?? player.RemoteEndpoint,
+                out string? ipAddress) &&
+            ipAddress is not null)
         {
             subjects.Add(new GlobalBanSubject(GlobalBanSubjectKind.IpAddress, ipAddress));
         }
@@ -36,6 +39,35 @@ internal static class PlayerBanSubjectResolver
         if (subjects.Count == 0)
         {
             subjects.Add(new GlobalBanSubject(GlobalBanSubjectKind.PlayerName, player.Name));
+        }
+
+        return subjects;
+    }
+
+    public static IReadOnlyList<GlobalBanSubject> Resolve(
+        AccountSnapshot account,
+        IAccountIdentityEvidenceService? identityEvidence)
+    {
+        ArgumentNullException.ThrowIfNull(account);
+        var subjects = new List<GlobalBanSubject>
+        {
+            new(GlobalBanSubjectKind.Account, account.Name)
+        };
+        if (identityEvidence is null)
+        {
+            return subjects;
+        }
+
+        foreach (AccountIdentityEvidenceSnapshot evidence in identityEvidence.SnapshotEvidence()
+            .Where(candidate => candidate.AccountId == account.Id)
+            .GroupBy(static candidate => candidate.Kind)
+            .Select(static group => group.OrderByDescending(candidate => candidate.LastSeenAt).First()))
+        {
+            subjects.Add(new GlobalBanSubject(
+                evidence.Kind == AccountIdentityEvidenceKind.ClientUuid
+                    ? GlobalBanSubjectKind.Uuid
+                    : GlobalBanSubjectKind.IpAddress,
+                evidence.Value));
         }
 
         return subjects;

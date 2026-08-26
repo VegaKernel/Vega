@@ -1,3 +1,4 @@
+using System.Net;
 using Vega.Contracts.Commands;
 using Vega.Contracts.Messaging;
 using Vega.Contracts.Moderation;
@@ -185,7 +186,7 @@ internal sealed class WhisperCommand(
                 return Failure("command.whisper.self", "You cannot whisper to yourself.");
             }
 
-            if (mutes.FindActive(caller.Name, callerPrincipal.AccountName, DateTimeOffset.UtcNow) is not null)
+            if (mutes.FindActive(BuildMuteIdentity(caller, callerPrincipal.AccountName), DateTimeOffset.UtcNow) is not null)
             {
                 return Failure("command.whisper.muted", "You are muted.");
             }
@@ -271,6 +272,25 @@ internal sealed class WhisperCommand(
             : $"Player name is ambiguous: {string.Join(", ", matches.Select(static match => match.Name))}.";
         return false;
     }
+
+    internal static MuteIdentity BuildMuteIdentity(PlayerSnapshot player, string? accountName)
+    {
+        string? endpoint = player.Connection?.EffectiveEndpoint ?? player.RemoteEndpoint;
+        string? ipAddress = null;
+        if (IPAddress.TryParse(endpoint, out IPAddress? address))
+        {
+            ipAddress = NormalizeAddress(address).ToString();
+        }
+        else if (endpoint is not null && IPEndPoint.TryParse(endpoint, out IPEndPoint? parsed))
+        {
+            ipAddress = NormalizeAddress(parsed.Address).ToString();
+        }
+
+        return new MuteIdentity(player.Name, accountName, player.Connection?.ClientUuid, ipAddress);
+    }
+
+    private static IPAddress NormalizeAddress(IPAddress address) =>
+        address.IsIPv4MappedToIPv6 ? address.MapToIPv4() : address;
 }
 
 internal sealed class ReplyCommand(
@@ -304,7 +324,7 @@ internal sealed class ReplyCommand(
             return Failure("command.reply.sender-unavailable", "Your player session is unavailable.");
         }
 
-        if (mutes.FindActive(caller.Name, principal.AccountName, DateTimeOffset.UtcNow) is not null)
+        if (mutes.FindActive(WhisperCommand.BuildMuteIdentity(caller, principal.AccountName), DateTimeOffset.UtcNow) is not null)
         {
             return Failure("command.reply.muted", "You are muted.");
         }

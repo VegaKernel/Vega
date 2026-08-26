@@ -12,7 +12,9 @@ public sealed class BanCommand(
     IPlayerOperations playerOperations,
     IBanService bans,
     TimeProvider? timeProvider = null,
-    IPlayerAccountSessionService? accountSessions = null) : ICommandHandler
+    IPlayerAccountSessionService? accountSessions = null,
+    IAccountService? accounts = null,
+    IAccountIdentityEvidenceService? accountIdentities = null) : ICommandHandler
 {
     private const string BanPermission = "vega.admin.ban";
     private readonly TimeProvider time = timeProvider ?? TimeProvider.System;
@@ -66,7 +68,24 @@ public sealed class BanCommand(
         IReadOnlyList<PlayerSnapshot> matches = FindPlayers(invocation.Arguments[0]);
         if (matches.Count == 0)
         {
-            return Failure("command.ban.player-not-found", "Player not found. Unable to ban the player.");
+            AccountSnapshot? account = accounts is null
+                ? null
+                : await accounts.FindByNameAsync(invocation.Arguments[0], cancellationToken).ConfigureAwait(false);
+            if (account is null)
+            {
+                return Failure("command.ban.player-not-found", "Player or account not found.");
+            }
+
+            string offlineReason = invocation.Arguments.Count > 1
+                ? string.Join(" ", invocation.Arguments.Skip(1))
+                : "Misbehaviour.";
+            return await CreateTargetBansAsync(
+                    account.Name,
+                    PlayerBanSubjectResolver.Resolve(account, accountIdentities),
+                    offlineReason,
+                    invocation.Principal,
+                    cancellationToken)
+                .ConfigureAwait(false);
         }
 
         if (matches.Count > 1)
@@ -81,25 +100,16 @@ public sealed class BanCommand(
         string reason = invocation.Arguments.Count > 1
             ? string.Join(" ", invocation.Arguments.Skip(1))
             : "Misbehaviour.";
-        DateTimeOffset now = time.GetUtcNow();
-        IReadOnlyList<GlobalBanSubject> subjects = PlayerBanSubjectResolver.Resolve(target, accountSessions);
-
-        foreach (GlobalBanSubject subject in subjects)
+        CommandExecutionResult persisted = await CreateTargetBansAsync(
+                target.Name,
+                PlayerBanSubjectResolver.Resolve(target, accountSessions),
+                reason,
+                invocation.Principal,
+                cancellationToken)
+            .ConfigureAwait(false);
+        if (persisted.Status != CommandExecutionStatus.Success)
         {
-            bool applied = await bans.CreateAsync(
-                new GlobalBanCreated(
-                    GlobalBanId.New(),
-                    subject,
-                    reason,
-                    invocation.Principal.Name,
-                    now,
-                    null,
-                    1),
-                cancellationToken).ConfigureAwait(false);
-            if (!applied)
-            {
-                return Failure("command.ban.persist-failed", "Unable to persist the ban for {0}.", target.Name);
-            }
+            return persisted;
         }
 
         PlayerOperationResult kick = await playerOperations
@@ -116,6 +126,37 @@ public sealed class BanCommand(
 
         return CommandExecutionResult.WithMessages(
             MessageDescriptor.Success("command.ban.applied", target.Name, reason)
+                .WithDefaultText("Banned {0} for '{1}'."));
+    }
+
+    private async ValueTask<CommandExecutionResult> CreateTargetBansAsync(
+        string targetName,
+        IReadOnlyList<GlobalBanSubject> subjects,
+        string reason,
+        ICommandPrincipal principal,
+        CancellationToken cancellationToken)
+    {
+        DateTimeOffset now = time.GetUtcNow();
+        foreach (GlobalBanSubject subject in subjects)
+        {
+            bool applied = await bans.CreateAsync(
+                new GlobalBanCreated(
+                    GlobalBanId.New(),
+                    subject,
+                    reason,
+                    principal.Name,
+                    now,
+                    null,
+                    1),
+                cancellationToken).ConfigureAwait(false);
+            if (!applied)
+            {
+                return Failure("command.ban.persist-failed", "Unable to persist the ban for {0}.", targetName);
+            }
+        }
+
+        return CommandExecutionResult.WithMessages(
+            MessageDescriptor.Success("command.ban.applied", targetName, reason)
                 .WithDefaultText("Banned {0} for '{1}'."));
     }
 

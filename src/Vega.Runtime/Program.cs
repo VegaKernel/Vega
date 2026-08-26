@@ -529,9 +529,20 @@ int Start()
             accountSessions));
 
         using IDisposable banCommandRegistration = commandDispatcher.Register(
-            new BanCommand(playerBoundary, playerBoundary, banService, accountSessions: accountSessions));
+            new BanCommand(
+                playerBoundary,
+                playerBoundary,
+                banService,
+                accountSessions: accountSessions,
+                accounts: database.Accounts,
+                accountIdentities: database.AccountIdentities));
         using IDisposable muteCommandRegistration = commandDispatcher.Register(
-            new MuteCommand(playerBoundary, accountSessions, database.Mutes));
+            new MuteCommand(
+                playerBoundary,
+                accountSessions,
+                database.Mutes,
+                accounts: database.Accounts,
+                accountIdentities: database.AccountIdentities));
         using IDisposable accountCommandRegistration = commandDispatcher.Register(
             new AccountCommand(database.Accounts, database.Authorization, database.RoleLeases));
         using IDisposable accountInfoCommandRegistration = commandDispatcher.Register(

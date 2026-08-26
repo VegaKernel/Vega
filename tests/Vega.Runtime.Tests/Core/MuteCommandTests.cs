@@ -103,6 +103,47 @@ public sealed class MuteCommandTests
         });
     }
 
+    [Test]
+    public async Task OfflineAccountMuteUsesLatestIdentityEvidenceAndCanBeRevokedByTarget()
+    {
+        DateTimeOffset now = DateTimeOffset.Parse("2026-08-23T12:00:00Z");
+        SqliteVegaDatabase database = await SqliteVegaDatabase.OpenAsync(
+            new SqliteVegaDatabaseOptions(Path.Combine(directory, "vega.db")));
+        AccountSnapshot account = (await database.Accounts.CreateAsync(
+            "Alice", "correct horse battery staple", "default", "Server")).After!;
+        await database.AccountIdentities.RecordAsync(
+            account.Id, account.Name, "old-device", "192.0.2.10", now.AddDays(-2));
+        await database.AccountIdentities.RecordAsync(
+            account.Id, account.Name, "current-device", "192.0.2.44", now.AddDays(-1));
+        var command = new MuteCommand(
+            EmptyPlayers.Instance,
+            EmptyAccountSessions.Instance,
+            database.Mutes,
+            new FixedTimeProvider(now),
+            database.Accounts,
+            database.AccountIdentities);
+
+        CommandExecutionResult created = await ExecuteAsync(
+            command, "mute", "add", "Alice", "90m", "chat", "abuse");
+        MuteSnapshot mute = database.Mutes.SnapshotActive(now).Single();
+        CommandExecutionResult revoked = await ExecuteAsync(command, "unmute", "Alice");
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(created.Status, Is.EqualTo(CommandExecutionStatus.Success));
+            Assert.That(mute.SubjectKind, Is.EqualTo(MuteSubjectKind.Account));
+            Assert.That(mute.SubjectValue, Is.EqualTo(account.Name));
+            Assert.That(mute.Subjects, Is.EquivalentTo(new[]
+            {
+                new MuteSubject(MuteIdentityKind.Account, account.Name),
+                new MuteSubject(MuteIdentityKind.ClientUuid, "current-device"),
+                new MuteSubject(MuteIdentityKind.IpAddress, "192.0.2.44")
+            }));
+            Assert.That(revoked.Status, Is.EqualTo(CommandExecutionStatus.Success));
+            Assert.That(database.Mutes.SnapshotActive(now), Is.Empty);
+        });
+    }
+
     private static ValueTask<CommandExecutionResult> ExecuteAsync(
         MuteCommand command,
         string name,
