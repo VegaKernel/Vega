@@ -902,6 +902,200 @@ console/TUI  = presentation consumers
 plugins      = stable Vega logging API, never backend-specific sinks
 ```
 
+## Phase 27 — Vega Admin Client and remote administration protocol
+
+Turn the existing administrative Terminal UI into a reusable client of a stable administration boundary. Remote administration is not a remote shell: no ANSI/PTY stream, no SSH surrogate and no server-rendered terminal frames. The UI renders locally and talks to Vega through typed commands, queries and events.
+
+### Contracts and client boundary
+
+- [ ] Create `Vega.Admin.Contracts` for protocol-neutral administration DTOs, command/query request and result models, event envelopes, permission descriptors, command catalog/help descriptors, configuration descriptors and version/capability negotiation.
+- [ ] Define one `IVegaAdminClient` surface used by `Vega.Admin.Tui` regardless of transport. The TUI must not reference Vega Server implementation classes, Terraria globals, persistence providers or concrete network code.
+- [ ] Provide a local `IVegaAdminClient` implementation over the existing Operations/application services so the embedded/server-local TUI remains available without loopback networking.
+- [ ] Provide a remote `IVegaAdminClient` implementation over the Admin Protocol with the same observable semantics, authorization results and DTOs as the local implementation.
+- [ ] Keep the Admin Protocol independent of Terminal.Gui so the same contracts can serve a future Web Admin UI, CLI, MCP, Telegram/Discord bots, inter-server administration and other clients.
+- [ ] Keep authoritative mutations on the server. A client may request an operation but may not bypass command/service authorization, game-thread ownership, confirmation or audit rules by choosing a lower-level protocol message.
+
+Recommended project split:
+
+```text
+Vega.Admin.Contracts
+Vega.Admin.Client
+Vega.Admin.Tui
+Vega.Server
+```
+
+Target client model:
+
+```text
+Vega.Admin.Tui
+       │
+IVegaAdminClient
+   ┌───┴───────────┐
+   │               │
+Local client   Remote client
+   │               │
+Vega Core      Admin Protocol
+                   │
+               Vega Server
+```
+
+### Admin protocol and realtime event model
+
+- [ ] Support typed request/response commands and queries plus server push events over one secured administration connection. Evaluate WebSocket, SignalR and a narrow Vega-owned duplex protocol; choose from measured complexity, NativeAOT compatibility, framing/versioning and reconnect behavior rather than fashion.
+- [ ] Support server/status changes, player connect/disconnect and state projections, chat, command results, plugin/module lifecycle events, metrics, structured logs/live log subscriptions and other Operations snapshots without polling whole state continuously.
+- [ ] Define monotonic sequence/cursor or equivalent replay/resync metadata for pushed streams so reconnect can detect gaps and request a bounded fresh snapshot instead of silently presenting stale state.
+- [ ] Version protocol contracts and negotiate capabilities. A newer client must fail gracefully against an older server and vice versa; no brittle assumption that client and server binaries were built from the same commit.
+- [ ] Bound all server-to-client streams and per-session queues. A slow or disconnected admin UI must not backpressure the game thread, logging durability or unrelated admin sessions.
+- [ ] Add keepalive, reconnect and explicit disconnected/degraded UI state; do not make transient network loss look like authoritative server state.
+
+### Authentication, authorization and transport security
+
+- [ ] Require TLS for remote administration and document certificate/trust configuration. Security must not depend on the Admin Protocol being obscure or the NativeAOT client being difficult to reverse engineer.
+- [ ] Reuse Vega's server-owned identity/authorization model for administration sessions and define explicit admin permissions, including at least `server.view`, `server.command`, `server.restart`, `players.view`, `players.kick`, `players.ban`, `plugins.view`, `plugins.manage` and `logs.view`; add narrower permissions for sensitive/debug/config operations where needed.
+- [ ] Do not embed a master key, permanent API key or server secret in `Vega.Admin.Client`/`Vega.Admin.Tui` binaries or configuration.
+- [ ] Use short-lived authenticated sessions/access tokens with explicit expiry, server-side revocation and bounded refresh/re-authentication semantics. Long-lived credentials, where required for automation, must be a separate deliberately scoped server credential model rather than the interactive client's hidden secret.
+- [ ] Support multiple simultaneous independent admin sessions with separate identity, permissions, token/session id, subscriptions and audit context. Revoking one administrator/session must not disconnect unrelated administrators.
+- [ ] Record structured audit events for authentication, session creation/revocation, permission denial and privileged mutations without logging credentials/tokens.
+- [ ] Apply separate authorization to sensitive player metadata, configuration secrets, debug data and log fields; a broad `server.view` must not accidentally become `view everything secret`.
+
+### Module-oriented command catalog and help
+
+- [ ] Promote the live command catalog into an Admin API read model grouped by owning module/subsystem. Every descriptor must include command name, aliases, syntax, localized title/description/help, permission requirements, console/player availability and owner/module identity.
+- [ ] Make module ownership first-class: selecting a module in the TUI shows its commands and descriptions; selecting a command shows full help, syntax, aliases, required permissions and relevant examples where provided by the module.
+- [ ] Add global command/help search by name, alias, module, description/help text and permission, with filtering limited to commands visible to the current administrator.
+- [ ] Keep help metadata registered with the command itself so hot-loaded plugins appear/disappear automatically and the server, local TUI, remote TUI, CLI and Web UI do not maintain competing help databases.
+- [ ] Allow command execution from the catalog only through normal `IVegaAdminClient` command execution and server authorization; the help/catalog UI is discovery, not a privileged dispatch path.
+
+### Multilingual admin UI and shared localization
+
+- [ ] Reuse and harden the Phase 19 / ADR 0009 localization engine rather than inventing a TUI-only translation layer. Admin contracts carry stable localization keys plus fallback text where appropriate, not server-formatted language-specific blobs as the only representation.
+- [ ] Support localized module names, command descriptions/help, validation errors, permission-denied reasons and standard TUI chrome with deterministic fallback.
+- [ ] Allow the administrator's UI culture to differ from the server default and from player cultures. Changing client language must not mutate process-global culture on the server.
+- [ ] Expose plugin/module localization catalogs through the stable SDK registration model so a third-party module can contribute command/help/config text without a dependency on Terminal.Gui.
+
+### Plugin configuration editor
+
+- [ ] Add a configuration browser/editor to `Vega.Admin.Tui`: module/plugin catalog on the left, selected registered configuration document/schema on the right, with search/filtering when many plugins are installed.
+- [ ] Do not expose an arbitrary remote filesystem text editor. Plugins register administrable configuration descriptors/schemas through a stable API, while the server owns file paths, validation, redaction and apply/reload behavior.
+- [ ] Support version/revision-aware reads and optimistic updates so two administrators cannot silently overwrite each other's changes.
+- [ ] Show validation diagnostics before apply, identify restart-only versus reloadable settings, and route reload/restart actions through the same authorized server services used by commands.
+- [ ] Redact secrets on read and prevent secret placeholders from being written back as literal values. Sensitive configuration editing requires a dedicated permission and audit trail.
+- [ ] Provide a raw text mode only for registered safe configuration documents where the plugin opts in; prefer structured editors when schema metadata exists.
+
+### Debug and metrics workspace
+
+- [ ] Add a dedicated TUI debug/diagnostics workspace over Admin/Operations contracts, with permission-gated access to all useful existing metrics and bounded diagnostics rather than direct process/runtime object access.
+- [ ] Include at least TPS/tick distributions, CPU/memory/working set, GC, thread-pool/runtime counters, packet rates/rejections/queues, connections, plugin/module lifecycle and timings, world/sandbox state, `.vworld` load/build metrics, logging-pipeline/index status, persistence/backup state and Admin Protocol/session health where available.
+- [ ] Reuse sampled/bounded telemetry. Opening a debug screen must not enable expensive unbounded per-packet/per-tick tracing by default.
+- [ ] Allow drill-down from metrics to related structured log queries/event streams where Phase 26 can provide a stable correlation field.
+
+### Terminal.Gui v2 client and NativeAOT distribution
+
+- [ ] Build `Vega.Admin.Tui` on C# / .NET 11 / Terminal.Gui v2 and pin the current stable Terminal.Gui v2 release that passes the project's trimming/NativeAOT tests at implementation time. Do not depend on preview-only APIs once an equivalent stable release exists.
+- [ ] Target Windows x64/ARM64 and Linux x64/ARM64; support macOS x64/ARM64 when Terminal.Gui and all required native/runtime dependencies pass the same architecture and AOT tests without platform-specific architectural hacks.
+- [ ] Keep the client AOT-compatible and self-contained. The client project baseline includes:
+
+```xml
+<TargetFramework>net11.0</TargetFramework>
+<PublishAot>true</PublishAot>
+<IsAotCompatible>true</IsAotCompatible>
+```
+
+- [ ] Add dedicated CI NativeAOT publish checks for at least `win-x64` and `linux-x64`; add ARM64/macOS jobs as the supported matrix is proven.
+- [ ] Treat trimming/AOT warnings as defects requiring source/dependency analysis. Do not globally suppress them merely to obtain a green publish.
+- [ ] Verify clean-machine startup of the produced native client without an installed .NET Runtime and validate connect/authenticate/reconnect, command execution, live events and shutdown.
+- [ ] Do not claim NativeAOT as a security boundary. It may remove ordinary IL and make casual decompilation less convenient, but protocol/authentication security remains fully server-side.
+- [ ] Exclude `.pdb`, `.dbg` and `.dSYM` from public client releases. Preserve symbols separately as private CI artifacts where diagnostics policy permits.
+
+### Exit criteria
+
+- [ ] The same TUI binary can manage a local server through the local client and a remote server through the remote client without conditional UI business logic or direct server implementation references.
+- [ ] Remote administrators can authenticate through TLS, receive only permitted projections/events, execute permitted operations and have access revoked without server restart.
+- [ ] Module command catalog/help/search, logs, chat, players, plugins, configuration editing and debug/metrics all run through `IVegaAdminClient`/Admin Contracts rather than private shortcuts.
+- [ ] At least `win-x64` and `linux-x64` NativeAOT publishes are CI-gated and clean-machine tested, and public artifacts contain no debug symbols.
+
+Admin-client invariant:
+
+```text
+Terminal.Gui renders on the administrator machine.
+Admin Protocol transports typed state, commands and events, never a remote terminal.
+Authorization and secrets remain server-owned.
+```
+
+## Phase 28 — platform modularization, shared SDK tools and legacy feature convergence
+
+This phase collects follow-up work that has emerged from real plugin/server consumers after the earlier Core-cohesion and plugin-ergonomics audits. It is not permission to create a new monolith named `Utils` or to copy legacy plugin APIs wholesale. Every extraction or shared helper must have a concrete consumer and a stable owner.
+
+### Localization engine as reusable infrastructure
+
+- [ ] Audit the Phase 19 / ADR 0009 localization implementation as a reusable engine, not merely `/lang` command behavior. Separate stable localization contracts/catalog registration from Core command implementation where that reduces coupling.
+- [ ] Support module/plugin namespaces, typed/stable localization keys, deterministic culture fallback, plural/format argument validation and per-recipient culture without process-global mutation.
+- [ ] Make localization available through the Plugin SDK and Admin Contracts so commands, plugin help, configuration descriptions, TUI/Web UI and other clients consume one language model instead of duplicating translation logic.
+- [ ] Add catalog collision/unload/hot-reload tests and diagnostics for missing keys/fallbacks without turning missing localization into a game-thread failure.
+
+### Shared plugin tools without a grab-bag API
+
+- [ ] Introduce a small AOT-friendly shared utility surface/package for plugin authors only where multiple real plugins need the same pure operation. Keep utilities stateless, allocation-conscious and independent of Terraria mutable globals.
+- [ ] Add a supported Terraria/chat tag stripping utility with recursive/nested tag handling and explicit policy options, including a mode that strips formatting/control tags while preserving item tags.
+- [ ] Define behavior for malformed/unclosed/nested tags and add fuzz/regression tests so plugins do not each carry subtly different parsers.
+- [ ] Prefer focused namespaces such as text/chat parsing, identifiers and bounded parsing helpers over one universal `Utils` class; do not expose internal runtime helpers merely because they already exist.
+- [ ] Keep shared tools usable by third-party plugins through the public SDK/package and covered by API compatibility/AOT tests.
+
+### `.vworld` loading follow-up optimization
+
+- [ ] Reopen `.vworld` performance work with current .NET 11 measurements and production-like large worlds rather than treating the earlier Phase 11 results as the final ceiling.
+- [ ] Profile cold/warm load at section granularity, decompression/copy/validation cost, allocations, page faults, post-load liquid/runtime reconstruction and readiness barriers; identify the dominant remaining cost before changing format again.
+- [ ] Evaluate safe parallel decode/preparation only for independent immutable sections and keep Terraria mutable-state publication on the authoritative game thread where required.
+- [ ] Evaluate lower-copy reads, pooled buffers, memory-mapped/sequential I/O and selectively precomputed indexes only when benchmarks show a real `WorldReady`/memory gain.
+- [ ] Preserve `.wld` as canonical source and `.vworld` as rebuildable cache; no optimization may turn a cache corruption into loss of the authoritative world.
+- [ ] Add repeatable small/medium/large cold/warm benchmarks to CI or a controlled benchmark lane and retain before/after artifacts so optimizations cannot be justified by one lucky run.
+
+### Core/module extraction and naming audit
+
+- [ ] Revisit the Phase 21 cohesion decision now that Admin Protocol, richer command metadata, logging and additional plugin consumers exist. Re-evaluate command infrastructure as a candidate `Vega.Commands` domain/module instead of allowing command dispatch, help, parsing and administration adapters to make `Vega.Core` a permanent transit dependency.
+- [ ] Apply the same evidence-based review to localization, administration, moderation, logging/query and other Core areas that now have independent consumers. Extract complete vertical ownership, not DTO-only projects or pass-through interfaces.
+- [ ] Decompose `src/Vega.Runtime/Program.cs` into explicit bootstrap/composition responsibilities: argument/config bootstrap, persistence, runtime/Terraria host wiring, module graph, Operations/Admin services, UI mode selection and lifecycle/shutdown. `Program.cs` should remain a thin composition entry point rather than an accumulating service script.
+- [ ] Run a repository-wide naming audit for overloaded/ambiguous terms, duplicate concepts and names whose meaning changes between Contracts/Core/Terraria/Operations/Admin/Plugin SDK. Rename only with a recorded semantic reason; avoid churn for aesthetics alone.
+- [ ] Add architecture tests for the accepted dependency directions after extraction and keep composition in Runtime rather than replacing Core coupling with a service locator.
+
+### Homes behavior port
+
+- [ ] Use the current project-owned `Homes` plugin as the behavior reference for the Vega Homes implementation; pin the exact source revision when implementation begins and audit commands, permissions, limits, persistence, world identity, teleport validation, cooldowns and failure messages before porting.
+- [ ] Keep Homes as an optional first-party module unless a demonstrated primitive belongs lower. Reuse Vega player teleport, authorization, localization, persistence and `WorldId` contracts rather than importing TShock/plugin class shapes.
+- [ ] Preserve relevant production behavior and edge cases from the reference plugin with end-to-end tests, including offline persistence, renamed/deleted worlds, invalid destinations and sandbox/world boundaries.
+- [ ] Expose Homes command/help/config descriptors through the common Plugin SDK/Admin catalog so the feature requires no bespoke TUI integration.
+
+### RegionExt.Core integration and Plugin SDK region surface
+
+- [ ] Audit the current project-owned `RegionExt.Core` behavior/data model against `Vega.Regions`; pin its source revision and produce a capability matrix before choosing direct adapter, port or replacement for each feature.
+- [ ] Integrate accepted RegionExt capabilities into the Vega region domain without exposing RegionExt/TShock implementation types through Core or public contracts.
+- [ ] Provide a stable Plugin SDK region API for querying region membership/bounds/flags/ownership and for authorized supported mutations/events so plugins do not access persistence tables or Terraria hooks directly.
+- [ ] Reconcile overlap priority, custom flags/properties, membership/group semantics, world identity and lifecycle behavior with the existing `Vega.Regions` source of truth rather than maintaining two competing region databases.
+- [ ] Add compatibility/import tooling only if real existing RegionExt data requires it; do not make a legacy schema a permanent Vega persistence contract.
+
+### TSExt capability integration and documentation
+
+- [ ] Audit the relevant project-owned `TSExt*` plugins at pinned revisions and map each capability to `Core`, first-party module, Plugin SDK primitive, Admin UI, native passthrough or explicit drop. Do not port a plugin family wholesale merely because its name starts with TSExt.
+- [ ] Revisit `TSExt_UICommand` `/ui` and `/ai` behavior against the existing sensitive-field authorization work. Document the exact output/permission behavior and expose equivalent information through stable player/account inspection contracts rather than legacy command internals.
+- [ ] Specifically audit and document the `/ai` multiboxing/multi-client behavior before implementation: define what identity/session relationship is being detected or displayed, which evidence is authoritative versus heuristic, privacy/permission requirements and how false positives are represented.
+- [ ] Add the retained `/ui` and `/ai` behavior to the module-oriented command catalog/help so operators can discover what each command means, what data it exposes and which permissions gate sensitive fields.
+- [ ] Integrate other useful TSExt capabilities only through existing or newly justified Vega services, with executable parity tests and no TShock API/class-shape dependency.
+
+### Validation and exit criteria
+
+- [ ] The localization engine, shared plugin tools and region interfaces are usable from an out-of-repository plugin SDK consumer without referencing Runtime/Terraria implementation assemblies.
+- [ ] `.vworld` follow-up changes demonstrate measured startup/readiness or memory improvement on representative worlds and retain safe `.wld` fallback.
+- [ ] `Program.cs` is reduced to composition/orchestration, command/domain extraction decisions are recorded, and naming changes remove actual ambiguity rather than merely rename files.
+- [ ] Homes, accepted RegionExt.Core capabilities and accepted TSExt capabilities have pinned behavior references, tests and clear ownership in the module/Admin/SDK architecture.
+
+Platform-convergence invariant:
+
+```text
+Reuse behavior and proven capabilities.
+Do not reuse legacy architectural coupling.
+Shared SDK surfaces exist because multiple real consumers need them, not because a Utils folder feels convenient.
+```
+
 ## Architectural guardrails
 
 These apply across all phases:
@@ -921,5 +1115,10 @@ These apply across all phases:
 - Structured logs are durable structured events, not formatted strings with optional metadata; JSONL remains authoritative and every search index is rebuildable derived state.
 - Logging producers on gameplay/server tick paths must never perform normal durable sink I/O synchronously; queue/backpressure and critical-event failure behavior must be explicit and observable.
 - Plugin logging depends only on the stable Vega API and structured event model, never on a concrete sink/backend such as Serilog, SQLite, Loki or OpenTelemetry.
+- Remote administration transports typed commands/state/events, never an ANSI/PTY terminal stream; authorization remains server-owned and TLS-protected.
+- The Admin Protocol is a reusable server boundary for TUI, Web UI, CLI, MCP and other clients; no frontend receives a privileged private path around application services.
+- NativeAOT may harden distribution against casual IL inspection but is never treated as authentication, authorization or protocol security.
+- Shared plugin utilities remain narrow, pure and consumer-driven; never grow a universal `Utils` surface that becomes hidden framework coupling.
+- Localization is one reusable per-recipient/module-aware engine across commands, plugins and admin clients; frontends must not invent incompatible language catalogs.
 - `.vworld` is a cache, not a hidden second source of truth or mandatory persistence path.
 - Prefer one working vertical slice over ten unused abstractions.
