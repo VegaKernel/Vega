@@ -3,7 +3,13 @@ namespace Vega.Contracts.Items;
 public sealed record ItemDefinition(
     int Type,
     string Name,
-    int MaxStack);
+    int MaxStack,
+    bool OnlyNeedOneInInventory = false,
+    bool IsAccessory = false);
+
+public sealed record ItemPrefixDefinition(
+    byte Id,
+    string Name);
 
 public enum ItemResolutionStatus
 {
@@ -22,10 +28,22 @@ public sealed record ItemResolutionResult(
     public IReadOnlyList<ItemDefinition> Candidates => Matches ?? [];
 }
 
+public sealed record ItemPrefixResolutionResult(
+    ItemResolutionStatus Status,
+    ItemPrefixDefinition? Prefix = null,
+    IReadOnlyList<ItemPrefixDefinition>? Matches = null)
+{
+    public bool IsFound => Status == ItemResolutionStatus.Found && Prefix is not null;
+
+    public IReadOnlyList<ItemPrefixDefinition> Candidates => Matches ?? [];
+}
+
 /// <summary>
 /// Runtime item catalog used by commands and tooling. Implementations own engine-specific naming and ID lookup.
 /// </summary>
 public interface IItemCatalog
 {
     ItemResolutionResult Resolve(string query);
+
+    ItemPrefixResolutionResult ResolvePrefix(string query, ItemDefinition item);
 }
