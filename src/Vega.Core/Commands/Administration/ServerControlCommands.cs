@@ -71,3 +71,33 @@ public sealed class ShutdownCommand(IServerControl server) : ICommandHandler
                         : "Server shutdown without save started: {0}"));
     }
 }
+
+public sealed class ServerPasswordCommand(IServerControl server) : ICommandHandler
+{
+    public CommandDescriptor Descriptor { get; } = new(
+        "serverpassword",
+        Array.Empty<string>(),
+        ["vega.cfg.password"],
+        Syntax: "serverpassword <new-password>");
+
+    public async ValueTask<CommandExecutionResult> ExecuteAsync(
+        CommandInvocation invocation,
+        CancellationToken cancellationToken)
+    {
+        if (invocation.Arguments.Count != 1)
+        {
+            return new CommandExecutionResult(
+                CommandExecutionStatus.InvalidUsage,
+                "command.invalid_usage",
+                [MessageDescriptor.Error("command.serverpassword.usage")
+                    .WithDefaultText("Usage: serverpassword <new-password>.")]);
+        }
+
+        await server.SetPasswordAsync(invocation.Arguments[0], cancellationToken).ConfigureAwait(false);
+        return CommandExecutionResult.WithMessages(
+            MessageDescriptor.Success("command.serverpassword.changed")
+                .WithDefaultText(string.IsNullOrEmpty(invocation.Arguments[0])
+                    ? "Server password cleared."
+                    : "Server password changed."));
+    }
+}
