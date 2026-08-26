@@ -45,6 +45,35 @@ public sealed class ServerControlCommandTests
     }
 
     [Test]
+    public async Task ServerPasswordRequiresDedicatedPermissionAndNeverEchoesSecret()
+    {
+        const string secret = "super-secret-password";
+        var control = new RecordingServerControl();
+        var dispatcher = new CommandDispatcher([new ServerPasswordCommand(control)]);
+        var denied = new Principal("player", []);
+        var operatorPrincipal = new Principal("operator", ["vega.cfg.password"]);
+
+        CommandExecutionResult deniedResult = await dispatcher.DispatchAsync(
+            Invocation("serverpassword", [secret], denied));
+        CommandExecutionResult invalidResult = await dispatcher.DispatchAsync(
+            Invocation("serverpassword", ["one", "two"], operatorPrincipal));
+        CommandExecutionResult changed = await dispatcher.DispatchAsync(
+            Invocation("serverpassword", [secret], operatorPrincipal));
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(deniedResult.Status, Is.EqualTo(CommandExecutionStatus.Forbidden));
+            Assert.That(invalidResult.Status, Is.EqualTo(CommandExecutionStatus.InvalidUsage));
+            Assert.That(changed.Status, Is.EqualTo(CommandExecutionStatus.Success));
+            Assert.That(control.Password, Is.EqualTo(secret));
+            Assert.That(changed.Messages, Has.Count.EqualTo(1));
+            Assert.That(changed.Messages[0].DefaultText, Does.Not.Contain(secret));
+            Assert.That(changed.Messages[0].Arguments.Select(static value => value?.ToString() ?? string.Empty),
+                Has.None.Contains(secret));
+        });
+    }
+
+    [Test]
     public async Task VersionAliasIsRegisteredAndDoesNotReadHostMetrics()
     {
         var dispatcher = new CommandDispatcher([
@@ -74,6 +103,7 @@ public sealed class ServerControlCommandTests
     {
         public int SaveCount { get; private set; }
         public List<(string Reason, bool SaveWorld)> Shutdowns { get; } = [];
+        public string? Password { get; private set; }
 
         public ValueTask SaveAsync(CancellationToken cancellationToken = default)
         {
@@ -90,6 +120,12 @@ public sealed class ServerControlCommandTests
         public ValueTask ShutdownWithoutSaveAsync(string reason, CancellationToken cancellationToken = default)
         {
             Shutdowns.Add((reason, false));
+            return ValueTask.CompletedTask;
+        }
+
+        public ValueTask SetPasswordAsync(string password, CancellationToken cancellationToken = default)
+        {
+            Password = password;
             return ValueTask.CompletedTask;
         }
     }
