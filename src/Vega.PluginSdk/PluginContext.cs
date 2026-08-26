@@ -16,7 +16,7 @@ public interface IVegaPluginContext
     IPluginPlayers Players { get; }
 
     /// <summary>Typed lifecycle/gameplay hooks owned by this plugin lifetime.</summary>
-    IPluginEvents Events { get; }
+    IPluginEvents Events => VegaPluginEventRuntime.Events(this);
 
     /// <summary>Curated immutable-snapshot access to the world hosted by this process.</summary>
     IPluginWorld World => VegaPluginRuntime.World(this);
