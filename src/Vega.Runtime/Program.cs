@@ -184,6 +184,9 @@ int Start()
     IEventPipeline<WorldHardmodeStarting> hardmodeStarting = new EventPipeline<WorldHardmodeStarting>(
         Array.Empty<IEventHandler<WorldHardmodeStarting>>(),
         Array.Empty<IEventMonitor<WorldHardmodeStarting>>());
+    var eventHub = new AsyncEventHub();
+    var serverReload = new ServerReloadService(serverConfiguration, eventHub);
+    VegaPluginEventRuntime.Configure(eventHub);
 
     using var gameThreadDispatcher = new TerrariaRuntimeGameThreadDispatcher();
     WorldId runtimeWorldId = backendLaunch.IsBackend ? backendLaunch.WorldId : WorldId.Primary;
@@ -206,7 +209,7 @@ int Start()
     using IDisposable helpCommandRegistration = commandDispatcher.Register(new HelpCommand(commandDispatcher));
     using IDisposable aliasesCommandRegistration = commandDispatcher.Register(new AliasesCommand(commandDispatcher));
     using IDisposable configCommandRegistration = commandDispatcher.Register(
-        new ConfigurationCommand(serverConfiguration));
+        new ConfigurationCommand(serverConfiguration, serverReload));
     var lifecycle = new RuntimeLifecycleTracker(processStartedAt);
     var networkMetrics = new NetworkMetricsCounter();
     var securitySignals = new BoundedSecuritySignalStore();
