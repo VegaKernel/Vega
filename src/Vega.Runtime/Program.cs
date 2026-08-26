@@ -185,7 +185,7 @@ int Start()
         Array.Empty<IEventHandler<WorldHardmodeStarting>>(),
         Array.Empty<IEventMonitor<WorldHardmodeStarting>>());
     var eventHub = new AsyncEventHub();
-    var serverReload = new ServerReloadService(serverConfiguration, eventHub);
+    using var serverReload = new ServerReloadService(serverConfiguration, eventHub);
     VegaPluginEventRuntime.Configure(eventHub);
 
     using var gameThreadDispatcher = new TerrariaRuntimeGameThreadDispatcher();
@@ -707,7 +707,7 @@ int Start()
             $"AutoWorldCleaner: {(cleanerOptions.Enabled ? "on" : "off")} " +
             $"every {cleanerOptions.IntervalMinutes} min; " +
             $"items={cleanerOptions.Items.Enabled.ToString().ToLowerInvariant()}, " +
-            $"projectiles={cleanerOptions.Projectiles.Enabled.ToString().ToLowerInvariant()}.");
+            $"projectiles={cleanerOptions.Projectiles.Enabled.ToString().ToLowerInvariant()}." );
 
         return TerrariaServerHost.Run(
             serverArgs,
@@ -781,7 +781,7 @@ IReadOnlyList<ModuleOperationsSnapshot> CreateModuleSnapshots(IModuleOperationsC
     Module("Vega.Backups", typeof(DeploymentBackupService).Assembly, ["Vega.Contracts"]),
     Module("Vega.Core", typeof(CommandDispatcher).Assembly, ["Vega.Contracts"]),
     Module("Vega.Modules.Administration", typeof(AccountCommand).Assembly, ["Vega.Contracts"]),
-    Module("Vega.Cluster", typeof(UnavailableClusterClient.Instance.GetType().Assembly), ["Vega.Contracts"]),
+    Module("Vega.Cluster", typeof(UnavailableClusterClient).Assembly, ["Vega.Contracts"]),
     Module("Vega.Operations", typeof(OperationsSnapshotProvider).Assembly, ["Vega.Contracts"]),
     Module("Vega.Persistence", typeof(IVegaDatabase).Assembly, ["Vega.Contracts", "System.Data.Common"]),
     Module("Vega.Regions", typeof(RegionCommand).Assembly, ["Vega.Contracts", "Multiplicity"]),

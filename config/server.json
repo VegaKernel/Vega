@@ -5,5 +5,8 @@
   "password": null,
   "defaultCulture": "en-US",
   "uiMode": "auto",
-  "worldImageEnabled": false
+  "worldImageEnabled": false,
+  "GeoIP": {
+    "AutoUpdate": true
+  }
 }
