@@ -32,6 +32,8 @@ Implementation priority is intentionally vertical. Each new abstraction should l
 - [x] Keep final side-effect application owned by the runtime/integration component instead of exposing `Apply` as a generic handler priority.
 - [x] Separate synchronous handlers from genuinely asynchronous handlers; never block the game thread on async work.
 - [x] Register handlers explicitly through composition root; no reflection-heavy Core scanning.
+- [x] Add one runtime-registerable typed `IAsyncEventHub` for Core/modules/plugins with the same priority, cancellation and monitor semantics; every hot-plugin subscription is lifetime-owned and detached automatically on unload.
+- [ ] Migrate command/runtime lifecycle hooks such as login, reload, save and world transitions onto that shared hub as their behavior audits reach them; do not create per-command static hook buses or a TShock-style global service locator.
 - [x] Migrate one real Terraria hook flow end-to-end through the new event pipeline (`WorldGen.StartHardmode`).
 
 ## Phase 3 — player boundary
@@ -444,7 +446,7 @@ Vega 1.0 currently has the modern command/authorization boundaries and several r
 - [x] Provide `config show`, `config validate` and authorized `config reload` operations through the normal command/audit boundary.
 - [x] Document world selection/generation, listener/password, slots, default culture, storage, logs, TUI, `.vworld`, modules and cluster configuration in both project-guide languages.
 
-`config/server.json` composes launch settings before any authoritative service starts. CLI values win over `VEGA_*`, then JSON, then stock defaults; diagnostics retain the source and redact the password. A null world deliberately preserves native interactive selection. Server/listener/world/storage settings are restart-only, so `config reload` performs atomic parse/validation without mutating live policy and reports that boundary instead of pretending an unsafe reload succeeded.
+`config/server.json` composes launch settings before any authoritative service starts. CLI values win over `VEGA_*`, then JSON, then stock defaults; diagnostics retain the source and redact the password. A null world deliberately preserves native interactive selection. `reload`/`config reload` now atomically replace the validated effective configuration snapshot and publish cancellable `ServerReloading` plus post-apply `ServerReloaded` through the shared typed event hub so owned consumers can refresh safe state. Server/listener/world/storage settings remain restart-only and the command reports that boundary instead of pretending those process-owned resources were rebound live.
 
 ### Accounts, groups and permissions
 
