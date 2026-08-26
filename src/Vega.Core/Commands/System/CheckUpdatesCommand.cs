@@ -16,12 +16,41 @@ public sealed class CheckUpdatesCommand(IUpdateChecker updateChecker) : ICommand
         CommandInvocation invocation,
         CancellationToken cancellationToken)
     {
+        if (invocation.Arguments.Count != 0)
+        {
+            const string code = "command.checkupdates.usage";
+            return new CommandExecutionResult(
+                CommandExecutionStatus.InvalidUsage,
+                code,
+                [MessageDescriptor.Error(code).WithDefaultText("Usage: checkupdates.")]);
+        }
+
         try
         {
-            await updateChecker.CheckAsync(cancellationToken);
+            UpdateCheckResult result = await updateChecker.CheckAsync(cancellationToken).ConfigureAwait(false);
+            if (result.LatestVersion is null)
+            {
+                return CommandExecutionResult.WithMessages(
+                    MessageDescriptor.Info("command.checkupdates.no-published-release", result.CurrentVersion)
+                        .WithDefaultText("No published Vega release is available yet. Running version: {0}."));
+            }
+
+            if (result.IsUpdateAvailable)
+            {
+                return CommandExecutionResult.WithMessages(
+                    MessageDescriptor.Warning(
+                            "command.checkupdates.update-available",
+                            result.CurrentVersion,
+                            result.LatestVersion)
+                        .WithDefaultText("Vega update available: {1} (running {0})."));
+            }
+
             return CommandExecutionResult.WithMessages(
-                MessageDescriptor.Info("command.checkupdates.completed")
-                    .WithDefaultText("Update check completed."));
+                MessageDescriptor.Success(
+                        "command.checkupdates.current",
+                        result.CurrentVersion,
+                        result.LatestVersion)
+                    .WithDefaultText("No newer Vega release found. Running {0}; latest published {1}."));
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
