@@ -16,7 +16,8 @@ internal static class TerrariaGameplayUtilityCommandRegistration
         WorldId runtimeWorldId,
         IGameThreadDispatcher gameThread,
         IPlayerDirectory players,
-        IPlayerOperations playerOperations)
+        IPlayerOperations playerOperations,
+        IPlayerMessenger messenger)
     {
         if (dispatcher is not ICommandRegistry registry)
         {
@@ -32,7 +33,7 @@ internal static class TerrariaGameplayUtilityCommandRegistration
         [
             registry.Register(new HomeCommand(players, recall)),
             registry.Register(new TeleportNpcCommand(players, playerOperations, npcs)),
-            registry.Register(new SpawnBossCommand(players, npcs, environment, wallOfFlesh))
+            registry.Register(new SpawnBossCommand(players, npcs, environment, wallOfFlesh, messenger))
         ];
         return new RegistrationSet(registrations);
     }
@@ -202,7 +203,8 @@ internal sealed class SpawnBossCommand(
     IPlayerDirectory players,
     IWorldNpcService npcs,
     IWorldEnvironmentService environment,
-    TerrariaWallOfFleshSpawner wallOfFlesh) : ICommandHandler
+    IWallOfFleshSpawner wallOfFlesh,
+    IPlayerMessenger messenger) : ICommandHandler
 {
     private sealed record BossDefinition(string DisplayName, int[] Types, bool ForceNight = false, bool WallOfFlesh = false);
 
@@ -253,9 +255,17 @@ internal sealed class SpawnBossCommand(
             PlayerOperationResult wof = await wallOfFlesh
                 .SpawnAsync(invocation.WorldId, caller.Position, cancellationToken)
                 .ConfigureAwait(false);
-            return wof.IsSuccess
-                ? Success("Spawned the Wall of Flesh.")
-                : Failure(wof.ErrorCode ?? "command.spawnboss.wof-failed", WallOfFleshFailure(wof.ErrorCode));
+            if (!wof.IsSuccess)
+            {
+                return Failure(wof.ErrorCode ?? "command.spawnboss.wof-failed", WallOfFleshFailure(wof.ErrorCode));
+            }
+
+            return await CompleteAsync(
+                invocation,
+                definition.DisplayName,
+                amount,
+                spawnedEntities: 1,
+                cancellationToken).ConfigureAwait(false);
         }
 
         if (definition.ForceNight)
@@ -299,7 +309,12 @@ internal sealed class SpawnBossCommand(
             }
         }
 
-        return Success($"Spawned {definition.DisplayName}: {spawned} boss entity/entities.");
+        return await CompleteAsync(
+            invocation,
+            definition.DisplayName,
+            amount,
+            spawned,
+            cancellationToken).ConfigureAwait(false);
     }
 
     private static IReadOnlyDictionary<string, BossDefinition> CreateDefinitions()
@@ -313,7 +328,7 @@ internal sealed class SpawnBossCommand(
             }
         }
 
-        Add(map, new BossDefinition("all bosses", [4, 13, 35, 50, 125, 126, 127, 134, 222, 245, 262, 266, 370, 398, 439, 636, 657]), "*", "all");
+        Add(map, new BossDefinition("all bosses", [4, 13, 35, 50, 125, 126, 127, 134, 222, 245, 262, 266, 370, 398, 439, 636, 657], ForceNight: true), "*", "all");
         Add(map, new BossDefinition("Brain of Cthulhu", [266]), "brain", "brain of cthulhu", "boc");
         Add(map, new BossDefinition("Destroyer", [134], true), "destroyer");
         Add(map, new BossDefinition("Duke Fishron", [370]), "duke", "duke fishron", "fishron");
@@ -354,6 +369,30 @@ internal sealed class SpawnBossCommand(
         _ => "Could not spawn the Wall of Flesh."
     };
 
+    private async ValueTask<CommandExecutionResult> CompleteAsync(
+        CommandInvocation invocation,
+        string displayName,
+        int amount,
+        int spawnedEntities,
+        CancellationToken cancellationToken)
+    {
+        string action = amount == 1
+            ? $"spawned {displayName} once ({spawnedEntities} boss entity/entities)."
+            : $"spawned {displayName} {amount} times ({spawnedEntities} boss entity/entities).";
+        string message = $"{invocation.Principal.Name} {action}";
+        if (!invocation.Silent)
+        {
+            await NpcCommandBroadcast.SendToOthersAsync(
+                players,
+                messenger,
+                invocation,
+                message,
+                cancellationToken).ConfigureAwait(false);
+        }
+
+        return Success(invocation.Silent ? $"You {action}" : message);
+    }
+
     private static CommandExecutionResult Usage() => new(
         CommandExecutionStatus.InvalidUsage,
         "command.spawnboss.usage",
@@ -367,9 +406,17 @@ internal sealed class SpawnBossCommand(
         CommandExecutionResult.Failed(code, MessageDescriptor.Error(code).WithDefaultText(text));
 }
 
+internal interface IWallOfFleshSpawner
+{
+    ValueTask<PlayerOperationResult> SpawnAsync(
+        WorldId worldId,
+        PlayerPosition position,
+        CancellationToken cancellationToken);
+}
+
 internal sealed class TerrariaWallOfFleshSpawner(
     IGameThreadDispatcher dispatcher,
-    WorldId runtimeWorldId)
+    WorldId runtimeWorldId) : IWallOfFleshSpawner
 {
     public ValueTask<PlayerOperationResult> SpawnAsync(
         WorldId worldId,

@@ -136,6 +136,7 @@ public static class TerrariaServerHost
             runtimeWorldId,
             gameThreadDispatcher,
             playerBoundary,
+            playerBoundary,
             playerBoundary);
         using var clearCommand = TerrariaClearCommandRegistration.Register(
             commandDispatcher,
