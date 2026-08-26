@@ -1,6 +1,7 @@
 using System.Data.Common;
 using System.Globalization;
 using System.Net;
+using System.Net.Sockets;
 using Vega.Contracts.Moderation;
 using Vega.Contracts.Networking;
 
@@ -289,8 +290,9 @@ internal sealed class RelationalMuteService(
             values.Add(NormalizeSubject(new MuteSubject(MuteIdentityKind.Account, identity.AccountName)));
         if (!string.IsNullOrWhiteSpace(identity.ClientUuid))
             values.Add(NormalizeSubject(new MuteSubject(MuteIdentityKind.ClientUuid, identity.ClientUuid)));
-        if (!string.IsNullOrWhiteSpace(identity.IpAddress))
-            values.Add(NormalizeSubject(new MuteSubject(MuteIdentityKind.IpAddress, identity.IpAddress)));
+        if (!string.IsNullOrWhiteSpace(identity.IpAddress) &&
+            TryNormalizeIpv4(identity.IpAddress, out string ipAddress))
+            values.Add(new MuteSubject(MuteIdentityKind.IpAddress, ipAddress));
         return values.ToArray();
     }
 
@@ -332,15 +334,25 @@ internal sealed class RelationalMuteService(
             MuteIdentityKind.ClientUuid => value.Length <= ConnectionMetadataLimits.MaxClientUuidLength
                 ? subject with { Value = value }
                 : throw new ArgumentOutOfRangeException(nameof(subject.Value)),
-            MuteIdentityKind.IpAddress => IPAddress.TryParse(value, out IPAddress? address)
-                ? subject with { Value = NormalizeAddress(address).ToString() }
+            MuteIdentityKind.IpAddress => TryNormalizeIpv4(value, out string address)
+                ? subject with { Value = address }
                 : throw new ArgumentException("Mute IP subject is invalid.", nameof(subject.Value)),
             _ => throw new ArgumentOutOfRangeException(nameof(subject.Kind))
         };
     }
 
-    private static IPAddress NormalizeAddress(IPAddress address) =>
-        address.IsIPv4MappedToIPv6 ? address.MapToIPv4() : address;
+    private static bool TryNormalizeIpv4(string value, out string normalized)
+    {
+        normalized = string.Empty;
+        if (!IPAddress.TryParse(value, out IPAddress? address) ||
+            address.AddressFamily != AddressFamily.InterNetwork)
+        {
+            return false;
+        }
+
+        normalized = address.ToString();
+        return true;
+    }
 
     private static async ValueTask WriteAuditAsync(DbConnection connection, DbTransaction transaction, string actor, string operation, string target, long before, long after, CancellationToken cancellationToken)
     {

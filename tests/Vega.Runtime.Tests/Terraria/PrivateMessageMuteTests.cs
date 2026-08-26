@@ -54,6 +54,17 @@ public sealed class PrivateMessageMuteTests
         });
     }
 
+    [TestCase("[2001:db8::44]:7777")]
+    [TestCase("[::ffff:203.0.113.44]:7777")]
+    public void MuteIdentityRejectsIpv6ConnectionEndpoints(string endpoint)
+    {
+        PlayerSnapshot player = Player(1, "Alice") with { RemoteEndpoint = endpoint };
+
+        MuteIdentity identity = WhisperCommand.BuildMuteIdentity(player, "AliceAccount");
+
+        Assert.That(identity.IpAddress, Is.Null);
+    }
+
     private static PlayerSnapshot Player(int slot, string name) => new(
         new PlayerId(slot), name, false, 100, 100, 20, 20,
         new PlayerPosition(0, 0), false, 0);

@@ -1,4 +1,5 @@
 using System.Net;
+using System.Net.Sockets;
 using Vega.Contracts.Accounts;
 using Vega.Contracts.Messaging;
 using Vega.Contracts.Moderation;
@@ -31,12 +32,12 @@ public sealed class MuteChatModerationRule(
     private static string? ExtractIp(string? endpoint)
     {
         if (string.IsNullOrWhiteSpace(endpoint)) return null;
-        if (IPAddress.TryParse(endpoint, out IPAddress? address)) return NormalizeAddress(address).ToString();
+        if (IPAddress.TryParse(endpoint, out IPAddress? address)) return UseIpv4(address);
         return IPEndPoint.TryParse(endpoint, out IPEndPoint? parsed)
-            ? NormalizeAddress(parsed.Address).ToString()
+            ? UseIpv4(parsed.Address)
             : null;
     }
 
-    private static IPAddress NormalizeAddress(IPAddress address) =>
-        address.IsIPv4MappedToIPv6 ? address.MapToIPv4() : address;
+    private static string? UseIpv4(IPAddress address) =>
+        address.AddressFamily == AddressFamily.InterNetwork ? address.ToString() : null;
 }

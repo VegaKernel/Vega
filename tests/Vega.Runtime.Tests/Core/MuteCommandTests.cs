@@ -79,7 +79,7 @@ public sealed class MuteCommandTests
                 new(MuteIdentityKind.Account, "Alice"),
                 new(MuteIdentityKind.PlayerName, "AliceCharacter"),
                 new(MuteIdentityKind.ClientUuid, "terraria-opaque-UUID-token"),
-                new(MuteIdentityKind.IpAddress, "::ffff:192.0.2.44")
+                new(MuteIdentityKind.IpAddress, "192.0.2.44")
             ]
         };
 
@@ -101,6 +101,32 @@ public sealed class MuteCommandTests
             Assert.That(persisted.Subjects.Single(subject => subject.Kind == MuteIdentityKind.IpAddress).Value,
                 Is.EqualTo("192.0.2.44"));
         });
+    }
+
+    [TestCase("2001:db8::44")]
+    [TestCase("::ffff:192.0.2.44")]
+    public void RejectsIpv6AndIpv4MappedIpv6MuteSubjects(string value)
+    {
+        DateTimeOffset now = DateTimeOffset.Parse("2026-08-23T12:00:00Z");
+        var mute = new MuteSnapshot(
+            MuteId.New(),
+            MuteSubjectKind.PlayerName,
+            "Alice",
+            "chat abuse",
+            "Server",
+            now,
+            now.AddHours(1),
+            1)
+        {
+            Subjects = [new(MuteIdentityKind.IpAddress, value)]
+        };
+
+        Assert.That(async () =>
+        {
+            SqliteVegaDatabase database = await SqliteVegaDatabase.OpenAsync(
+                new SqliteVegaDatabaseOptions(Path.Combine(directory, "vega.db")));
+            await database.Mutes.CreateAsync(mute);
+        }, Throws.TypeOf<ArgumentException>());
     }
 
     [Test]

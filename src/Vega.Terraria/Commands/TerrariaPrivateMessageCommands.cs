@@ -1,4 +1,5 @@
 using System.Net;
+using System.Net.Sockets;
 using Vega.Contracts.Commands;
 using Vega.Contracts.Messaging;
 using Vega.Contracts.Moderation;
@@ -279,18 +280,18 @@ internal sealed class WhisperCommand(
         string? ipAddress = null;
         if (IPAddress.TryParse(endpoint, out IPAddress? address))
         {
-            ipAddress = NormalizeAddress(address).ToString();
+            ipAddress = UseIpv4(address);
         }
         else if (endpoint is not null && IPEndPoint.TryParse(endpoint, out IPEndPoint? parsed))
         {
-            ipAddress = NormalizeAddress(parsed.Address).ToString();
+            ipAddress = UseIpv4(parsed.Address);
         }
 
         return new MuteIdentity(player.Name, accountName, player.Connection?.ClientUuid, ipAddress);
     }
 
-    private static IPAddress NormalizeAddress(IPAddress address) =>
-        address.IsIPv4MappedToIPv6 ? address.MapToIPv4() : address;
+    private static string? UseIpv4(IPAddress address) =>
+        address.AddressFamily == AddressFamily.InterNetwork ? address.ToString() : null;
 }
 
 internal sealed class ReplyCommand(

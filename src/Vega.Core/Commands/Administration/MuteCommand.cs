@@ -1,5 +1,6 @@
 using System.Globalization;
 using System.Net;
+using System.Net.Sockets;
 using Vega.Contracts.Accounts;
 using Vega.Contracts.Commands;
 using Vega.Contracts.Messaging;
@@ -355,19 +356,20 @@ public sealed class MuteCommand(
         if (string.IsNullOrWhiteSpace(endpoint)) return false;
         if (IPAddress.TryParse(endpoint, out IPAddress? address))
         {
-            value = NormalizeAddress(address).ToString();
-            return true;
+            return TryUseIpv4(address, out value);
         }
         if (IPEndPoint.TryParse(endpoint, out IPEndPoint? parsed))
         {
-            value = NormalizeAddress(parsed.Address).ToString();
-            return true;
+            return TryUseIpv4(parsed.Address, out value);
         }
         return false;
     }
 
-    private static IPAddress NormalizeAddress(IPAddress address) =>
-        address.IsIPv4MappedToIPv6 ? address.MapToIPv4() : address;
+    private static bool TryUseIpv4(IPAddress address, out string? value)
+    {
+        value = address.AddressFamily == AddressFamily.InterNetwork ? address.ToString() : null;
+        return value is not null;
+    }
 
     private PlayerSnapshot[] FindPlayers(string search)
     {
