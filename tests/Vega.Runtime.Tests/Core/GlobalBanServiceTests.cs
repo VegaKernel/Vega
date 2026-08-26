@@ -14,11 +14,11 @@ public sealed class GlobalBanServiceTests
     private static readonly DateTimeOffset Now = new(2026, 8, 22, 12, 0, 0, TimeSpan.Zero);
 
     [Test]
-    public async Task NormalizesIpv4MappedAddressAndMatchesExactIp()
+    public async Task MatchesExactIpv4Address()
     {
         var replica = new InMemoryGlobalBanReplica();
         var service = CreateService(replica);
-        GlobalBanCreated created = Ban(GlobalBanSubjectKind.IpAddress, "::ffff:192.0.2.42");
+        GlobalBanCreated created = Ban(GlobalBanSubjectKind.IpAddress, "192.0.2.42");
 
         Assert.That(await service.CreateAsync(created), Is.True);
         BanSnapshot? match = await service.FindActiveBanAsync(
@@ -32,24 +32,53 @@ public sealed class GlobalBanServiceTests
     }
 
     [Test]
-    public async Task ChoosesMostSpecificOverlappingIpv6Network()
+    public async Task ChoosesMostSpecificOverlappingIpv4Network()
     {
         var replica = new InMemoryGlobalBanReplica();
         var service = CreateService(replica);
-        GlobalBanCreated broad = Ban(GlobalBanSubjectKind.Network, "2001:db8::1234/48");
-        GlobalBanCreated narrow = Ban(GlobalBanSubjectKind.Network, "2001:db8:0:1::99/64");
+        GlobalBanCreated broad = Ban(GlobalBanSubjectKind.Network, "192.0.2.123/24");
+        GlobalBanCreated narrow = Ban(GlobalBanSubjectKind.Network, "192.0.2.130/25");
         await service.CreateAsync(broad);
         await service.CreateAsync(narrow);
 
         BanSnapshot? match = await service.FindActiveBanAsync(
-            new BanIdentity(null, null, null, IPAddress.Parse("2001:db8:0:1::7")));
+            new BanIdentity(null, null, null, IPAddress.Parse("192.0.2.200")));
 
         Assert.Multiple(() =>
         {
             Assert.That(match?.Id, Is.EqualTo(narrow.BanId));
             Assert.That(service.SnapshotActive(Now).Single(ban => ban.Id == broad.BanId).Subject.Value,
-                Is.EqualTo("2001:db8::/48"));
+                Is.EqualTo("192.0.2.0/24"));
+            Assert.That(service.SnapshotActive(Now).Single(ban => ban.Id == narrow.BanId).Subject.Value,
+                Is.EqualTo("192.0.2.128/25"));
         });
+    }
+
+    [TestCase(GlobalBanSubjectKind.IpAddress, "2001:db8::1")]
+    [TestCase(GlobalBanSubjectKind.Network, "2001:db8::/64")]
+    [TestCase(GlobalBanSubjectKind.IpAddress, "::ffff:192.0.2.42")]
+    [TestCase(GlobalBanSubjectKind.Network, "::ffff:192.0.2.0/120")]
+    public void RejectsIpv6AndIpv4MappedIpv6Subjects(GlobalBanSubjectKind kind, string value)
+    {
+        var service = CreateService(new InMemoryGlobalBanReplica());
+
+        Assert.That(
+            service.TryNormalizeSubject(new GlobalBanSubject(kind, value), out _, out string? error),
+            Is.False);
+        Assert.That(error, Does.Contain("IPv4"));
+    }
+
+    [Test]
+    public async Task Ipv6IdentityDoesNotMatchIpv4Ban()
+    {
+        var replica = new InMemoryGlobalBanReplica();
+        var service = CreateService(replica);
+        await service.CreateAsync(Ban(GlobalBanSubjectKind.Network, "192.0.2.0/24"));
+
+        BanSnapshot? match = await service.FindActiveBanAsync(
+            new BanIdentity(null, null, null, IPAddress.Parse("2001:db8::1")));
+
+        Assert.That(match, Is.Null);
     }
 
     [TestCase(GlobalBanSubjectKind.Account, "Alice", "alice")]

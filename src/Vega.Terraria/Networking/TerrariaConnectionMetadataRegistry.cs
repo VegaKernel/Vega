@@ -4,6 +4,7 @@ using Vega.Contracts.Networking;
 using Vega.Contracts.Sandboxes;
 using Vega.Contracts.Worlds;
 using System.Net;
+using System.Net.Sockets;
 
 namespace Vega.Terraria.Networking;
 
@@ -23,12 +24,13 @@ public sealed class TerrariaConnectionMetadataRegistry
         var parsed = new HashSet<IPAddress>();
         foreach (string value in trustedPeers)
         {
-            if (!IPAddress.TryParse(value, out IPAddress? address) || address.IsIPv6Multicast)
+            if (!TryParseIpv4(value, out IPAddress? address))
             {
-                throw new InvalidDataException($"Dimensions trusted proxy '{value}' is not a valid IP address.");
+                throw new InvalidDataException(
+                    $"Dimensions trusted proxy '{value}' is not a valid IPv4 address.");
             }
 
-            parsed.Add(address.MapToIPv6());
+            parsed.Add(address!);
         }
 
         lock (sync)
@@ -146,7 +148,7 @@ public sealed class TerrariaConnectionMetadataRegistry
             }
 
             if (!TryGetAddress(transportEndpoint, out IPAddress? peer) || peer is null ||
-                !trustedDimensionsPeers.Contains(peer.MapToIPv6()))
+                !trustedDimensionsPeers.Contains(peer))
             {
                 return new ConnectionMetadataObservation(
                     Reject("connection_metadata.dimensions_untrusted_peer"),
@@ -165,9 +167,8 @@ public sealed class TerrariaConnectionMetadataRegistry
 
                 string forwarded = reader.ReadStringUtf8();
                 reader.EnsureEnd();
-                if (!IPAddress.TryParse(forwarded, out IPAddress? effective) ||
-                    effective.Equals(IPAddress.Any) || effective.Equals(IPAddress.IPv6Any) ||
-                    effective.IsIPv6Multicast)
+                if (!TryParseIpv4(forwarded, out IPAddress? effective) ||
+                    effective!.Equals(IPAddress.Any) || effective.Equals(IPAddress.Broadcast))
                 {
                     return new ConnectionMetadataObservation(
                         Reject("connection_metadata.dimensions_invalid_address"),
@@ -195,14 +196,27 @@ public sealed class TerrariaConnectionMetadataRegistry
 
     private static bool TryGetAddress(string? endpoint, out IPAddress? address)
     {
-        if (IPAddress.TryParse(endpoint, out address))
+        if (endpoint is not null && TryParseIpv4(endpoint, out address))
         {
             return true;
         }
 
-        if (endpoint is not null && IPEndPoint.TryParse(endpoint, out IPEndPoint? parsed))
+        if (endpoint is not null && IPEndPoint.TryParse(endpoint, out IPEndPoint? parsed) &&
+            parsed.Address.AddressFamily == AddressFamily.InterNetwork)
         {
             address = parsed.Address;
+            return true;
+        }
+
+        address = null;
+        return false;
+    }
+
+    private static bool TryParseIpv4(string value, out IPAddress? address)
+    {
+        if (IPAddress.TryParse(value, out address) &&
+            address.AddressFamily == AddressFamily.InterNetwork)
+        {
             return true;
         }
 

@@ -230,6 +230,30 @@ int Start()
     using (fileSink)
     {
         using var logger = new StructuredOperationsLogger(sinks);
+        FileServerAccessStore serverAccess;
+        try
+        {
+            serverAccess = new FileServerAccessStore(
+                Path.Combine(AppContext.BaseDirectory, "data", "server-access.json"));
+        }
+        catch (Exception ex) when (ex is InvalidDataException or IOException or UnauthorizedAccessException)
+        {
+            logger.Log(
+                OperationsLogLevel.Critical,
+                "server-access",
+                "Server access state is invalid; refusing to silently bypass lock/whitelist policy.",
+                ex);
+            return 2;
+        }
+        using IDisposable lockCommandRegistration = commandDispatcher.Register(new LockCommand(serverAccess));
+        using IDisposable whitelistCommandRegistration = commandDispatcher.Register(new WhitelistCommand(serverAccess));
+        using var serverAccessEnforcer = new PersistentServerAccessEnforcer(
+            serverAccess,
+            playerBoundary,
+            playerBoundary,
+            playerBoundary,
+            logger);
+
         SandboxOptions sandboxOptions = SandboxOptionsStore.Load(
             Path.Combine(AppContext.BaseDirectory, "config", "sandboxes.json"));
         string sandboxDataRoot = Path.Combine(AppContext.BaseDirectory, "data", "sandboxes");
@@ -693,6 +717,12 @@ int Start()
             $"Database provider: {database.Provider}; initialization is required before world loading.");
         logger.Log(
             OperationsLogLevel.Information,
+            "server-access",
+            $"Server access: {(serverAccess.IsLocked ? "locked" : "unlocked")}; " +
+            $"whitelist={(serverAccess.IsWhitelistEnabled ? "on" : "off")}; " +
+            $"entries={serverAccess.SnapshotEntries().Count}.");
+        logger.Log(
+            OperationsLogLevel.Information,
             "world-image",
             $"World image mode: {(worldImageOptions.Enabled ? "on" : "off")}; " +
             $"direct_image={worldImageOptions.DirectImageRequested.ToString().ToLowerInvariant()}.");
@@ -707,7 +737,7 @@ int Start()
             $"AutoWorldCleaner: {(cleanerOptions.Enabled ? "on" : "off")} " +
             $"every {cleanerOptions.IntervalMinutes} min; " +
             $"items={cleanerOptions.Items.Enabled.ToString().ToLowerInvariant()}, " +
-            $"projectiles={cleanerOptions.Projectiles.Enabled.ToString().ToLowerInvariant()}." );
+            $"projectiles={cleanerOptions.Projectiles.Enabled.ToString().ToLowerInvariant()}.");
 
         return TerrariaServerHost.Run(
             serverArgs,

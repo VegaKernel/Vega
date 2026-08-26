@@ -1,4 +1,5 @@
 using System.Net;
+using System.Net.Sockets;
 using Vega.Contracts.Accounts;
 using Vega.Contracts.Authorization;
 using Vega.Contracts.Bans;
@@ -337,7 +338,7 @@ public sealed class PlayerAccountSessionService : IPlayerAccountSessionService, 
             return;
         }
 
-        string? ipAddress = TryGetAddress(connection.EffectiveEndpoint, out IPAddress? address)
+        string? ipAddress = TryGetIpv4Address(connection.EffectiveEndpoint, out IPAddress? address)
             ? address?.ToString()
             : null;
         try
@@ -364,14 +365,16 @@ public sealed class PlayerAccountSessionService : IPlayerAccountSessionService, 
         }
     }
 
-    private static bool TryGetAddress(string? endpoint, out IPAddress? address)
+    private static bool TryGetIpv4Address(string? endpoint, out IPAddress? address)
     {
-        if (IPAddress.TryParse(endpoint, out address))
+        if (IPAddress.TryParse(endpoint, out address) &&
+            address.AddressFamily == AddressFamily.InterNetwork)
         {
             return true;
         }
 
-        if (endpoint is not null && IPEndPoint.TryParse(endpoint, out IPEndPoint? parsed))
+        if (endpoint is not null && IPEndPoint.TryParse(endpoint, out IPEndPoint? parsed) &&
+            parsed.Address.AddressFamily == AddressFamily.InterNetwork)
         {
             address = parsed.Address;
             return true;

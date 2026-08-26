@@ -2,8 +2,8 @@
 
 Status: Accepted and implemented
 
-Vega now decodes packet 67 through a bounded Multiplicity `PacketView`/`PacketReader`,
-accepts type 0 only from exact IPs in `config/security.json` when explicitly enabled,
+Vega decodes packet 67 through a bounded Multiplicity `PacketView`/`PacketReader`,
+accepts type 0 only from exact IPv4 addresses in `config/security.json` when explicitly enabled,
 and preserves transport and effective endpoints with trusted-forwarder provenance. The
 Phase 17 routing service adds target-bound, expiring single-use HMAC tickets and sends
 Dimensions type 3 switches only to connections carrying that trusted provenance.
@@ -24,13 +24,15 @@ The reference implementation is:
 
 The historical plugin handles `joinType = 0` by reflecting into the private `TSPlayer.CacheIP` field and then re-running part of GeoIP/proxy policy because the normal TShock checks have already happened by the time the plugin changes the address.
 
-That is useful compatibility behavior, but it is the wrong architectural boundary for TShockNG and is unsafe if packet 67 is blindly trusted from arbitrary public clients.
+That is useful compatibility behavior, but it is the wrong architectural boundary for Vega and is unsafe if packet 67 is blindly trusted from arbitrary public clients.
+
+Terraria's server transport is treated by Vega as IPv4-only. Vega therefore does not carry an independent IPv6 identity path for bans, forwarding, sandbox admission, GeoIP or server access policy. IPv6 and IPv4-mapped IPv6 values are rejected instead of being normalized into a second address family.
 
 ## Decision
 
-Implement first-party, optional Dimensions protocol compatibility in TShockNG so a dedicated Dimensions plugin is not required for this protocol shim.
+Implement first-party, optional Dimensions protocol compatibility in Vega so a dedicated Dimensions plugin is not required for this protocol shim.
 
-The feature is disabled by default and controlled by the main TShockNG configuration.
+The feature is disabled by default and controlled by the Vega security configuration.
 
 Initial configuration shape:
 
@@ -38,22 +40,22 @@ Initial configuration shape:
 {
   "EnableDimensionsPacket": false,
   "DimensionsTrustedProxies": [
-    "127.0.0.1",
-    "::1"
+    "127.0.0.1"
   ]
 }
 ```
 
-The exact serialization names may be normalized when the configuration model is modernized, but the semantics must remain explicit:
+The semantics are explicit:
 
 - `EnableDimensionsPacket` enables handling of the Dimensions protocol carried in packet 67;
-- `DimensionsTrustedProxies` defines which immediate TCP peers are allowed to supply forwarded client metadata.
+- `DimensionsTrustedProxies` contains exact IPv4 addresses of immediate TCP peers allowed to supply forwarded client metadata;
+- IPv6 trusted peers and forwarded IPv6 addresses are invalid configuration/protocol input.
 
 Do not interpret packet 67 as trusted forwarding metadata merely because the feature is enabled.
 
 ## Protocol
 
-The compatibility decoder initially supports the historical Dimensions payload:
+The compatibility decoder supports the historical Dimensions payload:
 
 ```text
 Terraria packet id: 67 (PacketTypes.Placeholder)
@@ -66,20 +68,20 @@ payload:
 Known `joinType` values:
 
 ```text
-0 = forwarded/real client IP address
+0 = forwarded/real client IPv4 address
 1 = reserved historical GameModes message
 ```
 
-### Type 0: forwarded client IP
+### Type 0: forwarded client IPv4
 
 For `joinType = 0`:
 
 1. verify that Dimensions compatibility is enabled;
-2. verify that the immediate socket peer matches `DimensionsTrustedProxies`;
-3. parse `joinInfo` with `IPAddress.TryParse`;
-4. reject malformed, empty, multicast, unspecified, or otherwise unusable addresses;
-5. store the forwarded address through the connection metadata/admission abstraction;
-6. make that effective client address available to TShock policy and observability code without reflection;
+2. verify that the immediate IPv4 socket peer matches `DimensionsTrustedProxies`;
+3. parse `joinInfo` as an IPv4 `IPAddress`;
+4. reject malformed, empty, IPv6, IPv4-mapped IPv6, unspecified, broadcast, or otherwise unusable addresses;
+5. store the forwarded IPv4 address through the connection metadata/admission abstraction;
+6. make that effective client address available to Vega policy and observability code without reflection;
 7. record both the immediate proxy endpoint and effective client endpoint for diagnostics.
 
 Do not mutate private fields with reflection.
@@ -96,18 +98,19 @@ Initially:
 
 ## Connection admission ordering
 
-The effective remote address must be established before policies that depend on client identity are finalized.
+The effective remote IPv4 address must be established before policies that depend on client identity are finalized.
 
 This includes, where applicable:
 
 - IP bans;
+- server lock / whitelist admission;
 - GeoIP lookup;
 - proxy/VPN policy;
 - connection logging;
-- REST/operations diagnostics related to the player connection;
+- operations diagnostics related to the player connection;
 - plugins or first-party services consuming the canonical client endpoint.
 
-The historical plugin had to redo GeoIP/proxy checks because it changed `TSPlayer.CacheIP` after those checks. TShockNG should instead model the connection stages explicitly so forwarded metadata can be applied at the correct point.
+The historical plugin had to redo GeoIP/proxy checks because it changed `TSPlayer.CacheIP` after those checks. Vega instead models the connection stages explicitly so forwarded metadata can be applied at the correct point.
 
 Conceptually:
 
@@ -115,14 +118,15 @@ Conceptually:
 socket accept
     |
     v
-immediate peer endpoint
+immediate IPv4 peer endpoint
     |
     v
 optional trusted Dimensions metadata (packet 67/type 0)
     |
     v
-canonical/effective client endpoint
+canonical/effective IPv4 client endpoint
     |
+    +--> admission / whitelist
     +--> ban policy
     +--> GeoIP
     +--> proxy policy
@@ -136,20 +140,19 @@ Forwarded IP data is an assertion made by a proxy, not by the Terraria client.
 
 Therefore:
 
-- packet 67/type 0 must only be authoritative when received over a connection whose immediate peer is trusted;
-- public clients must not be able to spoof their IP by sending the same packet directly;
+- packet 67/type 0 is authoritative only when received over a connection whose immediate IPv4 peer is trusted;
+- public clients cannot spoof their IP by sending the same packet directly;
 - retain the original immediate peer address even after a forwarded address is accepted;
-- malformed Dimensions packets must fail closed for metadata handling without crashing the game/network thread;
-- the compatibility parser must be bounded and use the same typed packet validation path planned for the modern networking layer;
-- log rejected forwarding attempts at an appropriate rate-limited diagnostic level.
+- IPv6 is rejected rather than accepted into a partially supported identity path;
+- malformed Dimensions packets fail closed for metadata handling without crashing the game/network thread;
+- the compatibility parser is bounded and uses the same typed packet validation path as other networking code;
+- rejected forwarding attempts should be logged at an appropriate rate-limited diagnostic level.
 
-This design is intentionally analogous to trusted reverse-proxy forwarding on HTTP servers: forwarded identity is accepted only from configured trusted hops.
+This design is analogous to trusted reverse-proxy forwarding on HTTP servers: forwarded identity is accepted only from configured trusted hops.
 
 ## Architecture
 
-Dimensions support belongs in the networking/connection-admission boundary, not in the Terminal.Gui UI, command system, or a `TSPlayer` reflection helper.
-
-Recommended contracts after the networking refactor:
+Dimensions support belongs in the networking/connection-admission boundary, not in the Terminal.Gui UI, command system, or a reflection helper.
 
 ```text
 DimensionsPacketDecoder
@@ -162,35 +165,34 @@ ConnectionMetadata
     - ForwardingSource
 
 ConnectionAdmissionService
-    -> validates trusted proxy
-    -> applies forwarded identity
+    -> validates trusted IPv4 proxy
+    -> applies forwarded IPv4 identity
     -> runs connection policies
 ```
 
-The concrete names may change. The important properties are:
+The important properties are:
 
 - typed packet parsing;
 - immutable connection metadata snapshots where practical;
 - explicit trust policy;
+- one address family for Terraria connection identity;
 - no reflection;
 - no direct dependency from core connection logic on a plugin assembly.
 
-ProtocolGuard should eventually validate the semantic Dimensions message through the same typed validation pipeline as other packets rather than special-case raw byte offsets in unrelated code.
-
 ## Player compatibility
 
-Existing APIs that expose a player's IP should continue to see the effective client IP when trusted Dimensions forwarding is active, because that is the behavior administrators rely on today.
+Existing APIs that expose a player's IP see the effective client IPv4 address when trusted Dimensions forwarding is active.
 
-Internally, however, preserve both addresses:
+Internally preserve both addresses:
 
-- transport/proxy address;
-- effective/forwarded client address.
+- transport/proxy IPv4 address;
+- effective/forwarded client IPv4 address.
 
-New APIs should make this distinction explicit rather than overloading one mutable string field forever.
+New APIs make this distinction explicit rather than overloading one mutable string field.
 
 ## Operations UI
 
-The planned Terminal.Gui operations UI should expose connection provenance in the player detail view when useful:
+The operations UI may expose connection provenance in the player detail view:
 
 ```text
 Client IP:       203.0.113.10
@@ -198,39 +200,25 @@ Connected via:   127.0.0.1:7778 (Dimensions)
 Forwarding:      trusted
 ```
 
-Do not expose this by making the UI parse packets itself. It consumes the connection metadata read model.
+The UI consumes the connection metadata read model and never parses forwarding packets itself.
 
 ## Testing
 
-Add tests covering at least:
+Tests cover at least:
 
 - packet ID 67 recognized only when compatibility is enabled;
 - type 0 parses a valid IPv4 address;
-- type 0 parses a valid IPv6 address;
+- IPv6 trusted-peer configuration is rejected;
+- a trusted peer cannot forward an IPv6 address;
 - malformed IP is rejected;
 - unknown `joinType` is not treated as an IP update;
 - packet from an untrusted peer cannot replace the effective address;
-- trusted peer can supply the effective address;
+- trusted peer can supply the effective IPv4 address;
 - transport peer remains available after forwarding;
-- ban/GeoIP/proxy policies receive the effective address in the correct order;
+- ban/GeoIP/admission policies consume only IPv4 identity;
 - malformed/truncated payload cannot crash packet processing;
 - normal Terraria operation is unchanged when the feature is disabled.
 
-## Sequencing
-
-Implement this after the .NET 10 baseline is merged and while the networking/connection pipeline is being modernized.
-
-Preferred order:
-
-1. establish explicit connection metadata and effective endpoint semantics;
-2. add trusted-proxy configuration;
-3. add the typed packet-67 Dimensions decoder;
-4. integrate it before identity-dependent connection policies;
-5. add compatibility projection for existing `TSPlayer` IP APIs;
-6. expose connection provenance to diagnostics/Terminal.Gui read models;
-7. integrate semantic validation with ProtocolGuard;
-8. remove the need for the external Dimensions compatibility plugin in deployments that only use this functionality.
-
 ## Consequences
 
-TShockNG deployments behind Dimensions no longer need to carry a small privileged plugin solely to replace player IP state. The compatibility feature becomes explicit, testable, secure-by-default, and integrated at the point where connection identity actually belongs.
+Vega deployments behind Dimensions no longer need a privileged compatibility plugin solely to replace player IP state. The compatibility feature is explicit, testable and secure-by-default. Vega intentionally does not advertise or retain IPv6 support for Terraria server connection identity; introducing it later would require a separate transport-level decision rather than incidental `IPAddress` acceptance.

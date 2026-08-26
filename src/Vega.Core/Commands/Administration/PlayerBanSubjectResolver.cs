@@ -1,4 +1,5 @@
 using System.Net;
+using System.Net.Sockets;
 using Vega.Contracts.Accounts;
 using Vega.Contracts.Cluster.Events;
 using Vega.Contracts.Players;
@@ -63,11 +64,14 @@ internal static class PlayerBanSubjectResolver
             .GroupBy(static candidate => candidate.Kind)
             .Select(static group => group.OrderByDescending(candidate => candidate.LastSeenAt).First()))
         {
-            subjects.Add(new GlobalBanSubject(
-                evidence.Kind == AccountIdentityEvidenceKind.ClientUuid
-                    ? GlobalBanSubjectKind.Uuid
-                    : GlobalBanSubjectKind.IpAddress,
-                evidence.Value));
+            if (evidence.Kind == AccountIdentityEvidenceKind.ClientUuid)
+            {
+                subjects.Add(new GlobalBanSubject(GlobalBanSubjectKind.Uuid, evidence.Value));
+            }
+            else if (TryGetIpAddress(evidence.Value, out string? ipv4) && ipv4 is not null)
+            {
+                subjects.Add(new GlobalBanSubject(GlobalBanSubjectKind.IpAddress, ipv4));
+            }
         }
 
         return subjects;
@@ -81,13 +85,15 @@ internal static class PlayerBanSubjectResolver
             return false;
         }
 
-        if (IPAddress.TryParse(remoteEndpoint, out IPAddress? direct))
+        if (IPAddress.TryParse(remoteEndpoint, out IPAddress? direct) &&
+            direct.AddressFamily == AddressFamily.InterNetwork)
         {
             address = direct.ToString();
             return true;
         }
 
-        if (IPEndPoint.TryParse(remoteEndpoint, out IPEndPoint? endpoint))
+        if (IPEndPoint.TryParse(remoteEndpoint, out IPEndPoint? endpoint) &&
+            endpoint.Address.AddressFamily == AddressFamily.InterNetwork)
         {
             address = endpoint.Address.ToString();
             return true;

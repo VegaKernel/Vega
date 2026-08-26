@@ -22,7 +22,7 @@ public sealed class GameplayEnforcementPolicyTests
         Assert.Multiple(() =>
         {
             Assert.That(options.EnableDimensionsPacket, Is.False);
-            Assert.That(options.DimensionsTrustedProxies, Is.EquivalentTo(new[] { "127.0.0.1", "::1" }));
+            Assert.That(options.DimensionsTrustedProxies, Is.EquivalentTo(new[] { "127.0.0.1" }));
         });
     }
 
