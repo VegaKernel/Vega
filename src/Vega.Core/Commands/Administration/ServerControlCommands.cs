@@ -36,10 +36,10 @@ public sealed class SaveCommand(IServerControl server) : ICommandHandler
 public sealed class ShutdownCommand(IServerControl server) : ICommandHandler
 {
     public CommandDescriptor Descriptor { get; } = new(
-        "shutdown",
-        ["stop", "off"],
+        "off",
+        ["exit", "stop", "shutdown"],
         ["vega.cfg.maintenance"],
-        Syntax: "shutdown [reason]");
+        Syntax: "off [reason]");
 
     public async ValueTask<CommandExecutionResult> ExecuteAsync(
         CommandInvocation invocation,
@@ -52,5 +52,27 @@ public sealed class ShutdownCommand(IServerControl server) : ICommandHandler
         return CommandExecutionResult.WithMessages(
             MessageDescriptor.Warning("command.shutdown.started", reason)
                 .WithDefaultText("Server shutdown started: {0}"));
+    }
+}
+
+public sealed class ShutdownWithoutSaveCommand(IServerControl server) : ICommandHandler
+{
+    public CommandDescriptor Descriptor { get; } = new(
+        "off-nosave",
+        ["exit-nosave", "stop-nosave"],
+        ["vega.cfg.maintenance"],
+        Syntax: "off-nosave [reason]");
+
+    public async ValueTask<CommandExecutionResult> ExecuteAsync(
+        CommandInvocation invocation,
+        CancellationToken cancellationToken)
+    {
+        string reason = invocation.Arguments.Count == 0
+            ? "Server shutting down without saving."
+            : string.Join(' ', invocation.Arguments);
+        await server.ShutdownWithoutSaveAsync(reason, cancellationToken).ConfigureAwait(false);
+        return CommandExecutionResult.WithMessages(
+            MessageDescriptor.Warning("command.shutdown_nosave.started", reason)
+                .WithDefaultText("Server shutdown without save started: {0}"));
     }
 }
