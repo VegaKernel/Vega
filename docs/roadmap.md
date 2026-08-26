@@ -1073,6 +1073,18 @@ This phase collects follow-up work that has emerged from real plugin/server cons
 - [ ] Reconcile overlap priority, custom flags/properties, membership/group semantics, world identity and lifecycle behavior with the existing `Vega.Regions` source of truth rather than maintaining two competing region databases.
 - [ ] Add compatibility/import tooling only if real existing RegionExt data requires it; do not make a legacy schema a permanent Vega persistence contract.
 
+### InvSee integration and inventory administration
+
+- [ ] Use the current project-owned `InvSee` plugin as the behavior reference for the Vega inventory-inspection integration; pin the exact source revision when implementation begins and audit commands, permissions, online/offline behavior, SSC interaction, inventory sections, mutation/copy/save behavior and failure cases before deciding parity.
+- [ ] Build the retained InvSee behavior as an optional first-party administration module/UI over the Phase 15 immutable revisioned inventory snapshot and game-thread mutation contracts. Do not expose `Terraria.Player` inventory arrays or legacy plugin/TShock types through the module, Admin Protocol or Plugin SDK.
+- [ ] Expose a stable Plugin SDK inventory-inspection surface for authorized read-only snapshots and only the narrowly justified mutation operations required by real plugin consumers. Preserve player/session/world identity and revision information so stale snapshots cannot be applied silently.
+- [ ] Add an inventory inspector/editor to `Vega.Admin.Tui` over `IVegaAdminClient`: player selection plus structured inventory sections, item details and refresh/revision state. Editing, where enabled, must use explicit server operations rather than a client-side copy of Terraria state.
+- [ ] Carry inventory DTOs through `Vega.Admin.Contracts` so local and remote administration use the same model. Define dedicated permissions such as `players.inventory.view` and `players.inventory.edit`, with a separate permission if offline/SSC inventory access exposes a broader authority boundary.
+- [ ] Apply every online inventory mutation on the authoritative game thread with optimistic revision checks, validation, synchronization to the client and structured audit containing actor, target, operation and outcome. Never let a remote or plugin caller write raw slot arrays.
+- [ ] Treat offline/SSC inventory as a separate authoritative source when supported: distinguish it explicitly from the live connected-player snapshot, define conflict/revision behavior and do not read or edit persistence tables directly from TUI/plugins.
+- [ ] Register retained InvSee commands/help/configuration through the common module-oriented catalog so local TUI, remote TUI, CLI/Web/MCP and ordinary command discovery all describe the same behavior and permissions.
+- [ ] Add parity and security tests for ambiguous/offline targets, permission denial, inventory sections, stale revision conflicts, disconnect/slot reuse, full/invalid mutations, SSC/live source selection, remote Admin round trips and audit output.
+
 ### TSExt capability integration and documentation
 
 - [ ] Audit the relevant project-owned `TSExt*` plugins at pinned revisions and map each capability to `Core`, first-party module, Plugin SDK primitive, Admin UI, native passthrough or explicit drop. Do not port a plugin family wholesale merely because its name starts with TSExt.
@@ -1083,10 +1095,10 @@ This phase collects follow-up work that has emerged from real plugin/server cons
 
 ### Validation and exit criteria
 
-- [ ] The localization engine, shared plugin tools and region interfaces are usable from an out-of-repository plugin SDK consumer without referencing Runtime/Terraria implementation assemblies.
+- [ ] The localization engine, shared plugin tools and region/inventory interfaces are usable from an out-of-repository plugin SDK consumer without referencing Runtime/Terraria implementation assemblies.
 - [ ] `.vworld` follow-up changes demonstrate measured startup/readiness or memory improvement on representative worlds and retain safe `.wld` fallback.
 - [ ] `Program.cs` is reduced to composition/orchestration, command/domain extraction decisions are recorded, and naming changes remove actual ambiguity rather than merely rename files.
-- [ ] Homes, accepted RegionExt.Core capabilities and accepted TSExt capabilities have pinned behavior references, tests and clear ownership in the module/Admin/SDK architecture.
+- [ ] Homes, InvSee, accepted RegionExt.Core capabilities and accepted TSExt capabilities have pinned behavior references, tests and clear ownership in the module/Admin/SDK architecture.
 
 Platform-convergence invariant:
 
@@ -1120,5 +1132,6 @@ These apply across all phases:
 - NativeAOT may harden distribution against casual IL inspection but is never treated as authentication, authorization or protocol security.
 - Shared plugin utilities remain narrow, pure and consumer-driven; never grow a universal `Utils` surface that becomes hidden framework coupling.
 - Localization is one reusable per-recipient/module-aware engine across commands, plugins and admin clients; frontends must not invent incompatible language catalogs.
+- Inventory inspection/editing uses revisioned Vega contracts and server-owned authorization; plugins and admin clients never read/write Terraria inventory arrays or persistence tables directly.
 - `.vworld` is a cache, not a hidden second source of truth or mandatory persistence path.
 - Prefer one working vertical slice over ten unused abstractions.
