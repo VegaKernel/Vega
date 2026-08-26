@@ -237,8 +237,106 @@ public sealed class TerrariaAdministrationCommandTests
         });
     }
 
-    private static CommandInvocation Invocation(string name, IReadOnlyList<string> arguments) =>
-        new(name, arguments, ServerPrincipal.Instance, NullOutput.Instance)
+    [Test]
+    public async Task MaxSpawnsWithoutArgumentsReportsCurrentLimitWithoutMutation()
+    {
+        var spawnControl = new RecordingNpcSpawnControl(maximumSpawns: 7, capacity: 200);
+        var command = new MaxSpawnsCommand(spawnControl, new RecordingPlayers(), new NullMessenger());
+
+        CommandExecutionResult result = await command.ExecuteAsync(
+            Invocation("maxspawns", []),
+            CancellationToken.None);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(result.Status, Is.EqualTo(CommandExecutionStatus.Success));
+            Assert.That(result.Messages?.Single().DefaultText, Does.Contain("7"));
+            Assert.That(spawnControl.SetValues, Is.Empty);
+        });
+    }
+
+    [Test]
+    public async Task MaxSpawnsDefaultUsesTerrariaDefaultAndPermission()
+    {
+        var spawnControl = new RecordingNpcSpawnControl(maximumSpawns: 12, capacity: 200);
+        var command = new MaxSpawnsCommand(spawnControl, new RecordingPlayers(), new NullMessenger());
+
+        CommandExecutionResult result = await command.ExecuteAsync(
+            Invocation("maxspawns", ["default"]),
+            CancellationToken.None);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(result.Status, Is.EqualTo(CommandExecutionStatus.Success));
+            Assert.That(spawnControl.SetValues, Is.EqualTo(new[] { 5 }));
+            Assert.That(spawnControl.LastActor, Is.EqualTo("server"));
+            Assert.That(command.Descriptor.Permissions, Is.EqualTo(new[] { "vega.npc.maxspawns" }));
+            Assert.That(command.Descriptor.AllowServer, Is.True);
+        });
+    }
+
+    [Test]
+    public async Task MaxSpawnsUsesFirstArgumentLikeTShockAndAcceptsCapacity()
+    {
+        var spawnControl = new RecordingNpcSpawnControl(maximumSpawns: 5, capacity: 200);
+        var command = new MaxSpawnsCommand(spawnControl, new RecordingPlayers(), new NullMessenger());
+
+        CommandExecutionResult result = await command.ExecuteAsync(
+            Invocation("maxspawns", ["200", "ignored"]),
+            CancellationToken.None);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(result.Status, Is.EqualTo(CommandExecutionStatus.Success));
+            Assert.That(spawnControl.SetValues, Is.EqualTo(new[] { 200 }));
+        });
+    }
+
+    [TestCase("-1")]
+    [TestCase("201")]
+    [TestCase("not-a-number")]
+    public async Task MaxSpawnsRejectsValuesOutsideRuntimeCapacity(string value)
+    {
+        var spawnControl = new RecordingNpcSpawnControl(maximumSpawns: 5, capacity: 200);
+        var command = new MaxSpawnsCommand(spawnControl, new RecordingPlayers(), new NullMessenger());
+
+        CommandExecutionResult result = await command.ExecuteAsync(
+            Invocation("maxspawns", [value]),
+            CancellationToken.None);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(result.ErrorCode, Is.EqualTo("command.maxspawns.invalid-value"));
+            Assert.That(spawnControl.SetValues, Is.Empty);
+        });
+    }
+
+    [Test]
+    public async Task SilentMaxSpawnsDoesNotBroadcast()
+    {
+        PlayerSnapshot observer = Player(3, "Alice", 100, 200);
+        var messenger = new RecordingMessenger();
+        var command = new MaxSpawnsCommand(
+            new RecordingNpcSpawnControl(maximumSpawns: 5, capacity: 200),
+            new RecordingPlayers(observer),
+            messenger);
+
+        CommandExecutionResult result = await command.ExecuteAsync(
+            Invocation("maxspawns", ["10"], silent: true),
+            CancellationToken.None);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(result.Status, Is.EqualTo(CommandExecutionStatus.Success));
+            Assert.That(messenger.Messages, Is.Empty);
+        });
+    }
+
+    private static CommandInvocation Invocation(
+        string name,
+        IReadOnlyList<string> arguments,
+        bool silent = false) =>
+        new(name, arguments, ServerPrincipal.Instance, NullOutput.Instance, silent)
         {
             WorldId = WorldId.Primary
         };
@@ -457,6 +555,32 @@ public sealed class TerrariaAdministrationCommandTests
         }
     }
 
+    private sealed class RecordingNpcSpawnControl(int maximumSpawns, int capacity) : IWorldNpcSpawnControl
+    {
+        public List<int> SetValues { get; } = [];
+        public string? LastActor { get; private set; }
+
+        public ValueTask<NpcSpawnLimitSnapshot?> CaptureAsync(
+            WorldId worldId,
+            CancellationToken cancellationToken = default) =>
+            ValueTask.FromResult<NpcSpawnLimitSnapshot?>(
+                new NpcSpawnLimitSnapshot(worldId, maximumSpawns, capacity));
+
+        public ValueTask<NpcSpawnLimitMutationResult> SetMaximumSpawnsAsync(
+            WorldId worldId,
+            int value,
+            string actor,
+            CancellationToken cancellationToken = default)
+        {
+            SetValues.Add(value);
+            LastActor = actor;
+            maximumSpawns = value;
+            return ValueTask.FromResult(new NpcSpawnLimitMutationResult(
+                NpcOperationStatus.Applied,
+                new NpcSpawnLimitSnapshot(worldId, value, capacity)));
+        }
+    }
+
     private sealed class RecordingNpcCatalog(params NpcDefinition[] definitions) : INpcCatalog
     {
         public NpcResolutionResult Resolve(string query)
@@ -481,6 +605,20 @@ public sealed class TerrariaAdministrationCommandTests
             string message,
             CancellationToken cancellationToken = default) =>
             ValueTask.FromResult(PlayerOperationResult.Applied());
+    }
+
+    private sealed class RecordingMessenger : IPlayerMessenger
+    {
+        public List<(PlayerId Id, string Message)> Messages { get; } = [];
+
+        public ValueTask<PlayerOperationResult> SendMessageAsync(
+            PlayerId id,
+            string message,
+            CancellationToken cancellationToken = default)
+        {
+            Messages.Add((id, message));
+            return ValueTask.FromResult(PlayerOperationResult.Applied());
+        }
     }
 
     private sealed class ServerPrincipal : ICommandPrincipal

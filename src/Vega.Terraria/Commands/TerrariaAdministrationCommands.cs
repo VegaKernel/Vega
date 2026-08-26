@@ -29,6 +29,7 @@ internal static class TerrariaAdministrationCommandRegistration
 
         IWorldEnvironmentService environment = new TerrariaWorldEnvironmentService(gameThread, runtimeWorldId);
         IWorldNpcService npcs = new TerrariaWorldNpcService(gameThread, runtimeWorldId);
+        IWorldNpcSpawnControl npcSpawns = new TerrariaNpcSpawnControl(gameThread, runtimeWorldId);
 
         ICommandHandler[] handlers =
         [
@@ -45,7 +46,8 @@ internal static class TerrariaAdministrationCommandRegistration
             new NpcListCommand(npcs),
             new SpawnMobCommand(players, npcs, environment),
             new ButcherCommand(npcs, new TerrariaNpcCatalog(), players, players),
-            new RenameNpcCommand(npcs, new TerrariaNpcCatalog(), players, players)
+            new RenameNpcCommand(npcs, new TerrariaNpcCatalog(), players, players),
+            new MaxSpawnsCommand(npcSpawns, players, players)
         ];
 
         var registrations = handlers.Select(registry.Register).ToList();
@@ -806,6 +808,84 @@ internal sealed class RenameNpcCommand(
                 .WithDefaultText(conflicts == 0
                     ? message
                     : $"{message} {conflicts} changed or failed before rename."));
+    }
+}
+
+internal sealed class MaxSpawnsCommand(
+    IWorldNpcSpawnControl spawnControl,
+    IPlayerDirectory players,
+    IPlayerMessenger messenger) : ICommandHandler
+{
+    private const int DefaultMaximumSpawns = 5;
+
+    public CommandDescriptor Descriptor { get; } = new(
+        "maxspawns",
+        [],
+        ["vega.npc.maxspawns"],
+        Syntax: "maxspawns [default|0..capacity]");
+
+    public async ValueTask<CommandExecutionResult> ExecuteAsync(
+        CommandInvocation invocation,
+        CancellationToken cancellationToken)
+    {
+        NpcSpawnLimitSnapshot? current = await spawnControl
+            .CaptureAsync(invocation.WorldId, cancellationToken)
+            .ConfigureAwait(false);
+        if (current is null)
+        {
+            return AdminCommandResults.Failure(
+                "command.maxspawns.unavailable",
+                "The NPC spawn limit is unavailable.");
+        }
+
+        if (invocation.Arguments.Count == 0)
+        {
+            return CommandExecutionResult.WithMessages(
+                MessageDescriptor.Success("command.maxspawns.current")
+                    .WithDefaultText($"Maximum simultaneous NPC spawns: {current.MaximumSpawns}."));
+        }
+
+        string value = invocation.Arguments[0];
+        int maximumSpawns;
+        if (value.Equals("default", StringComparison.OrdinalIgnoreCase))
+        {
+            maximumSpawns = DefaultMaximumSpawns;
+        }
+        else if (!int.TryParse(value, NumberStyles.Integer, CultureInfo.InvariantCulture, out maximumSpawns) ||
+                 maximumSpawns < 0 || maximumSpawns > current.Capacity)
+        {
+            return AdminCommandResults.Failure(
+                "command.maxspawns.invalid-value",
+                $"Maximum spawns must be 'default' or an integer from 0 to {current.Capacity}.");
+        }
+
+        NpcSpawnLimitMutationResult result = await spawnControl
+            .SetMaximumSpawnsAsync(
+                invocation.WorldId,
+                maximumSpawns,
+                invocation.Principal.Name,
+                cancellationToken)
+            .ConfigureAwait(false);
+        if (!result.IsSuccess)
+        {
+            return AdminCommandResults.Failure(
+                result.ErrorCode ?? "command.maxspawns.failed",
+                $"Could not change the NPC spawn limit: {result.ErrorCode ?? result.Status.ToString()}.");
+        }
+
+        string message = $"{invocation.Principal.Name} set maximum simultaneous NPC spawns to {maximumSpawns}.";
+        if (!invocation.Silent)
+        {
+            await NpcCommandBroadcast.SendToOthersAsync(
+                players,
+                messenger,
+                invocation,
+                message,
+                cancellationToken).ConfigureAwait(false);
+        }
+
+        return CommandExecutionResult.WithMessages(
+            MessageDescriptor.Success("command.maxspawns.applied").WithDefaultText(message));
     }
 }
 
