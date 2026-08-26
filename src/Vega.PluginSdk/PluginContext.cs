@@ -1,4 +1,5 @@
 using Vega.Contracts.Commands;
+using Vega.Contracts.Events;
 using Vega.Contracts.Operations;
 using Vega.Contracts.Players;
 
@@ -13,6 +14,9 @@ public interface IVegaPluginContext
     IPluginCommands Commands { get; }
 
     IPluginPlayers Players { get; }
+
+    /// <summary>Typed lifecycle/gameplay hooks owned by this plugin lifetime.</summary>
+    IPluginEvents Events { get; }
 
     /// <summary>Curated immutable-snapshot access to the world hosted by this process.</summary>
     IPluginWorld World => VegaPluginRuntime.World(this);
@@ -41,6 +45,24 @@ public interface IPluginCommands
 {
     /// <summary>Registers a command until the plugin is unloaded.</summary>
     void Register(ICommandHandler handler);
+}
+
+/// <summary>
+/// Curated dynamic event surface. Ordinary handlers remain synchronous-looking; the host owns
+/// registration lifetime, cancellation ordering and asynchronous pipeline plumbing.
+/// </summary>
+public interface IPluginEvents
+{
+    /// <summary>Registers a mutable/cancellable event handler until the plugin is unloaded.</summary>
+    void On<TEvent>(
+        Action<EventContext<TEvent>> handler,
+        EventPriority priority = EventPriority.Normal,
+        bool invokeWhenCancelled = false);
+
+    /// <summary>Registers a read-only final-outcome observer until the plugin is unloaded.</summary>
+    void Observe<TEvent>(
+        Action<EventOutcome<TEvent>> monitor,
+        EventPriority priority = EventPriority.Normal);
 }
 
 public interface IPluginPlayers
