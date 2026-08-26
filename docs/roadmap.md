@@ -241,10 +241,10 @@ Move server-wide invariants into Core/runtime, not the historical plugin impleme
 ### Moderation identity from ExtendedBans
 
 - [x] Replace the string-only `IBanService` boundary with typed ban subjects for account, UUID, exact IP and network/CIDR identities.
-- [x] Normalize and validate IP/network subjects once, with explicit IPv4/IPv6 matching, expiration and reason metadata.
+- [x] Normalize and validate IP/network subjects once as IPv4-only identities, with expiration and reason metadata; reject IPv6 and IPv4-mapped IPv6 instead of maintaining a second address family.
 - [x] Provide one authoritative matching service reused by connection admission, administrative commands and cluster replication.
 - [x] Keep persistence behind a narrow adapter and keep ban UI/command presentation outside the matching engine.
-- [x] Add regression tests for overlapping CIDRs, IPv4/IPv6 normalization, expired bans, account/UUID matching and duplicate replicated revisions.
+- [x] Add regression tests for overlapping IPv4 CIDRs, IPv4 normalization, IPv6 rejection, expired bans, account/UUID matching and duplicate replicated revisions.
 
 ### Packet and state validation from PacketGuard, StateGuard, LeashedEntityGuard and NoCoinDupe
 
