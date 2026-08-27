@@ -1,4 +1,6 @@
 using NUnit.Framework;
+using Terminal.Gui.Input;
+using Terminal.Gui.ViewBase;
 using Vega.Admin.Client;
 using Vega.Admin.Contracts;
 using Vega.Contracts.Commands;
@@ -22,7 +24,7 @@ public sealed class AdminClientBoundaryTests
             dispatcher);
 
         AdminCommandResult result = await client.ExecuteCommandAsync(
-            new AdminCommandRequest("probe alpha"));
+            new AdminCommandRequest("probe", ["alpha"]));
 
         Assert.Multiple(() =>
         {
@@ -32,13 +34,16 @@ public sealed class AdminClientBoundaryTests
             Assert.That(result.Messages, Has.Count.EqualTo(1));
             Assert.That(result.Messages[0].Key, Is.EqualTo("command.probe.ok"));
             Assert.That(result.Messages[0].FallbackText, Is.EqualTo("Probe completed for {0}."));
-            Assert.That(result.Messages[0].Arguments, Is.EqualTo(new object?[] { "alpha" }));
+            Assert.That(result.Messages[0].Arguments, Is.EqualTo(new[]
+            {
+                new AdminMessageArgument(AdminScalarKind.String, "alpha")
+            }));
             Assert.That(result.Messages[0].Severity, Is.EqualTo(AdminMessageSeverity.Success));
         });
     }
 
     [Test]
-    public async Task EmbeddedCommandAdapterExecutesThroughAdminClient()
+    public async Task EmbeddedCommandAdapterExecutesThroughTypedAdminClient()
     {
         var admin = new RecordingAdminClient
         {
@@ -47,17 +52,19 @@ public sealed class AdminClientBoundaryTests
                 "admin.permission_denied",
                 [new AdminMessageDescriptor(
                     "admin.permission_denied",
-                    Array.Empty<object?>(),
+                    Array.Empty<AdminMessageArgument>(),
                     AdminMessageSeverity.Error,
                     "Permission denied.")])
         };
         var adapter = new AdminOperationsCommandServiceAdapter(admin);
 
-        OperationsActionResult result = await adapter.ExecuteAsync("shutdown");
+        OperationsActionResult result = await adapter.ExecuteAsync(".shutdown now");
 
         Assert.Multiple(() =>
         {
-            Assert.That(admin.LastCommandText, Is.EqualTo("shutdown"));
+            Assert.That(admin.LastRequest?.Name, Is.EqualTo("shutdown"));
+            Assert.That(admin.LastRequest?.Arguments, Is.EqualTo(new[] { "now" }));
+            Assert.That(admin.LastRequest?.Silent, Is.True);
             Assert.That(result.Status, Is.EqualTo(CommandExecutionStatus.Forbidden));
             Assert.That(result.ErrorCode, Is.EqualTo("admin.permission_denied"));
             Assert.That(result.Messages, Is.EqualTo(new[] { "Permission denied." }));
@@ -105,6 +112,28 @@ public sealed class AdminClientBoundaryTests
             Is.EqualTo(new[] { "server.status", "commands.catalog", "commands.execute" }));
     }
 
+    [Test]
+    public void TabDigitChordSelectsTerminalGuiV2WorkspaceWithoutConsumingTab()
+    {
+        var admin = new RecordingAdminClient();
+        var workspaces = new AdminWorkspaceTabs(new View(), admin);
+        var tab = new Key(Key.Tab);
+        var digit = new Key('3');
+
+        bool tabHandled = workspaces.HandleWorkspaceChord(tab);
+        bool digitHandled = workspaces.HandleWorkspaceChord(digit);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(tabHandled, Is.False, "Tab must continue normal Terminal.Gui focus traversal.");
+            Assert.That(tab.Handled, Is.False);
+            Assert.That(digitHandled, Is.True);
+            Assert.That(digit.Handled, Is.True);
+            Assert.That(workspaces.SelectedWorkspaceIndex, Is.EqualTo(2));
+            Assert.That(workspaces.SelectedWorkspaceTitle, Does.Contain("Commands"));
+        });
+    }
+
     private sealed class RecordingDispatcher : ICommandDispatcher, ICommandCatalog
     {
         public CommandInvocation? LastInvocation { get; private set; }
@@ -127,7 +156,7 @@ public sealed class AdminClientBoundaryTests
 
     private sealed class RecordingAdminClient : IVegaAdminClient
     {
-        public string? LastCommandText { get; private set; }
+        public AdminCommandRequest? LastRequest { get; private set; }
 
         public AdminCommandResult CommandResult { get; init; } = new(
             AdminCommandExecutionStatus.Success,
@@ -153,7 +182,7 @@ public sealed class AdminClientBoundaryTests
             AdminCommandRequest request,
             CancellationToken cancellationToken = default)
         {
-            LastCommandText = request.CommandText;
+            LastRequest = request;
             return ValueTask.FromResult(CommandResult);
         }
     }
