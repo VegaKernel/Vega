@@ -15,15 +15,25 @@ public sealed class TeleportSanityPolicy(
     Func<int> worldHeight) : IPacketProcessor<PacketView>
 {
     private const int TileSize = 16;
+    private const byte MaximumTeleportItemSubtype = 4;
 
     public PacketProcessingDecision Process(scoped in PacketProcessingContext<PacketView> context)
     {
-        if (context.Direction != PacketDirection.Inbound || context.Packet.PacketType != PacketTypes.Teleport)
+        if (context.Direction != PacketDirection.Inbound)
         {
             return PacketProcessingDecision.Allow;
         }
 
-        var teleport = new TeleportView(context.Packet);
+        return context.Packet.PacketType switch
+        {
+            PacketTypes.Teleport => ValidateTeleport(new TeleportView(context.Packet)),
+            PacketTypes.TeleportationPotion => ValidateTeleportItem(context.Packet.PayloadSpan),
+            _ => PacketProcessingDecision.Allow
+        };
+    }
+
+    private PacketProcessingDecision ValidateTeleport(TeleportView teleport)
+    {
         if (!Enum.IsDefined(teleport.Operation))
         {
             return PacketProcessingDecision.Violation("packet.teleport.operation_out_of_range");
@@ -51,6 +61,20 @@ public sealed class TeleportSanityPolicy(
             (teleport.X < 0 || teleport.Y < 0 ||
              teleport.X > width * TileSize || teleport.Y > height * TileSize)
             ? PacketProcessingDecision.Violation("packet.teleport.position_out_of_world")
+            : PacketProcessingDecision.Allow;
+    }
+
+    private static PacketProcessingDecision ValidateTeleportItem(ReadOnlySpan<byte> payload)
+    {
+        // Protocol 326 encodes one subtype byte: teleport potion, magic conch, demon conch,
+        // shellphone spawn, or the server-side no-space recovery request.
+        if (payload.Length != 1)
+        {
+            return PacketProcessingDecision.Reject("packet.teleport_item.malformed");
+        }
+
+        return payload[0] > MaximumTeleportItemSubtype
+            ? PacketProcessingDecision.Violation("packet.teleport_item.subtype_out_of_range")
             : PacketProcessingDecision.Allow;
     }
 }
