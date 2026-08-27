@@ -6,16 +6,12 @@ using Vega.Contracts.Networking;
 namespace Vega.Core.Networking;
 
 /// <summary>
-/// Validates client-authored NPC coin extra-value requests before Terraria applies and rebroadcasts
-/// the authoritative accumulated value.
+/// Validates protocol-level NPC coin extra-value fields before Terraria-specific live-state checks run.
+/// Protocol 326 encodes the accumulated delta as Int32 even though Multiplicity 2.6.3 exposes that field as Single.
 /// </summary>
-public sealed class NpcCoinPickupAuthorityPolicy(
-    int npcCount,
-    Func<int> worldWidth,
-    Func<int> worldHeight) : IPacketProcessor<PacketView>
+public sealed class NpcCoinPickupAuthorityPolicy : IPacketProcessor<PacketView>
 {
     private const int PayloadLength = 14;
-    private const int TileSize = 16;
 
     public PacketProcessingDecision Process(scoped in PacketProcessingContext<PacketView> context)
     {
@@ -32,23 +28,15 @@ public sealed class NpcCoinPickupAuthorityPolicy(
         }
 
         short npcIndex = BinaryPrimitives.ReadInt16LittleEndian(payload);
-        if (npcIndex < 0 || npcIndex >= npcCount)
+        if (npcIndex < 0)
         {
             return PacketProcessingDecision.Violation("packet.npc_coin_pickup.npc_out_of_range");
         }
 
         float x = BitConverter.Int32BitsToSingle(BinaryPrimitives.ReadInt32LittleEndian(payload[6..]));
         float y = BitConverter.Int32BitsToSingle(BinaryPrimitives.ReadInt32LittleEndian(payload[10..]));
-        if (!float.IsFinite(x) || !float.IsFinite(y))
-        {
-            return PacketProcessingDecision.Violation("packet.npc_coin_pickup.non_finite_position");
-        }
-
-        int width = worldWidth();
-        int height = worldHeight();
-        return width <= 0 || height <= 0 ||
-            x < 0 || y < 0 || x >= width * TileSize || y >= height * TileSize
-            ? PacketProcessingDecision.Violation("packet.npc_coin_pickup.position_out_of_world")
+        return !float.IsFinite(x) || !float.IsFinite(y)
+            ? PacketProcessingDecision.Violation("packet.npc_coin_pickup.non_finite_position")
             : PacketProcessingDecision.Allow;
     }
 }
