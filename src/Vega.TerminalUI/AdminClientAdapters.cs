@@ -1,4 +1,5 @@
 using System.Globalization;
+using System.Text;
 using Vega.Admin.Client;
 using Vega.Admin.Contracts;
 using Vega.Contracts.Commands;
@@ -68,7 +69,7 @@ internal sealed class EmbeddedOperationsAdminClient(
     {
         ArgumentNullException.ThrowIfNull(request);
         OperationsActionResult result = await commands
-            .ExecuteAsync(request.CommandText, cancellationToken)
+            .ExecuteAsync(RenderCommandText(request), cancellationToken)
             .ConfigureAwait(false);
         return new AdminCommandResult(
             result.Status switch
@@ -81,9 +82,49 @@ internal sealed class EmbeddedOperationsAdminClient(
             result.ErrorCode,
             result.Messages.Select(static message => new AdminMessageDescriptor(
                 Key: null,
-                Arguments: Array.Empty<object?>(),
+                Arguments: Array.Empty<AdminMessageArgument>(),
                 Severity: AdminMessageSeverity.Info,
                 FallbackText: message)).ToArray());
+    }
+
+    private static string RenderCommandText(AdminCommandRequest request)
+    {
+        var builder = new StringBuilder();
+        if (request.Silent)
+        {
+            builder.Append('.');
+        }
+
+        builder.Append(request.Name);
+        foreach (string argument in request.Arguments)
+        {
+            builder.Append(' ');
+            AppendArgument(builder, argument);
+        }
+
+        return builder.ToString();
+    }
+
+    private static void AppendArgument(StringBuilder builder, string argument)
+    {
+        if (argument.Length > 0 && !argument.Any(static character => char.IsWhiteSpace(character) || character is '"' or '\\'))
+        {
+            builder.Append(argument);
+            return;
+        }
+
+        builder.Append('"');
+        foreach (char character in argument)
+        {
+            if (character is '"' or '\\')
+            {
+                builder.Append('\\');
+            }
+
+            builder.Append(character);
+        }
+
+        builder.Append('"');
     }
 }
 
@@ -98,8 +139,18 @@ internal sealed class AdminOperationsCommandServiceAdapter(IVegaAdminClient admi
         string commandText,
         CancellationToken cancellationToken = default)
     {
+        if (!CommandTextParser.TryParse(commandText, out ParsedCommandText parsed))
+        {
+            return new OperationsActionResult(
+                CommandExecutionStatus.InvalidUsage,
+                "command.empty",
+                ["Enter a command."]);
+        }
+
         AdminCommandResult result = await adminClient
-            .ExecuteCommandAsync(new AdminCommandRequest(commandText), cancellationToken)
+            .ExecuteCommandAsync(
+                new AdminCommandRequest(parsed.Name, parsed.Arguments, parsed.Silent),
+                cancellationToken)
             .ConfigureAwait(false);
         return new OperationsActionResult(
             result.Status switch
@@ -121,9 +172,12 @@ internal sealed class AdminOperationsCommandServiceAdapter(IVegaAdminClient admi
             return template;
         }
 
+        object?[] arguments = message.Arguments
+            .Select(static argument => (object?)argument.Value)
+            .ToArray();
         try
         {
-            return string.Format(CultureInfo.CurrentCulture, template, message.Arguments.ToArray());
+            return string.Format(CultureInfo.CurrentCulture, template, arguments);
         }
         catch (FormatException)
         {
