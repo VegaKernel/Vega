@@ -3,6 +3,7 @@ using Vega.Contracts.Commands;
 using Vega.Contracts.Players;
 using Vega.Contracts.Worlds;
 using Vega.Terraria.Commands;
+using Vega.Terraria.Players;
 
 namespace Vega.Runtime.Tests.Commands;
 
@@ -364,6 +365,74 @@ public sealed class TerrariaAdministrationCommandTests
             Assert.That(command.Descriptor.Aliases, Is.Empty);
             Assert.That(command.Descriptor.AllowServer, Is.False);
             Assert.That(command.Descriptor.Permissions, Is.EqualTo(new[] { "vega.players.position.get" }));
+        });
+    }
+
+    [Test]
+    public async Task TeleportAllowTogglesConsentAndTeleportHonorsOverride()
+    {
+        PlayerSnapshot actor = Player(1, "Admin", 50, 60) with
+        {
+            SessionId = new PlayerSessionId(Guid.NewGuid())
+        };
+        PlayerSnapshot target = Player(3, "Alice", 100, 200) with
+        {
+            SessionId = new PlayerSessionId(Guid.NewGuid())
+        };
+        var directory = new RecordingPlayers(actor, target);
+        var consent = new RuntimePlayerTeleportConsentService();
+        var toggle = new TeleportAllowCommand(directory, consent);
+        var targetPrincipal = new PlayerPrincipal(
+            target.Id,
+            target.Name,
+            "vega.players.teleport.allow");
+
+        CommandExecutionResult toggled = await toggle.ExecuteAsync(
+            new CommandInvocation("tpallow", ["ignored"], targetPrincipal, NullOutput.Instance),
+            CancellationToken.None);
+        var operations = new RecordingPlayerOperations();
+        var deniedCommand = new TeleportCommand(directory, operations, new NullMessenger(), consent);
+        var actorPrincipal = new PlayerPrincipal(actor.Id, actor.Name, "vega.players.teleport");
+        CommandExecutionResult denied = await deniedCommand.ExecuteAsync(
+            new CommandInvocation("tp", ["Alice"], actorPrincipal, NullOutput.Instance),
+            CancellationToken.None);
+        var overridePrincipal = new PlayerPrincipal(
+            actor.Id,
+            actor.Name,
+            "vega.players.teleport",
+            "vega.players.teleport.override");
+        CommandExecutionResult overridden = await deniedCommand.ExecuteAsync(
+            new CommandInvocation("tp", ["Alice"], overridePrincipal, NullOutput.Instance),
+            CancellationToken.None);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(toggled.Messages?.Single().DefaultText, Does.Contain("disabled"));
+            Assert.That(denied.ErrorCode, Is.EqualTo("command.tp.incoming-disabled"));
+            Assert.That(overridden.Status, Is.EqualTo(CommandExecutionStatus.Success));
+            Assert.That(toggle.Descriptor.AllowServer, Is.False);
+            Assert.That(toggle.Descriptor.Permissions, Is.EqualTo(new[] { "vega.players.teleport.allow" }));
+        });
+    }
+
+    [Test]
+    public void TeleportConsentResetsWhenPlayerSessionChanges()
+    {
+        var consent = new RuntimePlayerTeleportConsentService();
+        PlayerSnapshot firstSession = Player(3, "Alice", 100, 200) with
+        {
+            SessionId = new PlayerSessionId(Guid.NewGuid())
+        };
+        PlayerSnapshot nextSession = firstSession with
+        {
+            SessionId = new PlayerSessionId(Guid.NewGuid())
+        };
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(consent.Toggle(firstSession), Is.False);
+            Assert.That(consent.AllowsIncoming(firstSession), Is.False);
+            Assert.That(consent.AllowsIncoming(nextSession), Is.True);
         });
     }
 

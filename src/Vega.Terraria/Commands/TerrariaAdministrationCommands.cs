@@ -32,6 +32,7 @@ internal static class TerrariaAdministrationCommandRegistration
         IWorldNpcSpawnControl npcSpawns = new TerrariaNpcSpawnControl(gameThread, runtimeWorldId);
         IWorldAnglerQuestService anglerQuests = new TerrariaAnglerQuestService(gameThread, runtimeWorldId);
         IPlayerRecallOperations recall = new TerrariaPlayerRecallService(gameThread);
+        IPlayerTeleportConsentService teleportConsent = new RuntimePlayerTeleportConsentService();
         var wallOfFlesh = new TerrariaWallOfFleshSpawner(gameThread, runtimeWorldId);
 
         ICommandHandler[] handlers =
@@ -41,11 +42,12 @@ internal static class TerrariaAdministrationCommandRegistration
             new TimeCommand(environment),
             new WeatherCommand(environment),
             new WindCommand(environment),
-            new TeleportCommand(players, players, players),
+            new TeleportCommand(players, players, players, teleportConsent),
             new TeleportHereCommand(players, players, players),
             new TeleportPositionCommand(players, players, environment),
             new SpawnCommand(players, recall),
             new PositionCommand(players),
+            new TeleportAllowCommand(players, teleportConsent),
             new NpcListCommand(npcs),
             new SpawnMobCommand(
                 players,
@@ -332,8 +334,10 @@ internal sealed class WindCommand(IWorldEnvironmentService environment) : IComma
 internal sealed class TeleportCommand(
     IPlayerDirectory players,
     IPlayerOperations operations,
-    IPlayerMessenger messenger) : ICommandHandler
+    IPlayerMessenger messenger,
+    IPlayerTeleportConsentService? consent = null) : ICommandHandler
 {
+    private readonly IPlayerTeleportConsentService teleportConsent = consent ?? AllowAllTeleportConsent.Instance;
     public CommandDescriptor Descriptor { get; } = new(
         "tp",
         [],
@@ -364,6 +368,11 @@ internal sealed class TeleportCommand(
             if (!PlayerResolver.TryResolve(players, invocation.Arguments[0], out PlayerSnapshot? target, out string? error))
             {
                 return AdminCommandResults.Failure("command.tp.invalid-target", error!);
+            }
+
+            if (!CanReceive(target!, invocation.Principal))
+            {
+                return IncomingDisabled(target!.Name);
             }
 
             PlayerOperationResult selfResult = await operations
@@ -402,6 +411,11 @@ internal sealed class TeleportCommand(
             return AdminCommandResults.Failure("command.tp.invalid-target", targetError!);
         }
 
+        if (!CanReceive(destination!, invocation.Principal))
+        {
+            return IncomingDisabled(destination!.Name);
+        }
+
         bool silent = invocation.Principal.HasPermission("vega.players.teleport.silent");
         if (invocation.Arguments[0] == "*")
         {
@@ -438,6 +452,11 @@ internal sealed class TeleportCommand(
         if (!PlayerResolver.TryResolve(players, invocation.Arguments[0], out PlayerSnapshot? sourcePlayer, out string? sourceError))
         {
             return AdminCommandResults.Failure("command.tp.invalid-player", sourceError!);
+        }
+
+        if (!CanReceive(sourcePlayer!, invocation.Principal))
+        {
+            return IncomingDisabled(sourcePlayer!.Name);
         }
 
         PlayerOperationResult operation = await operations
@@ -485,6 +504,22 @@ internal sealed class TeleportCommand(
                     : $"{invocation.Principal.Name} teleported {source.Name} to you.",
                 cancellationToken).ConfigureAwait(false);
         }
+    }
+
+    private bool CanReceive(PlayerSnapshot player, ICommandPrincipal principal) =>
+        teleportConsent.AllowsIncoming(player) ||
+        principal.HasPermission("vega.players.teleport.override");
+
+    private static CommandExecutionResult IncomingDisabled(string playerName) =>
+        AdminCommandResults.Failure(
+            "command.tp.incoming-disabled",
+            $"{playerName} has disabled incoming teleports.");
+
+    private sealed class AllowAllTeleportConsent : IPlayerTeleportConsentService
+    {
+        public static AllowAllTeleportConsent Instance { get; } = new();
+        public bool AllowsIncoming(PlayerSnapshot player) => true;
+        public bool Toggle(PlayerSnapshot player) => true;
     }
 }
 
@@ -869,6 +904,37 @@ internal sealed class SpawnMobCommand(
     private static CommandExecutionResult Usage() => AdminCommandResults.Usage(
         "command.spawnmob.usage",
         "Usage: spawnmob <npc-name|id> [positive amount]. Quote multi-word NPC names.");
+}
+
+internal sealed class TeleportAllowCommand(
+    IPlayerDirectory players,
+    IPlayerTeleportConsentService consent) : ICommandHandler
+{
+    public CommandDescriptor Descriptor { get; } = new(
+        "tpallow",
+        [],
+        ["vega.players.teleport.allow"],
+        AllowServer: false,
+        Syntax: "tpallow");
+
+    public ValueTask<CommandExecutionResult> ExecuteAsync(
+        CommandInvocation invocation,
+        CancellationToken cancellationToken)
+    {
+        if (!PlayerResolver.TryCaller(players, invocation, out PlayerSnapshot? player))
+        {
+            return ValueTask.FromResult(AdminCommandResults.Failure(
+                "command.tpallow.player-unavailable",
+                "This command requires an active player."));
+        }
+
+        bool allowed = consent.Toggle(player!);
+        return ValueTask.FromResult(CommandExecutionResult.WithMessages(
+            MessageDescriptor.Success("command.tpallow.changed")
+                .WithDefaultText(allowed
+                    ? "Incoming teleports are now allowed."
+                    : "Incoming teleports are now disabled.")));
+    }
 }
 
 internal sealed class ButcherCommand(
