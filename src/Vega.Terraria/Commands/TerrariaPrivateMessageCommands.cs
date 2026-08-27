@@ -31,6 +31,8 @@ internal static class TerrariaPrivateMessageCommandRegistration
         var state = new PrivateMessageSessionState(sessions);
         IDisposable[] registrations =
         [
+            registry.Register(new ThirdPersonCommand(players, messenger, mutes)),
+            registry.Register(new PartyChatCommand(players, messenger, mutes)),
             registry.Register(new WhisperCommand(players, messenger, mutes, state)),
             registry.Register(new ReplyCommand(players, messenger, mutes, state)),
             registry.Register(new WallowCommand(players, state))
@@ -145,6 +147,112 @@ internal sealed class PrivateMessageSessionState : IDisposable
             }
         }
     }
+}
+
+internal sealed class ThirdPersonCommand(
+    IPlayerDirectory players,
+    IPlayerMessenger messenger,
+    IMuteService mutes) : ICommandHandler
+{
+    public CommandDescriptor Descriptor { get; } = new(
+        "me",
+        [],
+        ["vega.chat.me"],
+        Syntax: "me <text>");
+
+    public async ValueTask<CommandExecutionResult> ExecuteAsync(
+        CommandInvocation invocation,
+        CancellationToken cancellationToken)
+    {
+        if (invocation.Arguments.Count == 0)
+        {
+            return Usage();
+        }
+
+        string senderName = invocation.Principal.Name;
+        if (invocation.Principal is IPlayerCommandPrincipal principal)
+        {
+            if (!players.TryGet(principal.PlayerId, out PlayerSnapshot? caller) || caller is null)
+            {
+                return Failure("command.me.sender-unavailable", "Your player session is unavailable.");
+            }
+
+            if (mutes.FindActive(WhisperCommand.BuildMuteIdentity(caller, principal.AccountName), DateTimeOffset.UtcNow) is not null)
+            {
+                return Failure("command.me.muted", "You are muted.");
+            }
+
+            senderName = caller.Name;
+        }
+
+        string message = $"*{senderName} {string.Join(" ", invocation.Arguments)}";
+        foreach (PlayerSnapshot recipient in players.SnapshotOnlinePlayers())
+        {
+            await messenger.SendMessageAsync(recipient.Id, message, cancellationToken).ConfigureAwait(false);
+        }
+
+        return CommandExecutionResult.Success;
+    }
+
+    private static CommandExecutionResult Usage() => new(
+        CommandExecutionStatus.InvalidUsage,
+        "command.me.usage",
+        [MessageDescriptor.Error("command.me.usage").WithDefaultText("Usage: me <text>.")]);
+
+    private static CommandExecutionResult Failure(string code, string text) =>
+        CommandExecutionResult.Failed(code, MessageDescriptor.Error(code).WithDefaultText(text));
+}
+
+internal sealed class PartyChatCommand(
+    IPlayerDirectory players,
+    IPlayerMessenger messenger,
+    IMuteService mutes) : ICommandHandler
+{
+    public CommandDescriptor Descriptor { get; } = new(
+        "party",
+        ["p"],
+        ["vega.chat.party"],
+        AllowServer: false,
+        Syntax: "party <text>");
+
+    public async ValueTask<CommandExecutionResult> ExecuteAsync(
+        CommandInvocation invocation,
+        CancellationToken cancellationToken)
+    {
+        if (invocation.Arguments.Count == 0 ||
+            invocation.Principal is not IPlayerCommandPrincipal principal ||
+            !players.TryGet(principal.PlayerId, out PlayerSnapshot? caller) ||
+            caller is null)
+        {
+            return Usage();
+        }
+
+        if (mutes.FindActive(WhisperCommand.BuildMuteIdentity(caller, principal.AccountName), DateTimeOffset.UtcNow) is not null)
+        {
+            return Failure("command.party.muted", "You are muted.");
+        }
+
+        if (caller.Team == 0)
+        {
+            return Failure("command.party.no-team", "You are not in a party.");
+        }
+
+        string message = $"<{caller.Name}> {string.Join(" ", invocation.Arguments)}";
+        foreach (PlayerSnapshot recipient in players.SnapshotOnlinePlayers().Where(player => player.Team == caller.Team))
+        {
+            await messenger.SendMessageAsync(recipient.Id, message, cancellationToken).ConfigureAwait(false);
+        }
+
+        return CommandExecutionResult.Success;
+    }
+
+    private static CommandExecutionResult Usage() => new(
+        CommandExecutionStatus.InvalidUsage,
+        "command.party.usage",
+        [MessageDescriptor.Error("command.party.usage").WithDefaultText("Usage: party <team chat text>.")]);
+
+    private static CommandExecutionResult Failure(string code, string text) =>
+        CommandExecutionResult.Failed(code, MessageDescriptor.Error(code).WithDefaultText(text));
 }
 
 internal sealed class WhisperCommand(
