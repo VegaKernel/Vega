@@ -43,6 +43,7 @@ public sealed class PlayerActionSanityPolicy(
             PacketTypes.SyncLoadout => ValidateLoadout(new SyncLoadoutView(context.Packet)),
             PacketTypes.PlayerAddBuff => ValidatePlayerAddBuff(context.Packet.PayloadSpan),
             PacketTypes.PlayerHealOther => ValidateHealOther(new PlayerHealOtherView(context.Packet)),
+            PacketTypes.PlayerHurtV2 => ValidatePlayerHurt(context.Packet.AsPlayerHurtV2View()),
             PacketTypes.LandGolfBallInCup => ValidateGolf(new LandGolfBallInCupView(context.Packet)),
             _ => PacketProcessingDecision.Allow
         };
@@ -193,6 +194,35 @@ public sealed class PlayerActionSanityPolicy(
 
         return value.HealAmount < 0
             ? PacketProcessingDecision.Violation("packet.player_heal.amount_out_of_range")
+            : PacketProcessingDecision.Allow;
+    }
+
+    private PacketProcessingDecision ValidatePlayerHurt(PlayerHurtV2View value)
+    {
+        if (value.PlayerId >= playerCount)
+        {
+            return PacketProcessingDecision.Violation("packet.player_hurt.target_out_of_range");
+        }
+
+        if (value.Damage < 0 || value.HitDirection > 2)
+        {
+            return PacketProcessingDecision.Violation("packet.player_hurt.combat_values_out_of_range");
+        }
+
+        if (value.FromPlayerIndex != -1 &&
+            (value.FromPlayerIndex < 0 || value.FromPlayerIndex >= playerCount))
+        {
+            return PacketProcessingDecision.Violation("packet.player_hurt.source_player_out_of_range");
+        }
+
+        if (value.FromNpcIndex != -1 &&
+            (value.FromNpcIndex < 0 || value.FromNpcIndex >= npcCount))
+        {
+            return PacketProcessingDecision.Violation("packet.player_hurt.source_npc_out_of_range");
+        }
+
+        return value.FromProjectileType < 0 || value.FromProjectileType >= projectileTypeCount
+            ? PacketProcessingDecision.Violation("packet.player_hurt.projectile_type_out_of_range")
             : PacketProcessingDecision.Allow;
     }
 
