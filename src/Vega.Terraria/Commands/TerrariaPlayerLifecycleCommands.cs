@@ -177,13 +177,16 @@ internal static class BuffCommandParsing
     public const int DefaultSeconds = 60;
     public const int MaximumSeconds = (int.MaxValue / 60) - 1;
 
-    public static int ParseDurationOrZero(string raw) =>
-        int.TryParse(raw, NumberStyles.Integer, CultureInfo.InvariantCulture, out int seconds)
-            ? NormalizeDuration(seconds)
-            : 0;
+    public static bool TryParseDuration(string raw, out int seconds)
+    {
+        if (!int.TryParse(raw, NumberStyles.Integer, CultureInfo.InvariantCulture, out seconds))
+        {
+            return false;
+        }
 
-    public static int NormalizeDuration(int seconds) =>
-        seconds < 0 || seconds > MaximumSeconds ? MaximumSeconds : seconds;
+        seconds = seconds < 0 || seconds > MaximumSeconds ? MaximumSeconds : seconds;
+        return seconds > 0;
+    }
 
     public static bool TryResolveBuff(string raw, out int buffType, out string? error)
     {
@@ -212,11 +215,11 @@ internal static class BuffCommandParsing
             .Where(static entry => !string.IsNullOrWhiteSpace(entry.Name))
             .ToArray();
 
-        (int Id, string Name)? exact = names
+        (int Id, string Name) exact = names
             .FirstOrDefault(entry => entry.Name.Equals(search, StringComparison.OrdinalIgnoreCase));
-        if (exact is { Id: > 0 } exactMatch)
+        if (exact.Id > 0)
         {
-            buffType = exactMatch.Id;
+            buffType = exact.Id;
             return true;
         }
 
@@ -269,9 +272,13 @@ internal sealed class BuffCommand(
             return AdminCommandResults.Failure("command.buff.invalid-buff", buffError!);
         }
 
-        int seconds = invocation.Arguments.Count == 2
-            ? BuffCommandParsing.ParseDurationOrZero(invocation.Arguments[1])
-            : BuffCommandParsing.DefaultSeconds;
+        int seconds = BuffCommandParsing.DefaultSeconds;
+        if (invocation.Arguments.Count == 2 &&
+            !BuffCommandParsing.TryParseDuration(invocation.Arguments[1], out seconds))
+        {
+            return Usage();
+        }
+
         int durationTicks = checked(seconds * 60);
         PlayerOperationResult result = await operations
             .ApplyBuffAsync(target.Id, buffType, durationTicks, cancellationToken)
@@ -284,7 +291,7 @@ internal sealed class BuffCommand(
 
     private static CommandExecutionResult Usage() => AdminCommandResults.Usage(
         "command.buff.usage",
-        $"Usage: buff <buff-name|id> [seconds]. Negative seconds use Terraria's maximum duration ({BuffCommandParsing.MaximumSeconds}).");
+        $"Usage: buff <buff-name|id> [seconds]. Duration must be positive; negative values use Terraria's maximum duration ({BuffCommandParsing.MaximumSeconds}).");
 }
 
 internal sealed class GBuffCommand(
@@ -323,9 +330,13 @@ internal sealed class GBuffCommand(
             return AdminCommandResults.Failure("command.gbuff.invalid-buff", buffError!);
         }
 
-        int seconds = invocation.Arguments.Count == 3
-            ? BuffCommandParsing.ParseDurationOrZero(invocation.Arguments[2])
-            : BuffCommandParsing.DefaultSeconds;
+        int seconds = BuffCommandParsing.DefaultSeconds;
+        if (invocation.Arguments.Count == 3 &&
+            !BuffCommandParsing.TryParseDuration(invocation.Arguments[2], out seconds))
+        {
+            return Usage();
+        }
+
         int durationTicks = checked(seconds * 60);
         PlayerOperationResult result = await operations
             .ApplyBuffAsync(target!.Id, buffType, durationTicks, cancellationToken)
@@ -338,7 +349,7 @@ internal sealed class GBuffCommand(
 
     private static CommandExecutionResult Usage() => AdminCommandResults.Usage(
         "command.gbuff.usage",
-        $"Usage: gbuff <player> <buff-name|id> [seconds]. Negative seconds use Terraria's maximum duration ({BuffCommandParsing.MaximumSeconds}).");
+        $"Usage: gbuff <player> <buff-name|id> [seconds]. Duration must be positive; negative values use Terraria's maximum duration ({BuffCommandParsing.MaximumSeconds}).");
 }
 
 internal sealed class RespawnCommand(
