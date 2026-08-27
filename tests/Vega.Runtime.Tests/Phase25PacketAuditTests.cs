@@ -271,6 +271,20 @@ public sealed class Phase25PacketAuditTests
         });
     }
 
+    [Test]
+    public void SyncTilePickingRejectsOutOfWorldCoordinates()
+    {
+        byte[] payload = new byte[6];
+        payload[0] = 7;
+        BinaryPrimitives.WriteInt16LittleEndian(payload.AsSpan(1), 100);
+        BinaryPrimitives.WriteInt16LittleEndian(payload.AsSpan(3), 10);
+        payload[5] = 1;
+
+        Assert.That(
+            Process(WorldMutations(), PacketView.FromPayload(PacketTypes.SyncTilePicking, payload), 7),
+            Is.EqualTo(PacketProcessingDecision.Violation("packet.tile.position_out_of_world")));
+    }
+
     private static byte[] BuildNpcHomePayload(short npcId, short x, short y)
     {
         byte[] payload = new byte[7];
