@@ -35,6 +35,20 @@ public sealed class PacketIngressClassificationTests
             Is.EqualTo(PacketIngressDisposition.ServerOnly));
     }
 
+    [Test]
+    public void AnglerCompletionRequestIsClientGameplayButReportedCountIsServerOnly()
+    {
+        Assert.Multiple(() =>
+        {
+            Assert.That(
+                PacketPipelineClassification.GetIngressDisposition(PacketTypes.CompleteAnglerQuest),
+                Is.EqualTo(PacketIngressDisposition.GameplayValidated));
+            Assert.That(
+                PacketPipelineClassification.GetIngressDisposition(PacketTypes.NumberOfAnglerQuestsCompleted),
+                Is.EqualTo(PacketIngressDisposition.ServerOnly));
+        });
+    }
+
     [TestCase(PacketTypes.PlayerInfo)]
     [TestCase(PacketTypes.PlayerSlot)]
     [TestCase(PacketTypes.TileGetSection)]
