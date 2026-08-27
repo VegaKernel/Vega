@@ -95,6 +95,8 @@ public sealed class MultiplicityPacketProcessingTests
     [TestCase(PacketTypes.TileGetSection, 9)]
     [TestCase(PacketTypes.NpcAddBuff, 6)]
     [TestCase(PacketTypes.PlayerAddBuff, 7)]
+    [TestCase(PacketTypes.Zones, 7)]
+    [TestCase(PacketTypes.TeleportationPotion, 1)]
     public void Protocol326AuditedCompatibilityLayoutsUseExactLengths(PacketTypes packetType, int expectedLength)
     {
         var accepted = new CapturingProcessor();
