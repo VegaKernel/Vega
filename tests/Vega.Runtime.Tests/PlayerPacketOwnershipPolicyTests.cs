@@ -109,7 +109,7 @@ public sealed class PlayerPacketOwnershipPolicyTests
             PiggyBankProjectile = new TrackedProjectileReferenceData(),
             VoidLensChestProjectile = new TrackedProjectileReferenceData()
         },
-        PacketTypes.Emoji => new Emoji { PlayerId = playerId, EmojiId = 1 },
+        PacketTypes.Emoji => new Emoji { PlayerId = playerId, EmoteId = 1 },
         PacketTypes.SyncLoadout => new SyncLoadout { PlayerId = playerId, LoadoutIndex = 0 },
         _ => throw new ArgumentOutOfRangeException(nameof(packetType))
     };
