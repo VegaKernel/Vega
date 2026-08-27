@@ -1,3 +1,4 @@
+using System.Buffers.Binary;
 using Multiplicity.Packets;
 using Multiplicity.Packets.Views;
 using NUnit.Framework;
@@ -11,20 +12,34 @@ namespace Vega.Runtime.Tests;
 public sealed class NpcCoinPickupAuthorityPolicyTests
 {
     [Test]
-    public void InboundNpcCoinPickupUpdateIsRejectedWithoutReadingTerrariaState()
+    public void ValidInboundNpcCoinPickupRequestPassesProtocolSanity()
     {
         PacketProcessingDecision decision = Process(
             PacketTypes.SyncExtraValue,
             PacketDirection.Inbound,
             CreateSyncExtraValuePayload());
 
-        Assert.Multiple(() =>
-        {
-            Assert.That(decision.Kind, Is.EqualTo(PacketDecisionKind.Violation));
-            Assert.That(
-                decision.Reason,
-                Is.EqualTo("packet.npc_coin_pickup_server_authoritative"));
-        });
+        Assert.That(decision.Kind, Is.EqualTo(PacketDecisionKind.Allow));
+    }
+
+    [Test]
+    public void NegativeNpcIndexIsRejectedBeforeLiveArrayLookup()
+    {
+        byte[] payload = CreateSyncExtraValuePayload(npcIndex: -1);
+
+        Assert.That(
+            Process(PacketTypes.SyncExtraValue, PacketDirection.Inbound, payload),
+            Is.EqualTo(PacketProcessingDecision.Violation("packet.npc_coin_pickup.npc_out_of_range")));
+    }
+
+    [Test]
+    public void NonFiniteCoinPositionIsRejected()
+    {
+        byte[] payload = CreateSyncExtraValuePayload(x: float.NaN);
+
+        Assert.That(
+            Process(PacketTypes.SyncExtraValue, PacketDirection.Inbound, payload),
+            Is.EqualTo(PacketProcessingDecision.Violation("packet.npc_coin_pickup.non_finite_position")));
     }
 
     [Test]
@@ -50,9 +65,9 @@ public sealed class NpcCoinPickupAuthorityPolicyTests
     }
 
     [Test]
-    public void MultiplicityBoundaryParsesAndRejectsRealPacketPayload()
+    public void MultiplicityBoundaryAcceptsProtocol326Int32ExtraValueLayout()
     {
-        byte[] payload = CreateSyncExtraValuePayload();
+        byte[] payload = CreateSyncExtraValuePayload(extraValue: 70);
 
         PacketProcessingDecision decision = MultiplicityPacketProcessing.ProcessInboundPayload(
             (byte)PacketTypes.SyncExtraValue,
@@ -64,7 +79,7 @@ public sealed class NpcCoinPickupAuthorityPolicyTests
             new NpcCoinPickupAuthorityPolicy(),
             DateTimeOffset.UtcNow);
 
-        Assert.That(decision.Kind, Is.EqualTo(PacketDecisionKind.Violation));
+        Assert.That(decision.Kind, Is.EqualTo(PacketDecisionKind.Allow));
     }
 
     private static PacketProcessingDecision Process(
@@ -84,17 +99,17 @@ public sealed class NpcCoinPickupAuthorityPolicyTests
         return policy.Process(in context);
     }
 
-    private static byte[] CreateSyncExtraValuePayload()
+    private static byte[] CreateSyncExtraValuePayload(
+        short npcIndex = 42,
+        int extraValue = 70,
+        float x = 160,
+        float y = 320)
     {
-        var packet = new SyncExtraValue
-        {
-            NpcIndex = 42,
-            ExtraValue = 70,
-            X = 160,
-            Y = 320
-        };
-        using var stream = new MemoryStream();
-        packet.ToStream(stream, includeHeader: false);
-        return stream.ToArray();
+        byte[] payload = new byte[14];
+        BinaryPrimitives.WriteInt16LittleEndian(payload, npcIndex);
+        BinaryPrimitives.WriteInt32LittleEndian(payload.AsSpan(2), extraValue);
+        BinaryPrimitives.WriteInt32LittleEndian(payload.AsSpan(6), BitConverter.SingleToInt32Bits(x));
+        BinaryPrimitives.WriteInt32LittleEndian(payload.AsSpan(10), BitConverter.SingleToInt32Bits(y));
+        return payload;
     }
 }

@@ -30,7 +30,7 @@ public sealed record GameplayEnforcementOptions(
             maximumInteractionDistanceTiles,
             bypassPermission,
             false,
-            ["127.0.0.1", "::1"])
+            ["127.0.0.1"])
     {
     }
 
@@ -42,7 +42,7 @@ public sealed record GameplayEnforcementOptions(
         20,
         "vega.security.gameplay.bypass",
         false,
-        ["127.0.0.1", "::1"]);
+        ["127.0.0.1"]);
 
     public static GameplayEnforcementOptions Normalize(GameplayEnforcementOptions? candidate) =>
         new(

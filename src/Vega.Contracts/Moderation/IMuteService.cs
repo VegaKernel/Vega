@@ -21,7 +21,10 @@ public sealed record MuteSnapshot(
     string IssuedBy,
     DateTimeOffset IssuedAt,
     DateTimeOffset ExpiresAt,
-    long Revision);
+    long Revision)
+{
+    public IReadOnlyList<MuteSubject> Subjects { get; init; } = [];
+}
 
 public sealed record MuteMutationResult(
     bool Succeeded,
@@ -37,6 +40,14 @@ public interface IMuteService
         string playerName,
         string? accountName,
         DateTimeOffset now);
+
+    MuteSnapshot? FindActive(
+        MuteIdentity identity,
+        DateTimeOffset now)
+    {
+        ArgumentNullException.ThrowIfNull(identity);
+        return FindActive(identity.PlayerName, identity.AccountName, now);
+    }
 
     ValueTask<MuteMutationResult> CreateAsync(
         MuteSnapshot mute,

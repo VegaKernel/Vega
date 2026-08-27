@@ -32,6 +32,10 @@ public sealed class SqliteVegaDatabase : IVegaDatabase
             EnsureReady);
         Accounts = identities;
         Authorization = identities;
+        AccountIdentities = new RelationalAccountIdentityEvidenceService(
+            connections.Open,
+            async cancellationToken => await connections.OpenAsync(cancellationToken).ConfigureAwait(false),
+            EnsureReady);
         RoleLeases = new RelationalRoleLeaseService(
             connections.Open,
             async cancellationToken => await connections.OpenAsync(cancellationToken).ConfigureAwait(false),
@@ -61,6 +65,8 @@ public sealed class SqliteVegaDatabase : IVegaDatabase
     public IGlobalBanReplica GlobalBans { get; }
 
     public IAccountService Accounts { get; }
+
+    public IAccountIdentityEvidenceService AccountIdentities { get; }
 
     public IAuthorizationService Authorization { get; }
 

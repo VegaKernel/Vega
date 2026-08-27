@@ -1,9 +1,15 @@
 using Vega.Contracts.Commands;
 using Vega.Contracts.Messaging;
+using Vega.Contracts.Operations;
 
 namespace Vega.Core.Commands;
 
-public sealed class CommandDispatcher : ICommandDispatcher, ICommandRegistry, ICommandCatalog
+public sealed class CommandDispatcher :
+    ICommandDispatcher,
+    ICommandRegistry,
+    ICommandCatalog,
+    ICommandRegistrationCatalog,
+    IOperationsLogSource
 {
     private readonly object sync = new();
     private IReadOnlyDictionary<string, ICommandHandler> handlers;
@@ -17,21 +23,36 @@ public sealed class CommandDispatcher : ICommandDispatcher, ICommandRegistry, IC
         {
             Register(map, handler.Descriptor.Name, handler);
             foreach (string alias in handler.Descriptor.Aliases)
+            {
                 Register(map, alias, handler);
+            }
         }
 
         this.handlers = map;
     }
 
+    public event Action<OperationsLogMessage>? LogProduced;
+
     public bool CanDispatch(string name) =>
         !string.IsNullOrWhiteSpace(name) && Volatile.Read(ref handlers).ContainsKey(name);
 
     public IReadOnlyList<CommandDescriptor> SnapshotCommands() => Array.AsReadOnly(
-        Volatile.Read(ref handlers)
-            .Values
+        UniqueHandlers()
             .Select(static handler => handler.Descriptor)
-            .DistinctBy(static descriptor => descriptor.Name, StringComparer.OrdinalIgnoreCase)
             .OrderBy(static descriptor => descriptor.Name, StringComparer.OrdinalIgnoreCase)
+            .ToArray());
+
+    public IReadOnlyList<CommandRegistrationSnapshot> SnapshotRegistrations() => Array.AsReadOnly(
+        UniqueHandlers()
+            .Select(static handler =>
+            {
+                Type type = handler.GetType();
+                return new CommandRegistrationSnapshot(
+                    handler.Descriptor,
+                    type.Assembly.GetName().Name ?? "unknown",
+                    type.FullName ?? type.Name);
+            })
+            .OrderBy(static registration => registration.Descriptor.Name, StringComparer.OrdinalIgnoreCase)
             .ToArray());
 
     public IDisposable Register(ICommandHandler handler)
@@ -53,7 +74,7 @@ public sealed class CommandDispatcher : ICommandDispatcher, ICommandRegistry, IC
         return new Registration(this, handler);
     }
 
-    public ValueTask<CommandExecutionResult> DispatchAsync(
+    public async ValueTask<CommandExecutionResult> DispatchAsync(
         CommandInvocation invocation,
         CancellationToken cancellationToken = default)
     {
@@ -61,31 +82,107 @@ public sealed class CommandDispatcher : ICommandDispatcher, ICommandRegistry, IC
 
         if (!Volatile.Read(ref handlers).TryGetValue(invocation.Name, out ICommandHandler? handler))
         {
-            return ValueTask.FromResult(CreateFailure(
+            CommandExecutionResult result = CreateFailure(
                 CommandExecutionStatus.Failed,
                 "command.not_found",
-                "Unknown command."));
+                "Unknown command.");
+            PublishLog(invocation.Name, invocation, result);
+            return result;
         }
 
         CommandDescriptor descriptor = handler.Descriptor;
         if (!descriptor.AllowServer && invocation.Principal.IsServer)
         {
-            return ValueTask.FromResult(CreateFailure(
+            CommandExecutionResult result = CreateFailure(
                 CommandExecutionStatus.Forbidden,
                 "command.server_not_allowed",
-                "This command cannot be executed from the server console."));
+                "This command cannot be executed from the server console.");
+            PublishLog(descriptor.Name, invocation, result);
+            return result;
         }
 
         if (descriptor.Permissions.Count > 0 && !descriptor.Permissions.Any(invocation.Principal.HasPermission))
         {
-            return ValueTask.FromResult(CreateFailure(
+            CommandExecutionResult result = CreateFailure(
                 CommandExecutionStatus.Forbidden,
                 "command.permission_denied",
-                "You do not have permission to use this command."));
+                "You do not have permission to use this command.");
+            PublishLog(descriptor.Name, invocation, result);
+            return result;
         }
 
-        return handler.ExecuteAsync(invocation, cancellationToken);
+        try
+        {
+            CommandExecutionResult result = await handler.ExecuteAsync(invocation, cancellationToken).ConfigureAwait(false);
+            PublishLog(descriptor.Name, invocation, result);
+            return result;
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            PublishLog(
+                descriptor.Name,
+                invocation,
+                new CommandExecutionResult(CommandExecutionStatus.Failed, "command.cancelled"));
+            throw;
+        }
+        catch
+        {
+            PublishLog(
+                descriptor.Name,
+                invocation,
+                new CommandExecutionResult(CommandExecutionStatus.Failed, "command.exception"));
+            throw;
+        }
     }
+
+    private IEnumerable<ICommandHandler> UniqueHandlers() => Volatile.Read(ref handlers)
+        .Values
+        .DistinctBy(static handler => handler.Descriptor.Name, StringComparer.OrdinalIgnoreCase);
+
+    private void PublishLog(
+        string commandName,
+        CommandInvocation invocation,
+        CommandExecutionResult result)
+    {
+        OperationsLogLevel level = result.Status is CommandExecutionStatus.Forbidden or CommandExecutionStatus.Failed
+            ? OperationsLogLevel.Warning
+            : OperationsLogLevel.Information;
+        string error = string.IsNullOrWhiteSpace(result.ErrorCode)
+            ? string.Empty
+            : $" error={EscapeLogValue(result.ErrorCode)}";
+        var message = new OperationsLogMessage(
+            level,
+            "command",
+            $"principal={EscapeLogValue(invocation.Principal.Name)} type={(invocation.Principal.IsServer ? "server" : "player")} command={EscapeLogValue(commandName)} status={result.Status}{error}");
+        Publish(message);
+    }
+
+    private void Publish(OperationsLogMessage message)
+    {
+        Action<OperationsLogMessage>? subscribers = LogProduced;
+        if (subscribers is null)
+        {
+            return;
+        }
+
+        foreach (Delegate subscriber in subscribers.GetInvocationList())
+        {
+            try
+            {
+                ((Action<OperationsLogMessage>)subscriber)(message);
+            }
+            catch
+            {
+                // Observability must never change command execution semantics or block later observers.
+            }
+        }
+    }
+
+    private static string EscapeLogValue(string value) => value
+        .Replace("\\", "\\\\", StringComparison.Ordinal)
+        .Replace("\r", "\\r", StringComparison.Ordinal)
+        .Replace("\n", "\\n", StringComparison.Ordinal)
+        .Replace("\t", "\\t", StringComparison.Ordinal);
 
     private static CommandExecutionResult CreateFailure(
         CommandExecutionStatus status,
@@ -102,10 +199,14 @@ public sealed class CommandDispatcher : ICommandDispatcher, ICommandRegistry, IC
         ICommandHandler handler)
     {
         if (string.IsNullOrWhiteSpace(name))
+        {
             throw new ArgumentException("Command names and aliases must not be empty.", nameof(name));
+        }
 
         if (!handlers.TryAdd(name, handler))
+        {
             throw new InvalidOperationException($"Command name or alias '{name}' is already registered.");
+        }
     }
 
     private void Unregister(ICommandHandler handler)

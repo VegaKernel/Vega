@@ -1,4 +1,5 @@
 using System.Net;
+using System.Net.Sockets;
 using Vega.Contracts.Bans;
 using Vega.Contracts.Players;
 using Vega.Contracts.Cluster;
@@ -86,17 +87,17 @@ public sealed class GlobalBanCoordinator(
             time.GetUtcNow(),
             expiresAt,
             1);
-		bool changed = await localReplica.ApplyCreatedAsync(created, cancellationToken).ConfigureAwait(false);
-		if (!changed)
-		{
-			return new GlobalBanMutationResult(
-				false,
-				new ClusterDeliveryResult(
-					ClusterDeliveryStatus.Rejected,
-					"The local ban replica rejected the duplicate creation."));
-		}
+        bool changed = await localReplica.ApplyCreatedAsync(created, cancellationToken).ConfigureAwait(false);
+        if (!changed)
+        {
+            return new GlobalBanMutationResult(
+                false,
+                new ClusterDeliveryResult(
+                    ClusterDeliveryStatus.Rejected,
+                    "The local ban replica rejected the duplicate creation."));
+        }
 
-		ClusterDeliveryResult publication = await publisher
+        ClusterDeliveryResult publication = await publisher
             .PublishAsync(messages.Create(created), cancellationToken)
             .ConfigureAwait(false);
         return new GlobalBanMutationResult(changed, publication);
@@ -148,7 +149,7 @@ public sealed class GlobalBanCreatedHandler(
 
         foreach (PlayerSnapshot player in players.SnapshotOnlinePlayers())
         {
-            IPAddress? address = TryGetIpAddress(player.RemoteEndpoint);
+            IPAddress? address = TryGetIpv4Address(player.RemoteEndpoint);
             BanSnapshot? active = await bans.FindActiveBanAsync(
                 new BanIdentity(player.Name, null, player.Connection?.ClientUuid, address),
                 cancellationToken).ConfigureAwait(false);
@@ -161,19 +162,18 @@ public sealed class GlobalBanCreatedHandler(
         }
     }
 
-    private static IPAddress? TryGetIpAddress(string? remoteEndpoint)
+    private static IPAddress? TryGetIpv4Address(string? remoteEndpoint)
     {
-        if (string.IsNullOrWhiteSpace(remoteEndpoint))
-        {
-            return null;
-        }
+        if (string.IsNullOrWhiteSpace(remoteEndpoint)) return null;
 
-        if (IPAddress.TryParse(remoteEndpoint, out IPAddress? direct))
+        if (IPAddress.TryParse(remoteEndpoint, out IPAddress? direct) &&
+            direct.AddressFamily == AddressFamily.InterNetwork)
         {
             return direct;
         }
 
-        return IPEndPoint.TryParse(remoteEndpoint, out IPEndPoint? endpoint)
+        return IPEndPoint.TryParse(remoteEndpoint, out IPEndPoint? endpoint) &&
+            endpoint.Address.AddressFamily == AddressFamily.InterNetwork
             ? endpoint.Address
             : null;
     }

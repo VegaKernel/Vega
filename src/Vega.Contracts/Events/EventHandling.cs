@@ -75,3 +75,18 @@ public interface IAsyncEventPipeline<TEvent>
 {
     ValueTask<EventOutcome<TEvent>> DispatchAsync(TEvent value, CancellationToken cancellationToken = default);
 }
+
+/// <summary>
+/// Runtime-registerable typed event hub. Registrations are explicit leases so hot-loaded modules can
+/// detach deterministically without exposing runtime composition or a service locator.
+/// </summary>
+public interface IAsyncEventHub
+{
+    IDisposable Register<TEvent>(IAsyncEventHandler<TEvent> handler);
+
+    IDisposable Monitor<TEvent>(IAsyncEventMonitor<TEvent> monitor);
+
+    ValueTask<EventOutcome<TEvent>> DispatchAsync<TEvent>(
+        TEvent value,
+        CancellationToken cancellationToken = default);
+}

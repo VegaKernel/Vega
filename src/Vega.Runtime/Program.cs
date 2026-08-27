@@ -184,6 +184,9 @@ int Start()
     IEventPipeline<WorldHardmodeStarting> hardmodeStarting = new EventPipeline<WorldHardmodeStarting>(
         Array.Empty<IEventHandler<WorldHardmodeStarting>>(),
         Array.Empty<IEventMonitor<WorldHardmodeStarting>>());
+    var eventHub = new AsyncEventHub();
+    using var serverReload = new ServerReloadService(serverConfiguration, eventHub);
+    VegaPluginEventRuntime.Configure(eventHub);
 
     using var gameThreadDispatcher = new TerrariaRuntimeGameThreadDispatcher();
     WorldId runtimeWorldId = backendLaunch.IsBackend ? backendLaunch.WorldId : WorldId.Primary;
@@ -206,7 +209,7 @@ int Start()
     using IDisposable helpCommandRegistration = commandDispatcher.Register(new HelpCommand(commandDispatcher));
     using IDisposable aliasesCommandRegistration = commandDispatcher.Register(new AliasesCommand(commandDispatcher));
     using IDisposable configCommandRegistration = commandDispatcher.Register(
-        new ConfigurationCommand(serverConfiguration));
+        new ConfigurationCommand(serverConfiguration, serverReload));
     var lifecycle = new RuntimeLifecycleTracker(processStartedAt);
     var networkMetrics = new NetworkMetricsCounter();
     var securitySignals = new BoundedSecuritySignalStore();
@@ -226,7 +229,31 @@ int Start()
 
     using (fileSink)
     {
-        var logger = new StructuredOperationsLogger(sinks);
+        using var logger = new StructuredOperationsLogger(sinks);
+        FileServerAccessStore serverAccess;
+        try
+        {
+            serverAccess = new FileServerAccessStore(
+                Path.Combine(AppContext.BaseDirectory, "data", "server-access.json"));
+        }
+        catch (Exception ex) when (ex is InvalidDataException or IOException or UnauthorizedAccessException)
+        {
+            logger.Log(
+                OperationsLogLevel.Critical,
+                "server-access",
+                "Server access state is invalid; refusing to silently bypass lock/whitelist policy.",
+                ex);
+            return 2;
+        }
+        using IDisposable lockCommandRegistration = commandDispatcher.Register(new LockCommand(serverAccess));
+        using IDisposable whitelistCommandRegistration = commandDispatcher.Register(new WhitelistCommand(serverAccess));
+        using var serverAccessEnforcer = new PersistentServerAccessEnforcer(
+            serverAccess,
+            playerBoundary,
+            playerBoundary,
+            playerBoundary,
+            logger);
+
         SandboxOptions sandboxOptions = SandboxOptionsStore.Load(
             Path.Combine(AppContext.BaseDirectory, "config", "sandboxes.json"));
         string sandboxDataRoot = Path.Combine(AppContext.BaseDirectory, "data", "sandboxes");
@@ -386,7 +413,10 @@ int Start()
             localization,
             playerBoundary,
             banService,
-            database.RoleLeases);
+            database.RoleLeases,
+            database.AccountIdentities,
+            playerBoundary,
+            logger);
         using IDisposable registerAccountCommandRegistration = commandDispatcher.Register(
             new RegisterAccountCommand(accountSessions));
         using IDisposable loginAccountCommandRegistration = commandDispatcher.Register(
@@ -442,10 +472,31 @@ int Start()
             playerBoundary,
             playerBoundary);
         using var packetRateLimits = new PacketRateLimitPolicy(playerBoundary);
+        var buildProtection = new RuntimeWorldBuildProtectionService();
         var playerPacketPolicies = new PacketProcessorPipeline<PacketView>(
         [
             packetRateLimits,
             gameplayEnforcement,
+            new GlobalBuildProtectionPolicy(buildProtection, playerAuthorization),
+            new PlayerPacketOwnershipPolicy(),
+            new PlayerActionSanityPolicy(
+                TerrariaPacketSecurityLimits.PlayerCount,
+                TerrariaPacketSecurityLimits.NpcCount,
+                TerrariaPacketSecurityLimits.BuffTypeCount,
+                TerrariaPacketSecurityLimits.ProjectileTypeCount,
+                static () => TerrariaPacketSecurityLimits.WorldWidth,
+                static () => TerrariaPacketSecurityLimits.WorldHeight),
+            new NpcPacketSanityPolicy(
+                TerrariaPacketSecurityLimits.NpcCount,
+                TerrariaPacketSecurityLimits.NpcTypeCount,
+                TerrariaPacketSecurityLimits.BuffTypeCount,
+                TerrariaPacketSecurityLimits.PlayerCount,
+                static () => TerrariaPacketSecurityLimits.WorldWidth,
+                static () => TerrariaPacketSecurityLimits.WorldHeight),
+            new TeleportSanityPolicy(
+                TerrariaPacketSecurityLimits.NpcCount,
+                static () => TerrariaPacketSecurityLimits.WorldWidth,
+                static () => TerrariaPacketSecurityLimits.WorldHeight),
             new ChestInteractionAuthorityPolicy(playerBoundary),
             new TileEntityInteractionAuthorityPolicy(playerBoundary),
             new SceneInteractionAuthorityPolicy(scenes),
@@ -463,6 +514,7 @@ int Start()
             new ProjectileSpawnSanityPolicy(
                 TerrariaPacketSecurityLimits.ProjectileCount,
                 TerrariaPacketSecurityLimits.ProjectileTypeCount),
+            new TerrariaProjectileExploitPolicy(),
             new PlayerDeathDamageAuthorityPolicy(),
             new PlayerStateSanityPolicy(
                 static () => TerrariaPacketSecurityLimits.WorldWidth,
@@ -478,7 +530,16 @@ int Start()
                 TerrariaPacketSecurityLimits.ItemTypeCount,
                 TerrariaPacketSecurityLimits.PrefixCount,
                 TerrariaPacketSecurityLimits.PaintColorCount),
-            new PlayerPacketOwnershipPolicy(),
+            new TerrariaWorldMutationHardeningPolicy(),
+            new WorldInteractionSanityPolicy(
+                static () => TerrariaPacketSecurityLimits.WorldWidth,
+                static () => TerrariaPacketSecurityLimits.WorldHeight,
+                TerrariaPacketSecurityLimits.ItemTypeCount,
+                TerrariaPacketSecurityLimits.PrefixCount,
+                TerrariaPacketSecurityLimits.ProjectileTypeCount),
+            new TerrariaNpcGenerationPolicy(),
+            new TerrariaPortalAuthorityPolicy(),
+            new TerrariaTileRectanglePayloadPolicy(),
             moduleRouter
         ]);
         using IDisposable? sandboxCommandRegistration = sandboxControl is null
@@ -498,13 +559,31 @@ int Start()
             accountSessions));
 
         using IDisposable banCommandRegistration = commandDispatcher.Register(
-            new BanCommand(playerBoundary, playerBoundary, banService));
+            new BanCommand(
+                playerBoundary,
+                playerBoundary,
+                banService,
+                accountSessions: accountSessions,
+                accounts: database.Accounts,
+                accountIdentities: database.AccountIdentities));
         using IDisposable muteCommandRegistration = commandDispatcher.Register(
-            new MuteCommand(playerBoundary, accountSessions, database.Mutes));
+            new MuteCommand(
+                playerBoundary,
+                accountSessions,
+                database.Mutes,
+                accounts: database.Accounts,
+                accountIdentities: database.AccountIdentities));
         using IDisposable accountCommandRegistration = commandDispatcher.Register(
             new AccountCommand(database.Accounts, database.Authorization, database.RoleLeases));
+        using IDisposable accountInfoCommandRegistration = commandDispatcher.Register(
+            new AccountInfoCommand(database.Accounts, database.AccountIdentities));
         using IDisposable groupCommandRegistration = commandDispatcher.Register(
             new GroupCommand(database.Authorization));
+        using IDisposable permissionInspectionCommandRegistration = PermissionInspectionCommandRegistration.Register(
+            commandDispatcher,
+            commandDispatcher,
+            database.Authorization,
+            database.Accounts);
         using IDisposable regionCommandRegistration = commandDispatcher.Register(
             new RegionCommand(database.Regions));
         using var banEnforcer = new PersistentBanEnforcer(
@@ -533,6 +612,8 @@ int Start()
             new SaveCommand(serverControl));
         using IDisposable shutdownCommandRegistration = commandDispatcher.Register(
             new ShutdownCommand(serverControl));
+        using IDisposable serverPasswordCommandRegistration = commandDispatcher.Register(
+            new ServerPasswordCommand(serverControl));
         var hostMetrics = new ProcessHostMetricsReader();
         var runtimeMetrics = new SampledRuntimeMetricsReader(hostMetrics);
         WorldClockOptions worldClockOptions = WorldClockOptionsStore.Load(
@@ -597,7 +678,10 @@ int Start()
             mutes: database.Mutes,
             scenes: scenes,
             visibility: visibility,
-            backups: backups);
+            backups: backups,
+            accounts: database.Accounts,
+            authorization: database.Authorization,
+            accountIdentities: database.AccountIdentities);
         using var backendReporter = backendLaunch.IsBackend
             ? new SandboxBackendReporter(backendLaunch, lifecycle, operationsState, playerBoundary)
             : null;
@@ -635,6 +719,12 @@ int Start()
             $"Database provider: {database.Provider}; initialization is required before world loading.");
         logger.Log(
             OperationsLogLevel.Information,
+            "server-access",
+            $"Server access: {(serverAccess.IsLocked ? "locked" : "unlocked")}; " +
+            $"whitelist={(serverAccess.IsWhitelistEnabled ? "on" : "off")}; " +
+            $"entries={serverAccess.SnapshotEntries().Count}.");
+        logger.Log(
+            OperationsLogLevel.Information,
             "world-image",
             $"World image mode: {(worldImageOptions.Enabled ? "on" : "off")}; " +
             $"direct_image={worldImageOptions.DirectImageRequested.ToString().ToLowerInvariant()}.");
@@ -669,6 +759,7 @@ int Start()
             [database],
             playerPacketPolicies,
             commandDispatcher,
+            buildProtection,
             playerAuthorization,
             accountSessions,
             database.Mutes,

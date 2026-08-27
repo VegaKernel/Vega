@@ -68,11 +68,13 @@ internal sealed class NativePlayerPacketSecurityHooks : IDisposable
 
         int slot = args.Instance.whoAmI;
         TerrariaConnectionState connectionState = GetConnectionState(slot);
+        ReadOnlySpan<byte> payload;
         try
         {
+            payload = GetPayload(args);
             ConnectionMetadataObservation metadata = connectionMetadata.ObserveInboundDetailed(
                 args.PacketId,
-                args.Instance.readBuffer.AsSpan(args.ReadOffset, args.Length),
+                payload,
                 slot,
                 connectionState,
                 TryGetRemoteEndpoint(args));
@@ -98,9 +100,36 @@ internal sealed class NativePlayerPacketSecurityHooks : IDisposable
             RecordRejection(
                 args,
                 slot,
-                new PacketProcessingDecision(
-                    PacketDecisionKind.Reject,
-                    "connection_metadata.parse_failed"));
+                PacketProcessingDecision.Reject("connection_metadata.parse_failed"));
+            return;
+        }
+
+        PacketProcessingDecision ingressDecision;
+        try
+        {
+            ingressDecision = TerrariaInboundPacketGuard.Validate(
+                args.PacketId,
+                connectionState,
+                slot,
+                payload);
+        }
+        catch (Exception ex)
+        {
+            logger.Log(
+                OperationsLogLevel.Error,
+                "packet-security",
+                $"Inbound packet guard failed for packet {args.PacketId}, slot {slot}; packet rejected.",
+                ex);
+            RecordRejection(
+                args,
+                slot,
+                PacketProcessingDecision.Violation("packet.ingress.guard_exception"));
+            return;
+        }
+
+        if (ingressDecision.Kind != PacketDecisionKind.Allow)
+        {
+            RecordRejection(args, slot, ingressDecision);
             return;
         }
 
@@ -113,9 +142,7 @@ internal sealed class NativePlayerPacketSecurityHooks : IDisposable
         {
             PacketProcessingDecision decision = MultiplicityPacketProcessing.ProcessInboundPayload(
                 args.PacketId,
-                args.Instance.readBuffer,
-                args.ReadOffset,
-                args.Length,
+                payload,
                 new ConnectionId(slot),
                 new PlayerId(slot),
                 packetProcessor,
@@ -132,14 +159,24 @@ internal sealed class NativePlayerPacketSecurityHooks : IDisposable
         }
         catch (Exception ex)
         {
-            // Packet policy is an additional Vega guard, not the Terraria connection state machine.
-            // A policy bug must not strand a client or tear down MessageBuffer.GetData.
             logger.Log(
                 OperationsLogLevel.Error,
                 "packet-security",
-                $"Inbound packet security failed for packet {args.PacketId}, slot {slot}, state {connectionState}; vanilla processing continues.",
+                $"Inbound packet security failed for packet {args.PacketId}, slot {slot}, state {connectionState}; packet rejected fail-closed.",
                 ex);
+            RecordRejection(
+                args,
+                slot,
+                PacketProcessingDecision.Violation("packet.security.processor_exception"));
         }
+    }
+
+    internal static ReadOnlySpan<byte> GetPayload(Hooks.MessageBuffer.GetDataEventArgs args)
+    {
+        ArgumentNullException.ThrowIfNull(args);
+        // MessageBuffer.GetData length includes the packet-id byte at start. ReadOffset already points
+        // one byte past it, so the actual payload is one byte shorter than the hook length.
+        return args.Instance.readBuffer.AsSpan(args.ReadOffset, checked(args.Length - 1));
     }
 
     private void RecordRejection(
@@ -168,11 +205,34 @@ internal sealed class NativePlayerPacketSecurityHooks : IDisposable
                 : OperationsLogLevel.Debug,
             "packet-security",
             $"Inbound packet {args.PacketId} from slot {slot}: {decision.Kind} ({decision.Reason ?? "no-reason"}).");
+
+        if (args.PacketId == (byte)PacketTypes.NpcStrike &&
+            connectionState >= TerrariaConnectionState.FullyConnected)
+        {
+            TryAcknowledgeNpcStrike(slot);
+        }
+
         args.Result = HookResult.Cancel;
 
         if (ShouldTerminateConnection(connectionState, decision.Kind))
         {
             TerminateConnection(slot, decision.Reason);
+        }
+    }
+
+    private void TryAcknowledgeNpcStrike(int slot)
+    {
+        try
+        {
+            global::Terraria.NetMessage.TrySendData((int)PacketTypes.DamageNPCAck, slot);
+        }
+        catch (Exception ex)
+        {
+            logger.Log(
+                OperationsLogLevel.Warning,
+                "packet-security",
+                $"Failed to acknowledge rejected NPC strike for slot {slot}.",
+                ex);
         }
     }
 
@@ -226,7 +286,9 @@ internal sealed class NativePlayerPacketSecurityHooks : IDisposable
     }
 
     internal static bool ShouldApplySecurity(TerrariaConnectionState connectionState, byte packetId) =>
-        connectionState >= TerrariaConnectionState.FullyConnected && IsProcessedPacket(packetId);
+        connectionState >= TerrariaConnectionState.FullyConnected &&
+        PacketPipelineClassification.Get(packetId).SecurityProcessed &&
+        PacketPipelineClassification.Get(packetId).Ingress == PacketIngressDisposition.GameplayValidated;
 
     internal static bool ShouldTerminateConnection(
         TerrariaConnectionState connectionState,
@@ -245,7 +307,4 @@ internal sealed class NativePlayerPacketSecurityHooks : IDisposable
             (int)TerrariaConnectionState.PasswordChallenge;
         return (TerrariaConnectionState)state;
     }
-
-    private static bool IsProcessedPacket(byte packetId) =>
-        PacketPipelineClassification.Get(packetId).SecurityProcessed;
 }

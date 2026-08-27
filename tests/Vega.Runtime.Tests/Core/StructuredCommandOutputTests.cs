@@ -33,7 +33,7 @@ public sealed class StructuredCommandOutputTests
     }
 
     [Test]
-    public async Task CheckUpdatesReturnsCompletedMessageInsteadOfWritingLegacyOutput()
+    public async Task CheckUpdatesReturnsCurrentReleaseMessageInsteadOfWritingLegacyOutput()
     {
         var command = new CheckUpdatesCommand(new SuccessfulUpdateChecker());
         var invocation = CreateInvocation();
@@ -42,9 +42,9 @@ public sealed class StructuredCommandOutputTests
 
         Assert.That(result.Status, Is.EqualTo(CommandExecutionStatus.Success));
         Assert.That(result.Messages, Has.Count.EqualTo(1));
-        Assert.That(result.Messages![0].Key, Is.EqualTo("command.checkupdates.completed"));
-        Assert.That(result.Messages[0].Severity, Is.EqualTo(MessageSeverity.Info));
-        Assert.That(result.Messages[0].DefaultText, Does.StartWith("Update check completed."));
+        Assert.That(result.Messages![0].Key, Is.EqualTo("command.checkupdates.current"));
+        Assert.That(result.Messages[0].Severity, Is.EqualTo(MessageSeverity.Success));
+        Assert.That(result.Messages[0].DefaultText, Does.StartWith("No newer Vega release found."));
     }
 
     [Test]
@@ -92,19 +92,20 @@ public sealed class StructuredCommandOutputTests
 
     private sealed class SuccessfulUpdateChecker : IUpdateChecker
     {
-        public Task CheckAsync(CancellationToken cancellationToken = default) => Task.CompletedTask;
+        public Task<UpdateCheckResult> CheckAsync(CancellationToken cancellationToken = default) =>
+            Task.FromResult(new UpdateCheckResult("1.0.0", "v1.0.0", false));
     }
 
     private sealed class FailingUpdateChecker : IUpdateChecker
     {
-        public Task CheckAsync(CancellationToken cancellationToken = default) =>
-            Task.FromException(new InvalidOperationException("Unavailable"));
+        public Task<UpdateCheckResult> CheckAsync(CancellationToken cancellationToken = default) =>
+            Task.FromException<UpdateCheckResult>(new InvalidOperationException("Unavailable"));
     }
 
     private sealed class CancelledUpdateChecker : IUpdateChecker
     {
-        public Task CheckAsync(CancellationToken cancellationToken = default) =>
-            Task.FromCanceled(cancellationToken);
+        public Task<UpdateCheckResult> CheckAsync(CancellationToken cancellationToken = default) =>
+            Task.FromCanceled<UpdateCheckResult>(cancellationToken);
     }
 
     private sealed class StubPrincipal : ICommandPrincipal

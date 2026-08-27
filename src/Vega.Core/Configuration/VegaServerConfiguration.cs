@@ -23,6 +23,7 @@ public sealed class VegaServerConfigurationState
     private readonly string path;
     private readonly string[] commandLine;
     private readonly Func<string, string?> environment;
+    private EffectiveVegaServerConfiguration current;
 
     public VegaServerConfigurationState(
         string path,
@@ -34,15 +35,22 @@ public sealed class VegaServerConfigurationState
         this.path = path;
         this.commandLine = commandLine.ToArray();
         this.environment = environment ?? Environment.GetEnvironmentVariable;
-        Current = VegaServerConfigurationStore.Compose(path, this.commandLine, this.environment);
+        current = VegaServerConfigurationStore.Compose(path, this.commandLine, this.environment);
     }
 
     public string Path => path;
 
-    public EffectiveVegaServerConfiguration Current { get; }
+    public EffectiveVegaServerConfiguration Current => Volatile.Read(ref current);
 
     public EffectiveVegaServerConfiguration Validate() =>
         VegaServerConfigurationStore.Compose(path, commandLine, environment);
+
+    public EffectiveVegaServerConfiguration Reload()
+    {
+        EffectiveVegaServerConfiguration next = Validate();
+        Volatile.Write(ref current, next);
+        return next;
+    }
 }
 
 public static class VegaServerConfigurationStore

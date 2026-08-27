@@ -1,5 +1,10 @@
 namespace Vega.Contracts.Networking;
 
+public static class ConnectionMetadataLimits
+{
+    public const int MaxClientUuidLength = 128;
+}
+
 public enum ClientPlatformKind
 {
     Unknown,

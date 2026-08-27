@@ -22,7 +22,8 @@ public sealed record NpcSnapshot(
     bool TownNpc,
     bool Boss,
     int TargetPlayerSlot,
-    DateTimeOffset CapturedAt);
+    DateTimeOffset CapturedAt,
+    string? GivenName = null);
 
 public sealed record NpcSpawnRequest(
     WorldId WorldId,
@@ -38,6 +39,15 @@ public sealed record NpcTeleportRequest(
 
 public sealed record NpcDespawnRequest(
     NpcHandle Expected,
+    string Actor);
+
+public sealed record NpcKillRequest(
+    NpcHandle Expected,
+    string Actor);
+
+public sealed record NpcRenameRequest(
+    NpcHandle Expected,
+    string Name,
     string Actor);
 
 public enum NpcOperationStatus
@@ -82,5 +92,16 @@ public interface IWorldNpcService
 
     ValueTask<NpcOperationResult> DespawnAsync(
         NpcDespawnRequest request,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Kills an NPC through the engine combat path so normal death effects and drops are preserved.
+    /// </summary>
+    ValueTask<NpcOperationResult> KillAsync(
+        NpcKillRequest request,
+        CancellationToken cancellationToken = default);
+
+    ValueTask<NpcOperationResult> RenameAsync(
+        NpcRenameRequest request,
         CancellationToken cancellationToken = default);
 }

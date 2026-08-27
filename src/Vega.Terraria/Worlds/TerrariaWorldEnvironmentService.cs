@@ -64,6 +64,11 @@ public sealed class TerrariaWorldEnvironmentService(
             return Invalid("world.environment.invalid_wind_speed");
         }
 
+        if (patch.GameMode is int gameMode && (gameMode < 0 || gameMode > 3))
+        {
+            return Invalid("world.environment.invalid_game_mode");
+        }
+
         if (patch.IsDaytime is bool daytime) global::Terraria.Main.dayTime = daytime;
         if (patch.TimeTicks is double ticks) global::Terraria.Main.time = ticks;
         if (patch.MoonPhase is int phase) global::Terraria.Main.moonPhase = phase;
@@ -72,6 +77,7 @@ public sealed class TerrariaWorldEnvironmentService(
         if (patch.Raining is bool raining) global::Terraria.Main.raining = raining;
         if (patch.RainIntensity is float intensity) global::Terraria.Main.maxRaining = intensity;
         if (patch.WindSpeed is float speed) global::Terraria.Main.windSpeedCurrent = speed;
+        if (patch.GameMode is int mode) global::Terraria.Main.GameMode = mode;
 
         if (global::Terraria.Main.netMode == 2)
         {
@@ -101,7 +107,8 @@ public sealed class TerrariaWorldEnvironmentService(
             global::Terraria.Main.maxRaining,
             global::Terraria.Main.windSpeedCurrent,
             global::Terraria.Main.hardMode,
-            DateTimeOffset.UtcNow);
+            DateTimeOffset.UtcNow,
+            global::Terraria.Main.GameMode);
     }
 
     private static WorldEnvironmentMutationResult Invalid(string code) =>

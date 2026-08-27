@@ -1,4 +1,5 @@
 using System.Net;
+using System.Net.Sockets;
 using System.Text.Json;
 using Vega.Contracts.Sandboxes;
 using Vega.Contracts.Worlds;
@@ -8,7 +9,7 @@ namespace Vega.Sandboxes;
 /// <summary>
 /// Shared, short-lived rendezvous used when Dimensions switches a client between Vega processes.
 /// Dimensions' manual-switch packet only carries host and port, so admission is correlated by the
-/// trusted forwarded client address and canonical client UUID instead of being exposed to the client.
+/// trusted forwarded IPv4 client address and canonical client UUID instead of being exposed to the client.
 /// </summary>
 public sealed class SandboxTransferAdmissionService : ISandboxTransferAdmissionService
 {
@@ -41,7 +42,7 @@ public sealed class SandboxTransferAdmissionService : ISandboxTransferAdmissionS
             return Reject("sandbox.transfer.expired", "Transfer ticket is already expired.");
         }
 
-        if (!TryNormalizeEndpoint(effectiveEndpoint, out string endpoint) ||
+        if (!TryNormalizeIpv4Endpoint(effectiveEndpoint, out string endpoint) ||
             !Guid.TryParseExact(clientUuid, "D", out Guid uuid))
         {
             return Reject("sandbox.transfer.identity_invalid", "Transfer identity is incomplete or invalid.");
@@ -66,7 +67,7 @@ public sealed class SandboxTransferAdmissionService : ISandboxTransferAdmissionS
         string clientUuid,
         DateTimeOffset now)
     {
-        if (!TryNormalizeEndpoint(effectiveEndpoint, out string endpoint) ||
+        if (!TryNormalizeIpv4Endpoint(effectiveEndpoint, out string endpoint) ||
             !Guid.TryParseExact(clientUuid, "D", out Guid uuid))
         {
             return Reject("sandbox.transfer.identity_invalid", "Transfer identity is incomplete or invalid.");
@@ -86,7 +87,6 @@ public sealed class SandboxTransferAdmissionService : ISandboxTransferAdmissionS
             }
 
             admission = state.Admissions[index];
-            // Remove before validation so every rendezvous is single-use even if validation fails.
             state.Admissions.RemoveAt(index);
             return new SandboxTransferAdmissionResult(true);
         });
@@ -163,10 +163,7 @@ public sealed class SandboxTransferAdmissionService : ISandboxTransferAdmissionS
 
     private PersistedState Load()
     {
-        if (!File.Exists(path))
-        {
-            return new PersistedState();
-        }
+        if (!File.Exists(path)) return new PersistedState();
 
         try
         {
@@ -189,16 +186,18 @@ public sealed class SandboxTransferAdmissionService : ISandboxTransferAdmissionS
     private static void Prune(PersistedState state, DateTimeOffset now) =>
         state.Admissions.RemoveAll(candidate => candidate.Ticket.ExpiresAt <= now);
 
-    private static bool TryNormalizeEndpoint(string value, out string endpoint)
+    private static bool TryNormalizeIpv4Endpoint(string value, out string endpoint)
     {
         endpoint = string.Empty;
-        if (IPAddress.TryParse(value, out IPAddress? address))
+        if (IPAddress.TryParse(value, out IPAddress? address) &&
+            address.AddressFamily == AddressFamily.InterNetwork)
         {
             endpoint = address.ToString();
             return true;
         }
 
-        if (IPEndPoint.TryParse(value, out IPEndPoint? parsed))
+        if (IPEndPoint.TryParse(value, out IPEndPoint? parsed) &&
+            parsed.Address.AddressFamily == AddressFamily.InterNetwork)
         {
             endpoint = parsed.Address.ToString();
             return true;

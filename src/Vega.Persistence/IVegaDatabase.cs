@@ -16,6 +16,8 @@ public interface IVegaDatabase : IRuntimeStartupParticipant, IDatabaseBackupSour
 
     IAccountService Accounts { get; }
 
+    IAccountIdentityEvidenceService AccountIdentities { get; }
+
     IAuthorizationService Authorization { get; }
 
     IRoleLeaseService RoleLeases { get; }

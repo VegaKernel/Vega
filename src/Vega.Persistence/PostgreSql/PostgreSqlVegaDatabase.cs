@@ -100,6 +100,19 @@ public sealed class PostgreSqlVegaDatabase : ExternalVegaDatabase
             revision BIGINT NOT NULL CHECK (revision > 0)
         );
 
+        CREATE TABLE vega_account_identity_evidence (
+            account_id INTEGER NOT NULL REFERENCES vega_accounts(id) ON DELETE CASCADE,
+            kind SMALLINT NOT NULL CHECK (kind BETWEEN 0 AND 1),
+            value VARCHAR(512) NOT NULL,
+            first_seen_utc VARCHAR(40) NOT NULL,
+            last_seen_utc VARCHAR(40) NOT NULL,
+            observation_count BIGINT NOT NULL CHECK (observation_count > 0),
+            PRIMARY KEY (account_id, kind, value)
+        );
+
+        CREATE INDEX ix_account_identity_evidence_lookup
+            ON vega_account_identity_evidence (kind, value, last_seen_utc);
+
         CREATE TABLE vega_role_leases (
             id VARCHAR(36) NOT NULL PRIMARY KEY,
             account_id INTEGER NOT NULL REFERENCES vega_accounts(id) ON DELETE CASCADE,
@@ -184,6 +197,15 @@ public sealed class PostgreSqlVegaDatabase : ExternalVegaDatabase
         );
         CREATE INDEX ix_vega_mutes_active_subject
             ON vega_mutes (revoked, subject_kind, subject_value, expires_at_utc);
+
+        CREATE TABLE vega_mute_subjects (
+            mute_id VARCHAR(36) NOT NULL REFERENCES vega_mutes(id) ON DELETE CASCADE,
+            kind SMALLINT NOT NULL CHECK (kind BETWEEN 0 AND 3),
+            value VARCHAR(512) NOT NULL,
+            PRIMARY KEY (mute_id, kind, value)
+        );
+        CREATE INDEX ix_vega_mute_subjects_lookup
+            ON vega_mute_subjects (kind, value);
         """;
 
     private static RelationalGlobalBanSql GlobalBanSql { get; } = new(

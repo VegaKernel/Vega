@@ -15,7 +15,8 @@ public sealed record WorldEnvironmentSnapshot(
     float RainIntensity,
     float WindSpeed,
     bool Hardmode,
-    DateTimeOffset CapturedAt);
+    DateTimeOffset CapturedAt,
+    int GameMode = 0);
 
 public sealed record WorldEnvironmentPatch(
     bool? IsDaytime = null,
@@ -25,7 +26,8 @@ public sealed record WorldEnvironmentPatch(
     bool? Eclipse = null,
     bool? Raining = null,
     float? RainIntensity = null,
-    float? WindSpeed = null);
+    float? WindSpeed = null,
+    int? GameMode = null);
 
 public sealed record WorldEnvironmentMutationRequest(
     WorldId WorldId,

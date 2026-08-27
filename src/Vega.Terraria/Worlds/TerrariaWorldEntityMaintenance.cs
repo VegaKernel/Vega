@@ -1,3 +1,4 @@
+using Vega.Contracts.Players;
 using Vega.Contracts.Threading;
 using Vega.Contracts.Worlds;
 
@@ -21,7 +22,10 @@ public sealed class TerrariaWorldEntityMaintenance(IGameThreadDispatcher dispatc
             if (item is { active: true })
             {
                 items.Add(new WorldItemCleanupSnapshot(
-                    new WorldItemCleanupHandle(slot, item.timeSinceItemSpawned)));
+                    new WorldItemCleanupHandle(slot, item.timeSinceItemSpawned))
+                {
+                    Position = new PlayerPosition(item.position.X, item.position.Y)
+                });
             }
         }
 
@@ -37,7 +41,10 @@ public sealed class TerrariaWorldEntityMaintenance(IGameThreadDispatcher dispatc
                 projectiles.Add(new WorldProjectileCleanupSnapshot(
                     new WorldProjectileCleanupHandle(slot, projectile.key),
                     projectile.minion,
-                    projectile.sentry));
+                    projectile.sentry)
+                {
+                    Position = new PlayerPosition(projectile.position.X, projectile.position.Y)
+                });
             }
         }
 

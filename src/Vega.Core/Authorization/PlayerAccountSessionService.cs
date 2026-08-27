@@ -1,7 +1,10 @@
+using System.Net;
+using System.Net.Sockets;
 using Vega.Contracts.Accounts;
 using Vega.Contracts.Authorization;
 using Vega.Contracts.Bans;
 using Vega.Contracts.Localization;
+using Vega.Contracts.Operations;
 using Vega.Contracts.Players;
 
 namespace Vega.Core.Authorization;
@@ -16,6 +19,9 @@ public sealed class PlayerAccountSessionService : IPlayerAccountSessionService, 
     private readonly IPlayerSessionLifecycle lifecycle;
     private readonly IBanService? bans;
     private readonly IRoleLeaseService? roleLeases;
+    private readonly IAccountIdentityEvidenceService? identityEvidence;
+    private readonly IPlayerDirectory? playerDirectory;
+    private readonly IOperationsLogger? logger;
     private readonly Dictionary<PlayerId, AccountSnapshot> authenticated = [];
     private bool disposed;
 
@@ -26,7 +32,10 @@ public sealed class PlayerAccountSessionService : IPlayerAccountSessionService, 
         IPlayerCultureService cultures,
         IPlayerSessionLifecycle lifecycle,
         IBanService? bans = null,
-        IRoleLeaseService? roleLeases = null)
+        IRoleLeaseService? roleLeases = null,
+        IAccountIdentityEvidenceService? identityEvidence = null,
+        IPlayerDirectory? playerDirectory = null,
+        IOperationsLogger? logger = null)
     {
         this.accounts = accounts ?? throw new ArgumentNullException(nameof(accounts));
         this.authorization = authorization ?? throw new ArgumentNullException(nameof(authorization));
@@ -35,6 +44,9 @@ public sealed class PlayerAccountSessionService : IPlayerAccountSessionService, 
         this.lifecycle = lifecycle ?? throw new ArgumentNullException(nameof(lifecycle));
         this.bans = bans;
         this.roleLeases = roleLeases;
+        this.identityEvidence = identityEvidence;
+        this.playerDirectory = playerDirectory;
+        this.logger = logger;
         lifecycle.Closed += OnClosed;
     }
 
@@ -310,7 +322,66 @@ public sealed class PlayerAccountSessionService : IPlayerAccountSessionService, 
             cultures.TrySetSession(CultureSubject(playerId), current.Culture, out _);
         }
 
+        await TryRecordIdentityEvidenceAsync(playerId, current, cancellationToken).ConfigureAwait(false);
         return PlayerAccountSessionResult.Success(current);
+    }
+
+    private async ValueTask TryRecordIdentityEvidenceAsync(
+        PlayerId playerId,
+        AccountSnapshot account,
+        CancellationToken cancellationToken)
+    {
+        if (identityEvidence is null || playerDirectory is null ||
+            !playerDirectory.TryGet(playerId, out PlayerSnapshot? player) ||
+            player?.Connection is not { } connection)
+        {
+            return;
+        }
+
+        string? ipAddress = TryGetIpv4Address(connection.EffectiveEndpoint, out IPAddress? address)
+            ? address?.ToString()
+            : null;
+        try
+        {
+            await identityEvidence.RecordAsync(
+                account.Id,
+                account.Name,
+                connection.ClientUuid,
+                ipAddress,
+                DateTimeOffset.UtcNow,
+                cancellationToken).ConfigureAwait(false);
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch (Exception ex)
+        {
+            logger?.Log(
+                OperationsLogLevel.Warning,
+                "account-identity",
+                $"Could not record identity evidence for authenticated account '{account.Name}'.",
+                ex);
+        }
+    }
+
+    private static bool TryGetIpv4Address(string? endpoint, out IPAddress? address)
+    {
+        if (IPAddress.TryParse(endpoint, out address) &&
+            address.AddressFamily == AddressFamily.InterNetwork)
+        {
+            return true;
+        }
+
+        if (endpoint is not null && IPEndPoint.TryParse(endpoint, out IPEndPoint? parsed) &&
+            parsed.Address.AddressFamily == AddressFamily.InterNetwork)
+        {
+            address = parsed.Address;
+            return true;
+        }
+
+        address = null;
+        return false;
     }
 
     private void OnClosed(PlayerSessionClosed closed)

@@ -262,6 +262,39 @@ public sealed class ConnectionMetadataRegistryTests
     }
 
     [Test]
+    public void DimensionsTrustedPeersRejectIpv6Configuration()
+    {
+        var registry = new TerrariaConnectionMetadataRegistry();
+
+        InvalidDataException error = Assert.Throws<InvalidDataException>(
+            () => registry.ConfigureDimensions(true, ["::1"]))!;
+
+        Assert.That(error.Message, Does.Contain("IPv4"));
+    }
+
+    [Test]
+    public void TrustedDimensionsPeerRejectsForwardedIpv6Address()
+    {
+        var registry = new TerrariaConnectionMetadataRegistry();
+        registry.ConfigureDimensions(true, ["127.0.0.1"]);
+
+        ConnectionMetadataObservation observation = registry.ObserveInboundDetailed(
+            (byte)PacketTypes.Placeholder,
+            EncodeDimensions(0, "2001:db8::9"),
+            5,
+            TerrariaConnectionState.ProtocolAccepted,
+            "127.0.0.1:40000");
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(observation.Decision.Kind, Is.EqualTo(PacketDecisionKind.Reject));
+            Assert.That(observation.Decision.Reason, Is.EqualTo("connection_metadata.dimensions_invalid_address"));
+            Assert.That(registry.Snapshot(5, "127.0.0.1:40000", TerrariaConnectionState.ProtocolAccepted)
+                .EffectiveEndpoint, Is.EqualTo("127.0.0.1:40000"));
+        });
+    }
+
+    [Test]
     public void PublicClientCannotForgeDimensionsAddress()
     {
         var registry = new TerrariaConnectionMetadataRegistry();

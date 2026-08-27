@@ -20,6 +20,9 @@ public sealed class WorldMutationSanityPolicy(
 {
     private const int MaximumChestSlots = 40;
     private const int MaximumStack = 9_999;
+    private const int DisplayDollEquipmentSlots = 9;
+    private const int DisplayDollDyeSlots = 9;
+    private const int DisplayDollMiscSlots = 1;
 
     public PacketProcessingDecision Process(scoped in PacketProcessingContext<PacketView> context)
     {
@@ -290,7 +293,6 @@ public sealed class WorldMutationSanityPolicy(
     private PacketProcessingDecision ValidateTilePicking(SyncTilePickingView value) =>
         ValidateCoordinates(value.TileX, value.TileY, "packet.tile.position_out_of_world");
 
-
     private PacketProcessingDecision ValidatePlayerChestIndex(int chest) =>
         chest is >= -5 and <= -1 ? PacketProcessingDecision.Allow : ValidateChestId(chest);
 
@@ -342,10 +344,32 @@ public sealed class WorldMutationSanityPolicy(
             : PacketProcessingDecision.Allow;
     }
 
-    private PacketProcessingDecision ValidateDisplayDollItem(TileEntityDisplayDollItemSyncView value) =>
-        !value.HasItemData
-            ? PacketProcessingDecision.Allow
-            : ValidateTileEntityItem(value.ItemType, value.Stack, value.Prefix);
+    private PacketProcessingDecision ValidateDisplayDollItem(TileEntityDisplayDollItemSyncView value)
+    {
+        if (!Enum.IsDefined(value.Command))
+        {
+            return PacketProcessingDecision.Violation("packet.tile_entity.display_doll_command_out_of_range");
+        }
+
+        if (value.Command == DisplayDollSyncCommand.Pose)
+        {
+            return PacketProcessingDecision.Allow;
+        }
+
+        int slotCount = value.Command switch
+        {
+            DisplayDollSyncCommand.Equipment => DisplayDollEquipmentSlots,
+            DisplayDollSyncCommand.Dyes => DisplayDollDyeSlots,
+            DisplayDollSyncCommand.Misc => DisplayDollMiscSlots,
+            _ => 0
+        };
+        if (value.ItemIndex >= slotCount)
+        {
+            return PacketProcessingDecision.Violation("packet.tile_entity.display_doll_slot_out_of_range");
+        }
+
+        return ValidateTileEntityItem(value.ItemType, value.Stack, value.Prefix);
+    }
 
     private PacketProcessingDecision ValidateHatRackItem(TileEntityHatRackItemSyncView value) =>
         ValidateTileEntityItem(value.ItemType, value.Stack, value.Prefix);

@@ -14,7 +14,10 @@
   </ItemGroup>
 
   <ItemGroup>
+    <ProjectReference Include="..\Vega.Admin.Client\Vega.Admin.Client.csproj" />
+    <ProjectReference Include="..\Vega.Admin.Contracts\Vega.Admin.Contracts.csproj" />
     <ProjectReference Include="..\Vega.Contracts\Vega.Contracts.csproj" />
+    <ProjectReference Include="..\Vega.PluginSdk\Vega.PluginSdk.csproj" />
   </ItemGroup>
 
   <ItemGroup>

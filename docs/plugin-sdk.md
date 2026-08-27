@@ -37,7 +37,7 @@ public sealed class HelloPlugin : VegaPlugin
 The fixed context exposes these discoverable facets:
 
 - `Commands` registers typed command handlers;
-- `Players` provides immutable online snapshots, lookup, messaging, kick/teleport operations, join/leave hooks and optimistic inventory access;
+- `Players` provides immutable online snapshots, lookup, messaging, kick/teleport/heal/kill/buff/respawn operations, join/leave hooks and optimistic inventory access;
 - `World` exposes the active world through immutable environment, tile, chest and NPC snapshots plus plugin-owned scenes;
 - `Tasks` posts to the game thread, schedules repeating game-thread work and runs async I/O with a game-thread apply callback;
 - `Configuration` owns typed, validated and reloadable operator settings under `config/plugins/<plugin-name>/`;
@@ -47,6 +47,49 @@ The fixed context exposes these discoverable facets:
 - `Debug` is a separately gated process-internal diagnostic surface for explicitly trusted tooling plugins.
 
 The host owns every command, event subscription, repeating task and async operation created through these facets. Unload first cancels and joins background work, then removes registrations before releasing the collectible context. Ordinary plugins do not keep registration leases or reverse-registration lists.
+
+## Logging
+
+Every ordinary plugin has access to the shared Vega operations logger through `plugin.Log`:
+
+```csharp
+plugin.Log.Write(
+    OperationsLogLevel.Information,
+    "Cache rebuilt successfully.");
+```
+
+The SDK deliberately exposes the scoped `IPluginLog` facade instead of the raw host logger. Vega fixes the source to `plugin:<PluginName>`, so a plugin cannot impersonate `runtime`, `packet-security`, `chat` or another subsystem. The plugin owns the message contents and must not place credentials or other secrets in them.
+
+Plugin records use the same logging transport as the server. The bounded in-memory store used by operations/TUI is updated immediately, while potentially blocking sinks such as console and JSON files are delivered through the bounded background queue. A slow sink therefore does not turn a plugin log call into game-thread I/O, and queue overflow drops queued-sink records rather than blocking the server.
+
+## Player capabilities
+
+`plugin.Players` exposes immutable `PlayerSnapshot` values for reads and narrow authoritative operations for mutations. Ordinary plugins do not receive `Terraria.Player`, `Main.player` or another mutable Terraria object graph.
+
+```csharp
+PlayerSnapshot? target = plugin.Players.Online
+    .FirstOrDefault(player => player.Name == "Alice");
+
+if (target is not null)
+{
+    await plugin.Players.HealAsync(target.Id);
+    await plugin.Players.ApplyBuffAsync(target.Id, buffType: 2, durationTicks: 600);
+}
+```
+
+Supported authoritative operations are:
+
+- `MessageAsync`;
+- `KickAsync`;
+- `TeleportAsync`;
+- `HealAsync`, where a null amount restores current maximum life;
+- `KillAsync`, with an explicit auditable death reason;
+- `ApplyBuffAsync`, with a validated Terraria buff type and duration in ticks;
+- `RespawnAsync` for a dead player.
+
+The host marshals these mutations to the authoritative game thread. The same `IPlayerOperations` implementation is used by built-in administration commands, Plugin SDK and higher-level tooling, so plugins do not need a parallel direct-mutation path.
+
+Inventory is intentionally separate. It uses an optimistic snapshot/revision contract because replacing item slots safely has different stale-state semantics than a one-shot player action.
 
 ## World capabilities
 
@@ -177,7 +220,7 @@ Typical TShock patterns map by behavior, not API shape:
 | plugin base plus `Initialize` | `VegaPlugin` plus `Configure` |
 | add/remove chat command | `plugin.Commands.Register`; host removes it |
 | player greet hook | `plugin.Players.OnJoined` plus `Message` |
-| `TSPlayer` lookup/mutation | immutable snapshot lookup plus narrow player operation |
+| `TSPlayer` lookup/mutation | immutable snapshot lookup plus narrow `Message/Kick/Teleport/Heal/Kill/Buff/Respawn` operations |
 | player inventory edit | `plugin.Players.Inventory` snapshot + optimistic mutation |
 | world/NPC/chest edit | `plugin.World` immutable snapshots + guarded mutations |
 | timer and manual dispose | `plugin.Tasks.Every`; host cancels it |

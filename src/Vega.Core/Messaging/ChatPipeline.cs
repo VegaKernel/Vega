@@ -1,9 +1,10 @@
 using Vega.Contracts.Messaging;
+using Vega.Contracts.Operations;
 using Vega.Contracts.Players;
 
 namespace Vega.Core.Messaging;
 
-public sealed class ChatPipeline : IChatPipeline
+public sealed class ChatPipeline : IChatPipeline, IOperationsLogSource
 {
     private readonly IChatContentTransform[] transforms;
     private readonly IChatModerationRule[] moderation;
@@ -18,6 +19,8 @@ public sealed class ChatPipeline : IChatPipeline
         this.moderation = Order(moderation ?? []);
         this.renderers = Order(renderers ?? []);
     }
+
+    public event Action<OperationsLogMessage>? LogProduced;
 
     public ChatPipelineResult Process(ChatMessageContext context)
     {
@@ -36,11 +39,16 @@ public sealed class ChatPipeline : IChatPipeline
             ChatModerationDecision decision = rule.Evaluate(context, content);
             if (!decision.Allowed)
             {
+                string reason = decision.Reason ?? "chat.rejected";
+                Publish(new OperationsLogMessage(
+                    OperationsLogLevel.Warning,
+                    "chat",
+                    $"{Sanitize(context.Sender.Name)}: {Sanitize(content)} [rejected: {Sanitize(reason)}]"));
                 return new ChatPipelineResult(
                     false,
                     true,
                     Array.Empty<ChatDelivery>(),
-                    decision.Reason ?? "chat.rejected");
+                    reason);
             }
         }
 
@@ -61,11 +69,42 @@ public sealed class ChatPipeline : IChatPipeline
                 $"{context.Sender.Name}: {rendered}");
         }
 
+        Publish(new OperationsLogMessage(
+            OperationsLogLevel.Information,
+            "chat",
+            $"{Sanitize(context.Sender.Name)}: {Sanitize(content)}"));
         return new ChatPipelineResult(
             true,
             changed,
             Array.AsReadOnly(deliveries));
     }
+
+    private void Publish(OperationsLogMessage message)
+    {
+        Action<OperationsLogMessage>? subscribers = LogProduced;
+        if (subscribers is null)
+        {
+            return;
+        }
+
+        foreach (Delegate subscriber in subscribers.GetInvocationList())
+        {
+            try
+            {
+                ((Action<OperationsLogMessage>)subscriber)(message);
+            }
+            catch
+            {
+                // Observability must never change chat delivery or block later observers.
+            }
+        }
+    }
+
+    private static string Sanitize(string value) => value
+        .Replace("\\", "\\\\", StringComparison.Ordinal)
+        .Replace("\r", "\\r", StringComparison.Ordinal)
+        .Replace("\n", "\\n", StringComparison.Ordinal)
+        .Replace("\t", "\\t", StringComparison.Ordinal);
 
     private static T[] Order<T>(IEnumerable<T> stages) => stages
         .Select((stage, index) => (Stage: stage, Index: index))

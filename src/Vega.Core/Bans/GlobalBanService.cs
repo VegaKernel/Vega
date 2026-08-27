@@ -2,6 +2,7 @@ using System.Net;
 using System.Net.Sockets;
 using Vega.Contracts.Bans;
 using Vega.Contracts.Cluster.Events;
+using Vega.Contracts.Networking;
 
 namespace Vega.Core.Bans;
 
@@ -19,6 +20,12 @@ public sealed class GlobalBanService(
         ArgumentNullException.ThrowIfNull(subject);
         normalized = null;
         error = null;
+
+        if (subject.Kind == GlobalBanSubjectKind.Uuid)
+        {
+            return TryNormalizeUuidSubject(subject, out normalized, out error);
+        }
+
         string value = subject.Value.Trim();
         if (value.Length == 0)
         {
@@ -32,28 +39,19 @@ public sealed class GlobalBanService(
             case GlobalBanSubjectKind.Account:
                 normalized = subject with { Value = value };
                 return true;
-            case GlobalBanSubjectKind.Uuid:
-                if (!Guid.TryParse(value, out Guid uuid))
-                {
-                    error = "The UUID ban subject is not a valid UUID.";
-                    return false;
-                }
-
-                normalized = subject with { Value = uuid.ToString("D") };
-                return true;
             case GlobalBanSubjectKind.IpAddress:
-                if (!IPAddress.TryParse(value, out IPAddress? address))
+                if (!TryParseIpv4(value, out IPAddress? address))
                 {
-                    error = "The IP ban subject is not a valid IPv4 or IPv6 address.";
+                    error = "The IP ban subject is not a valid IPv4 address.";
                     return false;
                 }
 
-                normalized = subject with { Value = NormalizeAddress(address).ToString() };
+                normalized = subject with { Value = address!.ToString() };
                 return true;
             case GlobalBanSubjectKind.Network:
                 if (!TryParseNetwork(value, out IPAddress? network, out int prefixLength))
                 {
-                    error = "The network ban subject is not valid CIDR notation.";
+                    error = "The network ban subject is not valid IPv4 CIDR notation.";
                     return false;
                 }
 
@@ -112,17 +110,21 @@ public sealed class GlobalBanService(
             return -1;
         }
 
+        IPAddress? identityAddress = identity.IpAddress is { AddressFamily: AddressFamily.InterNetwork }
+            ? identity.IpAddress
+            : null;
+
         return subject!.Kind switch
         {
             GlobalBanSubjectKind.Account when EqualsIgnoreCase(subject.Value, identity.AccountName) => 600,
             GlobalBanSubjectKind.Uuid when TryNormalizeUuid(identity.Uuid, out string? uuid) &&
-                EqualsIgnoreCase(subject.Value, uuid) => 600,
+                string.Equals(subject.Value, uuid, StringComparison.Ordinal) => 600,
             GlobalBanSubjectKind.PlayerName when EqualsIgnoreCase(subject.Value, identity.PlayerName) => 500,
-            GlobalBanSubjectKind.IpAddress when identity.IpAddress is not null &&
-                IPAddress.Parse(subject.Value).Equals(NormalizeAddress(identity.IpAddress)) => 400,
-            GlobalBanSubjectKind.Network when identity.IpAddress is not null &&
+            GlobalBanSubjectKind.IpAddress when identityAddress is not null &&
+                IPAddress.Parse(subject.Value).Equals(identityAddress) => 400,
+            GlobalBanSubjectKind.Network when identityAddress is not null &&
                 TryParseNetwork(subject.Value, out IPAddress? network, out int prefixLength) &&
-                Contains(network!, prefixLength, NormalizeAddress(identity.IpAddress)) => 100 + prefixLength,
+                Contains(network!, prefixLength, identityAddress) => 100 + prefixLength,
             _ => -1
         };
     }
@@ -141,14 +143,50 @@ public sealed class GlobalBanService(
         !string.IsNullOrWhiteSpace(right) &&
         string.Equals(left, right.Trim(), StringComparison.OrdinalIgnoreCase);
 
-    private static bool TryNormalizeUuid(string? value, out string? normalized)
+    private static bool TryNormalizeUuidSubject(
+        GlobalBanSubject subject,
+        out GlobalBanSubject? normalized,
+        out string? error)
     {
-        normalized = Guid.TryParse(value, out Guid uuid) ? uuid.ToString("D") : null;
-        return normalized is not null;
+        normalized = null;
+        error = null;
+        if (!TryNormalizeUuid(subject.Value, out string? value))
+        {
+            error = $"The UUID ban subject must be a non-whitespace Terraria ClientUUID up to {ConnectionMetadataLimits.MaxClientUuidLength} characters.";
+            return false;
+        }
+
+        normalized = subject with { Value = value! };
+        return true;
     }
 
-    private static IPAddress NormalizeAddress(IPAddress address) =>
-        address.IsIPv4MappedToIPv6 ? address.MapToIPv4() : address;
+    private static bool TryNormalizeUuid(string? value, out string? normalized)
+    {
+        normalized = null;
+        if (string.IsNullOrWhiteSpace(value) || value.Length > ConnectionMetadataLimits.MaxClientUuidLength)
+        {
+            return false;
+        }
+
+        // Terraria persists ClientUUID as an opaque token. Canonicalize actual GUID values so
+        // historical GUID-form bans remain format-insensitive, but preserve every non-GUID token exactly.
+        normalized = Guid.TryParse(value, out Guid uuid)
+            ? uuid.ToString("D")
+            : value;
+        return true;
+    }
+
+    private static bool TryParseIpv4(string value, out IPAddress? address)
+    {
+        if (IPAddress.TryParse(value, out address) &&
+            address.AddressFamily == AddressFamily.InterNetwork)
+        {
+            return true;
+        }
+
+        address = null;
+        return false;
+    }
 
     private static bool TryParseNetwork(
         string value,
@@ -159,20 +197,14 @@ public sealed class GlobalBanService(
         prefixLength = 0;
         string[] parts = value.Split('/', 2, StringSplitOptions.TrimEntries);
         if (parts.Length != 2 ||
-            !IPAddress.TryParse(parts[0], out IPAddress? parsed) ||
-            !int.TryParse(parts[1], out prefixLength))
+            !TryParseIpv4(parts[0], out IPAddress? parsed) ||
+            !int.TryParse(parts[1], out prefixLength) ||
+            prefixLength < 0 || prefixLength > 32)
         {
             return false;
         }
 
-        parsed = NormalizeAddress(parsed);
-        int bitCount = parsed.AddressFamily == AddressFamily.InterNetwork ? 32 : 128;
-        if (prefixLength < 0 || prefixLength > bitCount)
-        {
-            return false;
-        }
-
-        byte[] bytes = parsed.GetAddressBytes();
+        byte[] bytes = parsed!.GetAddressBytes();
         ApplyMask(bytes, prefixLength);
         network = new IPAddress(bytes);
         return true;
@@ -180,7 +212,8 @@ public sealed class GlobalBanService(
 
     private static bool Contains(IPAddress network, int prefixLength, IPAddress address)
     {
-        if (network.AddressFamily != address.AddressFamily)
+        if (network.AddressFamily != AddressFamily.InterNetwork ||
+            address.AddressFamily != AddressFamily.InterNetwork)
         {
             return false;
         }

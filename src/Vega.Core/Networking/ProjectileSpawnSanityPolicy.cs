@@ -48,6 +48,28 @@ public sealed class ProjectileSpawnSanityPolicy(int projectileCount, int project
             return PacketProcessingDecision.Violation("packet.projectile.non_finite_velocity");
         }
 
+        if ((projectile.HasAI0 && !float.IsFinite(projectile.AI0)) ||
+            (projectile.HasAI1 && !float.IsFinite(projectile.AI1)) ||
+            (projectile.HasAI2 && !float.IsFinite(projectile.AI2)))
+        {
+            return PacketProcessingDecision.Violation("packet.projectile.non_finite_ai");
+        }
+
+        if (projectile.HasDamage && projectile.Damage < 0)
+        {
+            return PacketProcessingDecision.Violation("packet.projectile.negative_damage");
+        }
+
+        if (projectile.HasOriginalDamage && projectile.OriginalDamage < 0)
+        {
+            return PacketProcessingDecision.Violation("packet.projectile.negative_original_damage");
+        }
+
+        if (projectile.HasKnockBack && (!float.IsFinite(projectile.KnockBack) || projectile.KnockBack < 0f))
+        {
+            return PacketProcessingDecision.Violation("packet.projectile.invalid_knockback");
+        }
+
         return PacketProcessingDecision.Allow;
     }
 

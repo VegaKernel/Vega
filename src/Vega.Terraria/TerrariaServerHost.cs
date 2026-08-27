@@ -13,6 +13,7 @@ using Vega.Contracts.Localization;
 using Vega.Contracts.Moderation;
 using Vega.Contracts.Messaging;
 using Vega.Contracts.Scenes;
+using Vega.Terraria.Commands;
 using Vega.Terraria.Hooking;
 using Vega.Terraria.Operations;
 using Vega.Terraria.Players;
@@ -45,6 +46,7 @@ public static class TerrariaServerHost
         IReadOnlyList<IRuntimeStartupParticipant> startupParticipants,
         IPacketProcessor<PacketView> playerOwnershipSecurity,
         ICommandDispatcher commandDispatcher,
+        IWorldBuildProtectionService buildProtection,
         IPlayerAuthorizationService playerAuthorization,
         IPlayerAccountSessionService accountSessions,
         IMuteService mutes,
@@ -72,6 +74,7 @@ public static class TerrariaServerHost
         ArgumentNullException.ThrowIfNull(startupParticipants);
         ArgumentNullException.ThrowIfNull(playerOwnershipSecurity);
         ArgumentNullException.ThrowIfNull(commandDispatcher);
+        ArgumentNullException.ThrowIfNull(buildProtection);
         ArgumentNullException.ThrowIfNull(playerAuthorization);
         ArgumentNullException.ThrowIfNull(accountSessions);
         ArgumentNullException.ThrowIfNull(mutes);
@@ -103,6 +106,16 @@ public static class TerrariaServerHost
         lifecycle.Advance(RuntimeLifecycleStage.Bootstrap);
 
         AppDomain.CurrentDomain.UnhandledException += ReportUnhandled;
+        IOperationsLogSource[] logSources =
+        [
+            .. commandDispatcher is IOperationsLogSource commandLogSource
+                ? [commandLogSource]
+                : Array.Empty<IOperationsLogSource>(),
+            .. chat is IOperationsLogSource chatLogSource
+                ? [chatLogSource]
+                : Array.Empty<IOperationsLogSource>()
+        ];
+        using var operationsLogForwarder = new OperationsLogSourceForwarder(logger, logSources);
         using var nativeLifecycleHooks = new NativeLifecycleHooks(lifecycle);
         using var networkMetricsHooks = new NativeNetworkMetricsHooks(networkMetrics);
         using var worldDecisionHooks = new NativeWorldDecisionHooks(hardmodeStarting);
@@ -112,6 +125,40 @@ public static class TerrariaServerHost
             logger,
             networkMetrics,
             securitySignals);
+        using var administrationCommands = TerrariaAdministrationCommandRegistration.Register(
+            commandDispatcher,
+            runtimeWorldId,
+            gameThreadDispatcher,
+            playerBoundary,
+            buildProtection);
+        using var worldAdministrationCommands = TerrariaWorldAdministrationCommandRegistration.Register(
+            commandDispatcher,
+            runtimeWorldId,
+            gameThreadDispatcher,
+            playerBoundary,
+            buildProtection,
+            worldMaintenance);
+        using var playerLifecycleCommands = TerrariaPlayerLifecycleCommandRegistration.Register(
+            commandDispatcher,
+            playerBoundary);
+        using var gameplayUtilityCommands = TerrariaGameplayUtilityCommandRegistration.Register(
+            commandDispatcher,
+            runtimeWorldId,
+            gameThreadDispatcher,
+            playerBoundary,
+            playerBoundary,
+            playerBoundary);
+        using var clearCommand = TerrariaClearCommandRegistration.Register(
+            commandDispatcher,
+            runtimeWorldId,
+            gameThreadDispatcher,
+            playerBoundary);
+        using var privateMessageCommands = TerrariaPrivateMessageCommandRegistration.Register(
+            commandDispatcher,
+            playerBoundary,
+            playerBoundary,
+            playerBoundary,
+            mutes);
         using var consoleCommandHooks = new NativeConsoleCommandHooks(
             commandDispatcher,
             localization,
@@ -301,5 +348,4 @@ public static class TerrariaServerHost
         TileID.Sets.Hallow[TileID.Pearlsand] = true;
         TileID.Sets.Hallow[TileID.Pearlstone] = true;
     }
-
 }

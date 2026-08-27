@@ -1,18 +1,52 @@
 using System.Text.Json;
+using System.Threading.Channels;
 using Vega.Contracts.Operations;
 
 namespace Vega.Operations.Logging;
 
-public sealed class StructuredOperationsLogger : IOperationsLogger
+public sealed class StructuredOperationsLogger : IOperationsLogger, IDisposable
 {
-    private readonly IReadOnlyList<IOperationsLogSink> sinks;
-    private long sequence;
+    private const int DefaultQueueCapacity = 4096;
 
-    public StructuredOperationsLogger(IEnumerable<IOperationsLogSink> sinks)
+    private readonly IReadOnlyList<IOperationsLogSink> inlineSinks;
+    private readonly IReadOnlyList<IOperationsLogSink> queuedSinks;
+    private readonly Channel<OperationsLogRecord> queue;
+    private readonly Task worker;
+    private long sequence;
+    private long droppedRecords;
+    private long unreportedDroppedRecords;
+    private int disposed;
+
+    public StructuredOperationsLogger(
+        IEnumerable<IOperationsLogSink> sinks,
+        int queueCapacity = DefaultQueueCapacity)
     {
         ArgumentNullException.ThrowIfNull(sinks);
-        this.sinks = Array.AsReadOnly(sinks.ToArray());
+        if (queueCapacity <= 0)
+        {
+            throw new ArgumentOutOfRangeException(nameof(queueCapacity));
+        }
+
+        IOperationsLogSink[] configured = sinks.ToArray();
+        inlineSinks = Array.AsReadOnly(configured
+            .Where(static sink => sink is IInlineOperationsLogSink)
+            .ToArray());
+        queuedSinks = Array.AsReadOnly(configured
+            .Where(static sink => sink is not IInlineOperationsLogSink)
+            .ToArray());
+
+        queue = Channel.CreateBounded<OperationsLogRecord>(new BoundedChannelOptions(queueCapacity)
+        {
+            SingleReader = true,
+            SingleWriter = false,
+            FullMode = BoundedChannelFullMode.Wait,
+            AllowSynchronousContinuations = false
+        });
+        worker = queuedSinks.Count == 0 ? Task.CompletedTask : Task.Run(DrainAsync);
     }
+
+    /// <summary>Total number of records dropped from queued sinks during this logger lifetime.</summary>
+    public long DroppedRecords => Interlocked.Read(ref droppedRecords);
 
     public void Log(
         OperationsLogLevel level,
@@ -24,6 +58,11 @@ public sealed class StructuredOperationsLogger : IOperationsLogger
         ArgumentException.ThrowIfNullOrWhiteSpace(source);
         ArgumentNullException.ThrowIfNull(text);
 
+        if (Volatile.Read(ref disposed) != 0)
+        {
+            return;
+        }
+
         var record = new OperationsLogRecord(
             Interlocked.Increment(ref sequence),
             DateTimeOffset.UtcNow,
@@ -33,6 +72,77 @@ public sealed class StructuredOperationsLogger : IOperationsLogger
             exception?.ToString(),
             correlationId);
 
+        EmitTo(inlineSinks, record);
+
+        if (queuedSinks.Count == 0)
+        {
+            return;
+        }
+
+        if (!queue.Writer.TryWrite(record) && Volatile.Read(ref disposed) == 0)
+        {
+            Interlocked.Increment(ref droppedRecords);
+            Interlocked.Increment(ref unreportedDroppedRecords);
+        }
+    }
+
+    public void Dispose()
+    {
+        if (Interlocked.Exchange(ref disposed, 1) != 0)
+        {
+            return;
+        }
+
+        queue.Writer.TryComplete();
+        try
+        {
+            worker.GetAwaiter().GetResult();
+        }
+        catch
+        {
+            // Logging shutdown must never prevent the server from terminating.
+        }
+    }
+
+    private async Task DrainAsync()
+    {
+        while (await queue.Reader.WaitToReadAsync().ConfigureAwait(false))
+        {
+            while (queue.Reader.TryRead(out OperationsLogRecord? record))
+            {
+                if (record is not null)
+                {
+                    EmitTo(queuedSinks, record);
+                }
+            }
+
+            EmitDroppedSummary();
+        }
+
+        EmitDroppedSummary();
+    }
+
+    private void EmitDroppedSummary()
+    {
+        long dropped = Interlocked.Exchange(ref unreportedDroppedRecords, 0);
+        if (dropped <= 0)
+        {
+            return;
+        }
+
+        var summary = new OperationsLogRecord(
+            Interlocked.Increment(ref sequence),
+            DateTimeOffset.UtcNow,
+            OperationsLogLevel.Warning,
+            "logging",
+            $"Dropped {dropped} log record(s) for queued sinks because the bounded logging queue was full.");
+
+        EmitTo(inlineSinks, summary);
+        EmitTo(queuedSinks, summary);
+    }
+
+    private static void EmitTo(IReadOnlyList<IOperationsLogSink> sinks, OperationsLogRecord record)
+    {
         foreach (IOperationsLogSink sink in sinks)
         {
             try
@@ -41,7 +151,7 @@ public sealed class StructuredOperationsLogger : IOperationsLogger
             }
             catch
             {
-                // A diagnostic sink must never take down the server or block other sinks.
+                // A diagnostic sink must never take down the server or block independent sinks.
             }
         }
     }

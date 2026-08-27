@@ -56,24 +56,85 @@ public sealed class CommandDiscoveryCommandTests
         });
     }
 
-    [Test]
-    public async Task AliasesHideCommandsCallerCannotUse()
+    [TestCase("/sec")]
+    [TestCase(".sec")]
+    public async Task HelpAcceptsSlashAndDotPrefixesForLookup(string requested)
     {
         var dispatcher = new CommandDispatcher([
-            new FakeHandler(new CommandDescriptor("public", ["pub"], [])),
-            new FakeHandler(new CommandDescriptor("secure", ["sec"], ["server.secure"]))
+            new FakeHandler(new CommandDescriptor("secure", ["sec"], [], Syntax: "secure"))
         ]);
-        var aliases = new AliasesCommand(dispatcher);
+        var help = new HelpCommand(dispatcher);
+
+        CommandExecutionResult result = await help.ExecuteAsync(
+            Invocation("help", [requested], new FakePrincipal("player", false, [])),
+            default);
+
+        Assert.That(result.Status, Is.EqualTo(CommandExecutionStatus.Success));
+        Assert.That(result.Messages![0].Arguments[0], Is.EqualTo("secure"));
+    }
+
+    [Test]
+    public async Task AliasesRequiresACommandOrAlias()
+    {
+        var aliases = new AliasesCommand(new CommandDispatcher([
+            new FakeHandler(new CommandDescriptor("public", ["pub"], []))
+        ]));
 
         CommandExecutionResult result = await aliases.ExecuteAsync(
             Invocation("aliases", [], new FakePrincipal("player", false, [])),
             default);
 
-        string rendered = result.Messages![0].Arguments[0]?.ToString() ?? string.Empty;
         Assert.Multiple(() =>
         {
-            Assert.That(rendered, Does.Contain("pub -> public"));
-            Assert.That(rendered, Does.Not.Contain("sec -> secure"));
+            Assert.That(result.Status, Is.EqualTo(CommandExecutionStatus.InvalidUsage));
+            Assert.That(result.ErrorCode, Is.EqualTo("command.aliases.usage"));
+        });
+    }
+
+    [TestCase("/public")]
+    [TestCase(".public")]
+    public async Task AliasesAcceptsSlashAndDotPrefixesLikeCommandInput(string requested)
+    {
+        var dispatcher = new CommandDispatcher([
+            new FakeHandler(new CommandDescriptor("public", ["pub", "p"], []))
+        ]);
+        var aliases = new AliasesCommand(dispatcher);
+        var principal = new FakePrincipal("player", false, []);
+
+        CommandExecutionResult result = await aliases.ExecuteAsync(
+            Invocation("aliases", [requested], principal),
+            default);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(result.Status, Is.EqualTo(CommandExecutionStatus.Success));
+            Assert.That(result.Messages![0].Arguments, Is.EqualTo(new object?[] { "public", "/pub, /p" }));
+        });
+    }
+
+    [Test]
+    public async Task AliasesResolvesCanonicalNameOrAliasLikeTerraZ()
+    {
+        var dispatcher = new CommandDispatcher([
+            new FakeHandler(new CommandDescriptor("public", ["pub", "p"], [])),
+            new FakeHandler(new CommandDescriptor("secure", ["sec"], ["server.secure"]))
+        ]);
+        var aliases = new AliasesCommand(dispatcher);
+        var principal = new FakePrincipal("player", false, []);
+
+        CommandExecutionResult byName = await aliases.ExecuteAsync(
+            Invocation("aliases", ["public"], principal),
+            default);
+        CommandExecutionResult byAlias = await aliases.ExecuteAsync(
+            Invocation("aliases", ["sec"], principal),
+            default);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(byName.Status, Is.EqualTo(CommandExecutionStatus.Success));
+            Assert.That(byName.Messages![0].Arguments, Is.EqualTo(new object?[] { "public", "/pub, /p" }));
+            Assert.That(byAlias.Status, Is.EqualTo(CommandExecutionStatus.Success));
+            Assert.That(byAlias.Messages![0].Arguments, Is.EqualTo(new object?[] { "secure", "/sec" }));
         });
     }
 

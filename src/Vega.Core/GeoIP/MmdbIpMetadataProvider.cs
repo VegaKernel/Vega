@@ -3,6 +3,7 @@
 using System;
 using System.IO;
 using System.Net;
+using System.Net.Sockets;
 using MaxMind.Db;
 using MaxMind.GeoIP2;
 using Vega.Contracts.Networking;
@@ -36,7 +37,8 @@ public sealed class MmdbIpMetadataProvider : IIpMetadataProvider, IDisposable
     {
         metadata = default!;
 
-        if (!IPAddress.TryParse(ipAddress, out var address))
+        if (!IPAddress.TryParse(ipAddress, out var address) ||
+            address.AddressFamily != AddressFamily.InterNetwork)
             return false;
 
         string? country = null;

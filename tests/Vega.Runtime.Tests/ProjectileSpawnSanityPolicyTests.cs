@@ -85,6 +85,55 @@ public sealed class ProjectileSpawnSanityPolicyTests
         }), Is.EqualTo(PacketProcessingDecision.Violation("packet.projectile.non_finite_velocity")));
     }
 
+    [TestCase(float.NaN)]
+    [TestCase(float.PositiveInfinity)]
+    [TestCase(float.NegativeInfinity)]
+    public void NonFiniteAiIsViolation(float value)
+    {
+        Assert.That(Process(new ProjectileNew
+        {
+            Key = new ProjectileKey(7, 42, 0),
+            Type = 1,
+            AI1 = value
+        }), Is.EqualTo(PacketProcessingDecision.Violation("packet.projectile.non_finite_ai")));
+    }
+
+    [Test]
+    public void NegativeClientAuthoredDamageIsViolation()
+    {
+        Assert.That(Process(new ProjectileNew
+        {
+            Key = new ProjectileKey(7, 42, 0),
+            Type = 1,
+            Damage = -1
+        }), Is.EqualTo(PacketProcessingDecision.Violation("packet.projectile.negative_damage")));
+    }
+
+    [Test]
+    public void NegativeClientAuthoredOriginalDamageIsViolation()
+    {
+        Assert.That(Process(new ProjectileNew
+        {
+            Key = new ProjectileKey(7, 42, 0),
+            Type = 1,
+            OriginalDamage = -1
+        }), Is.EqualTo(PacketProcessingDecision.Violation("packet.projectile.negative_original_damage")));
+    }
+
+    [TestCase(float.NaN)]
+    [TestCase(float.PositiveInfinity)]
+    [TestCase(float.NegativeInfinity)]
+    [TestCase(-0.01f)]
+    public void InvalidClientAuthoredKnockbackIsViolation(float value)
+    {
+        Assert.That(Process(new ProjectileNew
+        {
+            Key = new ProjectileKey(7, 42, 0),
+            Type = 1,
+            KnockBack = value
+        }), Is.EqualTo(PacketProcessingDecision.Violation("packet.projectile.invalid_knockback")));
+    }
+
     [Test]
     public void DestroyValidatesOwnerIndexAndPosition()
     {

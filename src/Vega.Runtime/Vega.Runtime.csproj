@@ -23,6 +23,14 @@
 	</ItemGroup>
 
 	<ItemGroup>
+		<EmbeddedResource Include="..\..\config\*.json">
+			<LogicalName>Vega.DefaultConfig.%(Filename)%(Extension)</LogicalName>
+		</EmbeddedResource>
+	</ItemGroup>
+
+	<ItemGroup>
+		<ProjectReference Include="..\Vega.Admin.Client\Vega.Admin.Client.csproj" />
+		<ProjectReference Include="..\Vega.Admin.Contracts\Vega.Admin.Contracts.csproj" />
 		<ProjectReference Include="..\Vega.Core\Vega.Core.csproj" />
 		<ProjectReference Include="..\Vega.PluginSdk\Vega.PluginSdk.csproj" />
 		<ProjectReference Include="..\Vega.Backups\Vega.Backups.csproj" />
@@ -45,6 +53,10 @@
 
 	<ItemGroup>
 		<Content Include="..\..\config\tui.json" Link="config\tui.json">
+			<CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+			<CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
+		</Content>
+		<Content Include="..\..\config\admin-configuration.json" Link="config\admin-configuration.json">
 			<CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
 			<CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
 		</Content>

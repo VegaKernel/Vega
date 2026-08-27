@@ -108,6 +108,19 @@ public sealed class MySqlVegaDatabase : ExternalVegaDatabase
                 REFERENCES vega_groups(name) ON DELETE RESTRICT
         ) ENGINE=InnoDB;
 
+        CREATE TABLE IF NOT EXISTS vega_account_identity_evidence (
+            account_id INT NOT NULL,
+            kind SMALLINT NOT NULL CHECK (kind BETWEEN 0 AND 1),
+            value VARCHAR(512) NOT NULL,
+            first_seen_utc VARCHAR(40) NOT NULL,
+            last_seen_utc VARCHAR(40) NOT NULL,
+            observation_count BIGINT NOT NULL CHECK (observation_count > 0),
+            PRIMARY KEY (account_id, kind, value),
+            INDEX ix_account_identity_evidence_lookup (kind, value, last_seen_utc),
+            CONSTRAINT fk_account_identity_evidence_account FOREIGN KEY (account_id)
+                REFERENCES vega_accounts(id) ON DELETE CASCADE
+        ) ENGINE=InnoDB;
+
         CREATE TABLE IF NOT EXISTS vega_role_leases (
             id CHAR(36) CHARACTER SET ascii COLLATE ascii_bin NOT NULL PRIMARY KEY,
             account_id INT NOT NULL,
@@ -197,6 +210,16 @@ public sealed class MySqlVegaDatabase : ExternalVegaDatabase
             revoked_by VARCHAR(255) NULL,
             revoked_at_utc VARCHAR(40) NULL,
             INDEX ix_vega_mutes_active_subject (revoked, subject_kind, subject_value, expires_at_utc)
+        ) ENGINE=InnoDB;
+
+        CREATE TABLE IF NOT EXISTS vega_mute_subjects (
+            mute_id CHAR(36) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+            kind SMALLINT NOT NULL CHECK (kind BETWEEN 0 AND 3),
+            value VARCHAR(512) NOT NULL,
+            PRIMARY KEY (mute_id, kind, value),
+            INDEX ix_vega_mute_subjects_lookup (kind, value),
+            CONSTRAINT fk_vega_mute_subjects_mute FOREIGN KEY (mute_id)
+                REFERENCES vega_mutes(id) ON DELETE CASCADE
         ) ENGINE=InnoDB;
         """;
 

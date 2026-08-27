@@ -1,4 +1,5 @@
 using Vega.Contracts.Commands;
+using Vega.Contracts.Events;
 using Vega.Contracts.Operations;
 using Vega.Contracts.Players;
 
@@ -13,6 +14,9 @@ public interface IVegaPluginContext
     IPluginCommands Commands { get; }
 
     IPluginPlayers Players { get; }
+
+    /// <summary>Typed lifecycle/gameplay hooks owned by this plugin lifetime.</summary>
+    IPluginEvents Events => VegaPluginEventRuntime.Events(this);
 
     /// <summary>Curated immutable-snapshot access to the world hosted by this process.</summary>
     IPluginWorld World => VegaPluginRuntime.World(this);
@@ -37,10 +41,75 @@ public interface IVegaPluginContext
     IVegaDebugContext Debug { get; }
 }
 
+/// <summary>Executes one plugin command through Vega's normal command pipeline.</summary>
+public delegate ValueTask<CommandExecutionResult> PluginCommandCallback(
+    CommandInvocation invocation,
+    CancellationToken cancellationToken);
+
 public interface IPluginCommands
 {
     /// <summary>Registers a command until the plugin is unloaded.</summary>
     void Register(ICommandHandler handler);
+
+    /// <summary>
+    /// Registers a command callback without requiring a dedicated <see cref="ICommandHandler"/> type.
+    /// The callback still uses the normal command registry and is removed automatically on unload.
+    /// </summary>
+    void Register(CommandDescriptor descriptor, PluginCommandCallback callback)
+    {
+        ArgumentNullException.ThrowIfNull(descriptor);
+        ArgumentNullException.ThrowIfNull(callback);
+        Register(new PluginCallbackCommandHandler(descriptor, callback));
+    }
+
+    /// <summary>
+    /// Registers a simple command with inline metadata. Use the handler overload when a command
+    /// deserves its own type or needs to be shared outside the plugin facade.
+    /// </summary>
+    void Register(
+        string name,
+        PluginCommandCallback callback,
+        IReadOnlyList<string>? aliases = null,
+        IReadOnlyList<string>? permissions = null,
+        bool allowServer = true,
+        string syntax = "")
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(name);
+        Register(
+            new CommandDescriptor(name, aliases ?? [], permissions ?? [], allowServer, syntax),
+            callback);
+    }
+}
+
+internal sealed class PluginCallbackCommandHandler(
+    CommandDescriptor descriptor,
+    PluginCommandCallback callback) : ICommandHandler
+{
+    public CommandDescriptor Descriptor { get; } =
+        descriptor ?? throw new ArgumentNullException(nameof(descriptor));
+
+    public ValueTask<CommandExecutionResult> ExecuteAsync(
+        CommandInvocation invocation,
+        CancellationToken cancellationToken) =>
+        callback(invocation, cancellationToken);
+}
+
+/// <summary>
+/// Curated dynamic event surface. Ordinary handlers remain synchronous-looking; the host owns
+/// registration lifetime, cancellation ordering and asynchronous pipeline plumbing.
+/// </summary>
+public interface IPluginEvents
+{
+    /// <summary>Registers a mutable/cancellable event handler until the plugin is unloaded.</summary>
+    void On<TEvent>(
+        Action<EventContext<TEvent>> handler,
+        EventPriority priority = EventPriority.Normal,
+        bool invokeWhenCancelled = false);
+
+    /// <summary>Registers a read-only final-outcome observer until the plugin is unloaded.</summary>
+    void Observe<TEvent>(
+        Action<EventOutcome<TEvent>> monitor,
+        EventPriority priority = EventPriority.Normal);
 }
 
 public interface IPluginPlayers
@@ -70,6 +139,26 @@ public interface IPluginPlayers
     ValueTask<PlayerOperationResult> TeleportAsync(
         PlayerId id,
         PlayerPosition destination,
+        CancellationToken cancellationToken = default);
+
+    ValueTask<PlayerOperationResult> HealAsync(
+        PlayerId id,
+        int? amount = null,
+        CancellationToken cancellationToken = default);
+
+    ValueTask<PlayerOperationResult> KillAsync(
+        PlayerId id,
+        string reason,
+        CancellationToken cancellationToken = default);
+
+    ValueTask<PlayerOperationResult> ApplyBuffAsync(
+        PlayerId id,
+        int buffType,
+        int durationTicks,
+        CancellationToken cancellationToken = default);
+
+    ValueTask<PlayerOperationResult> RespawnAsync(
+        PlayerId id,
         CancellationToken cancellationToken = default);
 
     /// <summary>Registers a game-thread player-join callback for this plugin lifetime.</summary>

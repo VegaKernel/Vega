@@ -26,6 +26,8 @@ Use local GeoIP2/GeoLite2 Country and ASN MMDB databases through `MaxMind.GeoIP2
 
 Vega accepts explicit country and ASN MMDB paths through its IP metadata provider contract. Missing databases disable only the unavailable metadata source; if neither database exists, GeoIP remains inactive. Invalid existing databases fail closed at provider initialization and do not block server startup.
 
+The runtime may optionally maintain local GeoLite2 ASN, City and Country databases in the background when `GeoIP.AutoUpdate` is enabled in `config/server.json`. The updater reads Git tree metadata from the `download` branch of `P3TERX/GeoLite.mmdb`, compares the remote Git blob SHA-1 with the local file before downloading, validates both the downloaded hash and MaxMind database type, and atomically replaces only a validated database. A failed HTTP request, hash check or MMDB validation leaves the previous local database untouched. Update work is cancellable and stays entirely outside player admission and lookup paths.
+
 The old database file, parser and compatibility adapter are removed from the repository and distribution. The old database format is not supported.
 
 The MMDB provider does not expose the historical proxy pseudo-country, so reputation policy is no longer inferred from geolocation metadata; a later reputation ADR may introduce an independent policy contract.
@@ -60,8 +62,8 @@ Those signals must live behind a separate reputation contract and policy layer. 
 
 ## Validation
 
-Automated tests cover country metadata, ASN/organization metadata, private/unknown addresses, malformed input, and missing MMDB files. CI downloads the small official MaxMind test databases from a pinned upstream commit solely as test fixtures; production runtime never downloads them.
+Automated tests cover country metadata, ASN/organization metadata, private/unknown addresses, malformed input and missing MMDB files. CI downloads the small official MaxMind test databases from a pinned upstream commit solely as test fixtures. Updater tests additionally cover no-download behavior for matching Git blob hashes, preservation of the previous database on hash mismatch, and rejection of a hash-valid but malformed MMDB payload.
 
 ## Consequences
 
-TShockNG stops carrying a legacy database parser and gains a replaceable, testable IP metadata abstraction. Anti-proxy can then evolve independently without turning geolocation into a security-policy grab bag.
+TShockNG stops carrying a legacy database parser and gains a replaceable, testable IP metadata abstraction. Production Vega may make optional background HTTP requests for database maintenance, but server startup, player login and connection-time metadata lookup never depend on those requests succeeding. Anti-proxy can then evolve independently without turning geolocation into a security-policy grab bag.

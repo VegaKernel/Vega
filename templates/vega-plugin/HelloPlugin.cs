@@ -13,25 +13,18 @@ public sealed class HelloPlugin : VegaPlugin
 
     protected override void Configure(IVegaPluginContext plugin)
     {
-        plugin.Commands.Register(new HelloCommand());
+        plugin.Commands.Register(
+            "hello",
+            async (invocation, cancellationToken) =>
+            {
+                await invocation.Output.SuccessAsync("Hello from Vega!", cancellationToken);
+                return CommandExecutionResult.Success;
+            },
+            aliases: ["hi"],
+            permissions: ["vega.plugin-template.hello"],
+            syntax: "hello");
+
         plugin.Players.OnJoined(player =>
             plugin.Players.Message(player.PlayerId, "Hello from Vega.PluginTemplate!"));
-    }
-
-    private sealed class HelloCommand : ICommandHandler
-    {
-        public CommandDescriptor Descriptor { get; } = new(
-            "hello",
-            ["hi"],
-            ["vega.plugin-template.hello"],
-            Syntax: "hello");
-
-        public async ValueTask<CommandExecutionResult> ExecuteAsync(
-            CommandInvocation invocation,
-            CancellationToken cancellationToken)
-        {
-            await invocation.Output.SuccessAsync("Hello from Vega!", cancellationToken);
-            return CommandExecutionResult.Success;
-        }
     }
 }

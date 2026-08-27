@@ -34,7 +34,7 @@ public sealed class HelpCommand(ICommandCatalog commands) : ICommandHandler
                     .WithDefaultText("Available commands: {0}. Use /help <command> for syntax, aliases and permissions.")));
         }
 
-        string requested = invocation.Arguments[0];
+        string requested = CommandLookupName.Normalize(invocation.Arguments[0]);
         CommandDescriptor? match = visible.FirstOrDefault(command =>
             command.Name.Equals(requested, StringComparison.OrdinalIgnoreCase) ||
             command.Aliases.Any(alias => alias.Equals(requested, StringComparison.OrdinalIgnoreCase)));
@@ -67,29 +67,64 @@ public sealed class AliasesCommand(ICommandCatalog commands) : ICommandHandler
         "aliases",
         Array.Empty<string>(),
         Array.Empty<string>(),
-        Syntax: "aliases");
+        Syntax: "aliases <command or alias>");
 
     public ValueTask<CommandExecutionResult> ExecuteAsync(
         CommandInvocation invocation,
         CancellationToken cancellationToken)
     {
-        if (invocation.Arguments.Count != 0)
+        if (invocation.Arguments.Count == 0)
         {
-            return ValueTask.FromResult(new CommandExecutionResult(
-                CommandExecutionStatus.InvalidUsage,
-                "command.aliases.usage",
-                [MessageDescriptor.Error("command.aliases.usage")
-                    .WithDefaultText("Usage: aliases.")]));
+            return ValueTask.FromResult(InvalidUsage());
         }
 
-        string[] aliases = commands.SnapshotCommands()
-            .Where(command => command.IsAvailableTo(invocation.Principal))
-            .SelectMany(command => command.Aliases.Select(alias => $"{alias} -> {command.Name}"))
-            .OrderBy(static alias => alias, StringComparer.OrdinalIgnoreCase)
-            .ToArray();
+        string requested = CommandLookupName.Normalize(string.Join(" ", invocation.Arguments));
+        if (requested.Length == 0)
+        {
+            return ValueTask.FromResult(InvalidUsage());
+        }
 
-        return ValueTask.FromResult(CommandExecutionResult.WithMessages(
-            MessageDescriptor.Info("command.aliases.list", aliases.Length == 0 ? "none" : string.Join(", ", aliases))
-                .WithDefaultText("Aliases: {0}.")));
+        CommandDescriptor[] matches = commands.SnapshotCommands()
+            .Where(command =>
+                command.Name.Equals(requested, StringComparison.OrdinalIgnoreCase) ||
+                command.Aliases.Any(alias => alias.Equals(requested, StringComparison.OrdinalIgnoreCase)))
+            .ToArray();
+        if (matches.Length == 0)
+        {
+            return ValueTask.FromResult(CommandExecutionResult.Failed(
+                "command.aliases.not_found",
+                MessageDescriptor.Error("command.aliases.not_found", requested)
+                    .WithDefaultText("Unknown command or alias: {0}.")));
+        }
+
+        MessageDescriptor[] messages = matches.Select(command =>
+        {
+            string aliases = command.Aliases.Count == 0
+                ? "none"
+                : string.Join(", ", command.Aliases.Select(static alias => $"/{alias}"));
+            return MessageDescriptor.Info("command.aliases.command", command.Name, aliases)
+                .WithDefaultText("Aliases of /{0}: {1}.");
+        }).ToArray();
+        return ValueTask.FromResult(CommandExecutionResult.WithMessages(messages));
+    }
+
+    private static CommandExecutionResult InvalidUsage() => new(
+        CommandExecutionStatus.InvalidUsage,
+        "command.aliases.usage",
+        [MessageDescriptor.Error("command.aliases.usage")
+            .WithDefaultText("Usage: aliases <command or alias>.")]);
+}
+
+internal static class CommandLookupName
+{
+    public static string Normalize(string value)
+    {
+        string normalized = value.Trim();
+        if (normalized.Length > 0 && normalized[0] is '/' or '.')
+        {
+            normalized = normalized[1..].TrimStart();
+        }
+
+        return normalized;
     }
 }

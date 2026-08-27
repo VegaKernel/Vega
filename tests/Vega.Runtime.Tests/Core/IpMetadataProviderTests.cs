@@ -51,7 +51,9 @@ public sealed class IpMetadataProviderTests
     [TestCase("")]
     [TestCase("not-an-ip")]
     [TestCase("999.999.999.999")]
-    public void MalformedAddress_ReturnsNoMetadata(string ipAddress)
+    [TestCase("2001:db8::1")]
+    [TestCase("::ffff:81.2.69.160")]
+    public void UnsupportedOrMalformedAddress_ReturnsNoMetadata(string ipAddress)
     {
         using var provider = CreateFullProvider();
 

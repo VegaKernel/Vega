@@ -58,6 +58,19 @@ internal static class SqliteSchemaInitializer
                 revision INTEGER NOT NULL CHECK (revision > 0)
             );
 
+            CREATE TABLE vega_account_identity_evidence (
+                account_id INTEGER NOT NULL REFERENCES vega_accounts(id) ON DELETE CASCADE,
+                kind INTEGER NOT NULL CHECK (kind BETWEEN 0 AND 1),
+                value TEXT NOT NULL,
+                first_seen_utc TEXT NOT NULL,
+                last_seen_utc TEXT NOT NULL,
+                observation_count INTEGER NOT NULL CHECK (observation_count > 0),
+                PRIMARY KEY (account_id, kind, value)
+            );
+
+            CREATE INDEX ix_account_identity_evidence_lookup
+                ON vega_account_identity_evidence (kind, value, last_seen_utc);
+
             CREATE TABLE vega_role_leases (
                 id TEXT NOT NULL PRIMARY KEY,
                 account_id INTEGER NOT NULL REFERENCES vega_accounts(id) ON DELETE CASCADE,
@@ -66,7 +79,9 @@ internal static class SqliteSchemaInitializer
                 issued_at_utc TEXT NOT NULL,
                 expires_at_utc TEXT NOT NULL,
                 revision INTEGER NOT NULL CHECK (revision > 0),
-                revoked INTEGER NOT NULL DEFAULT 0 CHECK (revoked IN (0, 1))
+                revoked INTEGER NOT NULL DEFAULT 0 CHECK (revoked IN (0, 1)),
+                revoked_by TEXT NULL,
+                revoked_at_utc TEXT NULL
             );
 
             CREATE INDEX ix_role_leases_account_expiry
@@ -145,6 +160,16 @@ internal static class SqliteSchemaInitializer
 
             CREATE INDEX ix_vega_mutes_active_subject
                 ON vega_mutes (revoked, subject_kind, subject_value, expires_at_utc);
+
+            CREATE TABLE vega_mute_subjects (
+                mute_id TEXT NOT NULL REFERENCES vega_mutes(id) ON DELETE CASCADE,
+                kind INTEGER NOT NULL CHECK (kind BETWEEN 0 AND 3),
+                value TEXT NOT NULL,
+                PRIMARY KEY (mute_id, kind, value)
+            );
+
+            CREATE INDEX ix_vega_mute_subjects_lookup
+                ON vega_mute_subjects (kind, value);
             """)
     ];
 

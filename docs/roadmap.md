@@ -32,6 +32,8 @@ Implementation priority is intentionally vertical. Each new abstraction should l
 - [x] Keep final side-effect application owned by the runtime/integration component instead of exposing `Apply` as a generic handler priority.
 - [x] Separate synchronous handlers from genuinely asynchronous handlers; never block the game thread on async work.
 - [x] Register handlers explicitly through composition root; no reflection-heavy Core scanning.
+- [x] Add one runtime-registerable typed `IAsyncEventHub` for Core/modules/plugins with the same priority, cancellation and monitor semantics; every hot-plugin subscription is lifetime-owned and detached automatically on unload.
+- [ ] Migrate command/runtime lifecycle hooks such as login, reload, save and world transitions onto that shared hub as their behavior audits reach them; do not create per-command static hook buses or a TShock-style global service locator.
 - [x] Migrate one real Terraria hook flow end-to-end through the new event pipeline (`WorldGen.StartHardmode`).
 
 ## Phase 3 — player boundary
@@ -239,10 +241,10 @@ Move server-wide invariants into Core/runtime, not the historical plugin impleme
 ### Moderation identity from ExtendedBans
 
 - [x] Replace the string-only `IBanService` boundary with typed ban subjects for account, UUID, exact IP and network/CIDR identities.
-- [x] Normalize and validate IP/network subjects once, with explicit IPv4/IPv6 matching, expiration and reason metadata.
+- [x] Normalize and validate IP/network subjects once as IPv4-only identities, with expiration and reason metadata; reject IPv6 and IPv4-mapped IPv6 instead of maintaining a second address family.
 - [x] Provide one authoritative matching service reused by connection admission, administrative commands and cluster replication.
 - [x] Keep persistence behind a narrow adapter and keep ban UI/command presentation outside the matching engine.
-- [x] Add regression tests for overlapping CIDRs, IPv4/IPv6 normalization, expired bans, account/UUID matching and duplicate replicated revisions.
+- [x] Add regression tests for overlapping IPv4 CIDRs, IPv4 normalization, IPv6 rejection, expired bans, account/UUID matching and duplicate replicated revisions.
 
 ### Packet and state validation from PacketGuard, StateGuard, LeashedEntityGuard and NoCoinDupe
 
@@ -444,7 +446,7 @@ Vega 1.0 currently has the modern command/authorization boundaries and several r
 - [x] Provide `config show`, `config validate` and authorized `config reload` operations through the normal command/audit boundary.
 - [x] Document world selection/generation, listener/password, slots, default culture, storage, logs, TUI, `.vworld`, modules and cluster configuration in both project-guide languages.
 
-`config/server.json` composes launch settings before any authoritative service starts. CLI values win over `VEGA_*`, then JSON, then stock defaults; diagnostics retain the source and redact the password. A null world deliberately preserves native interactive selection. Server/listener/world/storage settings are restart-only, so `config reload` performs atomic parse/validation without mutating live policy and reports that boundary instead of pretending an unsafe reload succeeded.
+`config/server.json` composes launch settings before any authoritative service starts. CLI values win over `VEGA_*`, then JSON, then stock defaults; diagnostics retain the source and redact the password. A null world deliberately preserves native interactive selection. `reload`/`config reload` now atomically replace the validated effective configuration snapshot and publish cancellable `ServerReloading` plus post-apply `ServerReloaded` through the shared typed event hub so owned consumers can refresh safe state. Server/listener/world/storage settings remain restart-only and the command reports that boundary instead of pretending those process-owned resources were rebound live.
 
 ### Accounts, groups and permissions
 
@@ -733,7 +735,7 @@ Recover server behavior that the capability-level migration audit did not enumer
 ### Client connection and UUID regression
 
 - [ ] Document the exact vanilla client/server state machine for both password and passwordless joins: `ConnectRequest (1)`, slot assignment/password challenge, player info and inventory burst, `ClientUUID (68)`, platform/host-token variants, world request/data, section request/transfer, spawn, `FinishedConnectingToServer (129)`, disconnect, reconnect and slot reuse.
-- [ ] Verify TerrariaRuntime `MessageBuffer.GetData` hook timing and the meaning/bounds of `start`, `length` and `readOffset` against the actual 1.4.5.8 IL before changing admission policy.
+- [x] Verify TerrariaRuntime `MessageBuffer.GetData` hook timing and the meaning/bounds of `start`, `length` and `readOffset` against the actual 1.4.5.8 IL before changing admission policy.
 - [x] Fix the known UUID compatibility defect: vanilla loads `ClientUUID` from configuration and transports it as an opaque string, while current Vega requires exactly a canonical 36-character GUID and a 37-byte payload. Accept a non-empty, bounded, completely consumed protocol token compatible with vanilla/TerraZ behavior; preserve exact stable comparison semantics and never treat this client-controlled value as cryptographic authentication.
 - [x] Replace GUID-only tests with serialized packet regressions for a fresh vanilla GUID, a persisted non-GUID legitimate token, empty/whitespace input, UTF-8 and length boundaries, truncated/trailing payloads, duplicate/late packets, disconnect cleanup and reconnect slot reuse.
 - [ ] Capture a real vanilla-client packet transcript and replay it through Vega for password/no-password, new/existing client configuration, SSC/non-SSC and supported platform variants. Assert state transitions, outbound responses and disconnect reasons, not merely individual packet acceptance.
@@ -780,6 +782,332 @@ TerraZ TShock           = security and operator behavior reference
 Vega                    = independent implementation with explicit evidence
 ```
 
+## Phase 26 — structured logging, durable indexing and observability foundation
+
+Phase 6 introduced the minimum structured event feed required by Operations/TUI. That completed slice is not the end-state logging architecture. This phase replaces the TShock-style "formatted string is the log" model with a Vega-owned infrastructure subsystem for durable structured events, searchable local indexing, live consumption and future observability backends. It is infrastructure for diagnostics, administration, MCP/debug APIs and later observability work, not a cosmetic logging refactor.
+
+### Stable structured logging API and event model
+
+- [ ] Define one Vega logging API with `Microsoft.Extensions.Logging` semantics, either directly through compatible `ILogger` abstractions or through a narrow Vega-owned compatibility layer. Backend selection such as Serilog must remain composition/infrastructure detail.
+- [ ] Do not expose a concrete logging backend to plugins. The public Plugin SDK must provide a stable plugin-scoped logger/context whose source/plugin identity is supplied by the host rather than repeated manually at every call site.
+- [ ] Define a durable structured event schema containing at least UTC timestamp, level, category, event type / event id, source/subsystem, plugin identity, player id, player name, IPv4 address where authorized, connection id, command, packet id/type, world, exception and arbitrary additional structured properties.
+- [ ] Define stable Vega event ids/types for important runtime, security, command, persistence, world, plugin and administration events instead of relying only on rendered message text as machine identity.
+- [ ] Preserve message templates and typed properties independently from the human-rendered console message. A structured property must not need to be reparsed from a formatted string later.
+- [ ] Support nested scopes/context so common fields propagate automatically through player/session handling, a connection lifetime, command execution, packet processing, plugin invocation and other related operations.
+- [ ] Keep context lifetime explicit and bounded. Disconnect, slot reuse, plugin unload, soft restart and sandbox/world transition must not leak stale scope fields into later unrelated events.
+
+### Asynchronous pipeline, authoritative storage and rotation
+
+- [ ] Make an append-only JSONL/NDJSON event log the default authoritative long-term local log storage. The log file is the source of truth; secondary indexes and views are disposable derived state.
+- [ ] Route producers through a bounded asynchronous pipeline/channel so file I/O, compression and secondary indexing never block the Terraria game/server tick path.
+- [ ] Define measured queue capacity and backpressure behavior instead of an unbounded buffer. Record queue depth, queue age, dropped/deferred event counts and sink failures through bounded diagnostics that cannot recursively flood the same failed pipeline.
+- [ ] Define severity-aware overflow behavior explicitly. Critical/error and audit/security-significant events must not disappear silently; if durability cannot be maintained, surface a deterministic degraded/failure signal and use a bounded emergency fallback rather than blocking the game thread indefinitely.
+- [ ] Preserve event ordering metadata sufficient to diagnose concurrent producers without pretending that unrelated concurrent operations have one magical global execution order.
+- [ ] Implement log rotation by date and maximum file size, with deterministic file naming and safe continuation across process restart.
+- [ ] Support optional post-rotation compression of closed files. Compression must run outside the game thread and failure must leave the original closed log intact.
+- [ ] Define flush/shutdown semantics so orderly shutdown drains a bounded amount of pending logging work without hanging the server forever; crash recovery must tolerate a truncated final JSONL record.
+- [ ] Keep human-readable console output as a presentation sink derived from the structured event. Plain console, TUI and headless modes must not require changing the stored event shape.
+
+### Secret and sensitive-data policy
+
+- [ ] Introduce centralized redaction/suppression for passwords, authentication tokens, API keys, session secrets and other explicitly classified secret values before events reach durable or live sinks.
+- [ ] Do not depend on authors remembering to redact every interpolation manually. Provide safe helpers/types and tests for known secret-bearing configuration, authentication and command paths.
+- [ ] Keep authorization for sensitive identity fields such as IP separate from secret redaction: an address may be queryable by an authorized administrator without making passwords or tokens loggable.
+- [ ] Add structured tests proving that server passwords, auth tokens, API keys and session secrets cannot appear in JSONL, SQLite FTS content, console rendering or the live event stream through the supported APIs.
+
+### Rebuildable SQLite search index
+
+- [ ] Build a local SQLite index as a performance layer over JSONL, never as the only storage of log events. Deleting or corrupting the index must not destroy the authoritative log history.
+- [ ] Index at minimum timestamp, level, category, event type/id, player id, normalized player name, plugin, command, packet id/type, IPv4 address and connection id, plus stable file/record identity needed to locate the authoritative event.
+- [ ] Evaluate and use SQLite FTS5 where it is operationally justified for full-text search across rendered/template message text, exception text and selected textual properties.
+- [ ] Keep indexing asynchronous from gameplay producers and define bounded catch-up behavior when the indexer falls behind or is temporarily unavailable.
+- [ ] Add `vega logs reindex` plus the equivalent internal administration API. Reindex must rebuild a fresh index entirely from JSONL, validate it and promote it atomically rather than mutating a damaged index in place.
+- [ ] Make startup tolerant of a missing/stale/corrupt index: durable logging continues, index state is reported as degraded/rebuilding, and operators can recover without losing the source log.
+- [ ] Version the JSON event schema and SQLite index schema independently. An index schema change must be resolvable by reindexing rather than rewriting authoritative historical log files.
+
+### Query service and live event consumption
+
+- [ ] Introduce one Core/Operations-facing Log Query API so TUI, REST API, MCP/debug tooling and future administration clients never parse JSONL files or query the SQLite schema directly.
+- [ ] Support structured filters, inclusive/exclusive time ranges, deterministic sorting, limit, cursor-based pagination and full-text search without exposing storage-specific SQL through public contracts.
+- [ ] Support combining multiple filters in one request, including player identity, plugin, command, packet, connection, source/category, level/event type and time window.
+- [ ] Optimize and cover the common operator queries: all events for one player; errors in the last N minutes; commands executed by a player; events from one plugin; rejected/malformed packets; events for one connection id; exception-text search; and mixed multi-field filters.
+- [ ] Provide a bounded live stream/subscription of newly accepted structured events for TUI, REST streaming and MCP/debug consumers without repeatedly rereading log files.
+- [ ] Define live-stream overflow and slow-consumer behavior separately from durable storage. A slow UI subscriber may lose live presentation events, but it must not be able to stall durable logging or the game thread.
+- [ ] Enforce sensitive-field authorization and redaction consistently in historical queries and live streams instead of allowing each frontend to invent its own security policy.
+
+### Logging levels and sink extensibility
+
+- [ ] Support independent configured minimum levels for Vega Core, named subsystems/categories and each plugin, with safe runtime reload where practical.
+- [ ] Preserve the stable plugin logging API if the default backend changes. Plugin assemblies must not take a source dependency on Serilog sinks, SQLite, JSONL serializers or future remote collectors.
+- [ ] Define sink/export extension points that can later add PostgreSQL, ClickHouse, Loki, OpenTelemetry or a remote collector without changing plugin code or the authoritative event model.
+- [ ] Keep every external observability system optional. A standalone Vega installation must retain complete local structured logging, indexing and querying with no network service or external database.
+- [ ] Treat remote sinks as additional consumers, not as the local source of truth unless a future separately reviewed architecture deliberately changes that invariant.
+
+### Migration of existing logging call sites
+
+- [ ] Inventory existing Core/runtime/module/plugin logging and Operations structured-event calls before replacing them. Classify which strings already contain player, command, packet, connection, world, plugin, result or exception semantics that belong in fields.
+- [ ] Migrate by semantic event, not by mechanical text substitution. A call such as `Log.Info($"{player.Name} executed command {command}")` must become a message template with `PlayerName`, `Command` and an appropriate stable event id/type rather than one preformatted opaque string.
+- [ ] Migrate security, command audit, lifecycle, persistence, world/sandbox, plugin lifecycle and packet rejection paths first because they are the primary consumers for MCP/debug and incident analysis.
+- [ ] Preserve intentional human wording independently from machine properties so localization/presentation changes do not break search or automation.
+- [ ] Remove obsolete parallel logging/event stores only after TUI/Operations and all runtime consumers use the new pipeline; do not keep two authoritative log histories indefinitely.
+
+Example target shape:
+
+```csharp
+_logger.LogInformation(
+    VegaEvents.CommandExecuted,
+    "Player {PlayerName} executed command {Command}",
+    player.Name,
+    command);
+```
+
+Target architecture:
+
+```text
+Core / Plugins
+      │
+      ▼
+Structured Logging API
+      │
+      ├── Console sink
+      ├── JSONL append-only authoritative storage
+      └── Live event stream
+                │
+                ▼
+        SQLite rebuildable index
+                │
+                ▼
+          Log Query Service
+          ├── TUI
+          ├── REST API
+          └── MCP / debug tooling
+```
+
+### Validation and exit criteria
+
+- [ ] Add tests for structured property preservation, scopes, plugin identity, disconnect/slot-reuse cleanup, exception capture, secret redaction and independent per-category/plugin log levels.
+- [ ] Add rotation/restart/truncated-record/compression tests plus complete reindex tests from multiple rotated JSONL files, including missing/corrupt/stale SQLite state and FTS queries.
+- [ ] Add overload tests for bounded producer queues, slow disk/indexer/live consumers and sink failures. Prove that gameplay/server tick execution is never synchronously coupled to normal log file writes.
+- [ ] Benchmark producer overhead and allocations on representative command, packet and security hot paths; define a regression budget before completing migration of high-frequency events.
+- [ ] Validate the common query shapes against production-like log volumes and record latency/index-size/reindex-time evidence rather than assuming SQLite is fast enough at any scale.
+- [ ] Update Operations/TUI and future REST/MCP integrations to consume only the Log Query/Live APIs, then document storage, rotation, retention, reindex, redaction and troubleshooting in English and Russian operator guides.
+- [ ] Close the phase only when JSONL is the tested authoritative source, SQLite is demonstrably rebuildable from it, existing semantic log calls are migrated, secrets are covered by regression tests and logging backpressure cannot silently destroy critical diagnostics or stall the game thread.
+
+Logging invariant:
+
+```text
+JSONL/NDJSON = authoritative append-only history
+SQLite       = disposable searchable index
+console/TUI  = presentation consumers
+plugins      = stable Vega logging API, never backend-specific sinks
+```
+
+## Phase 27 — Vega Admin Client and remote administration protocol
+
+Turn the existing administrative Terminal UI into a reusable client of a stable administration boundary. Remote administration is not a remote shell: no ANSI/PTY stream, no SSH surrogate and no server-rendered terminal frames. The UI renders locally and talks to Vega through typed commands, queries and events.
+
+### Contracts and client boundary
+
+- [ ] Create `Vega.Admin.Contracts` for protocol-neutral administration DTOs, command/query request and result models, event envelopes, permission descriptors, command catalog/help descriptors, configuration descriptors and version/capability negotiation.
+- [ ] Define one `IVegaAdminClient` surface used by `Vega.Admin.Tui` regardless of transport. The TUI must not reference Vega Server implementation classes, Terraria globals, persistence providers or concrete network code.
+- [ ] Provide a local `IVegaAdminClient` implementation over the existing Operations/application services so the embedded/server-local TUI remains available without loopback networking.
+- [ ] Provide a remote `IVegaAdminClient` implementation over the Admin Protocol with the same observable semantics, authorization results and DTOs as the local implementation.
+- [ ] Keep the Admin Protocol independent of Terminal.Gui so the same contracts can serve a future Web Admin UI, CLI, MCP, Telegram/Discord bots, inter-server administration and other clients.
+- [ ] Keep authoritative mutations on the server. A client may request an operation but may not bypass command/service authorization, game-thread ownership, confirmation or audit rules by choosing a lower-level protocol message.
+
+Recommended project split:
+
+```text
+Vega.Admin.Contracts
+Vega.Admin.Client
+Vega.Admin.Tui
+Vega.Server
+```
+
+Target client model:
+
+```text
+Vega.Admin.Tui
+       │
+IVegaAdminClient
+   ┌───┴───────────┐
+   │               │
+Local client   Remote client
+   │               │
+Vega Core      Admin Protocol
+                   │
+               Vega Server
+```
+
+### Admin protocol and realtime event model
+
+- [ ] Support typed request/response commands and queries plus server push events over one secured administration connection. Evaluate WebSocket, SignalR and a narrow Vega-owned duplex protocol; choose from measured complexity, NativeAOT compatibility, framing/versioning and reconnect behavior rather than fashion.
+- [ ] Support server/status changes, player connect/disconnect and state projections, chat, command results, plugin/module lifecycle events, metrics, structured logs/live log subscriptions and other Operations snapshots without polling whole state continuously.
+- [ ] Define monotonic sequence/cursor or equivalent replay/resync metadata for pushed streams so reconnect can detect gaps and request a bounded fresh snapshot instead of silently presenting stale state.
+- [ ] Version protocol contracts and negotiate capabilities. A newer client must fail gracefully against an older server and vice versa; no brittle assumption that client and server binaries were built from the same commit.
+- [ ] Bound all server-to-client streams and per-session queues. A slow or disconnected admin UI must not backpressure the game thread, logging durability or unrelated admin sessions.
+- [ ] Add keepalive, reconnect and explicit disconnected/degraded UI state; do not make transient network loss look like authoritative server state.
+
+### Authentication, authorization and transport security
+
+- [ ] Require TLS for remote administration and document certificate/trust configuration. Security must not depend on the Admin Protocol being obscure or the NativeAOT client being difficult to reverse engineer.
+- [ ] Reuse Vega's server-owned identity/authorization model for administration sessions and define explicit admin permissions, including at least `server.view`, `server.command`, `server.restart`, `players.view`, `players.kick`, `players.ban`, `plugins.view`, `plugins.manage` and `logs.view`; add narrower permissions for sensitive/debug/config operations where needed.
+- [ ] Do not embed a master key, permanent API key or server secret in `Vega.Admin.Client`/`Vega.Admin.Tui` binaries or configuration.
+- [ ] Use short-lived authenticated sessions/access tokens with explicit expiry, server-side revocation and bounded refresh/re-authentication semantics. Long-lived credentials, where required for automation, must be a separate deliberately scoped server credential model rather than the interactive client's hidden secret.
+- [ ] Support multiple simultaneous independent admin sessions with separate identity, permissions, token/session id, subscriptions and audit context. Revoking one administrator/session must not disconnect unrelated administrators.
+- [ ] Record structured audit events for authentication, session creation/revocation, permission denial and privileged mutations without logging credentials/tokens.
+- [ ] Apply separate authorization to sensitive player metadata, configuration secrets, debug data and log fields; a broad `server.view` must not accidentally become `view everything secret`.
+
+### Module-oriented command catalog and help
+
+- [ ] Promote the live command catalog into an Admin API read model grouped by owning module/subsystem. Every descriptor must include command name, aliases, syntax, localized title/description/help, permission requirements, console/player availability and owner/module identity.
+- [ ] Make module ownership first-class: selecting a module in the TUI shows its commands and descriptions; selecting a command shows full help, syntax, aliases, required permissions and relevant examples where provided by the module.
+- [ ] Add global command/help search by name, alias, module, description/help text and permission, with filtering limited to commands visible to the current administrator.
+- [ ] Keep help metadata registered with the command itself so hot-loaded plugins appear/disappear automatically and the server, local TUI, remote TUI, CLI and Web UI do not maintain competing help databases.
+- [ ] Allow command execution from the catalog only through normal `IVegaAdminClient` command execution and server authorization; the help/catalog UI is discovery, not a privileged dispatch path.
+
+### Multilingual admin UI and shared localization
+
+- [ ] Reuse and harden the Phase 19 / ADR 0009 localization engine rather than inventing a TUI-only translation layer. Admin contracts carry stable localization keys plus fallback text where appropriate, not server-formatted language-specific blobs as the only representation.
+- [ ] Support localized module names, command descriptions/help, validation errors, permission-denied reasons and standard TUI chrome with deterministic fallback.
+- [ ] Allow the administrator's UI culture to differ from the server default and from player cultures. Changing client language must not mutate process-global culture on the server.
+- [ ] Expose plugin/module localization catalogs through the stable SDK registration model so a third-party module can contribute command/help/config text without a dependency on Terminal.Gui.
+
+### Plugin configuration editor
+
+- [ ] Add a configuration browser/editor to `Vega.Admin.Tui`: module/plugin catalog on the left, selected registered configuration document/schema on the right, with search/filtering when many plugins are installed.
+- [ ] Do not expose an arbitrary remote filesystem text editor. Plugins register administrable configuration descriptors/schemas through a stable API, while the server owns file paths, validation, redaction and apply/reload behavior.
+- [ ] Support version/revision-aware reads and optimistic updates so two administrators cannot silently overwrite each other's changes.
+- [ ] Show validation diagnostics before apply, identify restart-only versus reloadable settings, and route reload/restart actions through the same authorized server services used by commands.
+- [ ] Redact secrets on read and prevent secret placeholders from being written back as literal values. Sensitive configuration editing requires a dedicated permission and audit trail.
+- [ ] Provide a raw text mode only for registered safe configuration documents where the plugin opts in; prefer structured editors when schema metadata exists.
+
+### Debug and metrics workspace
+
+- [ ] Add a dedicated TUI debug/diagnostics workspace over Admin/Operations contracts, with permission-gated access to all useful existing metrics and bounded diagnostics rather than direct process/runtime object access.
+- [ ] Include at least TPS/tick distributions, CPU/memory/working set, GC, thread-pool/runtime counters, packet rates/rejections/queues, connections, plugin/module lifecycle and timings, world/sandbox state, `.vworld` load/build metrics, logging-pipeline/index status, persistence/backup state and Admin Protocol/session health where available.
+- [ ] Reuse sampled/bounded telemetry. Opening a debug screen must not enable expensive unbounded per-packet/per-tick tracing by default.
+- [ ] Allow drill-down from metrics to related structured log queries/event streams where Phase 26 can provide a stable correlation field.
+
+### Terminal.Gui v2 client and NativeAOT distribution
+
+- [ ] Build `Vega.Admin.Tui` on C# / .NET 11 / Terminal.Gui v2 and pin the current stable Terminal.Gui v2 release that passes the project's trimming/NativeAOT tests at implementation time. Do not depend on preview-only APIs once an equivalent stable release exists.
+- [ ] Target Windows x64/ARM64 and Linux x64/ARM64; support macOS x64/ARM64 when Terminal.Gui and all required native/runtime dependencies pass the same architecture and AOT tests without platform-specific architectural hacks.
+- [ ] Keep the client AOT-compatible and self-contained. The client project baseline includes:
+
+```xml
+<TargetFramework>net11.0</TargetFramework>
+<PublishAot>true</PublishAot>
+<IsAotCompatible>true</IsAotCompatible>
+```
+
+- [ ] Add dedicated CI NativeAOT publish checks for at least `win-x64` and `linux-x64`; add ARM64/macOS jobs as the supported matrix is proven.
+- [ ] Treat trimming/AOT warnings as defects requiring source/dependency analysis. Do not globally suppress them merely to obtain a green publish.
+- [ ] Verify clean-machine startup of the produced native client without an installed .NET Runtime and validate connect/authenticate/reconnect, command execution, live events and shutdown.
+- [ ] Do not claim NativeAOT as a security boundary. It may remove ordinary IL and make casual decompilation less convenient, but protocol/authentication security remains fully server-side.
+- [ ] Exclude `.pdb`, `.dbg` and `.dSYM` from public client releases. Preserve symbols separately as private CI artifacts where diagnostics policy permits.
+
+### Exit criteria
+
+- [ ] The same TUI binary can manage a local server through the local client and a remote server through the remote client without conditional UI business logic or direct server implementation references.
+- [ ] Remote administrators can authenticate through TLS, receive only permitted projections/events, execute permitted operations and have access revoked without server restart.
+- [ ] Module command catalog/help/search, logs, chat, players, plugins, configuration editing and debug/metrics all run through `IVegaAdminClient`/Admin Contracts rather than private shortcuts.
+- [ ] At least `win-x64` and `linux-x64` NativeAOT publishes are CI-gated and clean-machine tested, and public artifacts contain no debug symbols.
+
+Admin-client invariant:
+
+```text
+Terminal.Gui renders on the administrator machine.
+Admin Protocol transports typed state, commands and events, never a remote terminal.
+Authorization and secrets remain server-owned.
+```
+
+## Phase 28 — platform modularization, shared SDK tools and legacy feature convergence
+
+This phase collects follow-up work that has emerged from real plugin/server consumers after the earlier Core-cohesion and plugin-ergonomics audits. It is not permission to create a new monolith named `Utils` or to copy legacy plugin APIs wholesale. Every extraction or shared helper must have a concrete consumer and a stable owner.
+
+### Localization engine as reusable infrastructure
+
+- [ ] Audit the Phase 19 / ADR 0009 localization implementation as a reusable engine, not merely `/lang` command behavior. Separate stable localization contracts/catalog registration from Core command implementation where that reduces coupling.
+- [ ] Support module/plugin namespaces, typed/stable localization keys, deterministic culture fallback, plural/format argument validation and per-recipient culture without process-global mutation.
+- [ ] Make localization available through the Plugin SDK and Admin Contracts so commands, plugin help, configuration descriptions, TUI/Web UI and other clients consume one language model instead of duplicating translation logic.
+- [ ] Add catalog collision/unload/hot-reload tests and diagnostics for missing keys/fallbacks without turning missing localization into a game-thread failure.
+
+### Shared plugin tools without a grab-bag API
+
+- [ ] Introduce a small AOT-friendly shared utility surface/package for plugin authors only where multiple real plugins need the same pure operation. Keep utilities stateless, allocation-conscious and independent of Terraria mutable globals.
+- [ ] Add a supported Terraria/chat tag stripping utility with recursive/nested tag handling and explicit policy options, including a mode that strips formatting/control tags while preserving item tags.
+- [ ] Define behavior for malformed/unclosed/nested tags and add fuzz/regression tests so plugins do not each carry subtly different parsers.
+- [ ] Prefer focused namespaces such as text/chat parsing, identifiers and bounded parsing helpers over one universal `Utils` class; do not expose internal runtime helpers merely because they already exist.
+- [ ] Keep shared tools usable by third-party plugins through the public SDK/package and covered by API compatibility/AOT tests.
+
+### `.vworld` loading follow-up optimization
+
+- [ ] Reopen `.vworld` performance work with current .NET 11 measurements and production-like large worlds rather than treating the earlier Phase 11 results as the final ceiling.
+- [ ] Profile cold/warm load at section granularity, decompression/copy/validation cost, allocations, page faults, post-load liquid/runtime reconstruction and readiness barriers; identify the dominant remaining cost before changing format again.
+- [ ] Evaluate safe parallel decode/preparation only for independent immutable sections and keep Terraria mutable-state publication on the authoritative game thread where required.
+- [ ] Evaluate lower-copy reads, pooled buffers, memory-mapped/sequential I/O and selectively precomputed indexes only when benchmarks show a real `WorldReady`/memory gain.
+- [ ] Preserve `.wld` as canonical source and `.vworld` as rebuildable cache; no optimization may turn a cache corruption into loss of the authoritative world.
+- [ ] Add repeatable small/medium/large cold/warm benchmarks to CI or a controlled benchmark lane and retain before/after artifacts so optimizations cannot be justified by one lucky run.
+
+### Core/module extraction and naming audit
+
+- [ ] Revisit the Phase 21 cohesion decision now that Admin Protocol, richer command metadata, logging and additional plugin consumers exist. Re-evaluate command infrastructure as a candidate `Vega.Commands` domain/module instead of allowing command dispatch, help, parsing and administration adapters to make `Vega.Core` a permanent transit dependency.
+- [ ] Apply the same evidence-based review to localization, administration, moderation, logging/query and other Core areas that now have independent consumers. Extract complete vertical ownership, not DTO-only projects or pass-through interfaces.
+- [ ] Decompose `src/Vega.Runtime/Program.cs` into explicit bootstrap/composition responsibilities: argument/config bootstrap, persistence, runtime/Terraria host wiring, module graph, Operations/Admin services, UI mode selection and lifecycle/shutdown. `Program.cs` should remain a thin composition entry point rather than an accumulating service script.
+- [ ] Run a repository-wide naming audit for overloaded/ambiguous terms, duplicate concepts and names whose meaning changes between Contracts/Core/Terraria/Operations/Admin/Plugin SDK. Rename only with a recorded semantic reason; avoid churn for aesthetics alone.
+- [ ] Add architecture tests for the accepted dependency directions after extraction and keep composition in Runtime rather than replacing Core coupling with a service locator.
+
+### Homes behavior port
+
+- [ ] Use the current project-owned `Homes` plugin at pinned revision `TerraZ-Team/Homes@4e7d33fe3dba7c94a498b04553df10c92f056007` as the behavior reference for the Vega Homes implementation; audit its `myhome`, `sethome` and `delhome` commands, permissions, limits, persistence, world identity, teleport validation, cooldowns and failure messages before porting. Keep this named-home feature distinct from TShock's built-in `/home` personal-spawn recall.
+- [ ] Keep Homes as an optional first-party module unless a demonstrated primitive belongs lower. Reuse Vega player teleport, authorization, localization, persistence and `WorldId` contracts rather than importing TShock/plugin class shapes.
+- [ ] Preserve relevant production behavior and edge cases from the reference plugin with end-to-end tests, including offline persistence, renamed/deleted worlds, invalid destinations and sandbox/world boundaries.
+- [ ] Expose Homes command/help/config descriptors through the common Plugin SDK/Admin catalog so the feature requires no bespoke TUI integration.
+
+### RegionExt.Core integration and Plugin SDK region surface
+
+- [ ] Audit the current project-owned `RegionExt.Core` behavior/data model against `Vega.Regions`; pin its source revision and produce a capability matrix before choosing direct adapter, port or replacement for each feature.
+- [ ] Integrate accepted RegionExt capabilities into the Vega region domain without exposing RegionExt/TShock implementation types through Core or public contracts.
+- [ ] Provide a stable Plugin SDK region API for querying region membership/bounds/flags/ownership and for authorized supported mutations/events so plugins do not access persistence tables or Terraria hooks directly.
+- [ ] Reconcile overlap priority, custom flags/properties, membership/group semantics, world identity and lifecycle behavior with the existing `Vega.Regions` source of truth rather than maintaining two competing region databases.
+- [ ] Add compatibility/import tooling only if real existing RegionExt data requires it; do not make a legacy schema a permanent Vega persistence contract.
+
+### InvSee integration and inventory administration
+
+- [ ] Use the current project-owned `InvSee` plugin as the behavior reference for the Vega inventory-inspection integration; pin the exact source revision when implementation begins and audit commands, permissions, online/offline behavior, SSC interaction, inventory sections, mutation/copy/save behavior and failure cases before deciding parity.
+- [ ] Build the retained InvSee behavior as an optional first-party administration module/UI over the Phase 15 immutable revisioned inventory snapshot and game-thread mutation contracts. Do not expose `Terraria.Player` inventory arrays or legacy plugin/TShock types through the module, Admin Protocol or Plugin SDK.
+- [ ] Expose a stable Plugin SDK inventory-inspection surface for authorized read-only snapshots and only the narrowly justified mutation operations required by real plugin consumers. Preserve player/session/world identity and revision information so stale snapshots cannot be applied silently.
+- [ ] Add an inventory inspector/editor to `Vega.Admin.Tui` over `IVegaAdminClient`: player selection plus structured inventory sections, item details and refresh/revision state. Editing, where enabled, must use explicit server operations rather than a client-side copy of Terraria state.
+- [ ] Carry inventory DTOs through `Vega.Admin.Contracts` so local and remote administration use the same model. Define dedicated permissions such as `players.inventory.view` and `players.inventory.edit`, with a separate permission if offline/SSC inventory access exposes a broader authority boundary.
+- [ ] Apply every online inventory mutation on the authoritative game thread with optimistic revision checks, validation, synchronization to the client and structured audit containing actor, target, operation and outcome. Never let a remote or plugin caller write raw slot arrays.
+- [ ] Treat offline/SSC inventory as a separate authoritative source when supported: distinguish it explicitly from the live connected-player snapshot, define conflict/revision behavior and do not read or edit persistence tables directly from TUI/plugins.
+- [ ] Register retained InvSee commands/help/configuration through the common module-oriented catalog so local TUI, remote TUI, CLI/Web/MCP and ordinary command discovery all describe the same behavior and permissions.
+- [ ] Add parity and security tests for ambiguous/offline targets, permission denial, inventory sections, stale revision conflicts, disconnect/slot reuse, full/invalid mutations, SSC/live source selection, remote Admin round trips and audit output.
+
+### TSExt capability integration and documentation
+
+- [ ] Audit the relevant project-owned `TSExt*` plugins at pinned revisions and map each capability to `Core`, first-party module, Plugin SDK primitive, Admin UI, native passthrough or explicit drop. Do not port a plugin family wholesale merely because its name starts with TSExt.
+- [ ] Revisit `TSExt_UICommand` `/ui` and `/ai` behavior against the existing sensitive-field authorization work. Document the exact output/permission behavior and expose equivalent information through stable player/account inspection contracts rather than legacy command internals.
+- [ ] Specifically audit and document the `/ai` multiboxing/multi-client behavior before implementation: define what identity/session relationship is being detected or displayed, which evidence is authoritative versus heuristic, privacy/permission requirements and how false positives are represented.
+- [ ] Add the retained `/ui` and `/ai` behavior to the module-oriented command catalog/help so operators can discover what each command means, what data it exposes and which permissions gate sensitive fields.
+- [ ] Integrate other useful TSExt capabilities only through existing or newly justified Vega services, with executable parity tests and no TShock API/class-shape dependency.
+
+### Validation and exit criteria
+
+- [ ] The localization engine, shared plugin tools and region/inventory interfaces are usable from an out-of-repository plugin SDK consumer without referencing Runtime/Terraria implementation assemblies.
+- [ ] `.vworld` follow-up changes demonstrate measured startup/readiness or memory improvement on representative worlds and retain safe `.wld` fallback.
+- [ ] `Program.cs` is reduced to composition/orchestration, command/domain extraction decisions are recorded, and naming changes remove actual ambiguity rather than merely rename files.
+- [ ] Homes, InvSee, accepted RegionExt.Core capabilities and accepted TSExt capabilities have pinned behavior references, tests and clear ownership in the module/Admin/SDK architecture.
+
+Platform-convergence invariant:
+
+```text
+Reuse behavior and proven capabilities.
+Do not reuse legacy architectural coupling.
+Shared SDK surfaces exist because multiple real consumers need them, not because a Utils folder feels convenient.
+```
+
 ## Architectural guardrails
 
 These apply across all phases:
@@ -796,5 +1124,14 @@ These apply across all phases:
 - Keep the main dynamic server on CoreCLR; use NativeAOT selectively for isolated fixed-function executables only when compatibility and benchmarks justify it.
 - Plugin developer ergonomics is an architectural release criterion: ordinary commands/hooks/gameplay plugins must not require knowledge of runtime scheduling, buffer ownership, generation routing or internal composition.
 - Do not expose a universal plugin service locator or global replaceable-service model merely to reduce constructor parameters; prefer curated convenience surfaces over hidden runtime magic.
+- Structured logs are durable structured events, not formatted strings with optional metadata; JSONL remains authoritative and every search index is rebuildable derived state.
+- Logging producers on gameplay/server tick paths must never perform normal durable sink I/O synchronously; queue/backpressure and critical-event failure behavior must be explicit and observable.
+- Plugin logging depends only on the stable Vega API and structured event model, never on a concrete sink/backend such as Serilog, SQLite, Loki or OpenTelemetry.
+- Remote administration transports typed commands/state/events, never an ANSI/PTY terminal stream; authorization remains server-owned and TLS-protected.
+- The Admin Protocol is a reusable server boundary for TUI, Web UI, CLI, MCP and other clients; no frontend receives a privileged private path around application services.
+- NativeAOT may harden distribution against casual IL inspection but is never treated as authentication, authorization or protocol security.
+- Shared plugin utilities remain narrow, pure and consumer-driven; never grow a universal `Utils` surface that becomes hidden framework coupling.
+- Localization is one reusable per-recipient/module-aware engine across commands, plugins and admin clients; frontends must not invent incompatible language catalogs.
+- Inventory inspection/editing uses revisioned Vega contracts and server-owned authorization; plugins and admin clients never read/write Terraria inventory arrays or persistence tables directly.
 - `.vworld` is a cache, not a hidden second source of truth or mandatory persistence path.
 - Prefer one working vertical slice over ten unused abstractions.

@@ -78,6 +78,8 @@ public sealed class PluginSdkWorldContextTests
         NpcOperationResult npcMutation = await plugin.World.Npcs.TeleportAsync(
             npcSnapshot.Single().Handle,
             new PlayerPosition(100, 200));
+        NpcOperationResult npcKill = await plugin.World.Npcs.KillAsync(npcSnapshot.Single().Handle);
+        NpcOperationResult npcRename = await plugin.World.Npcs.RenameAsync(npcSnapshot.Single().Handle, "Jeremy");
         InventoryMutationResult inventoryMutation = await plugin.Players.Inventory.ReplaceSlotAsync(
             inventorySnapshot!,
             new InventorySlotReplacement(0, 1, 1));
@@ -88,6 +90,8 @@ public sealed class PluginSdkWorldContextTests
             Assert.That(tileMutation.IsSuccess, Is.True);
             Assert.That(chestMutation.IsSuccess, Is.True);
             Assert.That(npcMutation.IsSuccess, Is.True);
+            Assert.That(npcKill.IsSuccess, Is.True);
+            Assert.That(npcRename.IsSuccess, Is.True);
             Assert.That(inventoryMutation.IsSuccess, Is.True);
             Assert.That(environment.LastActor, Is.EqualTo("Vega.Test.World"));
             Assert.That(tiles.LastActor, Is.EqualTo("Vega.Test.World"));
@@ -208,6 +212,22 @@ public sealed class PluginSdkWorldContextTests
 
         public ValueTask<NpcOperationResult> DespawnAsync(
             NpcDespawnRequest request,
+            CancellationToken cancellationToken = default)
+        {
+            LastActor = request.Actor;
+            return ValueTask.FromResult(new NpcOperationResult(NpcOperationStatus.Applied, Npc(request.Expected.WorldId)));
+        }
+
+        public ValueTask<NpcOperationResult> KillAsync(
+            NpcKillRequest request,
+            CancellationToken cancellationToken = default)
+        {
+            LastActor = request.Actor;
+            return ValueTask.FromResult(new NpcOperationResult(NpcOperationStatus.Applied, Npc(request.Expected.WorldId)));
+        }
+
+        public ValueTask<NpcOperationResult> RenameAsync(
+            NpcRenameRequest request,
             CancellationToken cancellationToken = default)
         {
             LastActor = request.Actor;
