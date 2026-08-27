@@ -7,8 +7,9 @@ namespace Vega.Terraria.Networking;
 /// </summary>
 public static class TerrariaPacketSecurityLimits
 {
-    // Terraria 1.4.5.8 / protocol 326 fixed runtime capacities. Keep these explicit so packet-policy
-    // construction stays independent from Terraria.Main static initialization.
+    // Terraria 1.4.5.8 fixed runtime capacities. Do not attach a protocol number to these constants until the
+    // pinned 1.4.5.8 binary baseline is re-verified reproducibly; see docs/protocol-baseline.md.
+    // Construction stays independent from Terraria.Main static initialization.
     public const int PlayerCount = 255;
 
     public static int PlayerItemSlotCount => global::Terraria.ID.PlayerItemSlotID.Count;
@@ -33,7 +34,7 @@ public static class TerrariaPacketSecurityLimits
 
     public static int WallTypeCount => global::Terraria.ID.WallID.Count;
 
-    // Main.numTileColors is 31 for this protocol baseline; valid packet values include zero.
+    // Main.numTileColors is 31 for the pinned runtime baseline; valid packet values include zero.
     public const int PaintColorCount = 32;
 
     // World-dependent values are intentionally lazy. Their delegates are evaluated only after Terraria startup.
