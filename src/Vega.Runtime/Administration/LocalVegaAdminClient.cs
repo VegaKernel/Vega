@@ -28,20 +28,30 @@ internal sealed class LocalVegaAdminClient(
         CancellationToken cancellationToken = default)
     {
         cancellationToken.ThrowIfCancellationRequested();
-        ServerDashboardSnapshot server = snapshots.Capture().Server;
-        return ValueTask.FromResult(new AdminServerStatusSnapshot(
-            server.ServerName,
-            server.Version,
-            server.LifecycleStage.ToString(),
-            server.Uptime,
-            server.WorldName,
-            server.IsWorldReady,
-            server.IsNetworkReady,
-            server.OnlinePlayers,
-            server.MaximumPlayers,
-            server.TickRate.Current,
-            server.TickRate.AverageOneMinute,
-            DateTimeOffset.UtcNow));
+        return ValueTask.FromResult(MapStatus(snapshots.Capture().Server));
+    }
+
+    public ValueTask<IReadOnlyList<AdminPlayerSnapshot>> GetPlayersAsync(
+        CancellationToken cancellationToken = default)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        IReadOnlyList<AdminPlayerSnapshot> players = snapshots.Capture()
+            .Players
+            .Select(static player => new AdminPlayerSnapshot(
+                player.Id.Slot,
+                player.Name,
+                player.WorldId.ToString(),
+                player.IsDead,
+                player.Life,
+                player.MaxLife,
+                player.Mana,
+                player.MaxMana,
+                player.IsHostile,
+                player.Team,
+                player.Platform.Kind.ToString(),
+                player.ConnectedAt))
+            .ToArray();
+        return ValueTask.FromResult(players);
     }
 
     public ValueTask<IReadOnlyList<AdminCommandDescriptor>> GetCommandCatalogAsync(
@@ -112,6 +122,137 @@ internal sealed class LocalVegaAdminClient(
             messages.AsReadOnly());
     }
 
+    public ValueTask<IReadOnlyList<AdminModuleSnapshot>> GetModulesAsync(
+        CancellationToken cancellationToken = default)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        IReadOnlyList<AdminModuleSnapshot> modules = snapshots.Capture()
+            .Modules
+            .Select(static module => new AdminModuleSnapshot(
+                module.Name,
+                module.Version,
+                module.State.ToString(),
+                module.Dependencies.ToArray(),
+                checked((long)module.StartupDuration.TotalMilliseconds),
+                module.IsHotReloadable,
+                module.Failure))
+            .ToArray();
+        return ValueTask.FromResult(modules);
+    }
+
+    public ValueTask<IReadOnlyList<AdminLogRecord>> QueryLogsAsync(
+        AdminLogQuery query,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(query);
+        cancellationToken.ThrowIfCancellationRequested();
+        int limit = Math.Clamp(query.Limit, 1, 1_000);
+        OperationsSnapshot snapshot = snapshots.Capture(new OperationsLogFilter(
+            query.MinimumLevel is null ? null : ToOperationsLevel(query.MinimumLevel.Value),
+            Normalize(query.Source),
+            Normalize(query.Text),
+            limit));
+        IReadOnlyList<AdminLogRecord> logs = snapshot.Logs
+            .Select(static record => new AdminLogRecord(
+                record.Sequence,
+                record.Timestamp,
+                ToAdminLevel(record.Level),
+                record.Source,
+                record.Text))
+            .ToArray();
+        return ValueTask.FromResult(logs);
+    }
+
+    public ValueTask<IReadOnlyList<AdminChatRecord>> GetChatAsync(
+        int limit = 100,
+        CancellationToken cancellationToken = default)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        int boundedLimit = Math.Clamp(limit, 1, 1_000);
+        IReadOnlyList<AdminChatRecord> chat = snapshots.Capture()
+            .Chat
+            .TakeLast(boundedLimit)
+            .Select(static record => new AdminChatRecord(
+                record.Sequence,
+                record.Timestamp,
+                record.Source,
+                record.Text))
+            .ToArray();
+        return ValueTask.FromResult(chat);
+    }
+
+    public ValueTask<AdminAdministrationSnapshot> GetAdministrationAsync(
+        CancellationToken cancellationToken = default)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        AdministrationOperationsSnapshot administration = snapshots.Capture().Administration;
+        return ValueTask.FromResult(new AdminAdministrationSnapshot(
+            administration.Groups.Select(static group => new AdminPermissionGroupSnapshot(
+                group.Name,
+                group.ParentName,
+                group.GrantedPermissions.ToArray(),
+                group.DeniedPermissions.ToArray(),
+                group.AccountCount,
+                group.Revision)).ToArray(),
+            administration.Accounts.Select(static account => new AdminAccountSnapshot(
+                account.Name,
+                account.GroupName,
+                account.LastSeenUtc,
+                account.Culture)).ToArray(),
+            administration.SampledAt));
+    }
+
+    public ValueTask<AdminDiagnosticsSnapshot> GetDiagnosticsAsync(
+        CancellationToken cancellationToken = default)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        return ValueTask.FromResult(MapDiagnostics(snapshots.Capture()));
+    }
+
+    private static AdminServerStatusSnapshot MapStatus(ServerDashboardSnapshot server) => new(
+        server.ServerName,
+        server.Version,
+        server.LifecycleStage.ToString(),
+        server.Uptime,
+        server.WorldName,
+        server.IsWorldReady,
+        server.IsNetworkReady,
+        server.OnlinePlayers,
+        server.MaximumPlayers,
+        server.TickRate.Current,
+        server.TickRate.AverageOneMinute,
+        DateTimeOffset.UtcNow);
+
+    private static AdminDiagnosticsSnapshot MapDiagnostics(OperationsSnapshot snapshot)
+    {
+        RuntimeMetricsSnapshot runtime = snapshot.Runtime;
+        NetworkMetricsSnapshot network = snapshot.Network;
+        TickRateStatisticsSnapshot tick = snapshot.Server.TickRate;
+        return new AdminDiagnosticsSnapshot(
+            tick.Current,
+            tick.AverageOneMinute,
+            tick.TickDurationP50Milliseconds,
+            tick.TickDurationP95Milliseconds,
+            tick.TickDurationP99Milliseconds,
+            runtime.Host.WorkingSetBytes,
+            runtime.ManagedMemoryBytes,
+            runtime.GcHeapBytes,
+            runtime.GcFragmentedBytes,
+            runtime.Gen0Collections,
+            runtime.Gen1Collections,
+            runtime.Gen2Collections,
+            runtime.AvailableWorkerThreads,
+            runtime.MaximumWorkerThreads,
+            network.InboundPackets,
+            network.InboundBytes,
+            network.OutboundPackets,
+            network.OutboundBytes,
+            network.RejectedInboundPackets,
+            network.SecurityViolations,
+            new Dictionary<string, long>(network.SecurityRuleCounts, StringComparer.Ordinal),
+            DateTimeOffset.UtcNow);
+    }
+
     private static AdminCommandExecutionStatus MapStatus(CommandExecutionStatus status) => status switch
     {
         CommandExecutionStatus.Success => AdminCommandExecutionStatus.Success,
@@ -152,6 +293,31 @@ internal sealed class LocalVegaAdminClient(
             new(AdminScalarKind.String, formattable.ToString(null, CultureInfo.InvariantCulture)),
         _ => new(AdminScalarKind.String, value.ToString())
     };
+
+    private static AdminLogLevel ToAdminLevel(OperationsLogLevel level) => level switch
+    {
+        OperationsLogLevel.Trace => AdminLogLevel.Trace,
+        OperationsLogLevel.Debug => AdminLogLevel.Debug,
+        OperationsLogLevel.Information => AdminLogLevel.Information,
+        OperationsLogLevel.Warning => AdminLogLevel.Warning,
+        OperationsLogLevel.Error => AdminLogLevel.Error,
+        OperationsLogLevel.Critical => AdminLogLevel.Critical,
+        _ => AdminLogLevel.Information
+    };
+
+    private static OperationsLogLevel ToOperationsLevel(AdminLogLevel level) => level switch
+    {
+        AdminLogLevel.Trace => OperationsLogLevel.Trace,
+        AdminLogLevel.Debug => OperationsLogLevel.Debug,
+        AdminLogLevel.Information => OperationsLogLevel.Information,
+        AdminLogLevel.Warning => OperationsLogLevel.Warning,
+        AdminLogLevel.Error => OperationsLogLevel.Error,
+        AdminLogLevel.Critical => OperationsLogLevel.Critical,
+        _ => OperationsLogLevel.Information
+    };
+
+    private static string? Normalize(string? value) =>
+        string.IsNullOrWhiteSpace(value) ? null : value.Trim();
 
     private sealed class LocalAdminPrincipal : ICommandPrincipal
     {
