@@ -56,8 +56,18 @@ internal sealed class LocalVegaAdminClient(
                 descriptor.Syntax,
                 descriptor.Permissions.ToArray(),
                 descriptor.AllowServer,
-                Owner: "unassigned"))
-            .OrderBy(static descriptor => descriptor.Name, StringComparer.OrdinalIgnoreCase)
+                descriptor.Owner,
+                descriptor.TitleKey,
+                descriptor.DescriptionKey,
+                descriptor.HelpKey,
+                descriptor.FallbackTitle,
+                descriptor.FallbackDescription,
+                descriptor.FallbackHelp)
+            {
+                AllowPlayers = descriptor.AllowPlayers
+            })
+            .OrderBy(static descriptor => descriptor.Owner, StringComparer.OrdinalIgnoreCase)
+            .ThenBy(static descriptor => descriptor.Name, StringComparer.OrdinalIgnoreCase)
             .ToArray();
         return ValueTask.FromResult(commands);
     }
