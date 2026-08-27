@@ -17,8 +17,14 @@ public sealed record AdminProtocolInfo(
         AdminProtocolVersion.V1,
         [
             new("server.status"),
+            new("players.snapshot"),
             new("commands.catalog"),
-            new("commands.execute")
+            new("commands.execute"),
+            new("modules.snapshot"),
+            new("logs.query"),
+            new("chat.snapshot"),
+            new("administration.snapshot"),
+            new("diagnostics.snapshot")
         ]);
 }
 
