@@ -37,8 +37,13 @@ public sealed class TerminalUiHost : IDisposable
         ICommandCatalog? commandCatalog = null,
         string? layoutPath = null)
     {
-        viewModel = new OperationsDashboardViewModel(snapshots, commands, unhandledCommands);
-        this.commandCatalog = commandCatalog;
+        var adminClient = new EmbeddedOperationsAdminClient(snapshots, commands, commandCatalog);
+        viewModel = new OperationsDashboardViewModel(
+            snapshots,
+            new AdminOperationsCommandServiceAdapter(adminClient));
+        this.commandCatalog = commandCatalog is null
+            ? null
+            : new AdminCommandCatalogAdapter(adminClient);
         this.logger = logger ?? throw new ArgumentNullException(nameof(logger));
         this.startupProgress = startupProgress ?? WaitingStartupProgressReader.Instance;
         layoutStore = new TerminalUiLayoutStore(
