@@ -427,6 +427,59 @@ public sealed class TerrariaAdministrationCommandTests
         });
     }
 
+    [Test]
+    public async Task ClearAnglerWithoutArgumentsClearsEntireDailyList()
+    {
+        var service = new RecordingAnglerQuestService(removedEntries: 3);
+        var command = new ClearAnglerCommand(service);
+
+        CommandExecutionResult result = await command.ExecuteAsync(
+            Invocation("clearangler", []),
+            CancellationToken.None);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(result.Status, Is.EqualTo(CommandExecutionStatus.Success));
+            Assert.That(service.LastRequest?.PlayerName, Is.Null);
+            Assert.That(result.Messages?.Single().DefaultText, Does.Contain("all users"));
+            Assert.That(command.Descriptor.Permissions, Is.EqualTo(new[] { "vega.angler.clear" }));
+            Assert.That(command.Descriptor.AllowServer, Is.True);
+        });
+    }
+
+    [Test]
+    public async Task ClearAnglerUsesFirstPlayerNameAndIgnoresTrailingArguments()
+    {
+        var service = new RecordingAnglerQuestService(removedEntries: 2);
+        var command = new ClearAnglerCommand(service);
+
+        CommandExecutionResult result = await command.ExecuteAsync(
+            Invocation("clearangler", ["Alice", "ignored"]),
+            CancellationToken.None);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(result.Status, Is.EqualTo(CommandExecutionStatus.Success));
+            Assert.That(service.LastRequest?.PlayerName, Is.EqualTo("Alice"));
+            Assert.That(result.Messages?.Single().DefaultText, Does.Contain("2 player entries"));
+        });
+    }
+
+    [Test]
+    public async Task ClearAnglerReportsMissingDailyCompletion()
+    {
+        var service = new RecordingAnglerQuestService(
+            removedEntries: 0,
+            status: AnglerQuestClearStatus.NotFound);
+        var command = new ClearAnglerCommand(service);
+
+        CommandExecutionResult result = await command.ExecuteAsync(
+            Invocation("clearangler", ["Alice"]),
+            CancellationToken.None);
+
+        Assert.That(result.ErrorCode, Is.EqualTo("command.clearangler.not-found"));
+    }
+
     private static CommandInvocation Invocation(
         string name,
         IReadOnlyList<string> arguments,
@@ -693,6 +746,21 @@ public sealed class TerrariaAdministrationCommandTests
             return ValueTask.FromResult(new NpcSpawnRateMutationResult(
                 NpcOperationStatus.Applied,
                 new NpcSpawnRateSnapshot(worldId, value)));
+        }
+    }
+
+    private sealed class RecordingAnglerQuestService(
+        int removedEntries,
+        AnglerQuestClearStatus status = AnglerQuestClearStatus.Applied) : IWorldAnglerQuestService
+    {
+        public AnglerQuestClearRequest? LastRequest { get; private set; }
+
+        public ValueTask<AnglerQuestClearResult> ClearAsync(
+            AnglerQuestClearRequest request,
+            CancellationToken cancellationToken = default)
+        {
+            LastRequest = request;
+            return ValueTask.FromResult(new AnglerQuestClearResult(status, removedEntries));
         }
     }
 

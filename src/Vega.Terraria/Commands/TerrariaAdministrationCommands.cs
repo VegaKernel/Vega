@@ -30,6 +30,7 @@ internal static class TerrariaAdministrationCommandRegistration
         IWorldEnvironmentService environment = new TerrariaWorldEnvironmentService(gameThread, runtimeWorldId);
         IWorldNpcService npcs = new TerrariaWorldNpcService(gameThread, runtimeWorldId);
         IWorldNpcSpawnControl npcSpawns = new TerrariaNpcSpawnControl(gameThread, runtimeWorldId);
+        IWorldAnglerQuestService anglerQuests = new TerrariaAnglerQuestService(gameThread, runtimeWorldId);
         var wallOfFlesh = new TerrariaWallOfFleshSpawner(gameThread, runtimeWorldId);
 
         ICommandHandler[] handlers =
@@ -55,7 +56,8 @@ internal static class TerrariaAdministrationCommandRegistration
             new ButcherCommand(npcs, new TerrariaNpcCatalog(), players, players),
             new RenameNpcCommand(npcs, new TerrariaNpcCatalog(), players, players),
             new MaxSpawnsCommand(npcSpawns, players, players),
-            new SpawnRateCommand(npcSpawns, players, players)
+            new SpawnRateCommand(npcSpawns, players, players),
+            new ClearAnglerCommand(anglerQuests)
         ];
 
         var registrations = handlers.Select(registry.Register).ToList();
@@ -1039,6 +1041,59 @@ internal sealed class SpawnRateCommand(
                 .WithDefaultText(invocation.Silent
                     ? $"Changed the spawn rate to {spawnRate}."
                     : message));
+    }
+}
+
+internal sealed class ClearAnglerCommand(IWorldAnglerQuestService anglerQuests) : ICommandHandler
+{
+    public CommandDescriptor Descriptor { get; } = new(
+        "clearangler",
+        [],
+        ["vega.angler.clear"],
+        Syntax: "clearangler [player-name]");
+
+    public async ValueTask<CommandExecutionResult> ExecuteAsync(
+        CommandInvocation invocation,
+        CancellationToken cancellationToken)
+    {
+        string? playerName = invocation.Arguments.Count == 0
+            ? null
+            : invocation.Arguments[0];
+        if (playerName is not null && string.IsNullOrWhiteSpace(playerName))
+        {
+            return AdminCommandResults.Failure(
+                "command.clearangler.invalid-player",
+                "Player name cannot be empty.");
+        }
+
+        AnglerQuestClearResult result = await anglerQuests
+            .ClearAsync(
+                new AnglerQuestClearRequest(
+                    invocation.WorldId,
+                    playerName,
+                    invocation.Principal.Name),
+                cancellationToken)
+            .ConfigureAwait(false);
+        if (result.Status == AnglerQuestClearStatus.NotFound)
+        {
+            return AdminCommandResults.Failure(
+                "command.clearangler.not-found",
+                "Failed to find any users by that name on today's angler completion list.");
+        }
+
+        if (!result.IsSuccess)
+        {
+            return AdminCommandResults.Failure(
+                result.ErrorCode ?? "command.clearangler.failed",
+                $"Could not clear today's angler completion list: {result.ErrorCode ?? result.Status.ToString()}.");
+        }
+
+        string message = playerName is null
+            ? "Cleared all users from today's angler quest completion list."
+            : $"Removed {result.RemovedEntries} player entr{(result.RemovedEntries == 1 ? "y" : "ies")} from today's angler quest completion list.";
+        return CommandExecutionResult.WithMessages(
+            MessageDescriptor.Success("command.clearangler.applied")
+                .WithDefaultText(message));
     }
 }
 
