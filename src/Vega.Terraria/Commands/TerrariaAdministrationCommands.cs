@@ -31,6 +31,7 @@ internal static class TerrariaAdministrationCommandRegistration
         IWorldNpcService npcs = new TerrariaWorldNpcService(gameThread, runtimeWorldId);
         IWorldNpcSpawnControl npcSpawns = new TerrariaNpcSpawnControl(gameThread, runtimeWorldId);
         IWorldAnglerQuestService anglerQuests = new TerrariaAnglerQuestService(gameThread, runtimeWorldId);
+        IPlayerRecallOperations recall = new TerrariaPlayerRecallService(gameThread);
         var wallOfFlesh = new TerrariaWallOfFleshSpawner(gameThread, runtimeWorldId);
 
         ICommandHandler[] handlers =
@@ -43,7 +44,7 @@ internal static class TerrariaAdministrationCommandRegistration
             new TeleportCommand(players, players),
             new TeleportHereCommand(players, players),
             new TeleportPositionCommand(players, players, environment),
-            new SpawnTeleportCommand(players, players, environment),
+            new SpawnCommand(players, recall),
             new PositionCommand(players),
             new NpcListCommand(npcs),
             new SpawnMobCommand(
@@ -465,41 +466,38 @@ internal sealed class TeleportPositionCommand(
     }
 }
 
-internal sealed class SpawnTeleportCommand(
+internal sealed class SpawnCommand(
     IPlayerDirectory players,
-    IPlayerOperations operations,
-    IWorldEnvironmentService environment) : ICommandHandler
+    IPlayerRecallOperations recall) : ICommandHandler
 {
     public CommandDescriptor Descriptor { get; } = new(
         "spawn",
-        ["tospawn"],
-        ["vega.players.teleport"],
-        Syntax: "spawn [player]");
+        [],
+        ["vega.players.spawn"],
+        AllowServer: false,
+        Syntax: "spawn");
 
     public async ValueTask<CommandExecutionResult> ExecuteAsync(CommandInvocation invocation, CancellationToken cancellationToken)
     {
-        PlayerSnapshot? player;
-        if (invocation.Arguments.Count == 0 && PlayerResolver.TryCaller(players, invocation, out player))
+        if (invocation.Principal is not IPlayerCommandPrincipal principal ||
+            !players.TryGet(principal.PlayerId, out PlayerSnapshot? player) ||
+            player is null)
         {
-        }
-        else if (invocation.Arguments.Count == 1 &&
-                 PlayerResolver.TryResolve(players, invocation.Arguments[0], out player, out string? error))
-        {
-        }
-        else
-        {
-            return AdminCommandResults.Usage("command.spawn.usage", "Usage: spawn [player].");
+            return AdminCommandResults.Failure(
+                "command.spawn.player-unavailable",
+                "This command requires an active player.");
         }
 
-        WorldEnvironmentSnapshot? world = await environment.CaptureAsync(invocation.WorldId, cancellationToken).ConfigureAwait(false);
-        if (world is null)
-        {
-            return AdminCommandResults.Failure("command.spawn.unavailable", "World spawn is unavailable.");
-        }
-
-        var destination = new PlayerPosition(world.SpawnTileX * 16f, world.SpawnTileY * 16f);
-        PlayerOperationResult result = await operations.TeleportAsync(player!.Id, destination, cancellationToken).ConfigureAwait(false);
-        return AdminCommandResults.PlayerMutation(result, "command.spawn.applied", $"Teleported {player.Name} to world spawn.");
+        PlayerOperationResult result = await recall
+            .RecallWorldSpawnAsync(player.Id, cancellationToken)
+            .ConfigureAwait(false);
+        return result.IsSuccess
+            ? CommandExecutionResult.WithMessages(
+                MessageDescriptor.Success("command.spawn.applied")
+                    .WithDefaultText("Teleported to the map's spawn point."))
+            : AdminCommandResults.Failure(
+                result.ErrorCode ?? "command.spawn.failed",
+                "Could not teleport you to the map's spawn point.");
     }
 }
 

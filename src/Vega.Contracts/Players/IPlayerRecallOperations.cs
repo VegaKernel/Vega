@@ -11,4 +11,11 @@ public interface IPlayerRecallOperations
     ValueTask<PlayerOperationResult> RecallHomeAsync(
         PlayerId id,
         CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Teleports a player to the world's global spawn point.
+    /// </summary>
+    ValueTask<PlayerOperationResult> RecallWorldSpawnAsync(
+        PlayerId id,
+        CancellationToken cancellationToken = default);
 }

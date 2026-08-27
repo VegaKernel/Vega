@@ -78,6 +78,30 @@ public sealed class TerrariaHomeCommandTests
         });
     }
 
+    [Test]
+    public async Task SpawnRecallsInvokingPlayerToWorldSpawnAndIgnoresArguments()
+    {
+        PlayerSnapshot player = Player();
+        var recall = new RecordingRecall();
+        var command = new SpawnCommand(new RecordingPlayers(player), recall);
+
+        CommandExecutionResult result = await command.ExecuteAsync(
+            new CommandInvocation(
+                "spawn",
+                ["ignored"],
+                new PlayerPrincipal(player.Id, player.Name),
+                NullOutput.Instance),
+            CancellationToken.None);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(result.Status, Is.EqualTo(CommandExecutionStatus.Success));
+            Assert.That(recall.LastWorldSpawnPlayerId, Is.EqualTo(player.Id));
+            Assert.That(command.Descriptor.Permissions, Is.EqualTo(new[] { "vega.players.spawn" }));
+            Assert.That(command.Descriptor.AllowServer, Is.False);
+        });
+    }
+
     private static CommandInvocation Invocation(PlayerSnapshot player, IReadOnlyList<string> arguments) =>
         new(
             "home",
@@ -101,12 +125,21 @@ public sealed class TerrariaHomeCommandTests
         PlayerOperationResult? result = null) : IPlayerRecallOperations
     {
         public PlayerId? LastPlayerId { get; private set; }
+        public PlayerId? LastWorldSpawnPlayerId { get; private set; }
 
         public ValueTask<PlayerOperationResult> RecallHomeAsync(
             PlayerId id,
             CancellationToken cancellationToken = default)
         {
             LastPlayerId = id;
+            return ValueTask.FromResult(result ?? PlayerOperationResult.Applied());
+        }
+
+        public ValueTask<PlayerOperationResult> RecallWorldSpawnAsync(
+            PlayerId id,
+            CancellationToken cancellationToken = default)
+        {
+            LastWorldSpawnPlayerId = id;
             return ValueTask.FromResult(result ?? PlayerOperationResult.Applied());
         }
     }

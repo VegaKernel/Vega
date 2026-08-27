@@ -1,4 +1,6 @@
+using Microsoft.Xna.Framework;
 using Terraria.ID;
+using Terraria.Localization;
 using Vega.Contracts.Players;
 using Vega.Contracts.Threading;
 
@@ -37,6 +39,55 @@ public sealed class TerrariaPlayerRecallService(IGameThreadDispatcher dispatcher
                 return PlayerOperationResult.Applied();
             },
             "player.recall-home.failed",
+            cancellationToken);
+
+    public ValueTask<PlayerOperationResult> RecallWorldSpawnAsync(
+        PlayerId id,
+        CancellationToken cancellationToken = default) =>
+        DispatchAsync(
+            "player.recall-world-spawn",
+            () =>
+            {
+                if (!TryGetActivePlayer(id, out global::Terraria.Player? player) || player is null)
+                {
+                    return PlayerOperationResult.NotFound();
+                }
+
+                player.Bottom = new Vector2(
+                    global::Terraria.Main.spawnTileX * 16f + 8f,
+                    global::Terraria.Main.spawnTileY * 16f);
+                float x = Math.Clamp(
+                    player.position.X,
+                    640f,
+                    global::Terraria.Main.rightWorld - 640f - player.width);
+                float y = Math.Clamp(
+                    player.position.Y,
+                    640f,
+                    global::Terraria.Main.bottomWorld - 640f - player.height);
+                var position = new Vector2(x, y);
+
+                global::Terraria.NetMessage.SendTileSquare(
+                    id.Slot,
+                    (short)(x / 16f - 7f),
+                    (short)(y / 16f - 7f),
+                    15,
+                    15,
+                    TileChangeType.None);
+                global::Terraria.RemoteClient.CheckSection(id.Slot, position);
+                player.Teleport(position, 1);
+                global::Terraria.NetMessage.SendData(
+                    MessageID.TeleportEntity,
+                    -1,
+                    -1,
+                    NetworkText.Empty,
+                    0,
+                    player.whoAmI,
+                    x,
+                    y,
+                    1);
+                return PlayerOperationResult.Applied();
+            },
+            "player.recall-world-spawn.failed",
             cancellationToken);
 
     private static bool TryGetActivePlayer(PlayerId id, out global::Terraria.Player? player)
