@@ -39,13 +39,14 @@ internal sealed class AdminWorkspaceTabs
     private readonly ListView modulesList = CreateList();
     private readonly ListView logsList = CreateList();
     private readonly ListView chatList = CreateList();
-    private readonly Label configurationText = CreateFillLabel();
+    private readonly AdminConfigurationWorkspace configurationWorkspace;
     private readonly Label debugText = CreateFillLabel();
     private readonly ListView administrationList = CreateList();
     private IReadOnlyList<AdminCommandDescriptor> commands = Array.Empty<AdminCommandDescriptor>();
     private IReadOnlyList<AdminCommandDescriptor> visibleCommands = Array.Empty<AdminCommandDescriptor>();
     private Task<IReadOnlyList<AdminCommandDescriptor>>? commandCatalogCapture;
     private Task<WorkspaceResult>? workspaceCapture;
+    private int workspaceCaptureIndex = -1;
     private DateTimeOffset nextCatalogRefreshAt = DateTimeOffset.MinValue;
     private DateTimeOffset nextWorkspaceRefreshAt = DateTimeOffset.MinValue;
     private string? commandCatalogFailure;
@@ -55,6 +56,7 @@ internal sealed class AdminWorkspaceTabs
     {
         ArgumentNullException.ThrowIfNull(dashboardDesktop);
         this.adminClient = adminClient ?? throw new ArgumentNullException(nameof(adminClient));
+        configurationWorkspace = new AdminConfigurationWorkspace(adminClient);
 
         dashboardDesktop.X = 0;
         dashboardDesktop.Y = 0;
@@ -68,7 +70,7 @@ internal sealed class AdminWorkspaceTabs
         View modules = CreateWorkspace("4 Modules", modulesList);
         View logs = CreateWorkspace("5 Logs", logsList);
         View chat = CreateWorkspace("6 Chat", chatList);
-        View configuration = CreateWorkspace("7 Config", configurationText);
+        View configuration = CreateWorkspace("7 Config", configurationWorkspace.Root);
         View debug = CreateWorkspace("8 Debug", debugText);
         View administration = CreateWorkspace("9 Admin", administrationList);
         workspaceViews =
@@ -88,10 +90,6 @@ internal sealed class AdminWorkspaceTabs
 
         commandSearch.TextChanging += (_, args) => ApplyCommandFilter(args.Result ?? string.Empty);
         commandList.ValueChanged += (_, _) => UpdateCommandDetails();
-        configurationText.Text =
-            "Plugin configuration workspace\n\n" +
-            "Waiting for the Phase 27 registered configuration descriptor capability.\n" +
-            "No arbitrary remote filesystem editor will be exposed here.";
     }
 
     public View Root => tabs;
@@ -117,6 +115,10 @@ internal sealed class AdminWorkspaceTabs
         {
             tabs.Value = workspaceViews[zeroBasedIndex];
             nextWorkspaceRefreshAt = DateTimeOffset.MinValue;
+            if (zeroBasedIndex == 6)
+            {
+                configurationWorkspace.RequestRefresh();
+            }
         }
 
         return true;
@@ -183,7 +185,13 @@ internal sealed class AdminWorkspaceTabs
             return;
         }
 
-        if (selected is 0 or 6)
+        if (selected == 6)
+        {
+            configurationWorkspace.Pulse();
+            return;
+        }
+
+        if (selected == 0)
         {
             return;
         }
@@ -241,6 +249,7 @@ internal sealed class AdminWorkspaceTabs
         if (workspaceCapture is null && now >= nextWorkspaceRefreshAt)
         {
             workspaceCapture = CaptureWorkspaceAsync(selected);
+            workspaceCaptureIndex = selected;
         }
 
         if (workspaceCapture is null || !workspaceCapture.IsCompleted)
@@ -249,15 +258,31 @@ internal sealed class AdminWorkspaceTabs
         }
 
         Task<WorkspaceResult> completed = workspaceCapture;
+        int completedIndex = workspaceCaptureIndex;
         workspaceCapture = null;
-        nextWorkspaceRefreshAt = now + RefreshIntervalFor(selected);
-        if (!completed.IsCompletedSuccessfully)
+        workspaceCaptureIndex = -1;
+
+        if (completedIndex != SelectedWorkspaceIndex)
         {
-            RenderWorkspaceFailure(selected, completed.Exception?.GetBaseException().Message ?? "Admin query unavailable.");
+            nextWorkspaceRefreshAt = DateTimeOffset.MinValue;
             return;
         }
 
-        ApplyWorkspaceResult(completed.GetAwaiter().GetResult());
+        nextWorkspaceRefreshAt = now + RefreshIntervalFor(completedIndex);
+        if (!completed.IsCompletedSuccessfully)
+        {
+            RenderWorkspaceFailure(completedIndex, completed.Exception?.GetBaseException().Message ?? "Admin query unavailable.");
+            return;
+        }
+
+        WorkspaceResult result = completed.GetAwaiter().GetResult();
+        if (result.Index != SelectedWorkspaceIndex)
+        {
+            nextWorkspaceRefreshAt = DateTimeOffset.MinValue;
+            return;
+        }
+
+        ApplyWorkspaceResult(result);
     }
 
     private async Task<WorkspaceResult> CaptureWorkspaceAsync(int selected)
