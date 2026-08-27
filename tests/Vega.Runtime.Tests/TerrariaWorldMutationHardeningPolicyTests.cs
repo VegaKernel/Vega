@@ -55,13 +55,32 @@ public sealed class TerrariaWorldMutationHardeningPolicyTests
             Is.EqualTo(PacketProcessingDecision.Violation("packet.chest.stack_exceeds_item_limit")));
     }
 
+    [Test]
+    public void PlaceItemFrameRequiresLiveNativeFrame()
+    {
+        PacketProcessingDecision missing = Process(
+            CreatePolicy(itemFrameExists: static (_, _) => false),
+            new PlaceItemFrame { X = 10, Y = 20, ItemId = 1, Prefix = 0, Stack = 1 });
+        PacketProcessingDecision existing = Process(
+            CreatePolicy(itemFrameExists: static (_, _) => true),
+            new PlaceItemFrame { X = 10, Y = 20, ItemId = 1, Prefix = 0, Stack = 1 });
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(missing, Is.EqualTo(PacketProcessingDecision.Reject("packet.item_frame.not_found")));
+            Assert.That(existing.Kind, Is.EqualTo(PacketDecisionKind.Allow));
+        });
+    }
+
     private static TerrariaWorldMutationHardeningPolicy CreatePolicy(
         Func<int, int, ushort>? tileType = null,
-        Func<int, int>? itemMaxStack = null) => new(
+        Func<int, int>? itemMaxStack = null,
+        Func<int, int, bool>? itemFrameExists = null) => new(
             static () => 100,
             static () => 100,
             tileType ?? (static (_, _) => global::Terraria.ID.TileID.ClosedDoor),
-            itemMaxStack ?? (static _ => 9999));
+            itemMaxStack ?? (static _ => 9999),
+            itemFrameExists ?? (static (_, _) => true));
 
     private static PacketProcessingDecision Process(
         TerrariaWorldMutationHardeningPolicy policy,
