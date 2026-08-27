@@ -30,6 +30,11 @@ internal sealed class AdminWorkspaceTabs
     };
     private readonly View[] workspaceViews;
     private readonly ListView playersList = CreateList();
+    private readonly TextField commandSearch = new()
+    {
+        SchemeName = SchemeName,
+        Text = string.Empty
+    };
     private readonly ListView commandList = CreateList();
     private readonly Label commandDetails = CreateFillLabel();
     private readonly ListView modulesList = CreateList();
@@ -39,6 +44,7 @@ internal sealed class AdminWorkspaceTabs
     private readonly Label debugText = CreateFillLabel();
     private readonly ListView administrationList = CreateList();
     private IReadOnlyList<AdminCommandDescriptor> commands = Array.Empty<AdminCommandDescriptor>();
+    private IReadOnlyList<AdminCommandDescriptor> visibleCommands = Array.Empty<AdminCommandDescriptor>();
     private Task<IReadOnlyList<AdminCommandDescriptor>>? commandCatalogCapture;
     private DateTimeOffset nextCatalogRefreshAt = DateTimeOffset.MinValue;
     private string? commandCatalogFailure;
@@ -79,6 +85,7 @@ internal sealed class AdminWorkspaceTabs
         tabs.Add(workspaceViews);
         tabs.Value = dashboard;
 
+        commandSearch.TextChanging += (_, args) => ApplyCommandFilter(args.Result ?? string.Empty);
         commandList.ValueChanged += (_, _) => UpdateCommandDetails();
         configurationText.Text =
             "Plugin configuration workspace\n\n" +
@@ -191,15 +198,25 @@ internal sealed class AdminWorkspaceTabs
             Title = "3 Commands",
             SchemeName = SchemeName
         };
+        var searchLabel = new Label
+        {
+            Text = "Search",
+            X = 0,
+            Y = 0,
+            SchemeName = SchemeName
+        };
+        commandSearch.X = Pos.Right(searchLabel) + 1;
+        commandSearch.Y = 0;
+        commandSearch.Width = Dim.Percent(30);
         commandList.X = 0;
-        commandList.Y = 0;
+        commandList.Y = 1;
         commandList.Width = Dim.Percent(38);
         commandList.Height = Dim.Fill();
         commandDetails.X = Pos.Right(commandList) + 1;
         commandDetails.Y = 0;
         commandDetails.Width = Dim.Fill();
         commandDetails.Height = Dim.Fill();
-        workspace.Add(commandList, commandDetails);
+        workspace.Add(searchLabel, commandSearch, commandList, commandDetails);
         return workspace;
     }
 
@@ -241,15 +258,44 @@ internal sealed class AdminWorkspaceTabs
                 .ThenBy(static descriptor => descriptor.Name, StringComparer.OrdinalIgnoreCase)
                 .ToArray();
             commandCatalogFailure = null;
-            SetRows(commandList, commands.Select(static descriptor =>
-                $"{descriptor.Owner,-16} {descriptor.Name,-18} {descriptor.Syntax}").ToArray());
-            UpdateCommandDetails();
+            ApplyCommandFilter(commandSearch.Text);
             return;
         }
 
         commandCatalogFailure = completed.Exception?.GetBaseException().Message ?? "Command catalog unavailable.";
+        visibleCommands = Array.Empty<AdminCommandDescriptor>();
         SetRows(commandList, [$"ERROR · {commandCatalogFailure}"]);
         commandDetails.Text = commandCatalogFailure;
+    }
+
+    private void ApplyCommandFilter(string value)
+    {
+        commandCatalogFailure = null;
+        string query = value.Trim();
+        visibleCommands = query.Length == 0
+            ? commands
+            : commands.Where(descriptor => MatchesCommand(descriptor, query)).ToArray();
+        SetRows(commandList, visibleCommands.Select(static descriptor =>
+            $"{descriptor.Owner,-16} {descriptor.Name,-18} {descriptor.Syntax}").ToArray());
+        if (visibleCommands.Count > 0)
+        {
+            commandList.SelectedItem = 0;
+        }
+
+        UpdateCommandDetails();
+    }
+
+    private static bool MatchesCommand(AdminCommandDescriptor descriptor, string query)
+    {
+        bool Contains(string? text) => text?.Contains(query, StringComparison.OrdinalIgnoreCase) == true;
+        return Contains(descriptor.Name) ||
+            Contains(descriptor.Owner) ||
+            Contains(descriptor.Syntax) ||
+            Contains(descriptor.FallbackTitle) ||
+            Contains(descriptor.FallbackDescription) ||
+            Contains(descriptor.FallbackHelp) ||
+            descriptor.Aliases.Any(Contains) ||
+            descriptor.Permissions.Any(Contains);
     }
 
     private void UpdateCommandDetails()
@@ -261,15 +307,15 @@ internal sealed class AdminWorkspaceTabs
         }
 
         int index = commandList.SelectedItem ?? -1;
-        if ((uint)index >= (uint)commands.Count)
+        if ((uint)index >= (uint)visibleCommands.Count)
         {
             commandDetails.Text = commands.Count == 0
                 ? "Loading command catalog through IVegaAdminClient..."
-                : "Select a command to inspect its Admin descriptor.";
+                : "No matching command selected.";
             return;
         }
 
-        AdminCommandDescriptor descriptor = commands[index];
+        AdminCommandDescriptor descriptor = visibleCommands[index];
         var text = new StringBuilder()
             .AppendLine(descriptor.FallbackTitle ?? descriptor.Name)
             .AppendLine()
