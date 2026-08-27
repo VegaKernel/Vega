@@ -196,6 +196,46 @@ internal sealed class EmbeddedOperationsAdminClient(
         return ValueTask.FromResult(MapDiagnostics(snapshot));
     }
 
+    public ValueTask<IReadOnlyList<AdminConfigurationDescriptor>> GetConfigurationsAsync(
+        CancellationToken cancellationToken = default)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        return ValueTask.FromResult<IReadOnlyList<AdminConfigurationDescriptor>>(
+            Array.Empty<AdminConfigurationDescriptor>());
+    }
+
+    public ValueTask<AdminConfigurationMutationResult> ReadConfigurationAsync(
+        AdminConfigurationKey key,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(key);
+        cancellationToken.ThrowIfCancellationRequested();
+        return ValueTask.FromResult(ConfigurationUnavailable());
+    }
+
+    public ValueTask<AdminConfigurationMutationResult> ReplaceConfigurationAsync(
+        AdminConfigurationReplaceRequest request,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+        cancellationToken.ThrowIfCancellationRequested();
+        return ValueTask.FromResult(ConfigurationUnavailable());
+    }
+
+    public ValueTask<AdminConfigurationMutationResult> ReloadConfigurationAsync(
+        AdminConfigurationMutationRequest request,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+        cancellationToken.ThrowIfCancellationRequested();
+        return ValueTask.FromResult(ConfigurationUnavailable());
+    }
+
+    private static AdminConfigurationMutationResult ConfigurationUnavailable() => new(
+        false,
+        ErrorCode: "configuration.not_exposed",
+        Error: "Managed configuration administration is unavailable in the transitional embedded adapter.");
+
     private static AdminServerStatusSnapshot MapStatus(ServerDashboardSnapshot server) => new(
         server.ServerName,
         server.Version,
