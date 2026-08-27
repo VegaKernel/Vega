@@ -36,6 +36,22 @@ public sealed class Phase25RemainingPacketAuditTests
     }
 
     [Test]
+    public void NpcSpecialRejectsUnknownEffectButAllowsProtocol326CakeEffect()
+    {
+        PlayerActionSanityPolicy policy = PlayerActions();
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(
+                Process(policy, PacketView.FromPayload(PacketTypes.NpcSpecial, [7, 7]), 7),
+                Is.EqualTo(PacketProcessingDecision.Violation("packet.npc_special.effect_out_of_range")));
+            Assert.That(
+                Process(policy, PacketView.FromPayload(PacketTypes.NpcSpecial, [7, 10]), 7).Kind,
+                Is.EqualTo(PacketDecisionKind.Allow));
+        });
+    }
+
+    [Test]
     public void SpawnBossRequiresSenderOwnership()
     {
         PacketProcessingDecision decision = Process(
@@ -48,6 +64,23 @@ public sealed class Phase25RemainingPacketAuditTests
         Assert.That(
             decision,
             Is.EqualTo(PacketProcessingDecision.Violation("packet.player_identity_mismatch")));
+    }
+
+    [Test]
+    public void SpawnBossRejectsUnknownRequestTypes()
+    {
+        Assert.Multiple(() =>
+        {
+            Assert.That(
+                Process(NpcActions(), BuildSpawnPacket(7, 1_000), 7),
+                Is.EqualTo(PacketProcessingDecision.Violation("packet.npc.spawn_type_out_of_range")));
+            Assert.That(
+                Process(NpcActions(), BuildSpawnPacket(7, -9), 7),
+                Is.EqualTo(PacketProcessingDecision.Violation("packet.npc.spawn_type_out_of_range")));
+            Assert.That(
+                Process(NpcActions(), BuildSpawnPacket(7, -19), 7).Kind,
+                Is.EqualTo(PacketDecisionKind.Allow));
+        });
     }
 
     [Test]
@@ -88,6 +121,56 @@ public sealed class Phase25RemainingPacketAuditTests
                 invalidDamage,
                 Is.EqualTo(PacketProcessingDecision.Violation("packet.player_hurt.combat_values_out_of_range")));
         });
+    }
+
+    [Test]
+    public void PlayerDeathRejectsNegativeDamageBeforeNativeKill()
+    {
+        byte[] payload = new byte[6];
+        payload[0] = 7;
+        payload[1] = 0;
+        BinaryPrimitives.WriteInt16LittleEndian(payload.AsSpan(2), -1);
+        payload[4] = 1;
+        payload[5] = 0;
+
+        Assert.That(
+            Process(PlayerActions(), PacketView.FromPayload(PacketTypes.PlayerDeathV2, payload), 7),
+            Is.EqualTo(PacketProcessingDecision.Violation("packet.player_death.combat_values_out_of_range")));
+    }
+
+    [Test]
+    public void CrystalInvasionRejectsOutOfWorldCrystalPosition()
+    {
+        byte[] payload = new byte[4];
+        BinaryPrimitives.WriteInt16LittleEndian(payload, 100);
+        BinaryPrimitives.WriteInt16LittleEndian(payload.AsSpan(2), 10);
+        var policy = new WorldInteractionSanityPolicy(
+            worldWidth: static () => 100,
+            worldHeight: static () => 50,
+            itemTypeCount: 7_000,
+            prefixCount: 100,
+            projectileTypeCount: 1_000);
+
+        Assert.That(
+            Process(policy, PacketView.FromPayload(PacketTypes.CrystalInvasionStart, payload), 7),
+            Is.EqualTo(PacketProcessingDecision.Violation("packet.crystal_invasion.position_out_of_world")));
+    }
+
+    [Test]
+    public void DisplayDollMiscInventoryRejectsSlotPastNativeArray()
+    {
+        byte[] payload = new byte[12];
+        payload[0] = 7;
+        BinaryPrimitives.WriteInt32LittleEndian(payload.AsSpan(1), 42);
+        payload[5] = 1;
+        payload[6] = (byte)DisplayDollSyncCommand.Misc;
+        BinaryPrimitives.WriteUInt16LittleEndian(payload.AsSpan(7), 1);
+        BinaryPrimitives.WriteUInt16LittleEndian(payload.AsSpan(9), 1);
+        payload[11] = 0;
+
+        Assert.That(
+            Process(WorldMutations(), PacketView.FromPayload(PacketTypes.TileEntityDisplayDollItemSync, payload), 7),
+            Is.EqualTo(PacketProcessingDecision.Violation("packet.tile_entity.display_doll_slot_out_of_range")));
     }
 
     [Test]
@@ -180,11 +263,27 @@ public sealed class Phase25RemainingPacketAuditTests
         });
     }
 
+    private static PacketView BuildSpawnPacket(short playerId, short type)
+    {
+        byte[] payload = new byte[4];
+        BinaryPrimitives.WriteInt16LittleEndian(payload, playerId);
+        BinaryPrimitives.WriteInt16LittleEndian(payload.AsSpan(2), type);
+        return PacketView.FromPayload(PacketTypes.SpawnBossorInvasion, payload);
+    }
+
     private static PlayerActionSanityPolicy PlayerActions() => new(
         playerCount: 8,
         npcCount: 200,
         buffTypeCount: 500,
         projectileTypeCount: 1_000,
+        worldWidth: static () => 100,
+        worldHeight: static () => 50);
+
+    private static NpcPacketSanityPolicy NpcActions() => new(
+        npcCount: 200,
+        npcTypeCount: 1_000,
+        buffTypeCount: 500,
+        playerCount: 8,
         worldWidth: static () => 100,
         worldHeight: static () => 50);
 
