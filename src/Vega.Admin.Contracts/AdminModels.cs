@@ -24,7 +24,11 @@ public sealed record AdminProtocolInfo(
             new("logs.query"),
             new("chat.snapshot"),
             new("administration.snapshot"),
-            new("diagnostics.snapshot")
+            new("diagnostics.snapshot"),
+            new("configuration.list"),
+            new("configuration.read"),
+            new("configuration.replace"),
+            new("configuration.reload")
         ]);
 }
 
