@@ -332,6 +332,101 @@ public sealed class TerrariaAdministrationCommandTests
         });
     }
 
+    [Test]
+    public async Task SpawnRateWithoutArgumentsReportsCurrentValue()
+    {
+        var spawnControl = new RecordingNpcSpawnControl(5, 200, spawnRate: 450);
+        var command = new SpawnRateCommand(spawnControl, new RecordingPlayers(), new NullMessenger());
+
+        CommandExecutionResult result = await command.ExecuteAsync(
+            Invocation("spawnrate", []),
+            CancellationToken.None);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(result.Status, Is.EqualTo(CommandExecutionStatus.Success));
+            Assert.That(result.Messages?.Single().DefaultText, Does.Contain("450"));
+            Assert.That(spawnControl.SetSpawnRates, Is.Empty);
+        });
+    }
+
+    [Test]
+    public async Task SpawnRateDefaultUsesTerrariaDefaultAndPermission()
+    {
+        var spawnControl = new RecordingNpcSpawnControl(5, 200, spawnRate: 450);
+        var command = new SpawnRateCommand(spawnControl, new RecordingPlayers(), new NullMessenger());
+
+        CommandExecutionResult result = await command.ExecuteAsync(
+            Invocation("spawnrate", ["default"]),
+            CancellationToken.None);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(result.Status, Is.EqualTo(CommandExecutionStatus.Success));
+            Assert.That(spawnControl.SetSpawnRates, Is.EqualTo(new[] { 600 }));
+            Assert.That(spawnControl.LastActor, Is.EqualTo("server"));
+            Assert.That(command.Descriptor.Permissions, Is.EqualTo(new[] { "vega.npc.spawnrate" }));
+            Assert.That(command.Descriptor.AllowServer, Is.True);
+        });
+    }
+
+    [Test]
+    public async Task SpawnRateAcceptsZeroAndIgnoresTrailingArgumentsLikeTShock()
+    {
+        var spawnControl = new RecordingNpcSpawnControl(5, 200, spawnRate: 450);
+        var command = new SpawnRateCommand(spawnControl, new RecordingPlayers(), new NullMessenger());
+
+        CommandExecutionResult result = await command.ExecuteAsync(
+            Invocation("spawnrate", ["0", "ignored"]),
+            CancellationToken.None);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(result.Status, Is.EqualTo(CommandExecutionStatus.Success));
+            Assert.That(spawnControl.SetSpawnRates, Is.EqualTo(new[] { 0 }));
+        });
+    }
+
+    [TestCase("-1")]
+    [TestCase("not-a-number")]
+    public async Task SpawnRateRejectsInvalidValues(string value)
+    {
+        var spawnControl = new RecordingNpcSpawnControl(5, 200, spawnRate: 450);
+        var command = new SpawnRateCommand(spawnControl, new RecordingPlayers(), new NullMessenger());
+
+        CommandExecutionResult result = await command.ExecuteAsync(
+            Invocation("spawnrate", [value]),
+            CancellationToken.None);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(result.ErrorCode, Is.EqualTo("command.spawnrate.invalid-value"));
+            Assert.That(spawnControl.SetSpawnRates, Is.Empty);
+        });
+    }
+
+    [Test]
+    public async Task SilentSpawnRateDoesNotBroadcast()
+    {
+        PlayerSnapshot observer = Player(3, "Alice", 100, 200);
+        var messenger = new RecordingMessenger();
+        var command = new SpawnRateCommand(
+            new RecordingNpcSpawnControl(5, 200),
+            new RecordingPlayers(observer),
+            messenger);
+
+        CommandExecutionResult result = await command.ExecuteAsync(
+            Invocation("spawnrate", ["300"], silent: true),
+            CancellationToken.None);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(result.Status, Is.EqualTo(CommandExecutionStatus.Success));
+            Assert.That(result.Messages?.Single().DefaultText, Does.StartWith("Changed the spawn rate"));
+            Assert.That(messenger.Messages, Is.Empty);
+        });
+    }
+
     private static CommandInvocation Invocation(
         string name,
         IReadOnlyList<string> arguments,
@@ -555,9 +650,10 @@ public sealed class TerrariaAdministrationCommandTests
         }
     }
 
-    private sealed class RecordingNpcSpawnControl(int maximumSpawns, int capacity) : IWorldNpcSpawnControl
+    private sealed class RecordingNpcSpawnControl(int maximumSpawns, int capacity, int spawnRate = 600) : IWorldNpcSpawnControl
     {
         public List<int> SetValues { get; } = [];
+        public List<int> SetSpawnRates { get; } = [];
         public string? LastActor { get; private set; }
 
         public ValueTask<NpcSpawnLimitSnapshot?> CaptureAsync(
@@ -578,6 +674,25 @@ public sealed class TerrariaAdministrationCommandTests
             return ValueTask.FromResult(new NpcSpawnLimitMutationResult(
                 NpcOperationStatus.Applied,
                 new NpcSpawnLimitSnapshot(worldId, value, capacity)));
+        }
+
+        public ValueTask<NpcSpawnRateSnapshot?> CaptureSpawnRateAsync(
+            WorldId worldId,
+            CancellationToken cancellationToken = default) =>
+            ValueTask.FromResult<NpcSpawnRateSnapshot?>(new NpcSpawnRateSnapshot(worldId, spawnRate));
+
+        public ValueTask<NpcSpawnRateMutationResult> SetSpawnRateAsync(
+            WorldId worldId,
+            int value,
+            string actor,
+            CancellationToken cancellationToken = default)
+        {
+            SetSpawnRates.Add(value);
+            LastActor = actor;
+            spawnRate = value;
+            return ValueTask.FromResult(new NpcSpawnRateMutationResult(
+                NpcOperationStatus.Applied,
+                new NpcSpawnRateSnapshot(worldId, value)));
         }
     }
 

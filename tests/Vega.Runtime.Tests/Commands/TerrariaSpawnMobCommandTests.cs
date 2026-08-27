@@ -250,6 +250,10 @@ public sealed class TerrariaSpawnMobCommandTests
             ValueTask.FromResult<NpcSpawnLimitSnapshot?>(new NpcSpawnLimitSnapshot(worldId, 5, capacity));
         public ValueTask<NpcSpawnLimitMutationResult> SetMaximumSpawnsAsync(WorldId worldId, int maximumSpawns, string actor, CancellationToken cancellationToken = default) =>
             throw new NotSupportedException();
+        public ValueTask<NpcSpawnRateSnapshot?> CaptureSpawnRateAsync(WorldId worldId, CancellationToken cancellationToken = default) =>
+            throw new NotSupportedException();
+        public ValueTask<NpcSpawnRateMutationResult> SetSpawnRateAsync(WorldId worldId, int spawnRate, string actor, CancellationToken cancellationToken = default) =>
+            throw new NotSupportedException();
     }
 
     private sealed class RecordingWallOfFleshSpawner : IWallOfFleshSpawner

@@ -31,6 +31,30 @@ public sealed class TerrariaNpcSpawnControl(
             Cancelled());
     }
 
+    public ValueTask<NpcSpawnRateSnapshot?> CaptureSpawnRateAsync(
+        WorldId requestedWorldId,
+        CancellationToken cancellationToken = default) =>
+        DispatchAsync<NpcSpawnRateSnapshot?>(
+            "world.npcs.spawn-rate.capture",
+            () => requestedWorldId == worldId ? CaptureSpawnRate() : null,
+            cancellationToken,
+            null);
+
+    public ValueTask<NpcSpawnRateMutationResult> SetSpawnRateAsync(
+        WorldId requestedWorldId,
+        int spawnRate,
+        string actor,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(actor);
+        return DispatchAsync(
+            "world.npcs.spawn-rate.set",
+            () => SetSpawnRate(requestedWorldId, spawnRate),
+            cancellationToken,
+            SpawnRateUnavailable(),
+            SpawnRateCancelled());
+    }
+
     private NpcSpawnLimitSnapshot Capture()
     {
         dispatcher.AssertGameThread();
@@ -54,10 +78,36 @@ public sealed class TerrariaNpcSpawnControl(
         return new NpcSpawnLimitMutationResult(NpcOperationStatus.Applied, Capture());
     }
 
+    private NpcSpawnRateSnapshot CaptureSpawnRate()
+    {
+        dispatcher.AssertGameThread();
+        return new NpcSpawnRateSnapshot(worldId, global::Terraria.NPC.defaultSpawnRate);
+    }
+
+    private NpcSpawnRateMutationResult SetSpawnRate(WorldId requestedWorldId, int spawnRate)
+    {
+        dispatcher.AssertGameThread();
+        if (requestedWorldId != worldId || spawnRate < 0)
+        {
+            return new NpcSpawnRateMutationResult(
+                NpcOperationStatus.Invalid,
+                ErrorCode: "npc.spawn_rate_invalid");
+        }
+
+        global::Terraria.NPC.defaultSpawnRate = spawnRate;
+        return new NpcSpawnRateMutationResult(NpcOperationStatus.Applied, CaptureSpawnRate());
+    }
+
     private static NpcSpawnLimitMutationResult Unavailable() =>
         new(NpcOperationStatus.DispatcherUnavailable, ErrorCode: "npc.dispatcher_unavailable");
 
     private static NpcSpawnLimitMutationResult Cancelled() =>
+        new(NpcOperationStatus.Cancelled, ErrorCode: "npc.operation_cancelled");
+
+    private static NpcSpawnRateMutationResult SpawnRateUnavailable() =>
+        new(NpcOperationStatus.DispatcherUnavailable, ErrorCode: "npc.dispatcher_unavailable");
+
+    private static NpcSpawnRateMutationResult SpawnRateCancelled() =>
         new(NpcOperationStatus.Cancelled, ErrorCode: "npc.operation_cancelled");
 
     private ValueTask<T> DispatchAsync<T>(

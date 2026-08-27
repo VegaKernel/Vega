@@ -54,7 +54,8 @@ internal static class TerrariaAdministrationCommandRegistration
                 players),
             new ButcherCommand(npcs, new TerrariaNpcCatalog(), players, players),
             new RenameNpcCommand(npcs, new TerrariaNpcCatalog(), players, players),
-            new MaxSpawnsCommand(npcSpawns, players, players)
+            new MaxSpawnsCommand(npcSpawns, players, players),
+            new SpawnRateCommand(npcSpawns, players, players)
         ];
 
         var registrations = handlers.Select(registry.Register).ToList();
@@ -957,6 +958,87 @@ internal sealed class MaxSpawnsCommand(
 
         return CommandExecutionResult.WithMessages(
             MessageDescriptor.Success("command.maxspawns.applied").WithDefaultText(message));
+    }
+}
+
+internal sealed class SpawnRateCommand(
+    IWorldNpcSpawnControl spawnControl,
+    IPlayerDirectory players,
+    IPlayerMessenger messenger) : ICommandHandler
+{
+    private const int DefaultSpawnRate = 600;
+
+    public CommandDescriptor Descriptor { get; } = new(
+        "spawnrate",
+        [],
+        ["vega.npc.spawnrate"],
+        Syntax: "spawnrate [default|non-negative-rate]");
+
+    public async ValueTask<CommandExecutionResult> ExecuteAsync(
+        CommandInvocation invocation,
+        CancellationToken cancellationToken)
+    {
+        NpcSpawnRateSnapshot? current = await spawnControl
+            .CaptureSpawnRateAsync(invocation.WorldId, cancellationToken)
+            .ConfigureAwait(false);
+        if (current is null)
+        {
+            return AdminCommandResults.Failure(
+                "command.spawnrate.unavailable",
+                "The NPC spawn rate is unavailable.");
+        }
+
+        if (invocation.Arguments.Count == 0)
+        {
+            return CommandExecutionResult.WithMessages(
+                MessageDescriptor.Info("command.spawnrate.current")
+                    .WithDefaultText($"Current spawn rate: {current.SpawnRate}."));
+        }
+
+        string value = invocation.Arguments[0];
+        int spawnRate;
+        if (value.Equals("default", StringComparison.OrdinalIgnoreCase))
+        {
+            spawnRate = DefaultSpawnRate;
+        }
+        else if (!int.TryParse(value, NumberStyles.Integer, CultureInfo.InvariantCulture, out spawnRate) ||
+                 spawnRate < 0)
+        {
+            return AdminCommandResults.Failure(
+                "command.spawnrate.invalid-value",
+                "The spawn rate must be 'default' or a non-negative integer.");
+        }
+
+        NpcSpawnRateMutationResult result = await spawnControl
+            .SetSpawnRateAsync(
+                invocation.WorldId,
+                spawnRate,
+                invocation.Principal.Name,
+                cancellationToken)
+            .ConfigureAwait(false);
+        if (!result.IsSuccess)
+        {
+            return AdminCommandResults.Failure(
+                result.ErrorCode ?? "command.spawnrate.failed",
+                $"Could not change the NPC spawn rate: {result.ErrorCode ?? result.Status.ToString()}.");
+        }
+
+        string message = $"{invocation.Principal.Name} changed the spawn rate to {spawnRate}.";
+        if (!invocation.Silent)
+        {
+            await NpcCommandBroadcast.SendToOthersAsync(
+                players,
+                messenger,
+                invocation,
+                message,
+                cancellationToken).ConfigureAwait(false);
+        }
+
+        return CommandExecutionResult.WithMessages(
+            MessageDescriptor.Info("command.spawnrate.applied")
+                .WithDefaultText(invocation.Silent
+                    ? $"Changed the spawn rate to {spawnRate}."
+                    : message));
     }
 }
 

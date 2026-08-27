@@ -13,9 +13,11 @@ public sealed class TerrariaNpcSpawnControlTests
     public async Task CaptureAndSetUseGameThreadAndRuntimeCapacity()
     {
         int originalMaximum = global::Terraria.NPC.defaultMaxSpawns;
+        int originalSpawnRate = global::Terraria.NPC.defaultSpawnRate;
         try
         {
             global::Terraria.NPC.defaultMaxSpawns = 5;
+            global::Terraria.NPC.defaultSpawnRate = 600;
             var dispatcher = new InlineGameThreadDispatcher();
             var control = new TerrariaNpcSpawnControl(dispatcher, WorldId.Primary);
 
@@ -28,6 +30,15 @@ public sealed class TerrariaNpcSpawnControlTests
                 WorldId.Primary,
                 global::Terraria.Main.maxNPCs + 1,
                 "test");
+            NpcSpawnRateSnapshot? rateBefore = await control.CaptureSpawnRateAsync(WorldId.Primary);
+            NpcSpawnRateMutationResult rateApplied = await control.SetSpawnRateAsync(
+                WorldId.Primary,
+                0,
+                "test");
+            NpcSpawnRateMutationResult rateInvalid = await control.SetSpawnRateAsync(
+                WorldId.Primary,
+                -1,
+                "test");
 
             Assert.Multiple(() =>
             {
@@ -36,12 +47,17 @@ public sealed class TerrariaNpcSpawnControlTests
                 Assert.That(applied.Status, Is.EqualTo(NpcOperationStatus.Applied));
                 Assert.That(global::Terraria.NPC.defaultMaxSpawns, Is.EqualTo(global::Terraria.Main.maxNPCs));
                 Assert.That(invalid.Status, Is.EqualTo(NpcOperationStatus.Invalid));
-                Assert.That(dispatcher.AssertCalls, Is.EqualTo(4));
+                Assert.That(rateBefore?.SpawnRate, Is.EqualTo(600));
+                Assert.That(rateApplied.Status, Is.EqualTo(NpcOperationStatus.Applied));
+                Assert.That(global::Terraria.NPC.defaultSpawnRate, Is.EqualTo(0));
+                Assert.That(rateInvalid.Status, Is.EqualTo(NpcOperationStatus.Invalid));
+                Assert.That(dispatcher.AssertCalls, Is.EqualTo(8));
             });
         }
         finally
         {
             global::Terraria.NPC.defaultMaxSpawns = originalMaximum;
+            global::Terraria.NPC.defaultSpawnRate = originalSpawnRate;
         }
     }
 
