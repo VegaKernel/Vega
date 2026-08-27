@@ -34,6 +34,7 @@ public sealed class PlayerPacketOwnershipPolicy : IPacketProcessor<PacketView>
             // The first byte is the sender player id; buff ids that follow are UInt16 in protocol 326.
             PacketTypes.PlayerBuff => context.Packet.PayloadSpan[0],
             PacketTypes.NpcSpecial => new NpcSpecialView(context.Packet).SubjectId,
+            PacketTypes.SpawnBossorInvasion => new SpawnBossorInvasionView(context.Packet).PlayerId,
             PacketTypes.PlayHarp => new PlayHarpView(context.Packet).PlayerId,
             PacketTypes.PlayerDodge => new PlayerDodgeView(context.Packet).PlayerId,
             PacketTypes.PlayerStealth => new PlayerStealthView(context.Packet).Player,
