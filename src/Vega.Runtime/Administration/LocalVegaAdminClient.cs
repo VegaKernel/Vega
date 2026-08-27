@@ -156,7 +156,7 @@ internal sealed class LocalVegaAdminClient(
             messages.Add(new AdminMessageDescriptor(
                 Key: null,
                 Arguments: Array.Empty<object?>(),
-                severity,
+                Severity: severity,
                 FallbackText: message));
             return ValueTask.CompletedTask;
         }
