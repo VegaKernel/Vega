@@ -656,8 +656,9 @@ internal sealed class PositionCommand(IPlayerDirectory players) : ICommandHandle
 {
     public CommandDescriptor Descriptor { get; } = new(
         "pos",
-        ["position"],
-        ["vega.players.position"],
+        [],
+        ["vega.players.position.get"],
+        AllowServer: false,
         Syntax: "pos [player]");
 
     public ValueTask<CommandExecutionResult> ExecuteAsync(CommandInvocation invocation, CancellationToken cancellationToken)
@@ -666,8 +667,12 @@ internal sealed class PositionCommand(IPlayerDirectory players) : ICommandHandle
         if (invocation.Arguments.Count == 0 && PlayerResolver.TryCaller(players, invocation, out player))
         {
         }
-        else if (invocation.Arguments.Count == 1 &&
-                 PlayerResolver.TryResolve(players, invocation.Arguments[0], out player, out string? error))
+        else if (invocation.Arguments.Count > 0 &&
+                 PlayerResolver.TryResolve(
+                     players,
+                     string.Join(" ", invocation.Arguments),
+                     out player,
+                     out string? error))
         {
         }
         else
@@ -675,12 +680,12 @@ internal sealed class PositionCommand(IPlayerDirectory players) : ICommandHandle
             return ValueTask.FromResult(AdminCommandResults.Usage("command.pos.usage", "Usage: pos [player]."));
         }
 
-        double tileX = player!.Position.X / 16d;
-        double tileY = player.Position.Y / 16d;
+        int tileX = (int)(player!.Position.X / 16f);
+        int tileY = (int)(player.Position.Y / 16f);
         return ValueTask.FromResult(CommandExecutionResult.WithMessages(
-            MessageDescriptor.Info("command.pos.current")
+            MessageDescriptor.Success("command.pos.current")
                 .WithDefaultText(
-                    $"{player.Name}: tile=({tileX:F1},{tileY:F1}), pixels=({player.Position.X:F1},{player.Position.Y:F1}), world={player.WorldId}.")));
+                    $"Location of {player.Name} is ({tileX}, {tileY}).")));
     }
 }
 

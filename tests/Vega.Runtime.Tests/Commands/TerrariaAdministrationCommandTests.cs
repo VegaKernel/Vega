@@ -346,6 +346,28 @@ public sealed class TerrariaAdministrationCommandTests
     }
 
     [Test]
+    public async Task PositionJoinsTargetNameAndReportsIntegerTiles()
+    {
+        PlayerSnapshot actor = Player(1, "Admin", 50, 60);
+        PlayerSnapshot target = Player(3, "Alice Smith", 31.9f, 47.9f);
+        var command = new PositionCommand(new RecordingPlayers(actor, target));
+        var principal = new PlayerPrincipal(actor.Id, actor.Name, "vega.players.position.get");
+
+        CommandExecutionResult result = await command.ExecuteAsync(
+            new CommandInvocation("pos", ["Alice", "Smith"], principal, NullOutput.Instance),
+            CancellationToken.None);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(result.Status, Is.EqualTo(CommandExecutionStatus.Success));
+            Assert.That(result.Messages?.Single().DefaultText, Is.EqualTo("Location of Alice Smith is (1, 2)."));
+            Assert.That(command.Descriptor.Aliases, Is.Empty);
+            Assert.That(command.Descriptor.AllowServer, Is.False);
+            Assert.That(command.Descriptor.Permissions, Is.EqualTo(new[] { "vega.players.position.get" }));
+        });
+    }
+
+    [Test]
     public async Task ButcherWithNpcSelectorKillsOnlyMatchingNetId()
     {
         NpcSnapshot first = Npc(1, "Zombie", friendly: false, town: false, boss: false, netId: 20);
