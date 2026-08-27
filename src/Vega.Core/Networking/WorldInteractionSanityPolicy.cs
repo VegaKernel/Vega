@@ -31,6 +31,10 @@ public sealed class WorldInteractionSanityPolicy(
                 new HitSwitchView(context.Packet).X,
                 new HitSwitchView(context.Packet).Y,
                 "packet.switch.position_out_of_world"),
+            PacketTypes.CrystalInvasionStart => ValidateCoordinates(
+                new CrystalInvasionStartView(context.Packet).X,
+                new CrystalInvasionStartView(context.Packet).Y,
+                "packet.crystal_invasion.position_out_of_world"),
             PacketTypes.WeaponsRackTryPlacing => ValidateWeaponRack(new WeaponsRackTryPlacingView(context.Packet)),
             PacketTypes.WiredCannonShot => ValidateWiredCannon(new WiredCannonShotView(context.Packet)),
             PacketTypes.MassWireOperationPay => ValidateMassWirePayment(new MassWireOperationPayView(context.Packet)),
