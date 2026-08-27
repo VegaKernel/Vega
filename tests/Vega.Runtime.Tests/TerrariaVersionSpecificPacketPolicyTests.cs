@@ -103,6 +103,23 @@ public sealed class TerrariaVersionSpecificPacketPolicyTests
     }
 
     [Test]
+    public void KillPortalRejectsInvalidOwnerOrSide()
+    {
+        PacketProcessingDecision invalidOwner = Process(
+            new TerrariaPortalAuthorityPolicy(),
+            new KillPortal { PlayerId = ushort.MaxValue, PortalColor = 0 });
+        PacketProcessingDecision invalidSide = Process(
+            new TerrariaPortalAuthorityPolicy(),
+            new KillPortal { PlayerId = 0, PortalColor = 2 });
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(invalidOwner, Is.EqualTo(PacketProcessingDecision.Violation("packet.portal.invalid_key")));
+            Assert.That(invalidSide, Is.EqualTo(PacketProcessingDecision.Violation("packet.portal.invalid_key")));
+        });
+    }
+
+    [Test]
     public void PlayerPortalTeleportRejectsNonFiniteTransformBeforeLivePortalLookup()
     {
         PacketProcessingDecision decision = Process(
