@@ -41,10 +41,57 @@ public interface IVegaPluginContext
     IVegaDebugContext Debug { get; }
 }
 
+/// <summary>Executes one plugin command through Vega's normal command pipeline.</summary>
+public delegate ValueTask<CommandExecutionResult> PluginCommandCallback(
+    CommandInvocation invocation,
+    CancellationToken cancellationToken);
+
 public interface IPluginCommands
 {
     /// <summary>Registers a command until the plugin is unloaded.</summary>
     void Register(ICommandHandler handler);
+
+    /// <summary>
+    /// Registers a command callback without requiring a dedicated <see cref="ICommandHandler"/> type.
+    /// The callback still uses the normal command registry and is removed automatically on unload.
+    /// </summary>
+    void Register(CommandDescriptor descriptor, PluginCommandCallback callback)
+    {
+        ArgumentNullException.ThrowIfNull(descriptor);
+        ArgumentNullException.ThrowIfNull(callback);
+        Register(new PluginCallbackCommandHandler(descriptor, callback));
+    }
+
+    /// <summary>
+    /// Registers a simple command with inline metadata. Use the handler overload when a command
+    /// deserves its own type or needs to be shared outside the plugin facade.
+    /// </summary>
+    void Register(
+        string name,
+        PluginCommandCallback callback,
+        IReadOnlyList<string>? aliases = null,
+        IReadOnlyList<string>? permissions = null,
+        bool allowServer = true,
+        string syntax = "")
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(name);
+        Register(
+            new CommandDescriptor(name, aliases ?? [], permissions ?? [], allowServer, syntax),
+            callback);
+    }
+}
+
+internal sealed class PluginCallbackCommandHandler(
+    CommandDescriptor descriptor,
+    PluginCommandCallback callback) : ICommandHandler
+{
+    public CommandDescriptor Descriptor { get; } =
+        descriptor ?? throw new ArgumentNullException(nameof(descriptor));
+
+    public ValueTask<CommandExecutionResult> ExecuteAsync(
+        CommandInvocation invocation,
+        CancellationToken cancellationToken) =>
+        callback(invocation, cancellationToken);
 }
 
 /// <summary>
