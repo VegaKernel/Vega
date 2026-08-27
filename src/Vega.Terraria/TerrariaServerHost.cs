@@ -46,6 +46,7 @@ public static class TerrariaServerHost
         IReadOnlyList<IRuntimeStartupParticipant> startupParticipants,
         IPacketProcessor<PacketView> playerOwnershipSecurity,
         ICommandDispatcher commandDispatcher,
+        IWorldBuildProtectionService buildProtection,
         IPlayerAuthorizationService playerAuthorization,
         IPlayerAccountSessionService accountSessions,
         IMuteService mutes,
@@ -73,6 +74,7 @@ public static class TerrariaServerHost
         ArgumentNullException.ThrowIfNull(startupParticipants);
         ArgumentNullException.ThrowIfNull(playerOwnershipSecurity);
         ArgumentNullException.ThrowIfNull(commandDispatcher);
+        ArgumentNullException.ThrowIfNull(buildProtection);
         ArgumentNullException.ThrowIfNull(playerAuthorization);
         ArgumentNullException.ThrowIfNull(accountSessions);
         ArgumentNullException.ThrowIfNull(mutes);
@@ -127,7 +129,8 @@ public static class TerrariaServerHost
             commandDispatcher,
             runtimeWorldId,
             gameThreadDispatcher,
-            playerBoundary);
+            playerBoundary,
+            buildProtection);
         using var playerLifecycleCommands = TerrariaPlayerLifecycleCommandRegistration.Register(
             commandDispatcher,
             playerBoundary);

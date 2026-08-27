@@ -472,10 +472,12 @@ int Start()
             playerBoundary,
             playerBoundary);
         using var packetRateLimits = new PacketRateLimitPolicy(playerBoundary);
+        var buildProtection = new RuntimeWorldBuildProtectionService();
         var playerPacketPolicies = new PacketProcessorPipeline<PacketView>(
         [
             packetRateLimits,
             gameplayEnforcement,
+            new GlobalBuildProtectionPolicy(buildProtection, playerAuthorization),
             new PlayerPacketOwnershipPolicy(),
             new PlayerActionSanityPolicy(
                 TerrariaPacketSecurityLimits.PlayerCount,
@@ -757,6 +759,7 @@ int Start()
             [database],
             playerPacketPolicies,
             commandDispatcher,
+            buildProtection,
             playerAuthorization,
             accountSessions,
             database.Mutes,

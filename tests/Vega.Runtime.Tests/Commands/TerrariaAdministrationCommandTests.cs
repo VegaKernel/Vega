@@ -2,6 +2,7 @@ using NUnit.Framework;
 using Vega.Contracts.Commands;
 using Vega.Contracts.Players;
 using Vega.Contracts.Worlds;
+using Vega.Core.Networking;
 using Vega.Terraria.Commands;
 using Vega.Terraria.Players;
 
@@ -10,6 +11,33 @@ namespace Vega.Runtime.Tests.Commands;
 [TestFixture]
 public sealed class TerrariaAdministrationCommandTests
 {
+    [Test]
+    public async Task AntiBuildTogglesSharedStateAndBroadcasts()
+    {
+        var protection = new RuntimeWorldBuildProtectionService();
+        PlayerSnapshot first = Player(1, "Alice", 10, 20);
+        PlayerSnapshot second = Player(2, "Bob", 30, 40);
+        var messenger = new RecordingMessenger();
+        var command = new AntiBuildCommand(
+            protection,
+            new RecordingPlayers(first, second),
+            messenger);
+
+        CommandExecutionResult result = await command.ExecuteAsync(
+            Invocation("antibuild", ["ignored"]),
+            CancellationToken.None);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(result.Status, Is.EqualTo(CommandExecutionStatus.Success));
+            Assert.That(protection.IsEnabled, Is.True);
+            Assert.That(messenger.Messages, Has.Count.EqualTo(2));
+            Assert.That(messenger.Messages.All(entry => entry.Message.Contains("on", StringComparison.Ordinal)), Is.True);
+            Assert.That(command.Descriptor.AllowServer, Is.True);
+            Assert.That(command.Descriptor.Permissions, Is.EqualTo(new[] { "vega.world.antibuild" }));
+        });
+    }
+
     [TestCase("0", 0, "normal")]
     [TestCase("expert", 1, "expert")]
     [TestCase("MASTER", 2, "master")]

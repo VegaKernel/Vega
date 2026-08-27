@@ -15,11 +15,13 @@ internal static class TerrariaAdministrationCommandRegistration
         ICommandDispatcher dispatcher,
         WorldId runtimeWorldId,
         TerrariaRuntimeGameThreadDispatcher gameThread,
-        TerrariaPlayerBoundary players)
+        TerrariaPlayerBoundary players,
+        IWorldBuildProtectionService buildProtection)
     {
         ArgumentNullException.ThrowIfNull(dispatcher);
         ArgumentNullException.ThrowIfNull(gameThread);
         ArgumentNullException.ThrowIfNull(players);
+        ArgumentNullException.ThrowIfNull(buildProtection);
 
         if (dispatcher is not ICommandRegistry registry)
         {
@@ -40,6 +42,7 @@ internal static class TerrariaAdministrationCommandRegistration
             new BroadcastCommand(players, players),
             new WorldInfoCommand(environment),
             new WorldModeCommand(environment),
+            new AntiBuildCommand(buildProtection, players, players),
             new TimeCommand(environment),
             new WeatherCommand(environment),
             new WindCommand(environment),
@@ -196,6 +199,39 @@ internal sealed class WorldModeCommand(IWorldEnvironmentService environment) : I
     private static CommandExecutionResult Invalid() => AdminCommandResults.Failure(
         "command.worldmode.invalid",
         "Invalid world mode. Valid modes: normal, expert, master, journey, creative.");
+}
+
+internal sealed class AntiBuildCommand(
+    IWorldBuildProtectionService protection,
+    IPlayerDirectory players,
+    IPlayerMessenger messenger) : ICommandHandler
+{
+    public CommandDescriptor Descriptor { get; } = new(
+        "antibuild",
+        [],
+        ["vega.world.antibuild"],
+        Syntax: "antibuild");
+
+    public async ValueTask<CommandExecutionResult> ExecuteAsync(
+        CommandInvocation invocation,
+        CancellationToken cancellationToken)
+    {
+        bool enabled = protection.Toggle();
+        string text = enabled ? "Anti-build is now on." : "Anti-build is now off.";
+        foreach (PlayerSnapshot player in players.SnapshotOnlinePlayers())
+        {
+            if (invocation.Principal is IPlayerCommandPrincipal caller && caller.PlayerId == player.Id)
+            {
+                continue;
+            }
+
+            await messenger.SendMessageAsync(player.Id, text, cancellationToken).ConfigureAwait(false);
+        }
+
+        return CommandExecutionResult.WithMessages(
+            MessageDescriptor.Success("command.antibuild.changed", enabled)
+                .WithDefaultText(text));
+    }
 }
 
 internal sealed class WorldInfoCommand(IWorldEnvironmentService environment) : ICommandHandler
