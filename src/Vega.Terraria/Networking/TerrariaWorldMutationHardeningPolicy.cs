@@ -13,12 +13,14 @@ public sealed class TerrariaWorldMutationHardeningPolicy : IPacketProcessor<Pack
     private readonly Func<int> worldHeight;
     private readonly Func<int, int, ushort> tileType;
     private readonly Func<int, int> itemMaxStack;
+    private readonly Func<int, int, bool> itemFrameExists;
 
     public TerrariaWorldMutationHardeningPolicy() : this(
         static () => global::Terraria.Main.maxTilesX,
         static () => global::Terraria.Main.maxTilesY,
         static (x, y) => global::Terraria.Main.tile[x, y].type,
-        NativeItemMaxStack)
+        NativeItemMaxStack,
+        NativeItemFrameExists)
     {
     }
 
@@ -26,12 +28,14 @@ public sealed class TerrariaWorldMutationHardeningPolicy : IPacketProcessor<Pack
         Func<int> worldWidth,
         Func<int> worldHeight,
         Func<int, int, ushort> tileType,
-        Func<int, int> itemMaxStack)
+        Func<int, int> itemMaxStack,
+        Func<int, int, bool>? itemFrameExists = null)
     {
         this.worldWidth = worldWidth ?? throw new ArgumentNullException(nameof(worldWidth));
         this.worldHeight = worldHeight ?? throw new ArgumentNullException(nameof(worldHeight));
         this.tileType = tileType ?? throw new ArgumentNullException(nameof(tileType));
         this.itemMaxStack = itemMaxStack ?? throw new ArgumentNullException(nameof(itemMaxStack));
+        this.itemFrameExists = itemFrameExists ?? NativeItemFrameExists;
     }
 
     public PacketProcessingDecision Process(scoped in PacketProcessingContext<PacketView> context)
@@ -45,6 +49,7 @@ public sealed class TerrariaWorldMutationHardeningPolicy : IPacketProcessor<Pack
         {
             PacketTypes.DoorUse => ValidateDoor(context.Packet.AsDoorUseView()),
             PacketTypes.ChestItem => ValidateChestStack(context.Packet.AsChestItemView()),
+            PacketTypes.PlaceItemFrame => ValidateItemFrame(context.Packet.AsPlaceItemFrameView()),
             _ => PacketProcessingDecision.Allow
         };
     }
@@ -73,10 +78,23 @@ public sealed class TerrariaWorldMutationHardeningPolicy : IPacketProcessor<Pack
             ? PacketProcessingDecision.Violation("packet.chest.stack_exceeds_item_limit")
             : PacketProcessingDecision.Allow;
 
+    private PacketProcessingDecision ValidateItemFrame(PlaceItemFrameView itemFrame) =>
+        itemFrameExists(itemFrame.X, itemFrame.Y)
+            ? PacketProcessingDecision.Allow
+            : PacketProcessingDecision.Reject("packet.item_frame.not_found");
+
     private static int NativeItemMaxStack(int itemNetId)
     {
         var item = new global::Terraria.Item();
         item.netDefaults(itemNetId);
         return item.maxStack;
+    }
+
+    private static bool NativeItemFrameExists(int x, int y)
+    {
+        int id = global::Terraria.GameContent.Tile_Entities.TEItemFrame.Find(x, y);
+        return id >= 0 &&
+            global::Terraria.DataStructures.TileEntity.ByID.TryGetValue(id, out global::Terraria.DataStructures.TileEntity? entity) &&
+            entity is global::Terraria.GameContent.Tile_Entities.TEItemFrame;
     }
 }
