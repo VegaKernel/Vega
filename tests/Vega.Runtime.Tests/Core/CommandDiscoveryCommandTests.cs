@@ -56,6 +56,23 @@ public sealed class CommandDiscoveryCommandTests
         });
     }
 
+    [TestCase("/sec")]
+    [TestCase(".sec")]
+    public async Task HelpAcceptsSlashAndDotPrefixesForLookup(string requested)
+    {
+        var dispatcher = new CommandDispatcher([
+            new FakeHandler(new CommandDescriptor("secure", ["sec"], [], Syntax: "secure"))
+        ]);
+        var help = new HelpCommand(dispatcher);
+
+        CommandExecutionResult result = await help.ExecuteAsync(
+            Invocation("help", [requested], new FakePrincipal("player", false, [])),
+            default);
+
+        Assert.That(result.Status, Is.EqualTo(CommandExecutionStatus.Success));
+        Assert.That(result.Messages![0].Arguments[0], Is.EqualTo("secure"));
+    }
+
     [Test]
     public async Task AliasesRequiresACommandOrAlias()
     {
@@ -74,6 +91,27 @@ public sealed class CommandDiscoveryCommandTests
         });
     }
 
+    [TestCase("/public")]
+    [TestCase(".public")]
+    public async Task AliasesAcceptsSlashAndDotPrefixesLikeCommandInput(string requested)
+    {
+        var dispatcher = new CommandDispatcher([
+            new FakeHandler(new CommandDescriptor("public", ["pub", "p"], []))
+        ]);
+        var aliases = new AliasesCommand(dispatcher);
+        var principal = new FakePrincipal("player", false, []);
+
+        CommandExecutionResult result = await aliases.ExecuteAsync(
+            Invocation("aliases", [requested], principal),
+            default);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(result.Status, Is.EqualTo(CommandExecutionStatus.Success));
+            Assert.That(result.Messages![0].Arguments, Is.EqualTo(new object?[] { "public", "/pub, /p" }));
+        });
+    }
+
     [Test]
     public async Task AliasesResolvesCanonicalNameOrAliasLikeTerraZ()
     {
@@ -85,7 +123,7 @@ public sealed class CommandDiscoveryCommandTests
         var principal = new FakePrincipal("player", false, []);
 
         CommandExecutionResult byName = await aliases.ExecuteAsync(
-            Invocation("aliases", ["/public"], principal),
+            Invocation("aliases", ["public"], principal),
             default);
         CommandExecutionResult byAlias = await aliases.ExecuteAsync(
             Invocation("aliases", ["sec"], principal),
