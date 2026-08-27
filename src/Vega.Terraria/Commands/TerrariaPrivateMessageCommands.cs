@@ -33,6 +33,8 @@ internal static class TerrariaPrivateMessageCommandRegistration
         [
             registry.Register(new ThirdPersonCommand(players, messenger, mutes)),
             registry.Register(new PartyChatCommand(players, messenger, mutes)),
+            registry.Register(new ServerTextFileCommand("motd", "motd.txt", "command.motd")),
+            registry.Register(new ServerTextFileCommand("rules", "rules.txt", "command.rules")),
             registry.Register(new WhisperCommand(players, messenger, mutes, state)),
             registry.Register(new ReplyCommand(players, messenger, mutes, state)),
             registry.Register(new WallowCommand(players, state))
