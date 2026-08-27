@@ -26,6 +26,101 @@ public sealed class ExpandedPacketSanityPolicyTests
     }
 
     [Test]
+    public void PlayerAnimationRejectsNonFiniteRotationBeforeTerrariaMutation()
+    {
+        var policy = PlayerActions();
+        PacketView packet = PacketView.FromPayload(
+            PacketTypes.PlayerAnimation,
+            new PlayerAnimation
+            {
+                PlayerId = 7,
+                ItemRotation = float.NaN,
+                ItemAnimation = 1
+            }.ToPayloadArray());
+
+        PacketProcessingDecision decision = Process(policy, packet, 7);
+
+        Assert.That(
+            decision,
+            Is.EqualTo(PacketProcessingDecision.Violation("packet.player_animation.non_finite_rotation")));
+    }
+
+    [Test]
+    public void PlayerAnimationOwnershipRejectsForeignSender()
+    {
+        PacketView packet = PacketView.FromPayload(
+            PacketTypes.PlayerAnimation,
+            new PlayerAnimation
+            {
+                PlayerId = 7,
+                ItemRotation = 0f,
+                ItemAnimation = 1
+            }.ToPayloadArray());
+        var policy = new PlayerPacketOwnershipPolicy();
+
+        PacketProcessingDecision own = Process(policy, packet, 7);
+        PacketProcessingDecision foreign = Process(policy, packet, 8);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(own.Kind, Is.EqualTo(PacketDecisionKind.Allow));
+            Assert.That(
+                foreign,
+                Is.EqualTo(PacketProcessingDecision.Violation("packet.player_identity_mismatch")));
+        });
+    }
+
+    [Test]
+    public void PlayerManaRejectsNegativeValuesBeforeTerrariaMutation()
+    {
+        var policy = PlayerActions();
+        PacketView negativeCurrent = PacketView.FromPayload(
+            PacketTypes.PlayerMana,
+            new PlayerMana { PlayerId = 7, Mana = -1, MaxMana = 20 }.ToPayloadArray());
+        PacketView negativeMaximum = PacketView.FromPayload(
+            PacketTypes.PlayerMana,
+            new PlayerMana { PlayerId = 7, Mana = 20, MaxMana = -1 }.ToPayloadArray());
+
+        PacketProcessingDecision currentDecision = Process(policy, negativeCurrent, 7);
+        PacketProcessingDecision maximumDecision = Process(policy, negativeMaximum, 7);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(
+                currentDecision,
+                Is.EqualTo(PacketProcessingDecision.Violation("packet.player_mana.negative")));
+            Assert.That(
+                maximumDecision,
+                Is.EqualTo(PacketProcessingDecision.Violation("packet.player_mana.negative")));
+        });
+    }
+
+    [Test]
+    public void PlayerTeamPacketsRejectProtocolTeamOutsideVanillaRange()
+    {
+        var policy = PlayerActions();
+        PacketView playerTeam = PacketView.FromPayload(
+            PacketTypes.PlayerTeam,
+            new PlayerTeam { PlayerId = 7, Team = 6 }.ToPayloadArray());
+        PacketView uiTeam = PacketView.FromPayload(
+            PacketTypes.TeamChangeFromUI,
+            new TeamChangeFromUI { PlayerId = 7, Team = 6 }.ToPayloadArray());
+
+        PacketProcessingDecision playerTeamDecision = Process(policy, playerTeam, 7);
+        PacketProcessingDecision uiTeamDecision = Process(policy, uiTeam, 7);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(
+                playerTeamDecision,
+                Is.EqualTo(PacketProcessingDecision.Violation("packet.player_team.team_out_of_range")));
+            Assert.That(
+                uiTeamDecision,
+                Is.EqualTo(PacketProcessingDecision.Violation("packet.player_team.team_out_of_range")));
+        });
+    }
+
+    [Test]
     public void PlayerBuffOwnershipReadsProtocol326SenderWithoutMaterialization()
     {
         PacketView packet = PacketView.FromPayload(
@@ -62,6 +157,23 @@ public sealed class ExpandedPacketSanityPolicyTests
         Assert.That(
             decision,
             Is.EqualTo(PacketProcessingDecision.Violation("packet.player_buff_list.nonzero_after_terminator")));
+    }
+
+    [Test]
+    public void PlayerBuffListRejectsOutOfRangeBuffType()
+    {
+        var policy = PlayerActions();
+        byte[] payload = new byte[5];
+        payload[0] = 7;
+        BinaryPrimitives.WriteUInt16LittleEndian(payload.AsSpan(1), 500);
+        BinaryPrimitives.WriteUInt16LittleEndian(payload.AsSpan(3), 0);
+        PacketView packet = PacketView.FromPayload(PacketTypes.PlayerBuff, payload);
+
+        PacketProcessingDecision decision = Process(policy, packet, 7);
+
+        Assert.That(
+            decision,
+            Is.EqualTo(PacketProcessingDecision.Violation("packet.player_buff_list.type_out_of_range")));
     }
 
     [Test]
