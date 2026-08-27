@@ -82,7 +82,7 @@ internal sealed class EmbeddedOperationsAdminClient(
             result.Messages.Select(static message => new AdminMessageDescriptor(
                 Key: null,
                 Arguments: Array.Empty<object?>(),
-                AdminMessageSeverity.Info,
+                Severity: AdminMessageSeverity.Info,
                 FallbackText: message)).ToArray());
     }
 }
