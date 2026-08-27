@@ -9,10 +9,29 @@ public sealed record CommandDescriptor(
     bool AllowServer = true,
     string Syntax = "")
 {
+    /// <summary>Stable owning module/subsystem identity used by help and administration clients.</summary>
+    public string Owner { get; init; } = "vega";
+
+    /// <summary>Whether the command may be invoked by a non-server/player principal.</summary>
+    public bool AllowPlayers { get; init; } = true;
+
+    public string? TitleKey { get; init; }
+
+    public string? DescriptionKey { get; init; }
+
+    public string? HelpKey { get; init; }
+
+    public string? FallbackTitle { get; init; }
+
+    public string? FallbackDescription { get; init; }
+
+    public string? FallbackHelp { get; init; }
+
     public bool IsAvailableTo(ICommandPrincipal principal)
     {
         ArgumentNullException.ThrowIfNull(principal);
-        return (AllowServer || !principal.IsServer) &&
+        bool transportAllowed = principal.IsServer ? AllowServer : AllowPlayers;
+        return transportAllowed &&
             (Permissions.Count == 0 || Permissions.Any(principal.HasPermission));
     }
 }
