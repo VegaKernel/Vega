@@ -15,10 +15,30 @@ public interface IVegaAdminClient
     ValueTask<AdminServerStatusSnapshot> GetServerStatusAsync(
         CancellationToken cancellationToken = default);
 
+    ValueTask<IReadOnlyList<AdminPlayerSnapshot>> GetPlayersAsync(
+        CancellationToken cancellationToken = default);
+
     ValueTask<IReadOnlyList<AdminCommandDescriptor>> GetCommandCatalogAsync(
         CancellationToken cancellationToken = default);
 
     ValueTask<AdminCommandResult> ExecuteCommandAsync(
         AdminCommandRequest request,
+        CancellationToken cancellationToken = default);
+
+    ValueTask<IReadOnlyList<AdminModuleSnapshot>> GetModulesAsync(
+        CancellationToken cancellationToken = default);
+
+    ValueTask<IReadOnlyList<AdminLogRecord>> QueryLogsAsync(
+        AdminLogQuery query,
+        CancellationToken cancellationToken = default);
+
+    ValueTask<IReadOnlyList<AdminChatRecord>> GetChatAsync(
+        int limit = 100,
+        CancellationToken cancellationToken = default);
+
+    ValueTask<AdminAdministrationSnapshot> GetAdministrationAsync(
+        CancellationToken cancellationToken = default);
+
+    ValueTask<AdminDiagnosticsSnapshot> GetDiagnosticsAsync(
         CancellationToken cancellationToken = default);
 }
