@@ -34,7 +34,7 @@ public sealed class HelpCommand(ICommandCatalog commands) : ICommandHandler
                     .WithDefaultText("Available commands: {0}. Use /help <command> for syntax, aliases and permissions.")));
         }
 
-        string requested = invocation.Arguments[0];
+        string requested = CommandLookupName.Normalize(invocation.Arguments[0]);
         CommandDescriptor? match = visible.FirstOrDefault(command =>
             command.Name.Equals(requested, StringComparison.OrdinalIgnoreCase) ||
             command.Aliases.Any(alias => alias.Equals(requested, StringComparison.OrdinalIgnoreCase)));
@@ -78,12 +78,7 @@ public sealed class AliasesCommand(ICommandCatalog commands) : ICommandHandler
             return ValueTask.FromResult(InvalidUsage());
         }
 
-        string requested = string.Join(" ", invocation.Arguments).Trim();
-        if (requested.StartsWith("/", StringComparison.Ordinal))
-        {
-            requested = requested[1..];
-        }
-
+        string requested = CommandLookupName.Normalize(string.Join(" ", invocation.Arguments));
         if (requested.Length == 0)
         {
             return ValueTask.FromResult(InvalidUsage());
@@ -118,4 +113,18 @@ public sealed class AliasesCommand(ICommandCatalog commands) : ICommandHandler
         "command.aliases.usage",
         [MessageDescriptor.Error("command.aliases.usage")
             .WithDefaultText("Usage: aliases <command or alias>.")]);
+}
+
+internal static class CommandLookupName
+{
+    public static string Normalize(string value)
+    {
+        string normalized = value.Trim();
+        if (normalized.Length > 0 && normalized[0] is '/' or '.')
+        {
+            normalized = normalized[1..].TrimStart();
+        }
+
+        return normalized;
+    }
 }
