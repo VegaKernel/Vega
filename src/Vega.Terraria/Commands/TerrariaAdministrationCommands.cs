@@ -41,7 +41,7 @@ internal static class TerrariaAdministrationCommandRegistration
             new TimeCommand(environment),
             new WeatherCommand(environment),
             new WindCommand(environment),
-            new TeleportCommand(players, players),
+            new TeleportCommand(players, players, players),
             new TeleportHereCommand(players, players),
             new TeleportPositionCommand(players, players, environment),
             new SpawnCommand(players, recall),
@@ -331,35 +331,160 @@ internal sealed class WindCommand(IWorldEnvironmentService environment) : IComma
 
 internal sealed class TeleportCommand(
     IPlayerDirectory players,
-    IPlayerOperations operations) : ICommandHandler
+    IPlayerOperations operations,
+    IPlayerMessenger messenger) : ICommandHandler
 {
     public CommandDescriptor Descriptor { get; } = new(
         "tp",
-        ["teleport"],
+        [],
         ["vega.players.teleport"],
-        Syntax: "tp <player> <target>");
+        AllowServer: false,
+        Syntax: "tp <target> | tp <player|*> <target>");
 
     public async ValueTask<CommandExecutionResult> ExecuteAsync(CommandInvocation invocation, CancellationToken cancellationToken)
     {
-        if (invocation.Arguments.Count != 2)
+        if (invocation.Arguments.Count is < 1 or > 2)
         {
-            return AdminCommandResults.Usage("command.tp.usage", "Usage: tp <player> <target>.");
+            return AdminCommandResults.Usage(
+                "command.tp.usage",
+                invocation.Principal.HasPermission("vega.players.teleport.others")
+                    ? "Usage: tp <target> | tp <player|*> <target>."
+                    : "Usage: tp <target>.");
         }
 
-        if (!PlayerResolver.TryResolve(players, invocation.Arguments[0], out PlayerSnapshot? player, out string? error))
+        if (invocation.Arguments.Count == 1)
         {
-            return AdminCommandResults.Failure("command.tp.invalid-player", error!);
+            if (!PlayerResolver.TryCaller(players, invocation, out PlayerSnapshot? caller))
+            {
+                return AdminCommandResults.Failure(
+                    "command.tp.player-unavailable",
+                    "This command requires an active player.");
+            }
+
+            if (!PlayerResolver.TryResolve(players, invocation.Arguments[0], out PlayerSnapshot? target, out string? error))
+            {
+                return AdminCommandResults.Failure("command.tp.invalid-target", error!);
+            }
+
+            PlayerOperationResult selfResult = await operations
+                .TeleportAsync(caller!.Id, target!.Position, cancellationToken)
+                .ConfigureAwait(false);
+            if (!selfResult.IsSuccess)
+            {
+                return AdminCommandResults.PlayerMutation(
+                    selfResult,
+                    "command.tp.applied",
+                    $"Teleported to {target.Name}.");
+            }
+
+            if (!invocation.Principal.HasPermission("vega.players.teleport.silent") && caller.Id != target.Id)
+            {
+                await messenger.SendMessageAsync(
+                    target.Id,
+                    $"{caller.Name} teleported to you.",
+                    cancellationToken).ConfigureAwait(false);
+            }
+
+            return CommandExecutionResult.WithMessages(
+                MessageDescriptor.Success("command.tp.applied")
+                    .WithDefaultText($"Teleported to {target.Name}."));
         }
 
-        if (!PlayerResolver.TryResolve(players, invocation.Arguments[1], out PlayerSnapshot? target, out string? targetError))
+        if (!invocation.Principal.HasPermission("vega.players.teleport.others"))
+        {
+            return AdminCommandResults.Failure(
+                "command.tp.others-forbidden",
+                "You do not have permission to teleport other players.");
+        }
+
+        if (!PlayerResolver.TryResolve(players, invocation.Arguments[1], out PlayerSnapshot? destination, out string? targetError))
         {
             return AdminCommandResults.Failure("command.tp.invalid-target", targetError!);
         }
 
-        PlayerOperationResult result = await operations
-            .TeleportAsync(player!.Id, target!.Position, cancellationToken)
+        bool silent = invocation.Principal.HasPermission("vega.players.teleport.silent");
+        if (invocation.Arguments[0] == "*")
+        {
+            if (!invocation.Principal.HasPermission("vega.players.teleport.all"))
+            {
+                return AdminCommandResults.Failure(
+                    "command.tp.all-forbidden",
+                    "You do not have permission to teleport all players.");
+            }
+
+            PlayerId? actorId = (invocation.Principal as IPlayerCommandPrincipal)?.PlayerId;
+            foreach (PlayerSnapshot source in players.SnapshotOnlinePlayers().Where(player => player.Id != actorId))
+            {
+                PlayerOperationResult result = await operations
+                    .TeleportAsync(source.Id, destination!.Position, cancellationToken)
+                    .ConfigureAwait(false);
+                if (!result.IsSuccess)
+                {
+                    return AdminCommandResults.PlayerMutation(
+                        result,
+                        "command.tp.applied",
+                        $"Teleported everyone to {destination.Name}.");
+                }
+
+                await NotifyTeleportAsync(invocation, source, destination!, silent, cancellationToken)
+                    .ConfigureAwait(false);
+            }
+
+            return CommandExecutionResult.WithMessages(
+                MessageDescriptor.Success("command.tp.applied")
+                    .WithDefaultText($"Teleported everyone to {destination!.Name}."));
+        }
+
+        if (!PlayerResolver.TryResolve(players, invocation.Arguments[0], out PlayerSnapshot? sourcePlayer, out string? sourceError))
+        {
+            return AdminCommandResults.Failure("command.tp.invalid-player", sourceError!);
+        }
+
+        PlayerOperationResult operation = await operations
+            .TeleportAsync(sourcePlayer!.Id, destination!.Position, cancellationToken)
             .ConfigureAwait(false);
-        return AdminCommandResults.PlayerMutation(result, "command.tp.applied", $"Teleported {player.Name} to {target.Name}.");
+        if (!operation.IsSuccess)
+        {
+            return AdminCommandResults.PlayerMutation(
+                operation,
+                "command.tp.applied",
+                $"Teleported {sourcePlayer.Name} to {destination.Name}.");
+        }
+
+        await NotifyTeleportAsync(invocation, sourcePlayer, destination, silent, cancellationToken)
+            .ConfigureAwait(false);
+        return CommandExecutionResult.WithMessages(
+            MessageDescriptor.Success("command.tp.applied")
+                .WithDefaultText($"Teleported {sourcePlayer.Name} to {destination.Name}."));
+    }
+
+    private async ValueTask NotifyTeleportAsync(
+        CommandInvocation invocation,
+        PlayerSnapshot source,
+        PlayerSnapshot destination,
+        bool silent,
+        CancellationToken cancellationToken)
+    {
+        PlayerId? actorId = (invocation.Principal as IPlayerCommandPrincipal)?.PlayerId;
+        if (source.Id != actorId)
+        {
+            await messenger.SendMessageAsync(
+                source.Id,
+                silent
+                    ? $"You were teleported to {destination.Name}."
+                    : $"{invocation.Principal.Name} teleported you to {destination.Name}.",
+                cancellationToken).ConfigureAwait(false);
+        }
+
+        if (destination.Id != actorId)
+        {
+            await messenger.SendMessageAsync(
+                destination.Id,
+                silent
+                    ? $"{source.Name} was teleported to you."
+                    : $"{invocation.Principal.Name} teleported {source.Name} to you.",
+                cancellationToken).ConfigureAwait(false);
+        }
     }
 }
 

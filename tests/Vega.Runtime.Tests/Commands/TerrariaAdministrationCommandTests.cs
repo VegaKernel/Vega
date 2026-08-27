@@ -37,7 +37,7 @@ public sealed class TerrariaAdministrationCommandTests
         PlayerSnapshot target = Player(8, "Bob", 800, 900);
         var players = new RecordingPlayers(source, target);
         var operations = new RecordingPlayerOperations();
-        var command = new TeleportCommand(players, operations);
+        var command = new TeleportCommand(players, operations, new NullMessenger());
 
         CommandExecutionResult result = await command.ExecuteAsync(
             Invocation("tp", ["Alice", "Bob"]),
@@ -162,6 +162,80 @@ public sealed class TerrariaAdministrationCommandTests
             Assert.That(npcs.Killed, Does.Not.Contain(guide.Handle));
             Assert.That(npcs.Killed, Does.Not.Contain(dummy.Handle));
             Assert.That(npcs.Killed.Count, Is.EqualTo(3));
+        });
+    }
+
+    [Test]
+    public async Task TeleportOneArgumentMovesCallerAndNotifiesDestination()
+    {
+        PlayerSnapshot source = Player(3, "Alice", 100, 200);
+        PlayerSnapshot target = Player(8, "Bob", 800, 900);
+        var players = new RecordingPlayers(source, target);
+        var operations = new RecordingPlayerOperations();
+        var messenger = new RecordingMessenger();
+        var command = new TeleportCommand(players, operations, messenger);
+        var principal = new PlayerPrincipal(source.Id, source.Name, "vega.players.teleport");
+
+        CommandExecutionResult result = await command.ExecuteAsync(
+            new CommandInvocation("tp", ["Bob"], principal, NullOutput.Instance),
+            CancellationToken.None);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(result.Status, Is.EqualTo(CommandExecutionStatus.Success));
+            Assert.That(operations.TeleportedPlayer, Is.EqualTo(source.Id));
+            Assert.That(operations.TeleportDestination, Is.EqualTo(target.Position));
+            Assert.That(messenger.Messages.Single().Id, Is.EqualTo(target.Id));
+            Assert.That(command.Descriptor.Aliases, Is.Empty);
+            Assert.That(command.Descriptor.AllowServer, Is.False);
+        });
+    }
+
+    [Test]
+    public async Task TeleportTwoArgumentsRequiresOthersPermission()
+    {
+        PlayerSnapshot source = Player(3, "Alice", 100, 200);
+        PlayerSnapshot target = Player(8, "Bob", 800, 900);
+        var command = new TeleportCommand(
+            new RecordingPlayers(source, target),
+            new RecordingPlayerOperations(),
+            new NullMessenger());
+        var principal = new PlayerPrincipal(source.Id, source.Name, "vega.players.teleport");
+
+        CommandExecutionResult result = await command.ExecuteAsync(
+            new CommandInvocation("tp", ["Alice", "Bob"], principal, NullOutput.Instance),
+            CancellationToken.None);
+
+        Assert.That(result.ErrorCode, Is.EqualTo("command.tp.others-forbidden"));
+    }
+
+    [Test]
+    public async Task TeleportAllExcludesActorAndRequiresAllPermission()
+    {
+        PlayerSnapshot actor = Player(1, "Admin", 50, 60);
+        PlayerSnapshot first = Player(3, "Alice", 100, 200);
+        PlayerSnapshot target = Player(8, "Bob", 800, 900);
+        var operations = new RecordingPlayerOperations();
+        var command = new TeleportCommand(
+            new RecordingPlayers(actor, first, target),
+            operations,
+            new NullMessenger());
+        var principal = new PlayerPrincipal(
+            actor.Id,
+            actor.Name,
+            "vega.players.teleport",
+            "vega.players.teleport.others",
+            "vega.players.teleport.all",
+            "vega.players.teleport.silent");
+
+        CommandExecutionResult result = await command.ExecuteAsync(
+            new CommandInvocation("tp", ["*", "Bob"], principal, NullOutput.Instance),
+            CancellationToken.None);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(result.Status, Is.EqualTo(CommandExecutionStatus.Success));
+            Assert.That(operations.TeleportedPlayers, Is.EqualTo(new[] { first.Id, target.Id }));
         });
     }
 
@@ -582,6 +656,7 @@ public sealed class TerrariaAdministrationCommandTests
 
     private sealed class RecordingPlayerOperations : IPlayerLifecycleOperations
     {
+        public List<PlayerId> TeleportedPlayers { get; } = [];
         public PlayerId? TeleportedPlayer { get; private set; }
         public PlayerPosition? TeleportDestination { get; private set; }
         public PlayerId? HealedPlayer { get; private set; }
@@ -604,6 +679,7 @@ public sealed class TerrariaAdministrationCommandTests
             PlayerPosition destination,
             CancellationToken cancellationToken = default)
         {
+            TeleportedPlayers.Add(playerId);
             TeleportedPlayer = playerId;
             TeleportDestination = destination;
             return ValueTask.FromResult(PlayerOperationResult.Applied());
@@ -811,6 +887,22 @@ public sealed class TerrariaAdministrationCommandTests
         public string Name => "server";
         public bool IsServer => true;
         public bool HasPermission(string permission) => true;
+    }
+
+    private sealed class PlayerPrincipal(
+        PlayerId playerId,
+        string name,
+        params string[] permissions) : IPlayerCommandPrincipal
+    {
+        private readonly HashSet<string> granted = new(permissions, StringComparer.OrdinalIgnoreCase);
+
+        public PlayerId PlayerId { get; } = playerId;
+        public string PlayerName => name;
+        public string? AccountName => null;
+        public string Name => name;
+        public bool IsServer => false;
+        public string CultureSubjectId => $"player:{PlayerId.Slot}";
+        public bool HasPermission(string permission) => granted.Contains(permission);
     }
 
     private sealed class NullOutput : ICommandOutput
