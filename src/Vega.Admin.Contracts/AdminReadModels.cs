@@ -94,3 +94,37 @@ public sealed record AdminDiagnosticsSnapshot(
     long SecurityViolations,
     IReadOnlyDictionary<string, long> SecurityRuleCounts,
     DateTimeOffset SampledAt);
+
+public sealed record AdminConfigurationDescriptor(
+    string Plugin,
+    string FileName,
+    string Revision,
+    bool CanEdit,
+    bool HasRedactions,
+    string? DisplayName = null,
+    string? Description = null);
+
+public sealed record AdminConfigurationDocument(
+    AdminConfigurationDescriptor Descriptor,
+    string Json);
+
+public sealed record AdminConfigurationKey(
+    string Plugin,
+    string FileName);
+
+public sealed record AdminConfigurationReplaceRequest(
+    string Plugin,
+    string FileName,
+    string ExpectedRevision,
+    string Json);
+
+public sealed record AdminConfigurationMutationRequest(
+    string Plugin,
+    string FileName,
+    string ExpectedRevision);
+
+public sealed record AdminConfigurationMutationResult(
+    bool Succeeded,
+    AdminConfigurationDocument? Document = null,
+    string? ErrorCode = null,
+    string? Error = null);
