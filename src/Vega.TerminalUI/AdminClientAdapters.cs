@@ -57,8 +57,18 @@ internal sealed class EmbeddedOperationsAdminClient(
                     descriptor.Syntax,
                     descriptor.Permissions.ToArray(),
                     descriptor.AllowServer,
-                    Owner: "unassigned"))
-                .OrderBy(static descriptor => descriptor.Name, StringComparer.OrdinalIgnoreCase)
+                    descriptor.Owner,
+                    descriptor.TitleKey,
+                    descriptor.DescriptionKey,
+                    descriptor.HelpKey,
+                    descriptor.FallbackTitle,
+                    descriptor.FallbackDescription,
+                    descriptor.FallbackHelp)
+                {
+                    AllowPlayers = descriptor.AllowPlayers
+                })
+                .OrderBy(static descriptor => descriptor.Owner, StringComparer.OrdinalIgnoreCase)
+                .ThenBy(static descriptor => descriptor.Name, StringComparer.OrdinalIgnoreCase)
                 .ToArray();
         return ValueTask.FromResult(catalog);
     }
@@ -172,9 +182,7 @@ internal sealed class AdminOperationsCommandServiceAdapter(IVegaAdminClient admi
             return template;
         }
 
-        object?[] arguments = message.Arguments
-            .Select(static argument => (object?)argument.Value)
-            .ToArray();
+        object?[] arguments = message.Arguments.Select(RenderArgument).ToArray();
         try
         {
             return string.Format(CultureInfo.CurrentCulture, template, arguments);
@@ -184,6 +192,32 @@ internal sealed class AdminOperationsCommandServiceAdapter(IVegaAdminClient admi
             return template;
         }
     }
+
+    private static object? RenderArgument(AdminMessageArgument argument) => argument.Kind switch
+    {
+        AdminScalarKind.Null => null,
+        AdminScalarKind.Integer when long.TryParse(
+            argument.Value,
+            NumberStyles.Integer,
+            CultureInfo.InvariantCulture,
+            out long integer) => integer,
+        AdminScalarKind.Number when double.TryParse(
+            argument.Value,
+            NumberStyles.Float,
+            CultureInfo.InvariantCulture,
+            out double number) => number,
+        AdminScalarKind.Boolean when bool.TryParse(argument.Value, out bool flag) => flag,
+        AdminScalarKind.DateTimeOffset when DateTimeOffset.TryParse(
+            argument.Value,
+            CultureInfo.InvariantCulture,
+            DateTimeStyles.RoundtripKind,
+            out DateTimeOffset timestamp) => timestamp,
+        AdminScalarKind.Duration when TimeSpan.TryParse(
+            argument.Value,
+            CultureInfo.InvariantCulture,
+            out TimeSpan duration) => duration,
+        _ => argument.Value
+    };
 }
 
 /// <summary>
@@ -205,7 +239,17 @@ internal sealed class AdminCommandCatalogAdapter(IVegaAdminClient adminClient) :
                 descriptor.Aliases.ToArray(),
                 descriptor.Permissions.ToArray(),
                 descriptor.AllowServer,
-                descriptor.Syntax))
+                descriptor.Syntax)
+            {
+                Owner = descriptor.Owner,
+                AllowPlayers = descriptor.AllowPlayers,
+                TitleKey = descriptor.TitleKey,
+                DescriptionKey = descriptor.DescriptionKey,
+                HelpKey = descriptor.HelpKey,
+                FallbackTitle = descriptor.FallbackTitle,
+                FallbackDescription = descriptor.FallbackDescription,
+                FallbackHelp = descriptor.FallbackHelp
+            })
             .ToArray();
     }
 }
