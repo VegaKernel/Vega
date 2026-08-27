@@ -79,7 +79,7 @@ public sealed class AliasesCommand(ICommandCatalog commands) : ICommandHandler
         }
 
         string requested = string.Join(" ", invocation.Arguments).Trim();
-        if (requested.StartsWith('/', StringComparison.Ordinal))
+        if (requested.StartsWith("/", StringComparison.Ordinal))
         {
             requested = requested[1..];
         }
