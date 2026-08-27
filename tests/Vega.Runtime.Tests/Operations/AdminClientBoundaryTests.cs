@@ -126,7 +126,11 @@ public sealed class AdminClientBoundaryTests
                 "logs.query",
                 "chat.snapshot",
                 "administration.snapshot",
-                "diagnostics.snapshot"
+                "diagnostics.snapshot",
+                "configuration.list",
+                "configuration.read",
+                "configuration.replace",
+                "configuration.reload"
             }));
     }
 
@@ -149,6 +153,28 @@ public sealed class AdminClientBoundaryTests
             Assert.That(digit.Handled, Is.True);
             Assert.That(workspaces.SelectedWorkspaceIndex, Is.EqualTo(2));
             Assert.That(workspaces.SelectedWorkspaceTitle, Does.Contain("Commands"));
+        });
+    }
+
+    [Test]
+    public async Task LocalClientDefaultsToFailClosedConfigurationCatalog()
+    {
+        var dispatcher = new RecordingDispatcher();
+        var client = new LocalVegaAdminClient(
+            new UnusedSnapshotProvider(),
+            dispatcher,
+            dispatcher);
+
+        IReadOnlyList<AdminConfigurationDescriptor> configurations =
+            await client.GetConfigurationsAsync();
+        AdminConfigurationMutationResult read = await client.ReadConfigurationAsync(
+            new AdminConfigurationKey("plugin", "settings.json"));
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(configurations, Is.Empty);
+            Assert.That(read.Succeeded, Is.False);
+            Assert.That(read.ErrorCode, Is.EqualTo("configuration.not_exposed"));
         });
     }
 
@@ -232,6 +258,35 @@ public sealed class AdminClientBoundaryTests
         public ValueTask<AdminDiagnosticsSnapshot> GetDiagnosticsAsync(
             CancellationToken cancellationToken = default) =>
             throw new NotSupportedException();
+
+        public ValueTask<IReadOnlyList<AdminConfigurationDescriptor>> GetConfigurationsAsync(
+            CancellationToken cancellationToken = default) =>
+            ValueTask.FromResult<IReadOnlyList<AdminConfigurationDescriptor>>(
+                Array.Empty<AdminConfigurationDescriptor>());
+
+        public ValueTask<AdminConfigurationMutationResult> ReadConfigurationAsync(
+            AdminConfigurationKey key,
+            CancellationToken cancellationToken = default) =>
+            ValueTask.FromResult(new AdminConfigurationMutationResult(
+                false,
+                ErrorCode: "configuration.not_exposed",
+                Error: "Not exposed."));
+
+        public ValueTask<AdminConfigurationMutationResult> ReplaceConfigurationAsync(
+            AdminConfigurationReplaceRequest request,
+            CancellationToken cancellationToken = default) =>
+            ValueTask.FromResult(new AdminConfigurationMutationResult(
+                false,
+                ErrorCode: "configuration.not_exposed",
+                Error: "Not exposed."));
+
+        public ValueTask<AdminConfigurationMutationResult> ReloadConfigurationAsync(
+            AdminConfigurationMutationRequest request,
+            CancellationToken cancellationToken = default) =>
+            ValueTask.FromResult(new AdminConfigurationMutationResult(
+                false,
+                ErrorCode: "configuration.not_exposed",
+                Error: "Not exposed."));
     }
 
     private sealed class UnusedSnapshotProvider : IOperationsSnapshotProvider
