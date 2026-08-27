@@ -102,6 +102,26 @@ public sealed class TerrariaVersionSpecificPacketPolicyTests
         }
     }
 
+    [Test]
+    public void PlayerPortalTeleportRejectsNonFiniteTransformBeforeLivePortalLookup()
+    {
+        PacketProcessingDecision decision = Process(
+            new TerrariaPortalAuthorityPolicy(),
+            new PlayerTeleportPortal
+            {
+                PlayerId = 7,
+                PortalColorIndex = 0,
+                NewPositionX = float.NaN,
+                NewPositionY = 10,
+                VelocityX = 0,
+                VelocityY = 0
+            });
+
+        Assert.That(
+            decision,
+            Is.EqualTo(PacketProcessingDecision.Violation("packet.portal.non_finite_transform")));
+    }
+
     private static PacketProcessingDecision Process(
         IPacketProcessor<PacketView> policy,
         TerrariaPacket value)
