@@ -10,6 +10,47 @@ namespace Vega.Runtime.Tests.Commands;
 [TestFixture]
 public sealed class TerrariaAdministrationCommandTests
 {
+    [TestCase("0", 0, "normal")]
+    [TestCase("expert", 1, "expert")]
+    [TestCase("MASTER", 2, "master")]
+    [TestCase("journey", 3, "journey")]
+    [TestCase("creative", 3, "journey")]
+    public async Task WorldModeMapsTShockModesAndUsesFirstArgument(
+        string input,
+        int expectedMode,
+        string expectedName)
+    {
+        var environment = new RecordingEnvironment();
+        var command = new WorldModeCommand(environment);
+
+        CommandExecutionResult result = await command.ExecuteAsync(
+            Invocation("worldmode", [input, "ignored"]),
+            CancellationToken.None);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(result.Status, Is.EqualTo(CommandExecutionStatus.Success));
+            Assert.That(environment.LastRequest?.Patch.GameMode, Is.EqualTo(expectedMode));
+            Assert.That(result.Messages?.Single().Arguments, Does.Contain(expectedName));
+            Assert.That(command.Descriptor.Aliases, Is.EqualTo(new[] { "gamemode" }));
+            Assert.That(command.Descriptor.AllowServer, Is.True);
+        });
+    }
+
+    [TestCase("-1")]
+    [TestCase("4")]
+    [TestCase("unknown")]
+    public async Task WorldModeRejectsInvalidMode(string input)
+    {
+        var command = new WorldModeCommand(new RecordingEnvironment());
+
+        CommandExecutionResult result = await command.ExecuteAsync(
+            Invocation("worldmode", [input]),
+            CancellationToken.None);
+
+        Assert.That(result.ErrorCode, Is.EqualTo("command.worldmode.invalid"));
+    }
+
     [Test]
     public async Task TimeNoonUsesWorldEnvironmentMutationContract()
     {

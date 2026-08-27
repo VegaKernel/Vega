@@ -39,6 +39,7 @@ internal static class TerrariaAdministrationCommandRegistration
         [
             new BroadcastCommand(players, players),
             new WorldInfoCommand(environment),
+            new WorldModeCommand(environment),
             new TimeCommand(environment),
             new WeatherCommand(environment),
             new WindCommand(environment),
@@ -123,6 +124,78 @@ internal sealed class BroadcastCommand(
             MessageDescriptor.Success("command.broadcast.sent", delivered, failed)
                 .WithDefaultText("Broadcast delivered to {0} player(s); {1} delivery failure(s)."));
     }
+}
+
+internal sealed class WorldModeCommand(IWorldEnvironmentService environment) : ICommandHandler
+{
+    private static readonly IReadOnlyDictionary<string, int> Modes =
+        new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase)
+        {
+            ["normal"] = 0,
+            ["expert"] = 1,
+            ["master"] = 2,
+            ["journey"] = 3,
+            ["creative"] = 3
+        };
+
+    private static readonly string[] CanonicalNames = ["normal", "expert", "master", "journey"];
+
+    public CommandDescriptor Descriptor { get; } = new(
+        "worldmode",
+        ["gamemode"],
+        ["vega.world.mode"],
+        Syntax: "worldmode <normal|expert|master|journey|creative|0..3>");
+
+    public async ValueTask<CommandExecutionResult> ExecuteAsync(
+        CommandInvocation invocation,
+        CancellationToken cancellationToken)
+    {
+        if (invocation.Arguments.Count == 0)
+        {
+            return Usage();
+        }
+
+        string value = invocation.Arguments[0];
+        int mode;
+        if (int.TryParse(value, NumberStyles.Integer, CultureInfo.InvariantCulture, out int numeric))
+        {
+            if (numeric < 0 || numeric > 3)
+            {
+                return Invalid();
+            }
+
+            mode = numeric;
+        }
+        else if (!Modes.TryGetValue(value, out mode))
+        {
+            return Invalid();
+        }
+
+        WorldEnvironmentMutationResult result = await environment.PatchAsync(
+            new WorldEnvironmentMutationRequest(
+                invocation.WorldId,
+                new WorldEnvironmentPatch(GameMode: mode),
+                invocation.Principal.Name),
+            cancellationToken).ConfigureAwait(false);
+        if (!result.IsSuccess)
+        {
+            return AdminCommandResults.Failure(
+                result.ErrorCode ?? "command.worldmode.failed",
+                "World mode could not be changed.");
+        }
+
+        return CommandExecutionResult.WithMessages(
+            MessageDescriptor.Success("command.worldmode.changed", CanonicalNames[mode])
+                .WithDefaultText("World mode set to {0}."));
+    }
+
+    private static CommandExecutionResult Usage() => AdminCommandResults.Usage(
+        "command.worldmode.usage",
+        "Usage: worldmode <mode>. Valid modes: normal, expert, master, journey, creative.");
+
+    private static CommandExecutionResult Invalid() => AdminCommandResults.Failure(
+        "command.worldmode.invalid",
+        "Invalid world mode. Valid modes: normal, expert, master, journey, creative.");
 }
 
 internal sealed class WorldInfoCommand(IWorldEnvironmentService environment) : ICommandHandler
