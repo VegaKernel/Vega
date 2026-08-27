@@ -301,6 +301,51 @@ public sealed class TerrariaAdministrationCommandTests
     }
 
     [Test]
+    public async Task TeleportPositionClampsIntegerTilesForCaller()
+    {
+        PlayerSnapshot actor = Player(1, "Admin", 50, 60);
+        var operations = new RecordingPlayerOperations();
+        var command = new TeleportPositionCommand(
+            new RecordingPlayers(actor),
+            operations,
+            new RecordingEnvironment());
+        var principal = new PlayerPrincipal(
+            actor.Id,
+            actor.Name,
+            "vega.players.teleport.position");
+
+        CommandExecutionResult result = await command.ExecuteAsync(
+            new CommandInvocation("tppos", ["-10", "9999"], principal, NullOutput.Instance),
+            CancellationToken.None);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(result.Status, Is.EqualTo(CommandExecutionStatus.Success));
+            Assert.That(operations.TeleportedPlayer, Is.EqualTo(actor.Id));
+            Assert.That(operations.TeleportDestination, Is.EqualTo(new PlayerPosition(0, 2399 * 16f)));
+            Assert.That(command.Descriptor.AllowServer, Is.False);
+            Assert.That(command.Descriptor.Permissions, Is.EqualTo(new[] { "vega.players.teleport.position" }));
+        });
+    }
+
+    [Test]
+    public async Task TeleportPositionRejectsFloatingPointCoordinates()
+    {
+        PlayerSnapshot actor = Player(1, "Admin", 50, 60);
+        var command = new TeleportPositionCommand(
+            new RecordingPlayers(actor),
+            new RecordingPlayerOperations(),
+            new RecordingEnvironment());
+        var principal = new PlayerPrincipal(actor.Id, actor.Name, "vega.players.teleport.position");
+
+        CommandExecutionResult result = await command.ExecuteAsync(
+            new CommandInvocation("tppos", ["1.5", "2"], principal, NullOutput.Instance),
+            CancellationToken.None);
+
+        Assert.That(result.ErrorCode, Is.EqualTo("command.tppos.invalid-coordinates"));
+    }
+
+    [Test]
     public async Task ButcherWithNpcSelectorKillsOnlyMatchingNetId()
     {
         NpcSnapshot first = Npc(1, "Zombie", friendly: false, town: false, boss: false, netId: 20);

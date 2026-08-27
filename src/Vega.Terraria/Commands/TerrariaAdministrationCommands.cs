@@ -580,49 +580,40 @@ internal sealed class TeleportPositionCommand(
     public CommandDescriptor Descriptor { get; } = new(
         "tppos",
         [],
-        ["vega.players.teleport"],
-        Syntax: "tppos [player] <tile-x> <tile-y>");
+        ["vega.players.teleport.position"],
+        AllowServer: false,
+        Syntax: "tppos <tile-x> <tile-y>");
 
     public async ValueTask<CommandExecutionResult> ExecuteAsync(CommandInvocation invocation, CancellationToken cancellationToken)
     {
-        PlayerSnapshot? player;
-        string xText;
-        string yText;
-        if (invocation.Arguments.Count == 2 && PlayerResolver.TryCaller(players, invocation, out player))
+        if (invocation.Arguments.Count != 2 ||
+            !PlayerResolver.TryCaller(players, invocation, out PlayerSnapshot? player))
         {
-            xText = invocation.Arguments[0];
-            yText = invocation.Arguments[1];
-        }
-        else if (invocation.Arguments.Count == 3 &&
-                 PlayerResolver.TryResolve(players, invocation.Arguments[0], out player, out string? error))
-        {
-            xText = invocation.Arguments[1];
-            yText = invocation.Arguments[2];
-        }
-        else
-        {
-            return AdminCommandResults.Usage("command.tppos.usage", "Usage: tppos [player] <tile-x> <tile-y>.");
+            return AdminCommandResults.Usage("command.tppos.usage", "Usage: tppos <tile-x> <tile-y>.");
         }
 
-        if (!double.TryParse(xText, NumberStyles.Float, CultureInfo.InvariantCulture, out double tileX) ||
-            !double.TryParse(yText, NumberStyles.Float, CultureInfo.InvariantCulture, out double tileY) ||
-            !double.IsFinite(tileX) || !double.IsFinite(tileY))
+        if (!int.TryParse(invocation.Arguments[0], NumberStyles.Integer, CultureInfo.InvariantCulture, out int tileX) ||
+            !int.TryParse(invocation.Arguments[1], NumberStyles.Integer, CultureInfo.InvariantCulture, out int tileY))
         {
-            return AdminCommandResults.Usage("command.tppos.usage", "Usage: tppos [player] <tile-x> <tile-y>.");
+            return AdminCommandResults.Failure(
+                "command.tppos.invalid-coordinates",
+                "The destination coordinates do not look like valid integers.");
         }
 
         WorldEnvironmentSnapshot? world = await environment.CaptureAsync(invocation.WorldId, cancellationToken).ConfigureAwait(false);
-        if (world is null || tileX < 0 || tileY < 0 || tileX >= world.WidthTiles || tileY >= world.HeightTiles)
+        if (world is null)
         {
-            return AdminCommandResults.Failure("command.tppos.out-of-world", "Teleport position is outside the current world.");
+            return AdminCommandResults.Failure("command.tppos.world-unavailable", "World dimensions are unavailable.");
         }
 
-        var destination = new PlayerPosition((float)(tileX * 16d), (float)(tileY * 16d));
+        tileX = Math.Clamp(tileX, 0, world.WidthTiles - 1);
+        tileY = Math.Clamp(tileY, 0, world.HeightTiles - 1);
+        var destination = new PlayerPosition(tileX * 16f, tileY * 16f);
         PlayerOperationResult result = await operations.TeleportAsync(player!.Id, destination, cancellationToken).ConfigureAwait(false);
         return AdminCommandResults.PlayerMutation(
             result,
             "command.tppos.applied",
-            $"Teleported {player.Name} to tile ({tileX:F1}, {tileY:F1}).");
+            $"Teleported to {tileX}, {tileY}.");
     }
 }
 
