@@ -45,9 +45,9 @@ if (!ReferenceEquals(handler, directRegistry.Handler) ||
     throw new InvalidOperationException("The explicit plugin facade inserted a dispatch wrapper.");
 }
 
-if (callbackRegistry.Handler is not PluginCallbackCommandHandler)
+if (callbackRegistry.Handler is null || callbackRegistry.Handler.Descriptor.Name != "noop")
 {
-    throw new InvalidOperationException("The callback plugin command was not adapted through the expected handler wrapper.");
+    throw new InvalidOperationException("The callback plugin command was not adapted into the normal command registry.");
 }
 
 var invocation = new CommandInvocation("noop", [], new Principal(), new Output());
