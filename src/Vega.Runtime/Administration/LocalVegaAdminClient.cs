@@ -4,6 +4,7 @@ using Vega.Admin.Contracts;
 using Vega.Contracts.Commands;
 using Vega.Contracts.Messaging;
 using Vega.Contracts.Operations;
+using Vega.PluginSdk;
 
 namespace Vega.Runtime.Administration;
 
@@ -15,8 +16,12 @@ namespace Vega.Runtime.Administration;
 internal sealed class LocalVegaAdminClient(
     IOperationsSnapshotProvider snapshots,
     ICommandDispatcher dispatcher,
-    ICommandCatalog commandCatalog) : IVegaAdminClient
+    ICommandCatalog commandCatalog,
+    ManagedConfigurationAdministration? configurations = null) : IVegaAdminClient
 {
+    private readonly ManagedConfigurationAdministration configurations =
+        configurations ?? new ManagedConfigurationAdministration();
+
     public ValueTask<AdminProtocolInfo> GetProtocolInfoAsync(
         CancellationToken cancellationToken = default)
     {
@@ -209,6 +214,52 @@ internal sealed class LocalVegaAdminClient(
         return ValueTask.FromResult(MapDiagnostics(snapshots.Capture()));
     }
 
+    public ValueTask<IReadOnlyList<AdminConfigurationDescriptor>> GetConfigurationsAsync(
+        CancellationToken cancellationToken = default)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        IReadOnlyList<AdminConfigurationDescriptor> descriptors = configurations
+            .Snapshot()
+            .Select(MapConfigurationDescriptor)
+            .ToArray();
+        return ValueTask.FromResult(descriptors);
+    }
+
+    public ValueTask<AdminConfigurationMutationResult> ReadConfigurationAsync(
+        AdminConfigurationKey key,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(key);
+        cancellationToken.ThrowIfCancellationRequested();
+        return ValueTask.FromResult(MapConfigurationResult(
+            configurations.Read(key.Plugin, key.FileName)));
+    }
+
+    public ValueTask<AdminConfigurationMutationResult> ReplaceConfigurationAsync(
+        AdminConfigurationReplaceRequest request,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+        cancellationToken.ThrowIfCancellationRequested();
+        return ValueTask.FromResult(MapConfigurationResult(configurations.Replace(
+            request.Plugin,
+            request.FileName,
+            request.ExpectedRevision,
+            request.Json)));
+    }
+
+    public ValueTask<AdminConfigurationMutationResult> ReloadConfigurationAsync(
+        AdminConfigurationMutationRequest request,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+        cancellationToken.ThrowIfCancellationRequested();
+        return ValueTask.FromResult(MapConfigurationResult(configurations.Reload(
+            request.Plugin,
+            request.FileName,
+            request.ExpectedRevision)));
+    }
+
     private static AdminServerStatusSnapshot MapStatus(ServerDashboardSnapshot server) => new(
         server.ServerName,
         server.Version,
@@ -252,6 +303,29 @@ internal sealed class LocalVegaAdminClient(
             new Dictionary<string, long>(network.SecurityRuleCounts, StringComparer.Ordinal),
             DateTimeOffset.UtcNow);
     }
+
+    private static AdminConfigurationDescriptor MapConfigurationDescriptor(
+        ManagedConfigurationAdminDescriptor descriptor) =>
+        new(
+            descriptor.Plugin,
+            descriptor.FileName,
+            descriptor.Revision,
+            descriptor.CanEdit,
+            descriptor.HasRedactions,
+            descriptor.DisplayName,
+            descriptor.Description);
+
+    private static AdminConfigurationMutationResult MapConfigurationResult(
+        ManagedConfigurationAdminResult result) =>
+        new(
+            result.Succeeded,
+            result.Document is null
+                ? null
+                : new AdminConfigurationDocument(
+                    MapConfigurationDescriptor(result.Document.Descriptor),
+                    result.Document.Json),
+            result.ErrorCode,
+            result.Error);
 
     private static AdminCommandExecutionStatus MapStatus(CommandExecutionStatus status) => status switch
     {
