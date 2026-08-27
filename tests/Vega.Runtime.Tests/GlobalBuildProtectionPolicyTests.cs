@@ -71,7 +71,7 @@ public sealed class GlobalBuildProtectionPolicyTests
         var policy = new GlobalBuildProtectionPolicy(state, new Authorization(true));
 
         PacketProcessingDecision decision = Process(policy,
-            new PaintTile { X = 100, Y = 50, Color = 1 });
+            new Tile { Action = TileAction.PlaceTile, TileX = 100, TileY = 50, Value = 1 });
 
         Assert.That(decision.Kind, Is.EqualTo(PacketDecisionKind.Allow));
     }
