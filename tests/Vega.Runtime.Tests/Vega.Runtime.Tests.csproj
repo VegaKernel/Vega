@@ -27,6 +27,8 @@
   <ItemGroup>
     <ProjectReference Include="..\Vega.HotReload.TestPlugin\Vega.HotReload.TestPlugin.csproj" ReferenceOutputAssembly="false" />
     <ProjectReference Include="..\Vega.Sandbox.TestBackend\Vega.Sandbox.TestBackend.csproj" ReferenceOutputAssembly="false" />
+    <ProjectReference Include="..\..\src\Vega.Admin.Client\Vega.Admin.Client.csproj" />
+    <ProjectReference Include="..\..\src\Vega.Admin.Contracts\Vega.Admin.Contracts.csproj" />
     <ProjectReference Include="..\..\src\Vega.Runtime\Vega.Runtime.csproj" />
     <ProjectReference Include="..\..\src\Vega.Backups\Vega.Backups.csproj" />
     <ProjectReference Include="..\..\src\Vega.Core\Vega.Core.csproj" />
