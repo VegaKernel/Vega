@@ -33,6 +33,14 @@ public sealed class TerrariaPortalAuthorityPolicy : IPacketProcessor<PacketView>
 
     private static PacketProcessingDecision ValidatePlayerTeleport(PlayerTeleportPortalView value)
     {
+        if (!float.IsFinite(value.NewPositionX) ||
+            !float.IsFinite(value.NewPositionY) ||
+            !float.IsFinite(value.VelocityX) ||
+            !float.IsFinite(value.VelocityY))
+        {
+            return PacketProcessingDecision.Violation("packet.portal.non_finite_transform");
+        }
+
         if (value.PortalColorIndex is < 0 or > 511)
         {
             return PacketProcessingDecision.Violation("packet.portal.color_out_of_range");
