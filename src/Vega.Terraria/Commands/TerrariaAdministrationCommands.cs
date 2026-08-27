@@ -42,7 +42,7 @@ internal static class TerrariaAdministrationCommandRegistration
             new WeatherCommand(environment),
             new WindCommand(environment),
             new TeleportCommand(players, players, players),
-            new TeleportHereCommand(players, players),
+            new TeleportHereCommand(players, players, players),
             new TeleportPositionCommand(players, players, environment),
             new SpawnCommand(players, recall),
             new PositionCommand(players),
@@ -490,50 +490,85 @@ internal sealed class TeleportCommand(
 
 internal sealed class TeleportHereCommand(
     IPlayerDirectory players,
-    IPlayerOperations operations) : ICommandHandler
+    IPlayerOperations operations,
+    IPlayerMessenger messenger) : ICommandHandler
 {
     public CommandDescriptor Descriptor { get; } = new(
         "tphere",
-        ["teleporthere"],
-        ["vega.players.teleport"],
-        Syntax: "tphere <player> [destination-player]");
+        [],
+        ["vega.players.teleport.others"],
+        AllowServer: false,
+        Syntax: "tphere <player|*>");
 
     public async ValueTask<CommandExecutionResult> ExecuteAsync(CommandInvocation invocation, CancellationToken cancellationToken)
     {
-        if (invocation.Arguments.Count is < 1 or > 2)
+        if (invocation.Arguments.Count < 1 ||
+            !PlayerResolver.TryCaller(players, invocation, out PlayerSnapshot? caller))
         {
             return AdminCommandResults.Usage(
                 "command.tphere.usage",
-                "Usage: tphere <player> [destination-player].");
+                invocation.Principal.HasPermission("vega.players.teleport.all")
+                    ? "Usage: tphere <player|*>."
+                    : "Usage: tphere <player>.");
         }
 
-        if (!PlayerResolver.TryResolve(players, invocation.Arguments[0], out PlayerSnapshot? target, out string? error))
+        string search = string.Join(" ", invocation.Arguments);
+        if (search == "*")
+        {
+            if (!invocation.Principal.HasPermission("vega.players.teleport.all"))
+            {
+                return AdminCommandResults.Failure(
+                    "command.tphere.all-forbidden",
+                    "You do not have permission to teleport all other players.");
+            }
+
+            foreach (PlayerSnapshot player in players.SnapshotOnlinePlayers().Where(player => player.Id != caller!.Id))
+            {
+                PlayerOperationResult multiResult = await operations
+                    .TeleportAsync(player.Id, caller!.Position, cancellationToken)
+                    .ConfigureAwait(false);
+                if (!multiResult.IsSuccess)
+                {
+                    return AdminCommandResults.PlayerMutation(
+                        multiResult,
+                        "command.tphere.applied",
+                        "Teleported everyone to yourself.");
+                }
+
+                await messenger.SendMessageAsync(
+                    player.Id,
+                    $"You were teleported to {caller.Name}.",
+                    cancellationToken).ConfigureAwait(false);
+            }
+
+            return CommandExecutionResult.WithMessages(
+                MessageDescriptor.Success("command.tphere.applied")
+                    .WithDefaultText("Teleported everyone to yourself."));
+        }
+
+        if (!PlayerResolver.TryResolve(players, search, out PlayerSnapshot? target, out string? error))
         {
             return AdminCommandResults.Failure("command.tphere.invalid-target", error!);
         }
 
-        PlayerSnapshot? destination;
-        if (invocation.Arguments.Count == 2)
+        PlayerOperationResult result = await operations
+            .TeleportAsync(target!.Id, caller!.Position, cancellationToken)
+            .ConfigureAwait(false);
+        if (!result.IsSuccess)
         {
-            if (!PlayerResolver.TryResolve(players, invocation.Arguments[1], out destination, out string? destinationError))
-            {
-                return AdminCommandResults.Failure("command.tphere.invalid-destination", destinationError!);
-            }
-        }
-        else if (!PlayerResolver.TryCaller(players, invocation, out destination))
-        {
-            return AdminCommandResults.Usage(
-                "command.tphere.server-usage",
-                "Server usage: tphere <player> <destination-player>.");
+            return AdminCommandResults.PlayerMutation(
+                result,
+                "command.tphere.applied",
+                $"Teleported {target.Name} to yourself.");
         }
 
-        PlayerOperationResult result = await operations
-            .TeleportAsync(target!.Id, destination!.Position, cancellationToken)
-            .ConfigureAwait(false);
-        return AdminCommandResults.PlayerMutation(
-            result,
-            "command.tphere.applied",
-            $"Teleported {target.Name} to {destination.Name}.");
+        await messenger.SendMessageAsync(
+            target.Id,
+            $"You were teleported to {caller.Name}.",
+            cancellationToken).ConfigureAwait(false);
+        return CommandExecutionResult.WithMessages(
+            MessageDescriptor.Success("command.tphere.applied")
+                .WithDefaultText($"Teleported {target.Name} to yourself."));
     }
 }
 

@@ -240,6 +240,67 @@ public sealed class TerrariaAdministrationCommandTests
     }
 
     [Test]
+    public async Task TeleportHereJoinsPlayerNameAndMovesPlayerToCaller()
+    {
+        PlayerSnapshot actor = Player(1, "Admin", 50, 60);
+        PlayerSnapshot target = Player(3, "Alice Smith", 100, 200);
+        var operations = new RecordingPlayerOperations();
+        var messenger = new RecordingMessenger();
+        var command = new TeleportHereCommand(
+            new RecordingPlayers(actor, target),
+            operations,
+            messenger);
+        var principal = new PlayerPrincipal(
+            actor.Id,
+            actor.Name,
+            "vega.players.teleport.others");
+
+        CommandExecutionResult result = await command.ExecuteAsync(
+            new CommandInvocation("tphere", ["Alice", "Smith"], principal, NullOutput.Instance),
+            CancellationToken.None);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(result.Status, Is.EqualTo(CommandExecutionStatus.Success));
+            Assert.That(operations.TeleportedPlayer, Is.EqualTo(target.Id));
+            Assert.That(operations.TeleportDestination, Is.EqualTo(actor.Position));
+            Assert.That(messenger.Messages.Single().Id, Is.EqualTo(target.Id));
+            Assert.That(command.Descriptor.Aliases, Is.Empty);
+            Assert.That(command.Descriptor.AllowServer, Is.False);
+            Assert.That(command.Descriptor.Permissions, Is.EqualTo(new[] { "vega.players.teleport.others" }));
+        });
+    }
+
+    [Test]
+    public async Task TeleportHereAllExcludesCaller()
+    {
+        PlayerSnapshot actor = Player(1, "Admin", 50, 60);
+        PlayerSnapshot first = Player(3, "Alice", 100, 200);
+        PlayerSnapshot second = Player(8, "Bob", 800, 900);
+        var operations = new RecordingPlayerOperations();
+        var command = new TeleportHereCommand(
+            new RecordingPlayers(actor, first, second),
+            operations,
+            new NullMessenger());
+        var principal = new PlayerPrincipal(
+            actor.Id,
+            actor.Name,
+            "vega.players.teleport.others",
+            "vega.players.teleport.all");
+
+        CommandExecutionResult result = await command.ExecuteAsync(
+            new CommandInvocation("tphere", ["*"], principal, NullOutput.Instance),
+            CancellationToken.None);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(result.Status, Is.EqualTo(CommandExecutionStatus.Success));
+            Assert.That(operations.TeleportedPlayers, Is.EqualTo(new[] { first.Id, second.Id }));
+            Assert.That(operations.TeleportDestination, Is.EqualTo(actor.Position));
+        });
+    }
+
+    [Test]
     public async Task ButcherWithNpcSelectorKillsOnlyMatchingNetId()
     {
         NpcSnapshot first = Npc(1, "Zombie", friendly: false, town: false, boss: false, netId: 20);
