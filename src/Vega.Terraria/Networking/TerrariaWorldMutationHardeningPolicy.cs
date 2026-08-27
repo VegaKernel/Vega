@@ -49,6 +49,8 @@ public sealed class TerrariaWorldMutationHardeningPolicy : IPacketProcessor<Pack
         {
             PacketTypes.DoorUse => ValidateDoor(context.Packet.AsDoorUseView()),
             PacketTypes.ChestItem => ValidateChestStack(context.Packet.AsChestItemView()),
+            PacketTypes.ItemDrop => ValidateWorldItemStack(context.Packet.AsItemDropView()),
+            PacketTypes.UpdateItemDrop => ValidateWorldItemStack(context.Packet.AsUpdateItemDropView()),
             PacketTypes.PlaceItemFrame => ValidateItemFrame(context.Packet.AsPlaceItemFrameView()),
             _ => PacketProcessingDecision.Allow
         };
@@ -77,6 +79,24 @@ public sealed class TerrariaWorldMutationHardeningPolicy : IPacketProcessor<Pack
         chestItem.Stack > itemMaxStack(chestItem.ItemNetId)
             ? PacketProcessingDecision.Violation("packet.chest.stack_exceeds_item_limit")
             : PacketProcessingDecision.Allow;
+
+    private PacketProcessingDecision ValidateWorldItemStack(ItemDropView item) =>
+        ValidateWorldItemStack(item.Stack, item.ItemNetId);
+
+    private PacketProcessingDecision ValidateWorldItemStack(UpdateItemDropView item) =>
+        ValidateWorldItemStack(item.Stack, item.ItemNetId);
+
+    private PacketProcessingDecision ValidateWorldItemStack(short stack, short itemNetId)
+    {
+        if (stack == 0 || itemNetId == 0)
+        {
+            return PacketProcessingDecision.Allow;
+        }
+
+        return stack > itemMaxStack(itemNetId)
+            ? PacketProcessingDecision.Violation("packet.world_item.stack_exceeds_item_limit")
+            : PacketProcessingDecision.Allow;
+    }
 
     private PacketProcessingDecision ValidateItemFrame(PlaceItemFrameView itemFrame) =>
         itemFrameExists(itemFrame.X, itemFrame.Y)
