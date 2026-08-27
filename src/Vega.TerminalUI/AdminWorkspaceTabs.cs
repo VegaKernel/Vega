@@ -1,5 +1,4 @@
 using System.Collections.ObjectModel;
-using System.Globalization;
 using System.Text;
 using Terminal.Gui.Input;
 using Terminal.Gui.ViewBase;
@@ -310,15 +309,14 @@ internal sealed class AdminWorkspaceTabs
         ServerDashboardSnapshot server = snapshot.Server;
         RuntimeMetricsSnapshot runtime = snapshot.Runtime;
         NetworkMetricsSnapshot network = snapshot.Network;
-        return string.Create(
-            CultureInfo.InvariantCulture,
+        return
             $"Debug / metrics workspace\n\n" +
             $"TPS       current {server.TickRate.Current:F1} · avg1m {server.TickRate.AverageOneMinute:F1} · p95 {server.TickRate.TickDurationP95Milliseconds:F1} ms · p99 {server.TickRate.TickDurationP99Milliseconds:F1} ms\n" +
             $"Memory    working {runtime.Host.WorkingSetBytes / 1024d / 1024d:F1} MiB · managed {runtime.ManagedMemoryBytes / 1024d / 1024d:F1} MiB · GC heap {runtime.GcHeapBytes / 1024d / 1024d:F1} MiB\n" +
             $"GC        gen0 {runtime.Gen0Collections} · gen1 {runtime.Gen1Collections} · gen2 {runtime.Gen2Collections}\n" +
             $"Network   in {network.InboundPackets:N0}/{network.InboundBytes:N0} B · out {network.OutboundPackets:N0}/{network.OutboundBytes:N0} B\n" +
             $"Security  rejected {network.RejectedInboundPackets:N0} · violations {network.SecurityViolations:N0}\n\n" +
-            "This screen currently reuses the bounded local Operations projection. Its remote equivalent will move behind the Phase 27 debug/metrics Admin capability before remote transport is enabled.");
+            "This screen currently reuses the bounded local Operations projection. Its remote equivalent will move behind the Phase 27 debug/metrics Admin capability before remote transport is enabled.";
     }
 
     private static ListView CreateList() => new()
@@ -338,7 +336,7 @@ internal sealed class AdminWorkspaceTabs
     {
         int? selected = list.SelectedItem;
         list.SetSource(new ObservableCollection<string>(rows.Count == 0 ? ["(empty)"] : rows.ToArray()));
-        if (selected is int index && index >= 0 && index < list.Source?.Count)
+        if (selected is int index && index >= 0 && list.Source is { } source && index < source.Count)
         {
             list.SelectedItem = index;
         }
