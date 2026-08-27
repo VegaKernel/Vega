@@ -73,21 +73,23 @@ public sealed class TerrariaBuffCommandCompatibilityTests
         });
     }
 
-    [Test]
-    public async Task GBuffUsesZeroDurationWhenOptionalDurationIsNotNumericLikeTerraZ()
+    [TestCase("0")]
+    [TestCase("not-a-number")]
+    public async Task GBuffRejectsDurationThatCannotReachLifecycleBoundary(string duration)
     {
         PlayerSnapshot player = Player(3, "Alice");
         var operations = new RecordingLifecycleOperations();
         var command = new GBuffCommand(new RecordingDirectory(player), operations);
 
         CommandExecutionResult result = await command.ExecuteAsync(
-            Invocation("gbuff", ["Alice", "1", "not-a-number"], ServerPrincipal.Instance),
+            Invocation("gbuff", ["Alice", "1", duration], ServerPrincipal.Instance),
             CancellationToken.None);
 
         Assert.Multiple(() =>
         {
-            Assert.That(result.Status, Is.EqualTo(CommandExecutionStatus.Success));
-            Assert.That(operations.BuffDurationTicks, Is.Zero);
+            Assert.That(result.Status, Is.EqualTo(CommandExecutionStatus.InvalidUsage));
+            Assert.That(result.ErrorCode, Is.EqualTo("command.gbuff.usage"));
+            Assert.That(operations.BuffedPlayer, Is.Null);
         });
     }
 
