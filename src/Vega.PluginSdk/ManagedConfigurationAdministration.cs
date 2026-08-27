@@ -290,6 +290,10 @@ public sealed class ManagedConfigurationAdministration
         {
             return ManagedConfigurationAdminResult.Failed("configuration.invalid_json", ex.Message);
         }
+        catch (InvalidOperationException ex)
+        {
+            return ManagedConfigurationAdminResult.Failed("configuration.redaction_conflict", ex.Message);
+        }
     }
 
     private static ManagedConfigurationAdminDescriptor CreateDescriptor(
@@ -324,7 +328,9 @@ public sealed class ManagedConfigurationAdministration
         JsonNode visible = root.DeepClone();
         foreach (string pointer in pointers)
         {
-            if (TryResolveParent(visible, pointer, out JsonNode? parent, out string token) && parent is not null)
+            if (TryResolveParent(visible, pointer, out JsonNode? parent, out string token) &&
+                parent is not null &&
+                HasChild(parent, token))
             {
                 SetChild(parent, token, JsonValue.Create(RedactedValue));
             }
@@ -342,7 +348,9 @@ public sealed class ManagedConfigurationAdministration
         JsonNode? submitted = JsonNode.Parse(submittedJson) ?? throw new JsonException("Submitted configuration contains null JSON.");
         foreach (string pointer in pointers)
         {
-            if (!TryResolveParent(current, pointer, out JsonNode? currentParent, out string token) || currentParent is null)
+            if (!TryResolveParent(current, pointer, out JsonNode? currentParent, out string token) ||
+                currentParent is null ||
+                !HasChild(currentParent, token))
             {
                 continue;
             }
@@ -390,6 +398,13 @@ public sealed class ManagedConfigurationAdministration
         token = tokens[^1];
         return parent is not null;
     }
+
+    private static bool HasChild(JsonNode parent, string token) => parent switch
+    {
+        JsonObject objectNode => objectNode.ContainsKey(token),
+        JsonArray arrayNode => int.TryParse(token, out int index) && index >= 0 && index < arrayNode.Count,
+        _ => false
+    };
 
     private static JsonNode? GetChild(JsonNode parent, string token) => parent switch
     {
