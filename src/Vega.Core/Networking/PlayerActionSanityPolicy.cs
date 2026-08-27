@@ -31,6 +31,7 @@ public sealed class PlayerActionSanityPolicy(
         {
             PacketTypes.PlayerHp => ValidateHealth(context.Packet.AsPlayerHpView()),
             PacketTypes.PlayerAnimation => ValidateAnimation(new PlayerAnimationView(context.Packet)),
+            PacketTypes.PlayerMana => ValidateMana(context.Packet.AsPlayerManaView()),
             PacketTypes.PlayerTeam => ValidateTeam(new PlayerTeamView(context.Packet).Team),
             PacketTypes.TeamChangeFromUI => ValidateTeam(new TeamChangeFromUIView(context.Packet).Team),
             PacketTypes.PlayerBuff => ValidatePlayerBuffList(context.Packet.PayloadSpan),
@@ -63,6 +64,11 @@ public sealed class PlayerActionSanityPolicy(
             ? PacketProcessingDecision.Violation("packet.player_animation.duration_out_of_range")
             : PacketProcessingDecision.Allow;
     }
+
+    private static PacketProcessingDecision ValidateMana(PlayerManaView value) =>
+        value.Mana < 0 || value.MaxMana < 0
+            ? PacketProcessingDecision.Violation("packet.player_mana.negative")
+            : PacketProcessingDecision.Allow;
 
     private static PacketProcessingDecision ValidateTeam(byte team) =>
         team > MaximumVanillaTeam
