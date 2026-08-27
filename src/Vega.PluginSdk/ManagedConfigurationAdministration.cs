@@ -50,6 +50,12 @@ public sealed record ManagedConfigurationAdminResult(
 public sealed class ManagedConfigurationAdministration
 {
     private const string RedactedValue = "[REDACTED]";
+    private static readonly JsonSerializerOptions PolicyJsonOptions = new(JsonSerializerDefaults.Web)
+    {
+        PropertyNameCaseInsensitive = true,
+        ReadCommentHandling = JsonCommentHandling.Skip,
+        AllowTrailingCommas = true
+    };
     private readonly IReadOnlyDictionary<(string Plugin, string FileName), ManagedConfigurationExposureRule> rules;
 
     public ManagedConfigurationAdministration(IEnumerable<ManagedConfigurationExposureRule>? rules = null)
@@ -75,6 +81,36 @@ public sealed class ManagedConfigurationAdministration
         }
 
         this.rules = configured;
+    }
+
+    /// <summary>
+    /// Loads an operator exposure policy. Invalid or inaccessible policy files fail closed and
+    /// return a facade exposing no managed configuration documents.
+    /// </summary>
+    public static ManagedConfigurationAdministration LoadPolicy(
+        string path,
+        out string? error)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(path);
+        if (!File.Exists(path))
+        {
+            error = null;
+            return new ManagedConfigurationAdministration();
+        }
+
+        try
+        {
+            AdminConfigurationExposureFile? file = JsonSerializer.Deserialize<AdminConfigurationExposureFile>(
+                File.ReadAllText(path),
+                PolicyJsonOptions);
+            error = null;
+            return new ManagedConfigurationAdministration(file?.Documents ?? []);
+        }
+        catch (Exception ex) when (ex is JsonException or IOException or UnauthorizedAccessException or InvalidOperationException or ArgumentException)
+        {
+            error = ex.Message;
+            return new ManagedConfigurationAdministration();
+        }
     }
 
     public IReadOnlyList<ManagedConfigurationAdminDescriptor> Snapshot()
@@ -418,6 +454,9 @@ public sealed class ManagedConfigurationAdministration
 
     private static string NormalizeFileName(string fileName) =>
         fileName.Trim().Replace('\\', '/');
+
+    private sealed record AdminConfigurationExposureFile(
+        IReadOnlyList<ManagedConfigurationExposureRule>? Documents = null);
 
     private sealed class ConfigurationKeyComparer : IEqualityComparer<(string Plugin, string FileName)>
     {
