@@ -107,6 +107,81 @@ public sealed class Phase25PacketAuditTests
             Is.EqualTo(PacketProcessingDecision.Violation("packet.sign.position_out_of_world")));
     }
 
+    [Test]
+    public void PaintPacketsRejectInvalidProtocolValues()
+    {
+        byte[] tilePayload = new byte[6];
+        BinaryPrimitives.WriteInt16LittleEndian(tilePayload.AsSpan(), 10);
+        BinaryPrimitives.WriteInt16LittleEndian(tilePayload.AsSpan(2), 10);
+        tilePayload[4] = 32;
+
+        byte[] wallPayload = new byte[6];
+        BinaryPrimitives.WriteInt16LittleEndian(wallPayload.AsSpan(), 10);
+        BinaryPrimitives.WriteInt16LittleEndian(wallPayload.AsSpan(2), 10);
+        wallPayload[4] = 1;
+        wallPayload[5] = 2;
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(
+                Process(WorldMutations(), PacketView.FromPayload(PacketTypes.PaintTile, tilePayload), 7),
+                Is.EqualTo(PacketProcessingDecision.Violation("packet.paint.value_out_of_range")));
+            Assert.That(
+                Process(WorldMutations(), PacketView.FromPayload(PacketTypes.PaintWall, wallPayload), 7),
+                Is.EqualTo(PacketProcessingDecision.Violation("packet.paint.value_out_of_range")));
+        });
+    }
+
+    [Test]
+    public void PlaceObjectRejectsOutOfRangeTileType()
+    {
+        byte[] payload = new byte[11];
+        BinaryPrimitives.WriteInt16LittleEndian(payload.AsSpan(), 10);
+        BinaryPrimitives.WriteInt16LittleEndian(payload.AsSpan(2), 10);
+        BinaryPrimitives.WriteInt16LittleEndian(payload.AsSpan(4), 500);
+
+        Assert.That(
+            Process(WorldMutations(), PacketView.FromPayload(PacketTypes.PlaceObject, payload), 7),
+            Is.EqualTo(PacketProcessingDecision.Violation("packet.object.type_out_of_range")));
+    }
+
+    [Test]
+    public void TileEntityAndGemLockRejectOutOfWorldCoordinates()
+    {
+        byte[] tileEntityPayload = new byte[5];
+        BinaryPrimitives.WriteInt16LittleEndian(tileEntityPayload.AsSpan(), -1);
+        BinaryPrimitives.WriteInt16LittleEndian(tileEntityPayload.AsSpan(2), 10);
+
+        byte[] gemLockPayload = new byte[5];
+        BinaryPrimitives.WriteInt16LittleEndian(gemLockPayload.AsSpan(), 100);
+        BinaryPrimitives.WriteInt16LittleEndian(gemLockPayload.AsSpan(2), 10);
+        gemLockPayload[4] = 1;
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(
+                Process(WorldMutations(), PacketView.FromPayload(PacketTypes.PlaceTileEntity, tileEntityPayload), 7),
+                Is.EqualTo(PacketProcessingDecision.Violation("packet.tile_entity.position_out_of_world")));
+            Assert.That(
+                Process(WorldMutations(), PacketView.FromPayload(PacketTypes.GemLockToggle, gemLockPayload), 7),
+                Is.EqualTo(PacketProcessingDecision.Violation("packet.gem_lock.position_out_of_world")));
+        });
+    }
+
+    [Test]
+    public void MassWireRejectsOutOfWorldEndpoint()
+    {
+        byte[] payload = new byte[9];
+        BinaryPrimitives.WriteInt16LittleEndian(payload.AsSpan(), 1);
+        BinaryPrimitives.WriteInt16LittleEndian(payload.AsSpan(2), 1);
+        BinaryPrimitives.WriteInt16LittleEndian(payload.AsSpan(4), 100);
+        BinaryPrimitives.WriteInt16LittleEndian(payload.AsSpan(6), 2);
+
+        Assert.That(
+            Process(WorldMutations(), PacketView.FromPayload(PacketTypes.MassWireOperation, payload), 7),
+            Is.EqualTo(PacketProcessingDecision.Violation("packet.mass_wire.position_out_of_world")));
+    }
+
     private static byte[] BuildNpcHomePayload(short npcId, short x, short y)
     {
         byte[] payload = new byte[7];
