@@ -84,7 +84,11 @@ public sealed class AdminClientBoundaryTests
                     "worldinfo",
                     ["server.view"],
                     AllowServer: true,
-                    Owner: "world")
+                    Owner: "world",
+                    FallbackDescription: "Show world state.")
+                {
+                    AllowPlayers = false
+                }
             ]
         };
         var adapter = new AdminCommandCatalogAdapter(admin);
@@ -97,11 +101,14 @@ public sealed class AdminClientBoundaryTests
             Assert.That(descriptor.Aliases, Is.EqualTo(new[] { "world" }));
             Assert.That(descriptor.Syntax, Is.EqualTo("worldinfo"));
             Assert.That(descriptor.Permissions, Is.EqualTo(new[] { "server.view" }));
+            Assert.That(descriptor.Owner, Is.EqualTo("world"));
+            Assert.That(descriptor.AllowPlayers, Is.False);
+            Assert.That(descriptor.FallbackDescription, Is.EqualTo("Show world state."));
         });
     }
 
     [Test]
-    public async Task InitialProtocolAdvertisesOnlyImplementedVerticalSlice()
+    public async Task InitialProtocolAdvertisesImplementedWorkspaceQueries()
     {
         var admin = new RecordingAdminClient();
 
@@ -109,7 +116,18 @@ public sealed class AdminClientBoundaryTests
 
         Assert.That(
             protocol.Capabilities.Select(static capability => capability.Name),
-            Is.EqualTo(new[] { "server.status", "commands.catalog", "commands.execute" }));
+            Is.EqualTo(new[]
+            {
+                "server.status",
+                "players.snapshot",
+                "commands.catalog",
+                "commands.execute",
+                "modules.snapshot",
+                "logs.query",
+                "chat.snapshot",
+                "administration.snapshot",
+                "diagnostics.snapshot"
+            }));
     }
 
     [Test]
@@ -174,6 +192,10 @@ public sealed class AdminClientBoundaryTests
             CancellationToken cancellationToken = default) =>
             throw new NotSupportedException();
 
+        public ValueTask<IReadOnlyList<AdminPlayerSnapshot>> GetPlayersAsync(
+            CancellationToken cancellationToken = default) =>
+            ValueTask.FromResult<IReadOnlyList<AdminPlayerSnapshot>>(Array.Empty<AdminPlayerSnapshot>());
+
         public ValueTask<IReadOnlyList<AdminCommandDescriptor>> GetCommandCatalogAsync(
             CancellationToken cancellationToken = default) =>
             ValueTask.FromResult(Catalog);
@@ -185,6 +207,31 @@ public sealed class AdminClientBoundaryTests
             LastRequest = request;
             return ValueTask.FromResult(CommandResult);
         }
+
+        public ValueTask<IReadOnlyList<AdminModuleSnapshot>> GetModulesAsync(
+            CancellationToken cancellationToken = default) =>
+            ValueTask.FromResult<IReadOnlyList<AdminModuleSnapshot>>(Array.Empty<AdminModuleSnapshot>());
+
+        public ValueTask<IReadOnlyList<AdminLogRecord>> QueryLogsAsync(
+            AdminLogQuery query,
+            CancellationToken cancellationToken = default) =>
+            ValueTask.FromResult<IReadOnlyList<AdminLogRecord>>(Array.Empty<AdminLogRecord>());
+
+        public ValueTask<IReadOnlyList<AdminChatRecord>> GetChatAsync(
+            int limit = 100,
+            CancellationToken cancellationToken = default) =>
+            ValueTask.FromResult<IReadOnlyList<AdminChatRecord>>(Array.Empty<AdminChatRecord>());
+
+        public ValueTask<AdminAdministrationSnapshot> GetAdministrationAsync(
+            CancellationToken cancellationToken = default) =>
+            ValueTask.FromResult(new AdminAdministrationSnapshot(
+                Array.Empty<AdminPermissionGroupSnapshot>(),
+                Array.Empty<AdminAccountSnapshot>(),
+                DateTimeOffset.UtcNow));
+
+        public ValueTask<AdminDiagnosticsSnapshot> GetDiagnosticsAsync(
+            CancellationToken cancellationToken = default) =>
+            throw new NotSupportedException();
     }
 
     private sealed class UnusedSnapshotProvider : IOperationsSnapshotProvider
