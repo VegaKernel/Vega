@@ -35,6 +35,7 @@ public sealed class PlayerActionSanityPolicy(
             PacketTypes.PlayerTeam => ValidateTeam(new PlayerTeamView(context.Packet).Team),
             PacketTypes.TeamChangeFromUI => ValidateTeam(new TeamChangeFromUIView(context.Packet).Team),
             PacketTypes.PlayerBuff => ValidatePlayerBuffList(context.Packet.PayloadSpan),
+            PacketTypes.NpcSpecial => ValidateNpcSpecial(context.Packet.PayloadSpan),
             PacketTypes.PlayerStealth => ValidateStealth(new PlayerStealthView(context.Packet)),
             PacketTypes.PlayHarp => ValidateHarp(new PlayHarpView(context.Packet)),
             PacketTypes.UpdateMinionTarget => ValidateMinionRestTarget(new UpdateMinionTargetView(context.Packet)),
@@ -44,6 +45,7 @@ public sealed class PlayerActionSanityPolicy(
             PacketTypes.PlayerAddBuff => ValidatePlayerAddBuff(context.Packet.PayloadSpan),
             PacketTypes.PlayerHealOther => ValidateHealOther(new PlayerHealOtherView(context.Packet)),
             PacketTypes.PlayerHurtV2 => ValidatePlayerHurt(context.Packet.AsPlayerHurtV2View()),
+            PacketTypes.PlayerDeathV2 => ValidatePlayerDeath(context.Packet.AsPlayerDeathV2View()),
             PacketTypes.LandGolfBallInCup => ValidateGolf(new LandGolfBallInCupView(context.Packet)),
             _ => PacketProcessingDecision.Allow
         };
@@ -105,6 +107,19 @@ public sealed class PlayerActionSanityPolicy(
         }
 
         return PacketProcessingDecision.Allow;
+    }
+
+    private static PacketProcessingDecision ValidateNpcSpecial(ReadOnlySpan<byte> payload)
+    {
+        if (payload.Length != 2)
+        {
+            return PacketProcessingDecision.Reject("packet.npc_special.malformed");
+        }
+
+        byte effect = payload[1];
+        return effect is >= 1 and <= 6 or 10
+            ? PacketProcessingDecision.Allow
+            : PacketProcessingDecision.Violation("packet.npc_special.effect_out_of_range");
     }
 
     private static PacketProcessingDecision ValidateStealth(PlayerStealthView value) =>
@@ -223,6 +238,35 @@ public sealed class PlayerActionSanityPolicy(
 
         return value.FromProjectileType < 0 || value.FromProjectileType >= projectileTypeCount
             ? PacketProcessingDecision.Violation("packet.player_hurt.projectile_type_out_of_range")
+            : PacketProcessingDecision.Allow;
+    }
+
+    private PacketProcessingDecision ValidatePlayerDeath(PlayerDeathV2View value)
+    {
+        if (value.PlayerId >= playerCount)
+        {
+            return PacketProcessingDecision.Violation("packet.player_death.target_out_of_range");
+        }
+
+        if (value.Damage < 0 || value.HitDirection > 2)
+        {
+            return PacketProcessingDecision.Violation("packet.player_death.combat_values_out_of_range");
+        }
+
+        if (value.FromPlayerIndex != -1 &&
+            (value.FromPlayerIndex < 0 || value.FromPlayerIndex >= playerCount))
+        {
+            return PacketProcessingDecision.Violation("packet.player_death.source_player_out_of_range");
+        }
+
+        if (value.FromNpcIndex != -1 &&
+            (value.FromNpcIndex < 0 || value.FromNpcIndex >= npcCount))
+        {
+            return PacketProcessingDecision.Violation("packet.player_death.source_npc_out_of_range");
+        }
+
+        return value.FromProjectileType < 0 || value.FromProjectileType >= projectileTypeCount
+            ? PacketProcessingDecision.Violation("packet.player_death.projectile_type_out_of_range")
             : PacketProcessingDecision.Allow;
     }
 
