@@ -44,6 +44,52 @@ public sealed class GlobalBuildProtectionPolicyTests
         Assert.That(decision.Kind, Is.EqualTo(PacketDecisionKind.Allow));
     }
 
+    [Test]
+    public void SpawnProtectionRejectsInsideCircularRadiusAndAllowsOutside()
+    {
+        var state = new RuntimeWorldBuildProtectionService();
+        state.ToggleSpawnProtection(100, 50, 10);
+        var policy = new GlobalBuildProtectionPolicy(state, new Authorization(false));
+
+        PacketProcessingDecision inside = Process(policy,
+            new Tile { Action = TileAction.PlaceTile, TileX = 106, TileY = 58, Value = 1 });
+        PacketProcessingDecision outside = Process(policy,
+            new Tile { Action = TileAction.PlaceTile, TileX = 108, TileY = 58, Value = 1 });
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(inside.Reason, Is.EqualTo("packet.spawn_protection.build_denied"));
+            Assert.That(outside.Kind, Is.EqualTo(PacketDecisionKind.Allow));
+        });
+    }
+
+    [Test]
+    public void EditSpawnPermissionBypassesSpawnProtection()
+    {
+        var state = new RuntimeWorldBuildProtectionService();
+        state.ToggleSpawnProtection(100, 50, 10);
+        var policy = new GlobalBuildProtectionPolicy(state, new Authorization(true));
+
+        PacketProcessingDecision decision = Process(policy,
+            new PaintTile { X = 100, Y = 50, Color = 1 });
+
+        Assert.That(decision.Kind, Is.EqualTo(PacketDecisionKind.Allow));
+    }
+
+    [Test]
+    public void MovingSpawnUpdatesProtectedAreaWithoutRetoggling()
+    {
+        var state = new RuntimeWorldBuildProtectionService();
+        state.ToggleSpawnProtection(10, 10, 10);
+        state.UpdateSpawnPosition(200, 100);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(state.IsSpawnProtected(10, 10), Is.False);
+            Assert.That(state.IsSpawnProtected(200, 100), Is.True);
+        });
+    }
+
     private static PacketProcessingDecision Process(
         GlobalBuildProtectionPolicy policy,
         TerrariaPacket value)
