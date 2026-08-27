@@ -42,7 +42,12 @@ public sealed class PluginSdkContextTests
         var repeats = 0;
         var applied = 0;
 
-        plugin.Commands.Register(new ProbeCommand());
+        plugin.Commands.Register(
+            "sdkprobe",
+            (_, _) => ValueTask.FromResult(CommandExecutionResult.Success),
+            aliases: ["probe"],
+            permissions: ["vega.test.sdkprobe"],
+            syntax: "sdkprobe");
         plugin.Players.OnJoined(_ => Interlocked.Increment(ref joins));
         plugin.Players.OnLeft(_ => Interlocked.Increment(ref leaves));
         plugin.Events.On<ProbeEvent>(_ => Interlocked.Increment(ref eventCalls));
@@ -65,6 +70,11 @@ public sealed class PluginSdkContextTests
         Assert.Multiple(() =>
         {
             Assert.That(commands.Active, Is.EqualTo(1));
+            Assert.That(commands.LastHandler, Is.Not.Null);
+            Assert.That(commands.LastHandler!.Descriptor.Name, Is.EqualTo("sdkprobe"));
+            Assert.That(commands.LastHandler.Descriptor.Aliases, Is.EqualTo(new[] { "probe" }));
+            Assert.That(commands.LastHandler.Descriptor.Permissions, Is.EqualTo(new[] { "vega.test.sdkprobe" }));
+            Assert.That(commands.LastHandler.Descriptor.Syntax, Is.EqualTo("sdkprobe"));
             Assert.That(players.OpenedSubscribers, Is.EqualTo(1));
             Assert.That(players.ClosedSubscribers, Is.EqualTo(1));
             Assert.That(joins, Is.EqualTo(1));
@@ -107,23 +117,15 @@ public sealed class PluginSdkContextTests
     private sealed record ProbeEvent;
     private sealed record ProbeSettings(string Value);
 
-    private sealed class ProbeCommand : ICommandHandler
-    {
-        public CommandDescriptor Descriptor { get; } = new("sdkprobe", [], []);
-
-        public ValueTask<CommandExecutionResult> ExecuteAsync(
-            CommandInvocation invocation,
-            CancellationToken cancellationToken) =>
-            ValueTask.FromResult(CommandExecutionResult.Success);
-    }
-
     private sealed class RecordingCommandRegistry : ICommandRegistry
     {
         public int Active { get; private set; }
+        public ICommandHandler? LastHandler { get; private set; }
 
         public IDisposable Register(ICommandHandler handler)
         {
             ArgumentNullException.ThrowIfNull(handler);
+            LastHandler = handler;
             Active++;
             return new Registration(this);
         }
