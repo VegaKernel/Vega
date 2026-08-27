@@ -48,7 +48,10 @@ public sealed record AdminCommandDescriptor(
     string? HelpKey = null,
     string? FallbackTitle = null,
     string? FallbackDescription = null,
-    string? FallbackHelp = null);
+    string? FallbackHelp = null)
+{
+    public bool AllowPlayers { get; init; } = true;
+}
 
 public sealed record AdminCommandRequest(
     string Name,
