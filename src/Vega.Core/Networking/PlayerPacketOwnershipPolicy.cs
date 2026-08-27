@@ -22,7 +22,9 @@ public sealed class PlayerPacketOwnershipPolicy : IPacketProcessor<PacketView>
         {
             PacketTypes.PlayerUpdate => context.Packet.AsPlayerUpdateView().PlayerId,
             PacketTypes.PlayerHp => context.Packet.AsPlayerHpView().PlayerId,
-            PacketTypes.Zones => new ZonesView(context.Packet).PlayerId,
+            // Protocol 326 carries two fields after Multiplicity 2.6.3's legacy Zones schema.
+            // The sender byte remains the first byte and is safe to consume without materializing the stale view.
+            PacketTypes.Zones => context.Packet.PayloadSpan[0],
             PacketTypes.NpcTalk => new NpcTalkView(context.Packet).PlayerId,
             PacketTypes.PlayerAnimation => new PlayerAnimationView(context.Packet).PlayerId,
             PacketTypes.PlayerMana => context.Packet.AsPlayerManaView().PlayerId,
