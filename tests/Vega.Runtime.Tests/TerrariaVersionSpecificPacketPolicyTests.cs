@@ -74,13 +74,47 @@ public sealed class TerrariaVersionSpecificPacketPolicyTests
         }
     }
 
+    [Test]
+    public void NonCatchableNpcIsRejectedBeforeNativeCatch()
+    {
+        const short slot = 3;
+        global::Terraria.NPC? previous = global::Terraria.Main.npc[slot];
+        try
+        {
+            global::Terraria.Main.npc[slot] = new global::Terraria.NPC
+            {
+                active = true,
+                catchItem = 0
+            };
+            byte[] payload = new byte[2];
+            BinaryPrimitives.WriteInt16LittleEndian(payload, slot);
+            PacketView packet = PacketView.FromPayload(PacketTypes.CatchNPC, payload);
+
+            PacketProcessingDecision decision = Process(new TerrariaNpcGenerationPolicy(), packet);
+
+            Assert.That(
+                decision,
+                Is.EqualTo(PacketProcessingDecision.Reject("packet.npc.catch_not_catchable")));
+        }
+        finally
+        {
+            global::Terraria.Main.npc[slot] = previous!;
+        }
+    }
+
     private static PacketProcessingDecision Process(
         IPacketProcessor<PacketView> policy,
         TerrariaPacket value)
     {
         using var stream = new MemoryStream();
         value.ToStream(stream, includeHeader: false);
-        PacketView packet = PacketView.FromPayload(value.PacketType, stream.ToArray());
+        return Process(policy, PacketView.FromPayload(value.PacketType, stream.ToArray()));
+    }
+
+    private static PacketProcessingDecision Process(
+        IPacketProcessor<PacketView> policy,
+        PacketView packet)
+    {
         var context = new PacketProcessingContext<PacketView>(
             packet,
             PacketDirection.Inbound,
