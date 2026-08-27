@@ -113,7 +113,7 @@ internal sealed class TeleportNpcCommand(
         [],
         ["vega.players.teleport.npc"],
         AllowServer: false,
-        Syntax: "tpnpc <npc name|slot>");
+        Syntax: "tpnpc <npc name>");
 
     public async ValueTask<CommandExecutionResult> ExecuteAsync(
         CommandInvocation invocation,
@@ -160,15 +160,6 @@ internal sealed class TeleportNpcCommand(
         out NpcSnapshot[] ambiguous)
     {
         ambiguous = [];
-        if (int.TryParse(search, NumberStyles.Integer, CultureInfo.InvariantCulture, out int slot))
-        {
-            NpcSnapshot? bySlot = snapshot.FirstOrDefault(npc => npc.Handle.Slot == slot);
-            if (bySlot is not null)
-            {
-                return bySlot;
-            }
-        }
-
         NpcSnapshot? exact = snapshot.FirstOrDefault(npc =>
             npc.Name.Equals(search, StringComparison.OrdinalIgnoreCase));
         if (exact is not null)
@@ -192,7 +183,7 @@ internal sealed class TeleportNpcCommand(
     private static CommandExecutionResult Usage() => new(
         CommandExecutionStatus.InvalidUsage,
         "command.tpnpc.usage",
-        [MessageDescriptor.Error("command.tpnpc.usage").WithDefaultText("Usage: tpnpc <npc name|slot>.")]);
+        [MessageDescriptor.Error("command.tpnpc.usage").WithDefaultText("Usage: tpnpc <npc name>.")]);
 
     private static CommandExecutionResult Failure(string code, string text) =>
         CommandExecutionResult.Failed(code, MessageDescriptor.Error(code).WithDefaultText(text));
