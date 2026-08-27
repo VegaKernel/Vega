@@ -1,3 +1,4 @@
+using System.Globalization;
 using Vega.Admin.Client;
 using Vega.Admin.Contracts;
 using Vega.Contracts.Commands;
@@ -66,25 +67,25 @@ internal sealed class LocalVegaAdminClient(
         CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(request);
-        if (!CommandTextParser.TryParse(request.CommandText, out ParsedCommandText parsed))
+        if (string.IsNullOrWhiteSpace(request.Name))
         {
             return new AdminCommandResult(
                 AdminCommandExecutionStatus.InvalidUsage,
                 "command.empty",
                 [new AdminMessageDescriptor(
                     "command.empty",
-                    Array.Empty<object?>(),
+                    Array.Empty<AdminMessageArgument>(),
                     AdminMessageSeverity.Error,
                     "Enter a command.")]);
         }
 
         var output = new BufferedAdminCommandOutput();
         var invocation = new CommandInvocation(
-            parsed.Name,
-            parsed.Arguments,
+            request.Name.Trim(),
+            request.Arguments.ToArray(),
             LocalAdminPrincipal.Instance,
             output,
-            parsed.Silent);
+            request.Silent);
         CommandExecutionResult result = await dispatcher
             .DispatchAsync(invocation, cancellationToken)
             .ConfigureAwait(false);
@@ -111,7 +112,7 @@ internal sealed class LocalVegaAdminClient(
 
     private static AdminMessageDescriptor MapMessage(MessageDescriptor message) => new(
         message.Key,
-        message.Arguments.ToArray(),
+        message.Arguments.Select(MapArgument).ToArray(),
         message.Severity switch
         {
             MessageSeverity.Success => AdminMessageSeverity.Success,
@@ -121,6 +122,26 @@ internal sealed class LocalVegaAdminClient(
         },
         message.DefaultText,
         message.Source);
+
+    private static AdminMessageArgument MapArgument(object? value) => value switch
+    {
+        null => new(AdminScalarKind.Null, null),
+        string text => new(AdminScalarKind.String, text),
+        bool flag => new(AdminScalarKind.Boolean, flag ? "true" : "false"),
+        byte or sbyte or short or ushort or int or uint or long or ulong =>
+            new(AdminScalarKind.Integer, Convert.ToString(value, CultureInfo.InvariantCulture)),
+        float or double or decimal =>
+            new(AdminScalarKind.Number, ((IFormattable)value).ToString(null, CultureInfo.InvariantCulture)),
+        DateTimeOffset timestamp =>
+            new(AdminScalarKind.DateTimeOffset, timestamp.ToString("O", CultureInfo.InvariantCulture)),
+        DateTime timestamp =>
+            new(AdminScalarKind.DateTimeOffset, timestamp.ToString("O", CultureInfo.InvariantCulture)),
+        TimeSpan duration =>
+            new(AdminScalarKind.Duration, duration.ToString("c", CultureInfo.InvariantCulture)),
+        IFormattable formattable =>
+            new(AdminScalarKind.String, formattable.ToString(null, CultureInfo.InvariantCulture)),
+        _ => new(AdminScalarKind.String, value.ToString())
+    };
 
     private sealed class LocalAdminPrincipal : ICommandPrincipal
     {
@@ -155,7 +176,7 @@ internal sealed class LocalVegaAdminClient(
         {
             messages.Add(new AdminMessageDescriptor(
                 Key: null,
-                Arguments: Array.Empty<object?>(),
+                Arguments: Array.Empty<AdminMessageArgument>(),
                 Severity: severity,
                 FallbackText: message));
             return ValueTask.CompletedTask;
