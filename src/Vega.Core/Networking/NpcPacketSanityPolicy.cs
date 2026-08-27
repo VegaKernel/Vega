@@ -30,6 +30,7 @@ public sealed class NpcPacketSanityPolicy(
             PacketTypes.NpcTalk => ValidateTalk(new NpcTalkView(context.Packet)),
             PacketTypes.NpcAddBuff => ValidateNpcAddBuff(context.Packet.PayloadSpan),
             PacketTypes.UpdateNPCHome => ValidateHome(new UpdateNPCHomeView(context.Packet)),
+            PacketTypes.SpawnBossorInvasion => ValidateSpawnBossOrInvasion(new SpawnBossorInvasionView(context.Packet)),
             PacketTypes.CatchNPC => ValidateNpcId(new CatchNPCView(context.Packet).NpcId, "packet.npc.catch_id_out_of_range"),
             PacketTypes.ReleaseNPC => ValidateRelease(new ReleaseNPCView(context.Packet)),
             PacketTypes.FishOutNPC => ValidateFishOut(new FishOutNPCView(context.Packet)),
@@ -65,7 +66,7 @@ public sealed class NpcPacketSanityPolicy(
 
     private PacketProcessingDecision ValidateNpcAddBuff(ReadOnlySpan<byte> payload)
     {
-        // Multiplicity 2.6.2 models Buff as byte. Protocol 326 uses UInt16.
+        // Protocol 326 encodes the NPC id as Int16, buff id as UInt16 and duration as Int16.
         if (payload.Length != 6)
         {
             return PacketProcessingDecision.Reject("packet.npc.buff_malformed");
@@ -97,6 +98,23 @@ public sealed class NpcPacketSanityPolicy(
         return id.Kind != PacketDecisionKind.Allow
             ? id
             : ValidateTileCoordinates(value.HomeTileX, value.HomeTileY, "packet.npc.home_position_out_of_world");
+    }
+
+    private PacketProcessingDecision ValidateSpawnBossOrInvasion(SpawnBossorInvasionView value)
+    {
+        int type = value.Type;
+        if (type > 0)
+        {
+            return type < npcTypeCount
+                ? PacketProcessingDecision.Allow
+                : PacketProcessingDecision.Violation("packet.npc.spawn_type_out_of_range");
+        }
+
+        // Terraria reserves these negative values for vanilla invasions, town-pet licenses,
+        // permanent NPC upgrades, Mechdusa and Slime Rain. -9 and values below -19 are not valid requests.
+        return type is -1 or -2 or -3 or -4 or -5 or -6 or -7 or -8 or -10 or -11 or -12 or -13 or -14 or -15 or -16 or -17 or -18 or -19
+            ? PacketProcessingDecision.Allow
+            : PacketProcessingDecision.Violation("packet.npc.spawn_type_out_of_range");
     }
 
     private PacketProcessingDecision ValidateRelease(ReleaseNPCView value)
