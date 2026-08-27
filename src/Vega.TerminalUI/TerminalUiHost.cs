@@ -7,6 +7,7 @@ using Terminal.Gui.Input;
 using Terminal.Gui.ViewBase;
 using Terminal.Gui.Views;
 using Vega.Admin.Client;
+using Vega.Admin.Contracts;
 using Vega.Contracts.Commands;
 using Vega.Contracts.Operations;
 using TuiAttribute = Terminal.Gui.Drawing.Attribute;
@@ -247,12 +248,13 @@ public sealed class TerminalUiHost : IDisposable
                 Width = Dim.Fill(1),
                 Text = "Ready. Tab then 1..9 switches workspace."
             };
-            bool dashboardVisible = false;
-            OperationsSnapshot? latestSnapshot = null;
+            bool uiReady = false;
+            OperationsSnapshot? latestDashboardSnapshot = null;
+            AdminServerStatusSnapshot? latestStatus = null;
 
             void FocusCommandPalette()
             {
-                if (dashboardVisible)
+                if (uiReady)
                 {
                     command.SetFocus();
                 }
@@ -260,7 +262,7 @@ public sealed class TerminalUiHost : IDisposable
 
             void FocusLogs()
             {
-                if (dashboardVisible)
+                if (uiReady)
                 {
                     workspaces.FocusLogs();
                 }
@@ -268,7 +270,7 @@ public sealed class TerminalUiHost : IDisposable
 
             void ShowAdministration()
             {
-                if (dashboardVisible)
+                if (uiReady)
                 {
                     workspaces.FocusAdministration();
                 }
@@ -276,7 +278,7 @@ public sealed class TerminalUiHost : IDisposable
 
             void ToggleFollowing()
             {
-                if (!dashboardVisible)
+                if (!uiReady)
                 {
                     return;
                 }
@@ -288,7 +290,7 @@ public sealed class TerminalUiHost : IDisposable
 
             void ClearFilters()
             {
-                if (!dashboardVisible)
+                if (!uiReady)
                 {
                     return;
                 }
@@ -299,7 +301,7 @@ public sealed class TerminalUiHost : IDisposable
 
             void SaveLayout()
             {
-                if (!dashboardVisible)
+                if (!uiReady)
                 {
                     return;
                 }
@@ -311,7 +313,7 @@ public sealed class TerminalUiHost : IDisposable
 
             void ResetLayout()
             {
-                if (!dashboardVisible)
+                if (!uiReady)
                 {
                     return;
                 }
@@ -331,7 +333,7 @@ public sealed class TerminalUiHost : IDisposable
 
             void ShowLogFilter()
             {
-                if (dashboardVisible)
+                if (uiReady)
                 {
                     ShowLogFilterDialog(app);
                 }
@@ -394,7 +396,9 @@ public sealed class TerminalUiHost : IDisposable
 
             window.Add(menuBar, startup, workspaces.Root, terminalSizeWarning, commandBar, statusBar);
             DateTimeOffset lastRefreshFailureLoggedAt = DateTimeOffset.MinValue;
-            Task<OperationsSnapshot>? snapshotCapture = Task.Run(viewModel.Capture);
+            DateTimeOffset nextStatusRefreshAt = DateTimeOffset.MinValue;
+            Task<AdminServerStatusSnapshot>? statusCapture = null;
+            Task<OperationsSnapshot>? dashboardCapture = null;
             app.AddTimeout(TimeSpan.FromMilliseconds(layout.RefreshIntervalMilliseconds), () =>
             {
                 if (shutdown.IsCancellationRequested)
@@ -405,28 +409,35 @@ public sealed class TerminalUiHost : IDisposable
 
                 try
                 {
-                    if (snapshotCapture.IsCompleted)
+                    DateTimeOffset now = DateTimeOffset.UtcNow;
+                    if (statusCapture is null && now >= nextStatusRefreshAt)
                     {
-                        Task<OperationsSnapshot> completedCapture = snapshotCapture;
-                        snapshotCapture = Task.Run(viewModel.Capture);
-                        latestSnapshot = viewModel.Apply(
-                            completedCapture.GetAwaiter().GetResult());
+                        statusCapture = CaptureStatusAsync();
+                    }
+
+                    if (statusCapture is { IsCompleted: true })
+                    {
+                        Task<AdminServerStatusSnapshot> completedStatus = statusCapture;
+                        statusCapture = null;
+                        nextStatusRefreshAt = now.AddSeconds(1);
+                        latestStatus = completedStatus.GetAwaiter().GetResult();
                     }
 
                     RefreshCommandSuggestions();
-                    if (latestSnapshot is not OperationsSnapshot snapshot)
+                    if (latestStatus is not AdminServerStatusSnapshot status)
                     {
                         StartupProgressSnapshot current = startupProgress.Read();
                         startupStage.Text = current.Activity;
                         progress.Pulse();
+                        DrainResults(results, result);
                         return true;
                     }
 
-                    if (!snapshot.Server.IsNetworkReady)
+                    if (!status.IsNetworkReady)
                     {
                         StartupProgressSnapshot current = startupProgress.Read();
                         startupStage.Text = current.Activity;
-                        startupDetails.Text = $"{snapshot.Server.LifecycleStage} · elapsed {snapshot.Server.Uptime:mm\\:ss\\.f}";
+                        startupDetails.Text = $"{status.LifecycleStage} · elapsed {status.Uptime:mm\\:ss\\.f}";
                         if (current.Fraction is double fraction)
                         {
                             progress.ProgressBarStyle = ProgressBarStyle.Blocks;
@@ -439,42 +450,66 @@ public sealed class TerminalUiHost : IDisposable
                             progress.ProgressBarFormat = ProgressBarFormat.Simple;
                             progress.Pulse();
                         }
+
+                        DrainResults(results, result);
+                        return true;
+                    }
+
+                    if (!uiReady)
+                    {
+                        uiReady = true;
+                        startup.Visible = false;
+                        menuBar.Visible = true;
+                        statusBar.Visible = true;
+                    }
+
+                    bool usableSize = IsTerminalSizeUsable(window.Viewport.Width, window.Viewport.Height);
+                    terminalSizeWarning.Visible = !usableSize;
+                    workspaces.Visible = usableSize;
+                    commandBar.Visible = usableSize;
+                    if (usableSize)
+                    {
+                        int selectedWorkspace = workspaces.SelectedWorkspaceIndex;
+                        if (dashboardCapture is { IsCompleted: true })
+                        {
+                            Task<OperationsSnapshot> completedDashboard = dashboardCapture;
+                            dashboardCapture = null;
+                            OperationsSnapshot captured = completedDashboard.GetAwaiter().GetResult();
+                            if (selectedWorkspace == 0)
+                            {
+                                latestDashboardSnapshot = viewModel.Apply(captured);
+                            }
+                        }
+
+                        if (selectedWorkspace == 0 && dashboardCapture is null)
+                        {
+                            dashboardCapture = Task.Run(viewModel.Capture, shutdown.Token);
+                        }
+
+                        if (selectedWorkspace == 0 && latestDashboardSnapshot is OperationsSnapshot dashboardSnapshot)
+                        {
+                            dashboard.Update(dashboardSnapshot, viewModel.IsFollowing, viewModel.LogFilter);
+                        }
+
+                        workspaces.Pulse();
+                        statusInfo.Title =
+                            $"{BuildStatus(status, viewModel.IsFollowing, viewModel.LogFilter)} · W{selectedWorkspace + 1} {workspaces.SelectedWorkspaceTitle}";
+                        if (!command.HasFocus && window.Focused is null)
+                        {
+                            command.SetFocus();
+                        }
                     }
                     else
                     {
-                        if (!dashboardVisible)
-                        {
-                            dashboardVisible = true;
-                            startup.Visible = false;
-                            menuBar.Visible = true;
-                            statusBar.Visible = true;
-                        }
-
-                        bool usableSize = IsTerminalSizeUsable(window.Viewport.Width, window.Viewport.Height);
-                        terminalSizeWarning.Visible = !usableSize;
-                        workspaces.Visible = usableSize;
-                        commandBar.Visible = usableSize;
-                        if (usableSize)
-                        {
-                            dashboard.Update(snapshot, viewModel.IsFollowing, viewModel.LogFilter);
-                            workspaces.Update(snapshot);
-                            statusInfo.Title =
-                                $"{BuildStatus(snapshot, viewModel.IsFollowing, viewModel.LogFilter)} · W{workspaces.SelectedWorkspaceIndex + 1} {workspaces.SelectedWorkspaceTitle}";
-                            if (!command.HasFocus && window.Focused is null)
-                            {
-                                command.SetFocus();
-                            }
-                        }
-                        else
-                        {
-                            statusInfo.Title = $"Terminal {window.Viewport.Width}x{window.Viewport.Height} · resize to >=72x22";
-                        }
+                        statusInfo.Title = $"Terminal {window.Viewport.Width}x{window.Viewport.Height} · resize to >=72x22";
                     }
 
-                    while (results.TryDequeue(out string? message))
-                    {
-                        result.Text = message;
-                    }
+                    DrainResults(results, result);
+                }
+                catch (OperationCanceledException) when (shutdown.IsCancellationRequested)
+                {
+                    app.RequestStop(window);
+                    return false;
                 }
                 catch (Exception ex)
                 {
@@ -516,6 +551,10 @@ public sealed class TerminalUiHost : IDisposable
             Stopped?.Invoke(!shutdown.IsCancellationRequested);
         }
     }
+
+    private Task<AdminServerStatusSnapshot> CaptureStatusAsync() => Task.Run(
+        async () => await adminClient.GetServerStatusAsync(shutdown.Token).ConfigureAwait(false),
+        shutdown.Token);
 
     private async Task ExecuteAsync(
         string input,
@@ -643,21 +682,29 @@ public sealed class TerminalUiHost : IDisposable
         BindKeyToApplication = true
     };
 
+    private static void DrainResults(ConcurrentQueue<string> results, Label result)
+    {
+        while (results.TryDequeue(out string? message))
+        {
+            result.Text = message;
+        }
+    }
+
     internal static bool IsTerminalSizeUsable(int width, int height) => width >= 72 && height >= 22;
 
     private static string BuildStatus(
-        OperationsSnapshot snapshot,
+        AdminServerStatusSnapshot status,
         bool isFollowing,
         OperationsLogFilter filter)
     {
-        double current = snapshot.Server.TickRate.Current;
-        string tps = snapshot.Server.OnlinePlayers == 0 && current <= 0
+        double current = status.CurrentTicksPerSecond;
+        string tps = status.OnlinePlayers == 0 && current <= 0
             ? "IDLE"
             : current > 0 && current < MinimumHealthyTicksPerSecond
                 ? $"LOW {current:F1}/{TargetTicksPerSecond:F0}"
                 : $"{current:F1}/{TargetTicksPerSecond:F0}";
         string level = filter.MinimumLevel?.ToString() ?? "all";
-        return $"TPS {tps} · avg {snapshot.Server.TickRate.AverageOneMinute:F1} · P {snapshot.Server.OnlinePlayers}/{snapshot.Server.MaximumPlayers} · {(isFollowing ? "FOLLOW" : "PAUSED")} {level}";
+        return $"TPS {tps} · avg {status.AverageTicksPerSecondOneMinute:F1} · P {status.OnlinePlayers}/{status.MaximumPlayers} · {(isFollowing ? "FOLLOW" : "PAUSED")} {level}";
     }
 
     private static LogLevelSelection ToSelection(OperationsLogLevel? level) => level switch
@@ -678,7 +725,7 @@ public sealed class TerminalUiHost : IDisposable
         LogLevelSelection.Information => OperationsLogLevel.Information,
         LogLevelSelection.Warning => OperationsLogLevel.Warning,
         LogLevelSelection.Error => OperationsLogLevel.Error,
-        OperationsLogLevel.Critical => OperationsLogLevel.Critical,
+        LogLevelSelection.Critical => OperationsLogLevel.Critical,
         _ => null
     };
 
