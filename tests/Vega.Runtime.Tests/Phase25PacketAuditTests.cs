@@ -182,6 +182,95 @@ public sealed class Phase25PacketAuditTests
             Is.EqualTo(PacketProcessingDecision.Violation("packet.mass_wire.position_out_of_world")));
     }
 
+    [Test]
+    public void PlayerHealOtherRejectsInvalidTargetAndNegativeAmount()
+    {
+        byte[] invalidTarget = new byte[3];
+        invalidTarget[0] = 8;
+        BinaryPrimitives.WriteInt16LittleEndian(invalidTarget.AsSpan(1), 10);
+
+        byte[] negativeAmount = new byte[3];
+        negativeAmount[0] = 7;
+        BinaryPrimitives.WriteInt16LittleEndian(negativeAmount.AsSpan(1), -1);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(
+                Process(PlayerActions(), PacketView.FromPayload(PacketTypes.PlayerHealOther, invalidTarget), 7),
+                Is.EqualTo(PacketProcessingDecision.Violation("packet.player_heal.target_out_of_range")));
+            Assert.That(
+                Process(PlayerActions(), PacketView.FromPayload(PacketTypes.PlayerHealOther, negativeAmount), 7),
+                Is.EqualTo(PacketProcessingDecision.Violation("packet.player_heal.amount_out_of_range")));
+        });
+    }
+
+    [Test]
+    public void CatchNpcRejectsOutOfRangeSlotBeforeLiveArrayLookup()
+    {
+        byte[] payload = new byte[2];
+        BinaryPrimitives.WriteInt16LittleEndian(payload, 10);
+
+        Assert.That(
+            Process(NpcActions(), PacketView.FromPayload(PacketTypes.CatchNPC, payload), 7),
+            Is.EqualTo(PacketProcessingDecision.Violation("packet.npc.catch_id_out_of_range")));
+    }
+
+    [Test]
+    public void ReleaseNpcRejectsInvalidTypeAndWorldPosition()
+    {
+        byte[] invalidType = BuildReleaseNpcPayload(x: 10, y: 10, type: 1000);
+        byte[] invalidPosition = BuildReleaseNpcPayload(x: 1600, y: 10, type: 1);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(
+                Process(NpcActions(), PacketView.FromPayload(PacketTypes.ReleaseNPC, invalidType), 7),
+                Is.EqualTo(PacketProcessingDecision.Violation("packet.npc.release_type_out_of_range")));
+            Assert.That(
+                Process(NpcActions(), PacketView.FromPayload(PacketTypes.ReleaseNPC, invalidPosition), 7),
+                Is.EqualTo(PacketProcessingDecision.Violation("packet.npc.release_position_out_of_world")));
+        });
+    }
+
+    [Test]
+    public void FishOutNpcRejectsInvalidTypeAndWorldPosition()
+    {
+        byte[] invalidType = BuildFishOutNpcPayload(x: 10, y: 10, type: 1000);
+        byte[] invalidPosition = BuildFishOutNpcPayload(x: 100, y: 10, type: 1);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(
+                Process(NpcActions(), PacketView.FromPayload(PacketTypes.FishOutNPC, invalidType), 7),
+                Is.EqualTo(PacketProcessingDecision.Violation("packet.npc.fish_type_out_of_range")));
+            Assert.That(
+                Process(NpcActions(), PacketView.FromPayload(PacketTypes.FishOutNPC, invalidPosition), 7),
+                Is.EqualTo(PacketProcessingDecision.Violation("packet.npc.fish_position_out_of_world")));
+        });
+    }
+
+    [Test]
+    public void GolfCupRequiresSenderOwnershipAndValidWorldPosition()
+    {
+        byte[] payload = new byte[9];
+        payload[0] = 7;
+        BinaryPrimitives.WriteUInt16LittleEndian(payload.AsSpan(1), 100);
+        BinaryPrimitives.WriteUInt16LittleEndian(payload.AsSpan(3), 10);
+        BinaryPrimitives.WriteUInt16LittleEndian(payload.AsSpan(5), 1);
+        BinaryPrimitives.WriteUInt16LittleEndian(payload.AsSpan(7), 1);
+        PacketView packet = PacketView.FromPayload(PacketTypes.LandGolfBallInCup, payload);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(
+                Process(new PlayerPacketOwnershipPolicy(), packet, 8),
+                Is.EqualTo(PacketProcessingDecision.Violation("packet.player_identity_mismatch")));
+            Assert.That(
+                Process(PlayerActions(), packet, 7),
+                Is.EqualTo(PacketProcessingDecision.Violation("packet.golf.cup_out_of_world")));
+        });
+    }
+
     private static byte[] BuildNpcHomePayload(short npcId, short x, short y)
     {
         byte[] payload = new byte[7];
@@ -189,6 +278,25 @@ public sealed class Phase25PacketAuditTests
         BinaryPrimitives.WriteInt16LittleEndian(payload.AsSpan(2), x);
         BinaryPrimitives.WriteInt16LittleEndian(payload.AsSpan(4), y);
         payload[6] = 0;
+        return payload;
+    }
+
+    private static byte[] BuildReleaseNpcPayload(int x, int y, short type)
+    {
+        byte[] payload = new byte[11];
+        BinaryPrimitives.WriteInt32LittleEndian(payload, x);
+        BinaryPrimitives.WriteInt32LittleEndian(payload.AsSpan(4), y);
+        BinaryPrimitives.WriteInt16LittleEndian(payload.AsSpan(8), type);
+        payload[10] = 0;
+        return payload;
+    }
+
+    private static byte[] BuildFishOutNpcPayload(ushort x, ushort y, short type)
+    {
+        byte[] payload = new byte[6];
+        BinaryPrimitives.WriteUInt16LittleEndian(payload, x);
+        BinaryPrimitives.WriteUInt16LittleEndian(payload.AsSpan(2), y);
+        BinaryPrimitives.WriteInt16LittleEndian(payload.AsSpan(4), type);
         return payload;
     }
 
