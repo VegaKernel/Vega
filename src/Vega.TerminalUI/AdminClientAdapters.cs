@@ -92,7 +92,7 @@ internal sealed class EmbeddedOperationsAdminClient(
 /// already routed through IVegaAdminClient while the remaining dashboard projections migrate
 /// away from IOperationsSnapshotProvider in later Phase 27 slices.
 /// </summary>
-public sealed class AdminOperationsCommandServiceAdapter(IVegaAdminClient adminClient) : IOperationsCommandService
+internal sealed class AdminOperationsCommandServiceAdapter(IVegaAdminClient adminClient) : IOperationsCommandService
 {
     public async ValueTask<OperationsActionResult> ExecuteAsync(
         string commandText,
@@ -136,7 +136,7 @@ public sealed class AdminOperationsCommandServiceAdapter(IVegaAdminClient adminC
 /// Local embedded-dashboard compatibility view of the Phase 27 command catalog. The future
 /// Vega.Admin.Tui consumes AdminCommandDescriptor directly and will not require this adapter.
 /// </summary>
-public sealed class AdminCommandCatalogAdapter(IVegaAdminClient adminClient) : ICommandCatalog
+internal sealed class AdminCommandCatalogAdapter(IVegaAdminClient adminClient) : ICommandCatalog
 {
     public IReadOnlyList<CommandDescriptor> SnapshotCommands()
     {
