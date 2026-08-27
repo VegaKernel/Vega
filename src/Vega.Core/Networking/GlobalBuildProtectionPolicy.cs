@@ -198,11 +198,6 @@ public sealed class GlobalBuildProtectionPolicy(
                 packet.AsPlaceChestView().TileY,
                 packet.AsPlaceChestView().TileX,
                 packet.AsPlaceChestView().TileY),
-            PacketTypes.PlaceObject => (
-                packet.AsPlaceObjectView().X,
-                packet.AsPlaceObjectView().Y,
-                packet.AsPlaceObjectView().X,
-                packet.AsPlaceObjectView().Y),
             PacketTypes.PlaceTileEntity => (
                 packet.AsPlaceTileEntityView().X,
                 packet.AsPlaceTileEntityView().Y,
