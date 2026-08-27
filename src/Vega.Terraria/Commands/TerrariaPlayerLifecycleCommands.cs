@@ -172,138 +172,20 @@ internal sealed class KillCommand(
         "Usage: kill [player]. The server console must specify a player.");
 }
 
-internal sealed class BuffCommand(
-    IPlayerDirectory players,
-    IPlayerLifecycleOperations operations) : ICommandHandler
+internal static class BuffCommandParsing
 {
-    private const int MaxSeconds = 86_400;
+    public const int DefaultSeconds = 60;
+    public const int MaximumSeconds = (int.MaxValue / 60) - 1;
 
-    public CommandDescriptor Descriptor { get; } = new(
-        "buff",
-        [],
-        ["vega.players.buff"],
-        Syntax: "buff <buff-type> <seconds> [player]");
+    public static int ParseDurationOrZero(string raw) =>
+        int.TryParse(raw, NumberStyles.Integer, CultureInfo.InvariantCulture, out int seconds)
+            ? NormalizeDuration(seconds)
+            : 0;
 
-    public async ValueTask<CommandExecutionResult> ExecuteAsync(
-        CommandInvocation invocation,
-        CancellationToken cancellationToken)
-    {
-        if (invocation.Arguments.Count is < 2 or > 3 ||
-            !int.TryParse(
-                invocation.Arguments[0],
-                NumberStyles.Integer,
-                CultureInfo.InvariantCulture,
-                out int buffType) || buffType <= 0 ||
-            !int.TryParse(
-                invocation.Arguments[1],
-                NumberStyles.Integer,
-                CultureInfo.InvariantCulture,
-                out int seconds) || seconds is < 1 or > MaxSeconds)
-        {
-            return Usage();
-        }
+    public static int NormalizeDuration(int seconds) =>
+        seconds < 0 || seconds > MaximumSeconds ? MaximumSeconds : seconds;
 
-        PlayerSnapshot? target;
-        if (invocation.Arguments.Count == 3)
-        {
-            if (!PlayerResolver.TryResolve(
-                    players,
-                    invocation.Arguments[2],
-                    out target,
-                    out string? error))
-            {
-                return AdminCommandResults.Failure("command.buff.invalid-player", error!);
-            }
-        }
-        else if (!PlayerResolver.TryCaller(players, invocation, out target))
-        {
-            return Usage();
-        }
-
-        int durationTicks = checked(seconds * 60);
-        PlayerOperationResult result = await operations
-            .ApplyBuffAsync(target!.Id, buffType, durationTicks, cancellationToken)
-            .ConfigureAwait(false);
-        return AdminCommandResults.PlayerMutation(
-            result,
-            "command.buff.applied",
-            $"Applied buff {buffType} to {target.Name} for {seconds} second(s).");
-    }
-
-    private static CommandExecutionResult Usage() => AdminCommandResults.Usage(
-        "command.buff.usage",
-        $"Usage: buff <buff-type> <seconds:1..{MaxSeconds}> [player]. The server console must specify a player.");
-}
-
-internal sealed class GBuffCommand(
-    IPlayerDirectory players,
-    IPlayerLifecycleOperations operations) : ICommandHandler
-{
-    private const int DefaultSeconds = 60;
-    private const int MaximumSeconds = (int.MaxValue / 60) - 1;
-
-    public CommandDescriptor Descriptor { get; } = new(
-        "gbuff",
-        ["buffplayer"],
-        ["vega.players.buff.others"],
-        Syntax: "gbuff <player> <buff-name|id> [seconds]");
-
-    public async ValueTask<CommandExecutionResult> ExecuteAsync(
-        CommandInvocation invocation,
-        CancellationToken cancellationToken)
-    {
-        if (invocation.Arguments.Count is < 2 or > 3)
-        {
-            return Usage();
-        }
-
-        if (!PlayerResolver.TryResolve(
-                players,
-                invocation.Arguments[0],
-                out PlayerSnapshot? target,
-                out string? playerError))
-        {
-            return AdminCommandResults.Failure("command.gbuff.invalid-player", playerError!);
-        }
-
-        if (!TryResolveBuff(invocation.Arguments[1], out int buffType, out string? buffError))
-        {
-            return AdminCommandResults.Failure("command.gbuff.invalid-buff", buffError!);
-        }
-
-        int seconds = DefaultSeconds;
-        if (invocation.Arguments.Count == 3)
-        {
-            if (!int.TryParse(
-                    invocation.Arguments[2],
-                    NumberStyles.Integer,
-                    CultureInfo.InvariantCulture,
-                    out seconds))
-            {
-                return Usage();
-            }
-
-            if (seconds < 0 || seconds > MaximumSeconds)
-            {
-                seconds = MaximumSeconds;
-            }
-            else if (seconds == 0)
-            {
-                return Usage();
-            }
-        }
-
-        int durationTicks = checked(seconds * 60);
-        PlayerOperationResult result = await operations
-            .ApplyBuffAsync(target!.Id, buffType, durationTicks, cancellationToken)
-            .ConfigureAwait(false);
-        return AdminCommandResults.PlayerMutation(
-            result,
-            "command.gbuff.applied",
-            $"Applied {global::Terraria.Lang.GetBuffName(buffType)} ({buffType}) to {target.Name} for {seconds} second(s).");
-    }
-
-    private static bool TryResolveBuff(string raw, out int buffType, out string? error)
+    public static bool TryResolveBuff(string raw, out int buffType, out string? error)
     {
         error = null;
         if (int.TryParse(raw, NumberStyles.Integer, CultureInfo.InvariantCulture, out buffType))
@@ -354,10 +236,109 @@ internal sealed class GBuffCommand(
             : $"Buff name is ambiguous: {string.Join(", ", matches.Take(8).Select(static entry => entry.Name))}.";
         return false;
     }
+}
+
+internal sealed class BuffCommand(
+    IPlayerDirectory players,
+    IPlayerLifecycleOperations operations) : ICommandHandler
+{
+    public CommandDescriptor Descriptor { get; } = new(
+        "buff",
+        [],
+        ["vega.players.buff"],
+        AllowServer: false,
+        Syntax: "buff <buff-name|id> [seconds]");
+
+    public async ValueTask<CommandExecutionResult> ExecuteAsync(
+        CommandInvocation invocation,
+        CancellationToken cancellationToken)
+    {
+        if (invocation.Arguments.Count is < 1 or > 2 ||
+            invocation.Principal is not IPlayerCommandPrincipal principal ||
+            !players.TryGet(principal.PlayerId, out PlayerSnapshot? target) ||
+            target is null)
+        {
+            return Usage();
+        }
+
+        if (!BuffCommandParsing.TryResolveBuff(
+                invocation.Arguments[0],
+                out int buffType,
+                out string? buffError))
+        {
+            return AdminCommandResults.Failure("command.buff.invalid-buff", buffError!);
+        }
+
+        int seconds = invocation.Arguments.Count == 2
+            ? BuffCommandParsing.ParseDurationOrZero(invocation.Arguments[1])
+            : BuffCommandParsing.DefaultSeconds;
+        int durationTicks = checked(seconds * 60);
+        PlayerOperationResult result = await operations
+            .ApplyBuffAsync(target.Id, buffType, durationTicks, cancellationToken)
+            .ConfigureAwait(false);
+        return AdminCommandResults.PlayerMutation(
+            result,
+            "command.buff.applied",
+            $"Applied {global::Terraria.Lang.GetBuffName(buffType)} ({buffType}) to {target.Name} for {seconds} second(s).");
+    }
+
+    private static CommandExecutionResult Usage() => AdminCommandResults.Usage(
+        "command.buff.usage",
+        $"Usage: buff <buff-name|id> [seconds]. Negative seconds use Terraria's maximum duration ({BuffCommandParsing.MaximumSeconds}).");
+}
+
+internal sealed class GBuffCommand(
+    IPlayerDirectory players,
+    IPlayerLifecycleOperations operations) : ICommandHandler
+{
+    public CommandDescriptor Descriptor { get; } = new(
+        "gbuff",
+        ["buffplayer"],
+        ["vega.players.buff.others"],
+        Syntax: "gbuff <player> <buff-name|id> [seconds]");
+
+    public async ValueTask<CommandExecutionResult> ExecuteAsync(
+        CommandInvocation invocation,
+        CancellationToken cancellationToken)
+    {
+        if (invocation.Arguments.Count is < 2 or > 3)
+        {
+            return Usage();
+        }
+
+        if (!PlayerResolver.TryResolve(
+                players,
+                invocation.Arguments[0],
+                out PlayerSnapshot? target,
+                out string? playerError))
+        {
+            return AdminCommandResults.Failure("command.gbuff.invalid-player", playerError!);
+        }
+
+        if (!BuffCommandParsing.TryResolveBuff(
+                invocation.Arguments[1],
+                out int buffType,
+                out string? buffError))
+        {
+            return AdminCommandResults.Failure("command.gbuff.invalid-buff", buffError!);
+        }
+
+        int seconds = invocation.Arguments.Count == 3
+            ? BuffCommandParsing.ParseDurationOrZero(invocation.Arguments[2])
+            : BuffCommandParsing.DefaultSeconds;
+        int durationTicks = checked(seconds * 60);
+        PlayerOperationResult result = await operations
+            .ApplyBuffAsync(target!.Id, buffType, durationTicks, cancellationToken)
+            .ConfigureAwait(false);
+        return AdminCommandResults.PlayerMutation(
+            result,
+            "command.gbuff.applied",
+            $"Applied {global::Terraria.Lang.GetBuffName(buffType)} ({buffType}) to {target.Name} for {seconds} second(s).");
+    }
 
     private static CommandExecutionResult Usage() => AdminCommandResults.Usage(
         "command.gbuff.usage",
-        $"Usage: gbuff <player> <buff-name|id> [seconds]. Negative seconds use Terraria's maximum duration ({MaximumSeconds}).");
+        $"Usage: gbuff <player> <buff-name|id> [seconds]. Negative seconds use Terraria's maximum duration ({BuffCommandParsing.MaximumSeconds}).");
 }
 
 internal sealed class RespawnCommand(
