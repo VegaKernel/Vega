@@ -5,14 +5,13 @@ using Terminal.Gui.ViewBase;
 using Terminal.Gui.Views;
 using Vega.Admin.Client;
 using Vega.Admin.Contracts;
-using Vega.Contracts.Operations;
 
 namespace Vega.TerminalUI;
 
 /// <summary>
 /// Phase 27 workspace shell built on the Terminal.Gui v2.4 <see cref="Tabs"/> API.
-/// The first workspace hosts the existing tiled dashboard while the remaining workspaces
-/// establish stable UI destinations that can migrate to Admin Contracts independently.
+/// The first workspace hosts the existing tiled dashboard. Dedicated administration workspaces
+/// query only their own transport-neutral projection through <see cref="IVegaAdminClient"/>.
 /// </summary>
 internal sealed class AdminWorkspaceTabs
 {
@@ -46,7 +45,9 @@ internal sealed class AdminWorkspaceTabs
     private IReadOnlyList<AdminCommandDescriptor> commands = Array.Empty<AdminCommandDescriptor>();
     private IReadOnlyList<AdminCommandDescriptor> visibleCommands = Array.Empty<AdminCommandDescriptor>();
     private Task<IReadOnlyList<AdminCommandDescriptor>>? commandCatalogCapture;
+    private Task<WorkspaceResult>? workspaceCapture;
     private DateTimeOffset nextCatalogRefreshAt = DateTimeOffset.MinValue;
+    private DateTimeOffset nextWorkspaceRefreshAt = DateTimeOffset.MinValue;
     private string? commandCatalogFailure;
     private long chordDeadline;
 
@@ -112,7 +113,12 @@ internal sealed class AdminWorkspaceTabs
             return false;
         }
 
-        tabs.Value = workspaceViews[zeroBasedIndex];
+        if (tabs.Value != workspaceViews[zeroBasedIndex])
+        {
+            tabs.Value = workspaceViews[zeroBasedIndex];
+            nextWorkspaceRefreshAt = DateTimeOffset.MinValue;
+        }
+
         return true;
     }
 
@@ -164,31 +170,25 @@ internal sealed class AdminWorkspaceTabs
         return selected;
     }
 
-    public void Update(OperationsSnapshot snapshot)
+    /// <summary>
+    /// Pumps only the selected administration projection. The legacy dashboard is refreshed by
+    /// its existing local Operations path until that workspace is migrated in a separate slice.
+    /// </summary>
+    public void Pulse()
     {
-        ArgumentNullException.ThrowIfNull(snapshot);
-        PumpCommandCatalog();
-        SetRows(playersList, snapshot.Players
-            .OrderBy(static player => player.WorldId.ToString(), StringComparer.OrdinalIgnoreCase)
-            .ThenBy(static player => player.Name, StringComparer.OrdinalIgnoreCase)
-            .Select(static player =>
-                $"[{player.Id.Slot,3}] {player.Name,-20} · {player.WorldId} · HP {player.Life}/{player.MaxLife} · MP {player.Mana}/{player.MaxMana} · team {player.Team} · pvp {(player.IsHostile ? "on" : "off")}")
-            .ToArray());
-        SetRows(modulesList, snapshot.Modules
-            .OrderBy(static module => module.Name, StringComparer.OrdinalIgnoreCase)
-            .Select(static module =>
-                $"{module.State,-10} · {module.Name} {module.Version} · {module.StartupDuration.TotalMilliseconds:F0} ms" +
-                (string.IsNullOrWhiteSpace(module.Failure) ? string.Empty : $" · {module.Failure}"))
-            .ToArray());
-        SetRows(logsList, snapshot.Logs
-            .Select(static record =>
-                $"{record.Timestamp:HH:mm:ss} {record.Level,-11} {record.Source}: {record.Text}")
-            .ToArray());
-        SetRows(chatList, snapshot.Chat
-            .Select(static record => $"{record.Timestamp:HH:mm:ss} {record.Text}")
-            .ToArray());
-        SetRows(administrationList, RenderAdministration(snapshot.Administration));
-        debugText.Text = RenderDebug(snapshot);
+        int selected = SelectedWorkspaceIndex;
+        if (selected == 2)
+        {
+            PumpCommandCatalog();
+            return;
+        }
+
+        if (selected is 0 or 6)
+        {
+            return;
+        }
+
+        PumpWorkspace(selected);
     }
 
     private View CreateCommandsWorkspace()
@@ -234,6 +234,117 @@ internal sealed class AdminWorkspaceTabs
         workspace.Add(content);
         return workspace;
     }
+
+    private void PumpWorkspace(int selected)
+    {
+        DateTimeOffset now = DateTimeOffset.UtcNow;
+        if (workspaceCapture is null && now >= nextWorkspaceRefreshAt)
+        {
+            workspaceCapture = CaptureWorkspaceAsync(selected);
+        }
+
+        if (workspaceCapture is null || !workspaceCapture.IsCompleted)
+        {
+            return;
+        }
+
+        Task<WorkspaceResult> completed = workspaceCapture;
+        workspaceCapture = null;
+        nextWorkspaceRefreshAt = now + RefreshIntervalFor(selected);
+        if (!completed.IsCompletedSuccessfully)
+        {
+            RenderWorkspaceFailure(selected, completed.Exception?.GetBaseException().Message ?? "Admin query unavailable.");
+            return;
+        }
+
+        ApplyWorkspaceResult(completed.GetAwaiter().GetResult());
+    }
+
+    private async Task<WorkspaceResult> CaptureWorkspaceAsync(int selected)
+    {
+        return selected switch
+        {
+            1 => new PlayersWorkspaceResult(await adminClient.GetPlayersAsync().ConfigureAwait(false)),
+            3 => new ModulesWorkspaceResult(await adminClient.GetModulesAsync().ConfigureAwait(false)),
+            4 => new LogsWorkspaceResult(await adminClient.QueryLogsAsync(new AdminLogQuery(Limit: 200)).ConfigureAwait(false)),
+            5 => new ChatWorkspaceResult(await adminClient.GetChatAsync(200).ConfigureAwait(false)),
+            7 => new DiagnosticsWorkspaceResult(await adminClient.GetDiagnosticsAsync().ConfigureAwait(false)),
+            8 => new AdministrationWorkspaceResult(await adminClient.GetAdministrationAsync().ConfigureAwait(false)),
+            _ => new EmptyWorkspaceResult(selected)
+        };
+    }
+
+    private void ApplyWorkspaceResult(WorkspaceResult result)
+    {
+        switch (result)
+        {
+            case PlayersWorkspaceResult players:
+                SetRows(playersList, players.Value
+                    .OrderBy(static player => player.WorldId, StringComparer.OrdinalIgnoreCase)
+                    .ThenBy(static player => player.Name, StringComparer.OrdinalIgnoreCase)
+                    .Select(static player =>
+                        $"[{player.Slot,3}] {player.Name,-20} · {player.WorldId} · HP {player.Life}/{player.MaxLife} · MP {player.Mana}/{player.MaxMana} · {player.Platform} · team {player.Team} · pvp {(player.IsHostile ? "on" : "off")}")
+                    .ToArray());
+                break;
+            case ModulesWorkspaceResult modules:
+                SetRows(modulesList, modules.Value
+                    .OrderBy(static module => module.Name, StringComparer.OrdinalIgnoreCase)
+                    .Select(static module =>
+                        $"{module.State,-10} · {module.Name} {module.Version} · {module.StartupMilliseconds} ms" +
+                        (string.IsNullOrWhiteSpace(module.Failure) ? string.Empty : $" · {module.Failure}"))
+                    .ToArray());
+                break;
+            case LogsWorkspaceResult logs:
+                SetRows(logsList, logs.Value.Select(static record =>
+                    $"{record.Timestamp:HH:mm:ss} {record.Level,-11} {record.Source}: {record.Text}").ToArray());
+                break;
+            case ChatWorkspaceResult chat:
+                SetRows(chatList, chat.Value.Select(static record =>
+                    $"{record.Timestamp:HH:mm:ss} {record.Source}: {record.Text}").ToArray());
+                break;
+            case DiagnosticsWorkspaceResult diagnostics:
+                debugText.Text = RenderDebug(diagnostics.Value);
+                break;
+            case AdministrationWorkspaceResult administration:
+                SetRows(administrationList, RenderAdministration(administration.Value));
+                break;
+        }
+    }
+
+    private void RenderWorkspaceFailure(int selected, string message)
+    {
+        string text = $"ERROR · {message}";
+        switch (selected)
+        {
+            case 1:
+                SetRows(playersList, [text]);
+                break;
+            case 3:
+                SetRows(modulesList, [text]);
+                break;
+            case 4:
+                SetRows(logsList, [text]);
+                break;
+            case 5:
+                SetRows(chatList, [text]);
+                break;
+            case 7:
+                debugText.Text = text;
+                break;
+            case 8:
+                SetRows(administrationList, [text]);
+                break;
+        }
+    }
+
+    private static TimeSpan RefreshIntervalFor(int selected) => selected switch
+    {
+        4 or 5 => TimeSpan.FromMilliseconds(500),
+        1 or 7 => TimeSpan.FromSeconds(1),
+        3 => TimeSpan.FromSeconds(2),
+        8 => TimeSpan.FromSeconds(3),
+        _ => TimeSpan.FromSeconds(1)
+    };
 
     private void PumpCommandCatalog()
     {
@@ -323,7 +434,8 @@ internal sealed class AdminWorkspaceTabs
             .Append("Syntax: ").AppendLine(descriptor.Syntax)
             .Append("Aliases: ").AppendLine(descriptor.Aliases.Count == 0 ? "none" : string.Join(", ", descriptor.Aliases))
             .Append("Permissions: ").AppendLine(descriptor.Permissions.Count == 0 ? "none" : string.Join(", ", descriptor.Permissions))
-            .Append("Server console: ").AppendLine(descriptor.AllowServer ? "yes" : "no");
+            .Append("Server console: ").AppendLine(descriptor.AllowServer ? "yes" : "no")
+            .Append("Players: ").AppendLine(descriptor.AllowPlayers ? "yes" : "no");
         if (!string.IsNullOrWhiteSpace(descriptor.FallbackDescription))
         {
             text.AppendLine().AppendLine(descriptor.FallbackDescription);
@@ -337,7 +449,7 @@ internal sealed class AdminWorkspaceTabs
         commandDetails.Text = text.ToString();
     }
 
-    private static string[] RenderAdministration(AdministrationOperationsSnapshot administration)
+    private static string[] RenderAdministration(AdminAdministrationSnapshot administration)
     {
         IEnumerable<string> groups = administration.Groups
             .OrderBy(static group => group.Name, StringComparer.OrdinalIgnoreCase)
@@ -350,20 +462,15 @@ internal sealed class AdminWorkspaceTabs
         return groups.Concat(accounts).DefaultIfEmpty("No administration records exposed.").ToArray();
     }
 
-    private static string RenderDebug(OperationsSnapshot snapshot)
-    {
-        ServerDashboardSnapshot server = snapshot.Server;
-        RuntimeMetricsSnapshot runtime = snapshot.Runtime;
-        NetworkMetricsSnapshot network = snapshot.Network;
-        return
-            $"Debug / metrics workspace\n\n" +
-            $"TPS       current {server.TickRate.Current:F1} · avg1m {server.TickRate.AverageOneMinute:F1} · p95 {server.TickRate.TickDurationP95Milliseconds:F1} ms · p99 {server.TickRate.TickDurationP99Milliseconds:F1} ms\n" +
-            $"Memory    working {runtime.Host.WorkingSetBytes / 1024d / 1024d:F1} MiB · managed {runtime.ManagedMemoryBytes / 1024d / 1024d:F1} MiB · GC heap {runtime.GcHeapBytes / 1024d / 1024d:F1} MiB\n" +
-            $"GC        gen0 {runtime.Gen0Collections} · gen1 {runtime.Gen1Collections} · gen2 {runtime.Gen2Collections}\n" +
-            $"Network   in {network.InboundPackets:N0}/{network.InboundBytes:N0} B · out {network.OutboundPackets:N0}/{network.OutboundBytes:N0} B\n" +
-            $"Security  rejected {network.RejectedInboundPackets:N0} · violations {network.SecurityViolations:N0}\n\n" +
-            "This screen currently reuses the bounded local Operations projection. Its remote equivalent will move behind the Phase 27 debug/metrics Admin capability before remote transport is enabled.";
-    }
+    private static string RenderDebug(AdminDiagnosticsSnapshot diagnostics) =>
+        $"Debug / metrics workspace\n\n" +
+        $"TPS       current {diagnostics.CurrentTicksPerSecond:F1} · avg1m {diagnostics.AverageTicksPerSecondOneMinute:F1} · p50 {diagnostics.TickDurationP50Milliseconds:F1} ms · p95 {diagnostics.TickDurationP95Milliseconds:F1} ms · p99 {diagnostics.TickDurationP99Milliseconds:F1} ms\n" +
+        $"Memory    working {diagnostics.WorkingSetBytes / 1024d / 1024d:F1} MiB · managed {diagnostics.ManagedMemoryBytes / 1024d / 1024d:F1} MiB · GC heap {diagnostics.GcHeapBytes / 1024d / 1024d:F1} MiB · fragmented {diagnostics.GcFragmentedBytes / 1024d / 1024d:F1} MiB\n" +
+        $"GC        gen0 {diagnostics.Gen0Collections} · gen1 {diagnostics.Gen1Collections} · gen2 {diagnostics.Gen2Collections}\n" +
+        $"Threads   worker {diagnostics.AvailableWorkerThreads}/{diagnostics.MaximumWorkerThreads}\n" +
+        $"Network   in {diagnostics.InboundPackets:N0}/{diagnostics.InboundBytes:N0} B · out {diagnostics.OutboundPackets:N0}/{diagnostics.OutboundBytes:N0} B\n" +
+        $"Security  rejected {diagnostics.RejectedInboundPackets:N0} · violations {diagnostics.SecurityViolations:N0}\n\n" +
+        "This workspace now consumes only the transport-neutral diagnostics Admin projection.";
 
     private static ListView CreateList() => new()
     {
@@ -387,4 +494,20 @@ internal sealed class AdminWorkspaceTabs
             list.SelectedItem = index;
         }
     }
+
+    private abstract record WorkspaceResult(int Index);
+
+    private sealed record EmptyWorkspaceResult(int Selected) : WorkspaceResult(Selected);
+
+    private sealed record PlayersWorkspaceResult(IReadOnlyList<AdminPlayerSnapshot> Value) : WorkspaceResult(1);
+
+    private sealed record ModulesWorkspaceResult(IReadOnlyList<AdminModuleSnapshot> Value) : WorkspaceResult(3);
+
+    private sealed record LogsWorkspaceResult(IReadOnlyList<AdminLogRecord> Value) : WorkspaceResult(4);
+
+    private sealed record ChatWorkspaceResult(IReadOnlyList<AdminChatRecord> Value) : WorkspaceResult(5);
+
+    private sealed record DiagnosticsWorkspaceResult(AdminDiagnosticsSnapshot Value) : WorkspaceResult(7);
+
+    private sealed record AdministrationWorkspaceResult(AdminAdministrationSnapshot Value) : WorkspaceResult(8);
 }
