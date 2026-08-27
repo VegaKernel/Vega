@@ -6,6 +6,7 @@ using Terminal.Gui.Drawing;
 using Terminal.Gui.Input;
 using Terminal.Gui.ViewBase;
 using Terminal.Gui.Views;
+using Vega.Admin.Client;
 using Vega.Contracts.Commands;
 using Vega.Contracts.Operations;
 using TuiAttribute = Terminal.Gui.Drawing.Attribute;
@@ -18,6 +19,7 @@ public sealed class TerminalUiHost : IDisposable
     private const double TargetTicksPerSecond = 60d;
     private const double MinimumHealthyTicksPerSecond = TargetTicksPerSecond * 0.95d;
     private readonly OperationsDashboardViewModel viewModel;
+    private readonly IVegaAdminClient adminClient;
     private readonly ICommandCatalog? commandCatalog;
     private readonly IOperationsLogger logger;
     private readonly IStartupProgressReader startupProgress;
@@ -37,7 +39,7 @@ public sealed class TerminalUiHost : IDisposable
         ICommandCatalog? commandCatalog = null,
         string? layoutPath = null)
     {
-        var adminClient = new EmbeddedOperationsAdminClient(snapshots, commands, commandCatalog);
+        adminClient = new EmbeddedOperationsAdminClient(snapshots, commands, commandCatalog);
         viewModel = new OperationsDashboardViewModel(
             snapshots,
             new AdminOperationsCommandServiceAdapter(adminClient));
@@ -162,15 +164,15 @@ public sealed class TerminalUiHost : IDisposable
             var desktop = new View
             {
                 X = 0,
-                Y = 1,
+                Y = 0,
                 Width = Dim.Fill(),
-                Height = Dim.Fill(5),
-                SchemeName = VegaSchemeName,
-                Visible = false
+                Height = Dim.Fill(),
+                SchemeName = VegaSchemeName
             };
             var results = new ConcurrentQueue<string>();
             dashboard = new OperationsDashboardView(desktop, layout);
             TerminalUiFixedLayout.Apply(desktop);
+            var workspaces = new AdminWorkspaceTabs(desktop, adminClient);
             var terminalSizeWarning = new Label
             {
                 Text = "Terminal too small for dashboard. Resize to at least 72x22.",
@@ -243,7 +245,7 @@ public sealed class TerminalUiHost : IDisposable
                 X = Pos.Right(command) + 2,
                 Y = 1,
                 Width = Dim.Fill(1),
-                Text = "Ready. F1 shows keyboard help."
+                Text = "Ready. Tab then 1..9 switches workspace."
             };
             bool dashboardVisible = false;
             OperationsSnapshot? latestSnapshot = null;
@@ -260,15 +262,15 @@ public sealed class TerminalUiHost : IDisposable
             {
                 if (dashboardVisible)
                 {
-                    dashboard.FocusWindow(TerminalUiLayoutOptions.Logs);
+                    workspaces.FocusLogs();
                 }
             }
 
             void ShowAdministration()
             {
-                if (dashboardVisible && latestSnapshot is not null)
+                if (dashboardVisible)
                 {
-                    AdministrationBrowser.Show(app, latestSnapshot.Administration);
+                    workspaces.FocusAdministration();
                 }
             }
 
@@ -323,7 +325,7 @@ public sealed class TerminalUiHost : IDisposable
                 MessageBox.Query(
                     app,
                     "Vega keyboard",
-                    "F1 Help\nF2 Focus logs\nF3 Log filter\nF4 Administration search\nF5 Follow / pause logs\nCtrl+P Command palette\nTab Accept command suggestion / move focus\nDrag panel borders Resize adjacent panels\nDouble-click title Maximize / restore\nRight-click Players / Modules Actions\nF10 Main menu\n\nDashboard panels are tiled: they resize but do not move or overlap. Logs pause never freezes TPS, players, network or graphs.",
+                    "Tab then 1 Dashboard\nTab then 2 Players\nTab then 3 Commands / Help\nTab then 4 Modules / Plugins\nTab then 5 Logs\nTab then 6 Chat\nTab then 7 Plugin Config\nTab then 8 Debug / Metrics\nTab then 9 Administration\n\nF1 Help\nF2 Logs workspace\nF3 Log filter\nF4 Administration workspace\nF5 Follow / pause logs\nCtrl+P Command palette\nTab Accept command suggestion / move focus\nDrag dashboard panel borders Resize adjacent panels\nDouble-click dashboard title Maximize / restore\nRight-click dashboard Players / Modules Actions\nF10 Main menu\n\nThe workspace chord is portable terminal input: Tab arms the chord and keeps normal focus traversal, then 1..9 selects the workspace.",
                     "OK");
             }
 
@@ -348,6 +350,14 @@ public sealed class TerminalUiHost : IDisposable
                 _ = ExecuteAsync(input, results, dashboard);
             };
 
+            app.Keyboard.KeyDown += (_, key) =>
+            {
+                if (workspaces.HandleWorkspaceChord(key, allowArm: !command.HasFocus))
+                {
+                    results.Enqueue($"Workspace: {workspaces.SelectedWorkspaceTitle}.");
+                }
+            };
+
             commandBar.Add(prompt, command, result);
 
             var menuBar = CreateMenuBar(
@@ -360,13 +370,13 @@ public sealed class TerminalUiHost : IDisposable
                 () => MessageBox.Query(
                     app,
                     "Vega Operations",
-                    "Terminal operations dashboard for Vega.\nTarget server tick rate: 60 TPS.",
+                    "Terminal administration client for Vega.\nTarget server tick rate: 60 TPS.\nPhase 27 workspaces use Terminal.Gui v2 Tabs and the IVegaAdminClient boundary.",
                     "OK"));
             menuBar.Visible = false;
 
             var statusInfo = new Shortcut
             {
-                Title = "TPS --/60 · logs FOLLOW"
+                Title = "TPS --/60 · logs FOLLOW · W1 Dashboard"
             };
             var statusBar = new StatusBar([
                 CreateShortcut("Help", Key.F1, ShowHelp),
@@ -382,7 +392,7 @@ public sealed class TerminalUiHost : IDisposable
                 Visible = false
             };
 
-            window.Add(menuBar, startup, desktop, terminalSizeWarning, commandBar, statusBar);
+            window.Add(menuBar, startup, workspaces.Root, terminalSizeWarning, commandBar, statusBar);
             DateTimeOffset lastRefreshFailureLoggedAt = DateTimeOffset.MinValue;
             Task<OperationsSnapshot>? snapshotCapture = Task.Run(viewModel.Capture);
             app.AddTimeout(TimeSpan.FromMilliseconds(layout.RefreshIntervalMilliseconds), () =>
@@ -442,12 +452,14 @@ public sealed class TerminalUiHost : IDisposable
 
                         bool usableSize = IsTerminalSizeUsable(window.Viewport.Width, window.Viewport.Height);
                         terminalSizeWarning.Visible = !usableSize;
-                        desktop.Visible = usableSize;
+                        workspaces.Visible = usableSize;
                         commandBar.Visible = usableSize;
                         if (usableSize)
                         {
                             dashboard.Update(snapshot, viewModel.IsFollowing, viewModel.LogFilter);
-                            statusInfo.Title = BuildStatus(snapshot, viewModel.IsFollowing, viewModel.LogFilter);
+                            workspaces.Update(snapshot);
+                            statusInfo.Title =
+                                $"{BuildStatus(snapshot, viewModel.IsFollowing, viewModel.LogFilter)} · W{workspaces.SelectedWorkspaceIndex + 1} {workspaces.SelectedWorkspaceTitle}";
                             if (!command.HasFocus && window.Focused is null)
                             {
                                 command.SetFocus();
@@ -666,7 +678,7 @@ public sealed class TerminalUiHost : IDisposable
         LogLevelSelection.Information => OperationsLogLevel.Information,
         LogLevelSelection.Warning => OperationsLogLevel.Warning,
         LogLevelSelection.Error => OperationsLogLevel.Error,
-        LogLevelSelection.Critical => OperationsLogLevel.Critical,
+        OperationsLogLevel.Critical => OperationsLogLevel.Critical,
         _ => null
     };
 
