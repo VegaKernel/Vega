@@ -4,6 +4,7 @@ using Vega.Admin.Client;
 using Vega.Admin.Contracts;
 using Vega.Contracts.Commands;
 using Vega.Contracts.Operations;
+using Vega.PluginSdk;
 
 namespace Vega.TerminalUI;
 
@@ -17,6 +18,9 @@ internal sealed class EmbeddedOperationsAdminClient(
     IOperationsCommandService commands,
     ICommandCatalog? commandCatalog) : IVegaAdminClient
 {
+    private static readonly Lazy<ManagedConfigurationAdministration> ConfigurationAdministration =
+        new(CreateConfigurationAdministration, LazyThreadSafetyMode.ExecutionAndPublication);
+
     public ValueTask<AdminProtocolInfo> GetProtocolInfoAsync(
         CancellationToken cancellationToken = default)
     {
@@ -200,8 +204,11 @@ internal sealed class EmbeddedOperationsAdminClient(
         CancellationToken cancellationToken = default)
     {
         cancellationToken.ThrowIfCancellationRequested();
-        return ValueTask.FromResult<IReadOnlyList<AdminConfigurationDescriptor>>(
-            Array.Empty<AdminConfigurationDescriptor>());
+        IReadOnlyList<AdminConfigurationDescriptor> descriptors = ConfigurationAdministration.Value
+            .Snapshot()
+            .Select(MapConfigurationDescriptor)
+            .ToArray();
+        return ValueTask.FromResult(descriptors);
     }
 
     public ValueTask<AdminConfigurationMutationResult> ReadConfigurationAsync(
@@ -210,7 +217,8 @@ internal sealed class EmbeddedOperationsAdminClient(
     {
         ArgumentNullException.ThrowIfNull(key);
         cancellationToken.ThrowIfCancellationRequested();
-        return ValueTask.FromResult(ConfigurationUnavailable());
+        return ValueTask.FromResult(MapConfigurationResult(
+            ConfigurationAdministration.Value.Read(key.Plugin, key.FileName)));
     }
 
     public ValueTask<AdminConfigurationMutationResult> ReplaceConfigurationAsync(
@@ -219,7 +227,11 @@ internal sealed class EmbeddedOperationsAdminClient(
     {
         ArgumentNullException.ThrowIfNull(request);
         cancellationToken.ThrowIfCancellationRequested();
-        return ValueTask.FromResult(ConfigurationUnavailable());
+        return ValueTask.FromResult(MapConfigurationResult(ConfigurationAdministration.Value.Replace(
+            request.Plugin,
+            request.FileName,
+            request.ExpectedRevision,
+            request.Json)));
     }
 
     public ValueTask<AdminConfigurationMutationResult> ReloadConfigurationAsync(
@@ -228,13 +240,40 @@ internal sealed class EmbeddedOperationsAdminClient(
     {
         ArgumentNullException.ThrowIfNull(request);
         cancellationToken.ThrowIfCancellationRequested();
-        return ValueTask.FromResult(ConfigurationUnavailable());
+        return ValueTask.FromResult(MapConfigurationResult(ConfigurationAdministration.Value.Reload(
+            request.Plugin,
+            request.FileName,
+            request.ExpectedRevision)));
     }
 
-    private static AdminConfigurationMutationResult ConfigurationUnavailable() => new(
-        false,
-        ErrorCode: "configuration.not_exposed",
-        Error: "Managed configuration administration is unavailable in the transitional embedded adapter.");
+    private static ManagedConfigurationAdministration CreateConfigurationAdministration()
+    {
+        string path = Path.Combine(AppContext.BaseDirectory, "config", "admin-configuration.json");
+        return ManagedConfigurationAdministration.LoadPolicy(path, out _);
+    }
+
+    private static AdminConfigurationDescriptor MapConfigurationDescriptor(
+        ManagedConfigurationAdminDescriptor descriptor) =>
+        new(
+            descriptor.Plugin,
+            descriptor.FileName,
+            descriptor.Revision,
+            descriptor.CanEdit,
+            descriptor.HasRedactions,
+            descriptor.DisplayName,
+            descriptor.Description);
+
+    private static AdminConfigurationMutationResult MapConfigurationResult(
+        ManagedConfigurationAdminResult result) =>
+        new(
+            result.Succeeded,
+            result.Document is null
+                ? null
+                : new AdminConfigurationDocument(
+                    MapConfigurationDescriptor(result.Document.Descriptor),
+                    result.Document.Json),
+            result.ErrorCode,
+            result.Error);
 
     private static AdminServerStatusSnapshot MapStatus(ServerDashboardSnapshot server) => new(
         server.ServerName,
