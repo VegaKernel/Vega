@@ -10,6 +10,7 @@ using Vega.PluginSdk;
 const int iterations = 5_000_000;
 var directRegistry = new RecordingRegistry();
 var facadeRegistry = new RecordingRegistry();
+var callbackRegistry = new RecordingRegistry();
 var directLifecycle = new RecordingLifecycle();
 var facadeLifecycle = new RecordingLifecycle();
 var handler = new NoOpCommand();
@@ -20,9 +21,18 @@ var scope = new HotModuleRegistrationScope(
     "Vega.Benchmarks.PluginSdk",
     Path.Combine(Path.GetTempPath(), "vega-plugin-sdk-benchmark"),
     playerLifecycle: facadeLifecycle);
+var callbackScope = new HotModuleRegistrationScope(
+    callbackRegistry,
+    new NullLogger(),
+    "Vega.Benchmarks.PluginSdk.Callback",
+    Path.Combine(Path.GetTempPath(), "vega-plugin-sdk-callback-benchmark"));
 IVegaPluginContext plugin = scope;
+IVegaPluginContext callbackPlugin = callbackScope;
 using IDisposable directRegistration = directRegistry.Register(handler);
 plugin.Commands.Register(handler);
+callbackPlugin.Commands.Register(
+    "noop",
+    (_, _) => ValueTask.FromResult(CommandExecutionResult.Success));
 Action<PlayerSessionOpened> joined = _ => joinCount++;
 directLifecycle.Opened += joined;
 plugin.Players.OnJoined(joined);
@@ -32,33 +42,43 @@ if (!ReferenceEquals(handler, directRegistry.Handler) ||
     !ReferenceEquals(joined, directLifecycle.Handler) ||
     !ReferenceEquals(joined, facadeLifecycle.Handler))
 {
-    throw new InvalidOperationException("The plugin facade inserted a dispatch wrapper.");
+    throw new InvalidOperationException("The explicit plugin facade inserted a dispatch wrapper.");
+}
+
+if (callbackRegistry.Handler is not PluginCallbackCommandHandler)
+{
+    throw new InvalidOperationException("The callback plugin command was not adapted through the expected handler wrapper.");
 }
 
 var invocation = new CommandInvocation("noop", [], new Principal(), new Output());
 ICommandHandler directCommandHandler = directRegistry.Handler!;
 ICommandHandler facadeCommandHandler = facadeRegistry.Handler!;
+ICommandHandler callbackCommandHandler = callbackRegistry.Handler!;
 for (var index = 0; index < 100_000; index++)
 {
     directCommandHandler.ExecuteAsync(invocation, CancellationToken.None).GetAwaiter().GetResult();
     facadeCommandHandler.ExecuteAsync(invocation, CancellationToken.None).GetAwaiter().GetResult();
+    callbackCommandHandler.ExecuteAsync(invocation, CancellationToken.None).GetAwaiter().GetResult();
 }
 
 var directCommand = MeasureCommand(directCommandHandler);
 var facadeCommand = MeasureCommand(facadeCommandHandler);
+var callbackCommand = MeasureCommand(callbackCommandHandler);
 var opened = new PlayerSessionOpened(PlayerSessionId.New(), new PlayerId(1), "player", DateTimeOffset.UtcNow);
 var directHook = MeasureHook(directLifecycle);
 var facadeHook = MeasureHook(facadeLifecycle);
 
+await callbackScope.DisposeAsync();
 await scope.DisposeAsync();
 directLifecycle.Opened -= joined;
 Console.WriteLine(JsonSerializer.Serialize(new
 {
     Runtime = Environment.Version.ToString(),
     Iterations = iterations,
-    Command = new { Direct = directCommand, Facade = facadeCommand },
+    Command = new { Direct = directCommand, Facade = facadeCommand, Callback = callbackCommand },
     PlayerJoinHook = new { Direct = directHook, Facade = facadeHook },
-    DispatchWrapperInserted = false,
+    ExplicitDispatchWrapperInserted = false,
+    CallbackWrapperInserted = true,
     ManualLifetimeCallsRequired = 0,
     JoinCallbacksObserved = joinCount
 }, new JsonSerializerOptions { WriteIndented = true }));
