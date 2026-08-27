@@ -50,7 +50,10 @@ public sealed record AdminCommandDescriptor(
     string? FallbackDescription = null,
     string? FallbackHelp = null);
 
-public sealed record AdminCommandRequest(string CommandText);
+public sealed record AdminCommandRequest(
+    string Name,
+    IReadOnlyList<string> Arguments,
+    bool Silent = false);
 
 public enum AdminCommandExecutionStatus
 {
@@ -68,9 +71,26 @@ public enum AdminMessageSeverity
     Error
 }
 
+public enum AdminScalarKind
+{
+    Null,
+    String,
+    Integer,
+    Number,
+    Boolean,
+    DateTimeOffset,
+    Duration
+}
+
+/// <summary>
+/// A protocol-safe scalar formatting argument. The wire contract never carries arbitrary CLR
+/// objects; Value is invariant text whose semantic kind is explicit for client-side formatting.
+/// </summary>
+public sealed record AdminMessageArgument(AdminScalarKind Kind, string? Value);
+
 public sealed record AdminMessageDescriptor(
     string? Key,
-    IReadOnlyList<object?> Arguments,
+    IReadOnlyList<AdminMessageArgument> Arguments,
     AdminMessageSeverity Severity,
     string? FallbackText = null,
     string Source = "vega");
