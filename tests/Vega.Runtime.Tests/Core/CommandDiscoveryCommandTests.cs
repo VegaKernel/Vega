@@ -57,23 +57,46 @@ public sealed class CommandDiscoveryCommandTests
     }
 
     [Test]
-    public async Task AliasesHideCommandsCallerCannotUse()
+    public async Task AliasesRequiresACommandOrAlias()
     {
-        var dispatcher = new CommandDispatcher([
-            new FakeHandler(new CommandDescriptor("public", ["pub"], [])),
-            new FakeHandler(new CommandDescriptor("secure", ["sec"], ["server.secure"]))
-        ]);
-        var aliases = new AliasesCommand(dispatcher);
+        var aliases = new AliasesCommand(new CommandDispatcher([
+            new FakeHandler(new CommandDescriptor("public", ["pub"], []))
+        ]));
 
         CommandExecutionResult result = await aliases.ExecuteAsync(
             Invocation("aliases", [], new FakePrincipal("player", false, [])),
             default);
 
-        string rendered = result.Messages![0].Arguments[0]?.ToString() ?? string.Empty;
         Assert.Multiple(() =>
         {
-            Assert.That(rendered, Does.Contain("pub -> public"));
-            Assert.That(rendered, Does.Not.Contain("sec -> secure"));
+            Assert.That(result.Status, Is.EqualTo(CommandExecutionStatus.InvalidUsage));
+            Assert.That(result.ErrorCode, Is.EqualTo("command.aliases.usage"));
+        });
+    }
+
+    [Test]
+    public async Task AliasesResolvesCanonicalNameOrAliasLikeTerraZ()
+    {
+        var dispatcher = new CommandDispatcher([
+            new FakeHandler(new CommandDescriptor("public", ["pub", "p"], [])),
+            new FakeHandler(new CommandDescriptor("secure", ["sec"], ["server.secure"]))
+        ]);
+        var aliases = new AliasesCommand(dispatcher);
+        var principal = new FakePrincipal("player", false, []);
+
+        CommandExecutionResult byName = await aliases.ExecuteAsync(
+            Invocation("aliases", ["/public"], principal),
+            default);
+        CommandExecutionResult byAlias = await aliases.ExecuteAsync(
+            Invocation("aliases", ["sec"], principal),
+            default);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(byName.Status, Is.EqualTo(CommandExecutionStatus.Success));
+            Assert.That(byName.Messages![0].Arguments, Is.EqualTo(new object?[] { "public", "/pub, /p" }));
+            Assert.That(byAlias.Status, Is.EqualTo(CommandExecutionStatus.Success));
+            Assert.That(byAlias.Messages![0].Arguments, Is.EqualTo(new object?[] { "secure", "/sec" }));
         });
     }
 
