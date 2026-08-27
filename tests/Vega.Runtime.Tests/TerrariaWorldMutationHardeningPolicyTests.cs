@@ -55,6 +55,24 @@ public sealed class TerrariaWorldMutationHardeningPolicyTests
             Is.EqualTo(PacketProcessingDecision.Violation("packet.chest.stack_exceeds_item_limit")));
     }
 
+    [TestCase(PacketTypes.ItemDrop)]
+    [TestCase(PacketTypes.UpdateItemDrop)]
+    public void WorldItemStackCannotExceedNativeItemLimit(PacketTypes packetType)
+    {
+        WorldItemSyncPacketBase packet = packetType == PacketTypes.ItemDrop
+            ? new ItemDrop()
+            : new UpdateItemDrop();
+        packet.ItemIndex = 400;
+        packet.Stack = 2;
+        packet.ItemNetId = 50;
+
+        PacketProcessingDecision decision = Process(CreatePolicy(itemMaxStack: _ => 1), packet);
+
+        Assert.That(
+            decision,
+            Is.EqualTo(PacketProcessingDecision.Violation("packet.world_item.stack_exceeds_item_limit")));
+    }
+
     [Test]
     public void PlaceItemFrameRequiresLiveNativeFrame()
     {
