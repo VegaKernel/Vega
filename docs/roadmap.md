@@ -1060,7 +1060,7 @@ This phase collects follow-up work that has emerged from real plugin/server cons
 
 ### Homes behavior port
 
-- [ ] Use the current project-owned `Homes` plugin as the behavior reference for the Vega Homes implementation; pin the exact source revision when implementation begins and audit commands, permissions, limits, persistence, world identity, teleport validation, cooldowns and failure messages before porting.
+- [ ] Use the current project-owned `Homes` plugin at pinned revision `TerraZ-Team/Homes@4e7d33fe3dba7c94a498b04553df10c92f056007` as the behavior reference for the Vega Homes implementation; audit its `myhome`, `sethome` and `delhome` commands, permissions, limits, persistence, world identity, teleport validation, cooldowns and failure messages before porting. Keep this named-home feature distinct from TShock's built-in `/home` personal-spawn recall.
 - [ ] Keep Homes as an optional first-party module unless a demonstrated primitive belongs lower. Reuse Vega player teleport, authorization, localization, persistence and `WorldId` contracts rather than importing TShock/plugin class shapes.
 - [ ] Preserve relevant production behavior and edge cases from the reference plugin with end-to-end tests, including offline persistence, renamed/deleted worlds, invalid destinations and sandbox/world boundaries.
 - [ ] Expose Homes command/help/config descriptors through the common Plugin SDK/Admin catalog so the feature requires no bespoke TUI integration.

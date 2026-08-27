@@ -73,8 +73,7 @@ internal sealed class HomeCommand(
         CommandInvocation invocation,
         CancellationToken cancellationToken)
     {
-        if (invocation.Arguments.Count != 0 ||
-            invocation.Principal is not IPlayerCommandPrincipal principal ||
+        if (invocation.Principal is not IPlayerCommandPrincipal principal ||
             !players.TryGet(principal.PlayerId, out PlayerSnapshot? player) ||
             player is null)
         {
