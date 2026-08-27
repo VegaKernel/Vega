@@ -131,6 +131,13 @@ public static class TerrariaServerHost
             gameThreadDispatcher,
             playerBoundary,
             buildProtection);
+        using var worldAdministrationCommands = TerrariaWorldAdministrationCommandRegistration.Register(
+            commandDispatcher,
+            runtimeWorldId,
+            gameThreadDispatcher,
+            playerBoundary,
+            buildProtection,
+            worldMaintenance);
         using var playerLifecycleCommands = TerrariaPlayerLifecycleCommandRegistration.Register(
             commandDispatcher,
             playerBoundary);
