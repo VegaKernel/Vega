@@ -41,4 +41,19 @@ public interface IVegaAdminClient
 
     ValueTask<AdminDiagnosticsSnapshot> GetDiagnosticsAsync(
         CancellationToken cancellationToken = default);
+
+    ValueTask<IReadOnlyList<AdminConfigurationDescriptor>> GetConfigurationsAsync(
+        CancellationToken cancellationToken = default);
+
+    ValueTask<AdminConfigurationMutationResult> ReadConfigurationAsync(
+        AdminConfigurationKey key,
+        CancellationToken cancellationToken = default);
+
+    ValueTask<AdminConfigurationMutationResult> ReplaceConfigurationAsync(
+        AdminConfigurationReplaceRequest request,
+        CancellationToken cancellationToken = default);
+
+    ValueTask<AdminConfigurationMutationResult> ReloadConfigurationAsync(
+        AdminConfigurationMutationRequest request,
+        CancellationToken cancellationToken = default);
 }
