@@ -26,7 +26,9 @@ public sealed class PlayerPacketOwnershipPolicyTests
         PacketTypes.RequestTileEntityInteraction,
         PacketTypes.TileEntityHatRackItemSync,
         PacketTypes.SyncTilePicking,
-        PacketTypes.SyncProjectileTrackers
+        PacketTypes.SyncProjectileTrackers,
+        PacketTypes.Emoji,
+        PacketTypes.SyncLoadout
     ];
 
     [TestCaseSource(nameof(OwnedPacketTypes))]
@@ -107,6 +109,8 @@ public sealed class PlayerPacketOwnershipPolicyTests
             PiggyBankProjectile = new TrackedProjectileReferenceData(),
             VoidLensChestProjectile = new TrackedProjectileReferenceData()
         },
+        PacketTypes.Emoji => new Emoji { PlayerId = playerId, EmojiId = 1 },
+        PacketTypes.SyncLoadout => new SyncLoadout { PlayerId = playerId, LoadoutIndex = 0 },
         _ => throw new ArgumentOutOfRangeException(nameof(packetType))
     };
 
