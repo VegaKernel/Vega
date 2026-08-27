@@ -30,6 +30,7 @@ internal static class TerrariaAdministrationCommandRegistration
         IWorldEnvironmentService environment = new TerrariaWorldEnvironmentService(gameThread, runtimeWorldId);
         IWorldNpcService npcs = new TerrariaWorldNpcService(gameThread, runtimeWorldId);
         IWorldNpcSpawnControl npcSpawns = new TerrariaNpcSpawnControl(gameThread, runtimeWorldId);
+        var wallOfFlesh = new TerrariaWallOfFleshSpawner(gameThread, runtimeWorldId);
 
         ICommandHandler[] handlers =
         [
@@ -44,7 +45,13 @@ internal static class TerrariaAdministrationCommandRegistration
             new SpawnTeleportCommand(players, players, environment),
             new PositionCommand(players),
             new NpcListCommand(npcs),
-            new SpawnMobCommand(players, npcs, environment),
+            new SpawnMobCommand(
+                players,
+                npcs,
+                new TerrariaNpcCatalog(),
+                npcSpawns,
+                wallOfFlesh,
+                players),
             new ButcherCommand(npcs, new TerrariaNpcCatalog(), players, players),
             new RenameNpcCommand(npcs, new TerrariaNpcCatalog(), players, players),
             new MaxSpawnsCommand(npcSpawns, players, players)
@@ -563,63 +570,103 @@ internal sealed class NpcListCommand(IWorldNpcService npcs) : ICommandHandler
 internal sealed class SpawnMobCommand(
     IPlayerDirectory players,
     IWorldNpcService npcs,
-    IWorldEnvironmentService environment) : ICommandHandler
+    INpcCatalog catalog,
+    IWorldNpcSpawnControl spawnControl,
+    IWallOfFleshSpawner wallOfFlesh,
+    IPlayerMessenger messenger) : ICommandHandler
 {
     public CommandDescriptor Descriptor { get; } = new(
         "spawnmob",
         ["sm"],
         ["vega.npc.spawn"],
-        Syntax: "spawnmob <npc-type> [count:1..200] [player]");
+        AllowServer: false,
+        Syntax: "spawnmob <npc-name|id> [amount]");
 
     public async ValueTask<CommandExecutionResult> ExecuteAsync(CommandInvocation invocation, CancellationToken cancellationToken)
     {
-        if (invocation.Arguments.Count is < 1 or > 3 ||
-            !int.TryParse(invocation.Arguments[0], NumberStyles.Integer, CultureInfo.InvariantCulture, out int type) ||
-            type <= 0)
+        if (invocation.Arguments.Count is < 1 or > 2 ||
+            string.IsNullOrWhiteSpace(invocation.Arguments[0]) ||
+            invocation.Principal is not IPlayerCommandPrincipal principal ||
+            !players.TryGet(principal.PlayerId, out PlayerSnapshot? caller) ||
+            caller is null)
         {
             return Usage();
         }
 
-        int count = 1;
-        if (invocation.Arguments.Count >= 2 &&
-            (!int.TryParse(invocation.Arguments[1], NumberStyles.Integer, CultureInfo.InvariantCulture, out count) || count is < 1 or > 200))
+        int requestedAmount = 1;
+        if (invocation.Arguments.Count == 2 &&
+            (!int.TryParse(invocation.Arguments[1], NumberStyles.Integer, CultureInfo.InvariantCulture, out requestedAmount) ||
+             requestedAmount <= 0))
         {
             return Usage();
         }
 
-        PlayerSnapshot? target = null;
-        if (invocation.Arguments.Count == 3 &&
-            !PlayerResolver.TryResolve(players, invocation.Arguments[2], out target, out string? error))
+        NpcResolutionResult resolution = catalog.Resolve(invocation.Arguments[0]);
+        if (resolution.Status == NpcResolutionStatus.Ambiguous)
         {
-            return AdminCommandResults.Failure("command.spawnmob.invalid-player", error!);
-        }
-        if (target is null)
-        {
-            PlayerResolver.TryCaller(players, invocation, out target);
+            return AdminCommandResults.Failure(
+                "command.spawnmob.npc-ambiguous",
+                $"NPC is ambiguous: {string.Join(", ", resolution.Candidates.Select(static npc => $"{npc.Name} ({npc.NetId})"))}.");
         }
 
-        PlayerPosition position;
-        int? targetSlot = target?.Id.Slot;
-        if (target is not null)
+        if (resolution.Status == NpcResolutionStatus.NotFound || resolution.Npc is null)
         {
-            position = target.Position;
+            return AdminCommandResults.Failure(
+                "command.spawnmob.npc-not-found",
+                $"'{invocation.Arguments[0]}' is not a valid NPC.");
         }
-        else
+
+        NpcDefinition definition = resolution.Npc;
+        if (definition.NetId <= 0 || definition.NetId >= global::Terraria.ID.NPCID.Count)
         {
-            WorldEnvironmentSnapshot? world = await environment.CaptureAsync(invocation.WorldId, cancellationToken).ConfigureAwait(false);
-            if (world is null)
+            return AdminCommandResults.Failure("command.spawnmob.invalid-npc", "The selected NPC cannot be spawned.");
+        }
+
+        if (definition.NetId == global::Terraria.ID.NPCID.WallofFlesh)
+        {
+            if (requestedAmount != 1)
             {
-                return AdminCommandResults.Failure("command.spawnmob.world-unavailable", "World state is unavailable.");
+                return AdminCommandResults.Failure(
+                    "command.spawnmob.wof-amount",
+                    "Wall of Flesh can only be spawned once at a time.");
             }
-            position = new PlayerPosition(world.SpawnTileX * 16f, world.SpawnTileY * 16f);
+
+            PlayerOperationResult result = await wallOfFlesh
+                .SpawnAsync(invocation.WorldId, caller.Position, cancellationToken)
+                .ConfigureAwait(false);
+            if (!result.IsSuccess)
+            {
+                return AdminCommandResults.Failure(
+                    result.ErrorCode ?? "command.spawnmob.wof-failed",
+                    "Unable to spawn a Wall of Flesh based on its current state or your current location.");
+            }
+
+            return await CompleteAsync(invocation, definition.Name, 1, cancellationToken).ConfigureAwait(false);
         }
+
+        NpcSpawnLimitSnapshot? limits = await spawnControl
+            .CaptureAsync(invocation.WorldId, cancellationToken)
+            .ConfigureAwait(false);
+        if (limits is null)
+        {
+            return AdminCommandResults.Failure(
+                "command.spawnmob.capacity-unavailable",
+                "The runtime NPC capacity is unavailable.");
+        }
+
+        int amount = Math.Min(requestedAmount, limits.Capacity);
 
         int spawned = 0;
         string? lastError = null;
-        for (int i = 0; i < count; i++)
+        for (int i = 0; i < amount; i++)
         {
             NpcOperationResult result = await npcs.SpawnAsync(
-                new NpcSpawnRequest(invocation.WorldId, type, position, invocation.Principal.Name, targetSlot),
+                new NpcSpawnRequest(
+                    invocation.WorldId,
+                    definition.NetId,
+                    caller.Position,
+                    invocation.Principal.Name,
+                    caller.Id.Slot),
                 cancellationToken).ConfigureAwait(false);
             if (!result.IsSuccess)
             {
@@ -629,18 +676,42 @@ internal sealed class SpawnMobCommand(
             spawned++;
         }
 
-        return spawned == count
-            ? CommandExecutionResult.WithMessages(
-                MessageDescriptor.Success("command.spawnmob.applied")
-                    .WithDefaultText($"Spawned {spawned} NPC(s) of type {type}."))
-            : AdminCommandResults.Failure(
+        if (spawned != amount)
+        {
+            return AdminCommandResults.Failure(
                 "command.spawnmob.failed",
-                $"Spawned {spawned}/{count} NPC(s); last failure: {lastError ?? "unknown"}.");
+                $"Spawned {spawned}/{amount} NPC(s); last failure: {lastError ?? "unknown"}.");
+        }
+
+        return await CompleteAsync(invocation, definition.Name, spawned, cancellationToken).ConfigureAwait(false);
+    }
+
+    private async ValueTask<CommandExecutionResult> CompleteAsync(
+        CommandInvocation invocation,
+        string npcName,
+        int amount,
+        CancellationToken cancellationToken)
+    {
+        string action = $"spawned {npcName} {amount} time{(amount == 1 ? string.Empty : "s")}.";
+        string message = $"{invocation.Principal.Name} {action}";
+        if (!invocation.Silent)
+        {
+            await NpcCommandBroadcast.SendToOthersAsync(
+                players,
+                messenger,
+                invocation,
+                message,
+                cancellationToken).ConfigureAwait(false);
+        }
+
+        return CommandExecutionResult.WithMessages(
+            MessageDescriptor.Success("command.spawnmob.applied")
+                .WithDefaultText(invocation.Silent ? $"You {action}" : message));
     }
 
     private static CommandExecutionResult Usage() => AdminCommandResults.Usage(
         "command.spawnmob.usage",
-        "Usage: spawnmob <npc-type> [count:1..200] [player].");
+        "Usage: spawnmob <npc-name|id> [positive amount]. Quote multi-word NPC names.");
 }
 
 internal sealed class ButcherCommand(
