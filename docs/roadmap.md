@@ -780,6 +780,41 @@ TerraZ TShock           = security and operator behavior reference
 Vega                    = independent implementation with explicit evidence
 ```
 
+
+## Phase 26 — plugin fault containment and crash isolation
+
+Contain ordinary same-process plugin failures at the Vega-owned PluginSdk boundary, preserve full diagnostics and retire repeatedly failing plugins without confusing exception suppression with authoritative-state recovery. Process-fatal failures and corrupted Terraria authoritative state remain outside the promise of same-process plugin containment.
+
+### Callback boundary
+
+- [ ] Route dynamically registered plugin commands through one per-plugin execution guard; thrown commands return a stable failure result and never escape the dispatcher.
+- [ ] Route player join/leave and every future PluginSdk event callback through the same guard so one plugin cannot abort shared event delivery or Terraria snapshot refresh.
+- [ ] Route `Tasks.Post`, periodic actions and async-result apply callbacks through the guard while preserving normal lifetime cancellation semantics.
+- [ ] Log the complete exception object with plugin identity, callback/operation and a monotonic fault count instead of relying on outer generic catches.
+- [ ] Add throwing-plugin regressions proving command, lifecycle and scheduled callback failures are contained and attributed.
+
+### Circuit breaker and retirement
+
+- [ ] Add a bounded rolling failure window and configurable breaker threshold with conservative defaults.
+- [ ] Transition repeatedly failing plugins through degraded/faulted state, suppress new callbacks and retire only the offender.
+- [ ] Cancel lifetime work, unregister hooks/commands, call stop/dispose and verify collectible `AssemblyLoadContext` reclamation; expose `RestartRequired` if cleanup cannot be proven.
+- [ ] Keep a healthy neighboring plugin operational while a faulty plugin is being disabled.
+- [ ] Surface fault count, last callback and last failure summary in module Operations/TUI state.
+
+### Coverage and architecture gates
+
+- [ ] Audit chat, packet, world, NPC, chest, tile, projectile, configuration and diagnostics callback surfaces for raw plugin delegate invocation.
+- [ ] Add an architecture test that rejects new unguarded ordinary-plugin callback registrations outside the approved scope/guard boundary.
+- [ ] Fault-injection soak: repeated plugin exceptions plus hot reload, reconnects and scheduled work must not leak handlers, tasks, threads or collectible load contexts.
+- [ ] Document the boundary: `AssemblyLoadContext` is lifecycle isolation, not a hostile-code security sandbox; fatal CLR/native/process failures still require an external supervisor and last-known-good persistence.
+
+Plugin-fault invariant:
+
+```text
+ordinary plugin exception = isolate + diagnose + possibly retire that plugin
+authoritative state corruption = fail closed; never catch-and-continue blindly
+```
+
 ## Architectural guardrails
 
 These apply across all phases:

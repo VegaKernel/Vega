@@ -23,6 +23,7 @@ internal sealed class HotModuleRegistrationScope : IHotModuleContext, IVegaPlugi
     private readonly CancellationTokenSource lifetime = new();
     private readonly IOperationsLogger logger;
     private readonly string logSource;
+    private readonly PluginExecutionGuard executionGuard;
     private bool disposed;
 
     public HotModuleRegistrationScope(
@@ -44,6 +45,7 @@ internal sealed class HotModuleRegistrationScope : IHotModuleContext, IVegaPlugi
         ArgumentException.ThrowIfNullOrWhiteSpace(pluginName);
         ArgumentException.ThrowIfNullOrWhiteSpace(dataDirectory);
         logSource = $"plugin:{pluginName}";
+        executionGuard = new PluginExecutionGuard(logger, pluginName);
 
         string configurationDirectory = Path.Combine(
             AppContext.BaseDirectory,
@@ -172,7 +174,24 @@ internal sealed class HotModuleRegistrationScope : IHotModuleContext, IVegaPlugi
             owner.Track(RegisterCore(handler));
         }
 
-        public IDisposable RegisterCore(ICommandHandler handler) => commands.Register(handler);
+        public IDisposable RegisterCore(ICommandHandler handler) =>
+            commands.Register(new GuardedCommandHandler(owner, handler));
+
+        private sealed class GuardedCommandHandler(
+            HotModuleRegistrationScope owner,
+            ICommandHandler inner) : ICommandHandler
+        {
+            public CommandDescriptor Descriptor => inner.Descriptor;
+
+            public ValueTask<CommandExecutionResult> ExecuteAsync(
+                CommandInvocation invocation,
+                CancellationToken cancellationToken) =>
+                owner.executionGuard.InvokeCommandAsync(
+                    $"command:{Descriptor.Name}",
+                    inner,
+                    invocation,
+                    cancellationToken);
+        }
     }
 
     private sealed class PluginPlayers(
@@ -264,8 +283,10 @@ internal sealed class HotModuleRegistrationScope : IHotModuleContext, IVegaPlugi
                 return;
             }
 
-            lifecycle.Opened += handler;
-            owner.Track(new CleanupRegistration(() => lifecycle.Opened -= handler));
+            Action<PlayerSessionOpened> guarded = opened =>
+                owner.executionGuard.TryInvoke("players.joined", () => handler(opened));
+            lifecycle.Opened += guarded;
+            owner.Track(new CleanupRegistration(() => lifecycle.Opened -= guarded));
         }
 
         public void OnLeft(Action<PlayerSessionClosed> handler)
@@ -276,8 +297,10 @@ internal sealed class HotModuleRegistrationScope : IHotModuleContext, IVegaPlugi
                 return;
             }
 
-            lifecycle.Closed += handler;
-            owner.Track(new CleanupRegistration(() => lifecycle.Closed -= handler));
+            Action<PlayerSessionClosed> guarded = closed =>
+                owner.executionGuard.TryInvoke("players.left", () => handler(closed));
+            lifecycle.Closed += guarded;
+            owner.Track(new CleanupRegistration(() => lifecycle.Closed -= guarded));
         }
     }
 
@@ -290,7 +313,7 @@ internal sealed class HotModuleRegistrationScope : IHotModuleContext, IVegaPlugi
             {
                 if (!owner.lifetime.IsCancellationRequested)
                 {
-                    action();
+                    owner.executionGuard.TryInvoke($"task:{name}", action);
                 }
             }) ?? false;
         }
