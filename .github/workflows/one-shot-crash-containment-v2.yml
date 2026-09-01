@@ -1,0 +1,20 @@
+name: One-shot crash containment v2
+
+on:
+  push:
+    branches:
+      - work/crash-containment-v2
+
+jobs:
+  circuit-breaker:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v6
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v5
+        with:
+          dotnet-version: 11.0.100-preview.7.26381.103
+      - name: Build Vega Core
+        run: dotnet build src/Vega.Core/Vega.Core.csproj -c Release
+      - name: Run crash-containment tests
+        run: dotnet test tests/Vega.Runtime.Tests/Vega.Runtime.Tests.csproj -c Release --filter "FullyQualifiedName~PluginExecutionGuardTests|FullyQualifiedName~PluginSdkContextTests"
