@@ -54,6 +54,8 @@ public sealed class TerrariaCustomItemDelivery(IGameThreadDispatcher dispatcher)
 			global::Terraria.WorldItem worldItem = global::Terraria.Main.item[itemIndex];
 			worldItem.inner.SetDefaults(definition.ItemType);
 			ApplyOverride(worldItem.inner, definition.Override);
+			if (definition.Override.Width is short width) worldItem.width = width;
+			if (definition.Override.Height is short height) worldItem.height = height;
 			worldItem.position = player.position;
 
 			foreach (TerrariaPacket packet in CustomItemPacketFactory.Create(
@@ -101,8 +103,6 @@ public sealed class TerrariaCustomItemDelivery(IGameThreadDispatcher dispatcher)
 		if (value.UseTime is ushort useTime) item.useTime = useTime;
 		if (value.ShootProjectileType is short shoot) item.shoot = shoot;
 		if (value.ShootSpeed is float shootSpeed) item.shootSpeed = shootSpeed;
-		if (value.Width is short width) item.width = width;
-		if (value.Height is short height) item.height = height;
 		if (value.Scale is float scale) item.scale = scale;
 		if (value.AmmoType is short ammo) item.ammo = ammo;
 		if (value.UseAmmoType is short useAmmo) item.useAmmo = useAmmo;

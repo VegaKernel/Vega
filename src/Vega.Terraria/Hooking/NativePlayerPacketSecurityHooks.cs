@@ -201,8 +201,7 @@ internal sealed class NativePlayerPacketSecurityHooks : IDisposable
         }
         catch (Exception ex)
         {
-            client.PendingTermination = true;
-            client.PendingTerminationApproved = true;
+            client.RequestTermination("Rejected connection handshake");
             logger.Log(
                 OperationsLogLevel.Warning,
                 "packet-security",

@@ -19,7 +19,7 @@ jobs:
       - name: Setup .NET
         uses: actions/setup-dotnet@v5
         with:
-          dotnet-version: 11.0.100-preview.7.26381.103
+          dotnet-version: 11.0.100
       - name: Download pinned MaxMind test databases
         shell: pwsh
         run: |
@@ -78,7 +78,7 @@ jobs:
       - name: Setup .NET
         uses: actions/setup-dotnet@v5
         with:
-          dotnet-version: 11.0.100-preview.7.26381.103
+          dotnet-version: 11.0.100
       - name: Restore benchmark
         run: dotnet restore benchmarks/Vega.PacketPipeline.Benchmarks/Vega.PacketPipeline.Benchmarks.csproj
       - name: Build benchmark
@@ -134,7 +134,7 @@ jobs:
       - name: Setup .NET
         uses: actions/setup-dotnet@v5
         with:
-          dotnet-version: 11.0.100-preview.7.26381.103
+          dotnet-version: 11.0.100
       - name: Install provider dump tools
         shell: bash
         run: |

@@ -15,7 +15,6 @@
 		<PublishReadyToRun Condition="'$(PublishReadyToRun)' == ''">false</PublishReadyToRun>
 		<TieredCompilation>true</TieredCompilation>
 		<TieredPGO>true</TieredPGO>
-		<MonoMod_ReallySkipCheckTargetRuntime>true</MonoMod_ReallySkipCheckTargetRuntime>
 	</PropertyGroup>
 
 	<ItemGroup>
@@ -103,12 +102,6 @@
 		<MakeDir Directories="$(OutDir)libs;$(OutDir)ServerPlugins" />
 		<Move SourceFiles="@(DevServerPlugins)" DestinationFolder="$(OutDir)ServerPlugins" />
 		<Move SourceFiles="@(DevLibraries)" DestinationFolder="$(OutDir)libs" />
-	</Target>
-
-	<Target Name="ArrangeTerrariaRuntimeMonoModCore" AfterTargets="CopyTerrariaRuntimeNet11MonoModCore">
-		<Move SourceFiles="$(OutDir)MonoMod.Core.dll"
-			DestinationFolder="$(OutDir)libs"
-			Condition="Exists('$(OutDir)MonoMod.Core.dll')" />
 	</Target>
 
 	<Target Name="ArrangePublishedRuntime" AfterTargets="Publish">

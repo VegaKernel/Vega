@@ -119,7 +119,7 @@ public sealed class TerrariaWorldNpcService(
         }
 
         int slot = global::Terraria.NPC.NewNPC(
-            new EntitySource_Misc($"Vega.PluginSdk:{request.Actor}"),
+            new EntitySource_DebugCommand(),
             (int)MathF.Round(request.Position.X),
             (int)MathF.Round(request.Position.Y),
             request.Type);

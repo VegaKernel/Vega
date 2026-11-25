@@ -28,7 +28,7 @@ internal sealed class NativeLifecycleHooks : IDisposable
 
         HookWorldFile.LoadWorld += OnWorldLoadStarted;
         HookWorldGen.GenerateWorld += OnWorldGenerationStarted;
-        HookEvents.Terraria.Netplay.StartServer += OnStartServer;
+        Hooks.Main.DedicatedWorldReady += OnDedicatedWorldReady;
         attached = true;
     }
 
@@ -41,7 +41,7 @@ internal sealed class NativeLifecycleHooks : IDisposable
 
         HookWorldFile.LoadWorld -= OnWorldLoadStarted;
         HookWorldGen.GenerateWorld -= OnWorldGenerationStarted;
-        HookEvents.Terraria.Netplay.StartServer -= OnStartServer;
+        Hooks.Main.DedicatedWorldReady -= OnDedicatedWorldReady;
         attached = false;
     }
 
@@ -59,9 +59,9 @@ internal sealed class NativeLifecycleHooks : IDisposable
         }
     }
 
-    private void OnStartServer(object? sender, HookEvents.Terraria.Netplay.StartServerEventArgs args)
+    private void OnDedicatedWorldReady()
     {
-        if (!args.ContinueExecution || lifecycle.CurrentStage != RuntimeLifecycleStage.WorldLoading)
+        if (lifecycle.CurrentStage != RuntimeLifecycleStage.WorldLoading)
         {
             return;
         }
