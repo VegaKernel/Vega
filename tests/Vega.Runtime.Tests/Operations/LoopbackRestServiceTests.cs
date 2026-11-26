@@ -23,6 +23,73 @@ namespace Vega.Runtime.Tests.Operations;
 public sealed class LoopbackRestServiceTests
 {
     [Test]
+    public async Task WorldRestReadsAreScopedAndMaintenanceChangesUseTypedWorldBoundary()
+    {
+        var world = new WorldId("rest-world");
+        string reader = Convert.ToHexString(RandomNumberGenerator.GetBytes(32));
+        string writer = Convert.ToHexString(RandomNumberGenerator.GetBytes(32));
+        static string Fingerprint(string token) => Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(token)));
+        using var probe = new TcpListener(IPAddress.Loopback, 0);
+        probe.Start();
+        int port = ((IPEndPoint)probe.LocalEndpoint).Port;
+        probe.Stop();
+        var lifetime = new RuntimeLifecycleTracker(Stopwatch.GetTimestamp());
+        var environment = new RecordingEnvironment(world);
+        var logger = new RecordingLogger();
+        using var service = new LoopbackRestService(world, lifetime, new State(), new Players([]), new NetworkMetricsCounter(),
+            environment: environment, logger: logger);
+        service.Start(port, Fingerprint(reader), Fingerprint(writer));
+        using var http = new HttpClient { BaseAddress = new Uri($"http://127.0.0.1:{port}/"), Timeout = TimeSpan.FromSeconds(5) };
+        async Task<HttpStatusCode> Post(string path, string json, string mediaType = "application/json")
+        {
+            using var body = new StringContent(json, Encoding.UTF8, mediaType);
+            using var response = await http.PostAsync(path, body);
+            return response.StatusCode;
+        }
+
+        using (var denied = await http.GetAsync("v1/world")) Assert.That(denied.StatusCode, Is.EqualTo(HttpStatusCode.Unauthorized));
+        http.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", reader);
+        using (var unavailable = await http.GetAsync("v1/world")) Assert.That(unavailable.StatusCode, Is.EqualTo(HttpStatusCode.ServiceUnavailable));
+        Assert.That(await Post("v1/world/time", "{\"isDaytime\":true,\"timeTicks\":123}"), Is.EqualTo(HttpStatusCode.Forbidden));
+        http.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", writer);
+        Assert.That(await Post("v1/world/time", "{\"isDaytime\":true,\"timeTicks\":123}"), Is.EqualTo(HttpStatusCode.ServiceUnavailable));
+        Assert.That(environment.Requests, Is.Empty);
+        for (int i = 1; i <= (int)RuntimeLifecycleStage.NetworkReady; i++) lifetime.Advance((RuntimeLifecycleStage)i);
+        http.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", reader);
+        using (var snapshot = JsonDocument.Parse(await http.GetStringAsync("v1/world")))
+        {
+            Assert.That(snapshot.RootElement.GetProperty("world").GetString(), Is.EqualTo(world.Value));
+            Assert.That(snapshot.RootElement.GetProperty("widthTiles").GetInt32(), Is.EqualTo(4200));
+            Assert.That(snapshot.RootElement.TryGetProperty("seed", out _), Is.False);
+            Assert.That(snapshot.RootElement.TryGetProperty("fileIdentity", out _), Is.False);
+        }
+        http.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", writer);
+        foreach (string bad in new[] { "{}", "{\"isDaytime\":false,\"timeTicks\":54000}",
+                     "{\"isDaytime\":true,\"timeTicks\":0,\"world\":\"other\"}", "{\"isDaytime\":true,\"timeTicks\":\"noon\"}" })
+            Assert.That(await Post("v1/world/time", bad), Is.EqualTo(HttpStatusCode.BadRequest));
+        foreach (string bad in new[] { "{}", "{\"raining\":true,\"raining\":false}", "{\"windSpeed\":2}", "{\"rainIntensity\":-0.1}" })
+            Assert.That(await Post("v1/world/weather", bad), Is.EqualTo(HttpStatusCode.BadRequest));
+        Assert.That(await Post("v1/world/time", new string(' ', 4097)), Is.EqualTo(HttpStatusCode.RequestEntityTooLarge));
+        Assert.That(await Post("v1/world/time", "{\"isDaytime\":true,\"timeTicks\":0}", "text/plain"), Is.EqualTo(HttpStatusCode.UnsupportedMediaType));
+        Assert.That(environment.Requests, Is.Empty);
+        Assert.That(await Post("v1/world/time", "{\"isDaytime\":false,\"timeTicks\":3600}"), Is.EqualTo(HttpStatusCode.NoContent));
+        Assert.That(await Post("v1/world/weather", "{\"raining\":true,\"rainIntensity\":0.75,\"windSpeed\":-0.5}"), Is.EqualTo(HttpStatusCode.NoContent));
+        Assert.That(environment.Requests, Is.EqualTo(new[]
+        {
+            new WorldEnvironmentMutationRequest(world, new(IsDaytime: false, TimeTicks: 3600), "rest:maintenance"),
+            new WorldEnvironmentMutationRequest(world, new(Raining: true, RainIntensity: 0.75f, WindSpeed: -0.5f), "rest:maintenance")
+        }));
+        environment.Status = WorldEnvironmentMutationStatus.DispatcherUnavailable;
+        Assert.That(await Post("v1/world/weather", "{\"raining\":false}"), Is.EqualTo(HttpStatusCode.ServiceUnavailable));
+        Assert.That(logger.Entries, Has.Count.EqualTo(3));
+        Assert.That(logger.Entries.Last(), Does.Contain("status=503"));
+        Assert.That(logger.Entries.All(entry => !entry.Contains(writer, StringComparison.Ordinal)), Is.True);
+        await service.ExecuteAsync(new CommandInvocation("rest", ["destroytokens"], new Principal(true), new Output()) { WorldId = world }, default);
+        Assert.That(await Post("v1/world/weather", "{\"raining\":false}"), Is.EqualTo(HttpStatusCode.Unauthorized));
+        Assert.That(environment.Requests, Has.Count.EqualTo(3));
+    }
+
+    [Test]
     public async Task LoopbackStatusAndPlayersRequireTokenAndRevocationTakesEffect()
     {
         var world = new WorldId("arena");
@@ -102,6 +169,28 @@ public sealed class LoopbackRestServiceTests
         public int Saves { get; private set; }
         public ValueTask SaveAsync(CancellationToken cancellationToken = default) { Saves++; return ValueTask.CompletedTask; }
         public ValueTask ShutdownAsync(string reason, CancellationToken cancellationToken = default) => throw new NotSupportedException();
+    }
+
+    private sealed class RecordingEnvironment(WorldId world) : IWorldEnvironmentService
+    {
+        public List<WorldEnvironmentMutationRequest> Requests { get; } = [];
+        public WorldEnvironmentMutationStatus Status { get; set; } = WorldEnvironmentMutationStatus.Applied;
+        public ValueTask<WorldEnvironmentSnapshot?> CaptureAsync(WorldId requestedWorld, CancellationToken cancellationToken = default) =>
+            ValueTask.FromResult<WorldEnvironmentSnapshot?>(requestedWorld == world
+                ? new WorldEnvironmentSnapshot(world, 4200, 1200, 100, 100, true, 1200, 0, false, false, false, 0, 0, false, DateTimeOffset.UtcNow)
+                    { Name = "Test World", Seed = 12345, FileIdentity = Guid.NewGuid() }
+                : null);
+        public ValueTask<WorldEnvironmentMutationResult> PatchAsync(WorldEnvironmentMutationRequest request, CancellationToken cancellationToken = default)
+        {
+            Requests.Add(request);
+            return ValueTask.FromResult(new WorldEnvironmentMutationResult(Status));
+        }
+    }
+
+    private sealed class RecordingLogger : IOperationsLogger
+    {
+        public List<string> Entries { get; } = [];
+        public void Log(OperationsLogLevel level, string source, string text, Exception? exception = null, string? correlationId = null) => Entries.Add(text);
     }
 
     private static PlayerSnapshot Player(int slot, string name, WorldId world) =>

@@ -45,6 +45,12 @@ function Get-LoopbackPort {
     finally { $listener.Stop() }
 }
 
+function Get-TokenFingerprint([string] $token) {
+    $sha = [Security.Cryptography.SHA256]::Create()
+    try { return [BitConverter]::ToString($sha.ComputeHash([Text.Encoding]::UTF8.GetBytes($token))).Replace('-', '') }
+    finally { $sha.Dispose() }
+}
+
 function Wait-SmokeText([string] $path, [string] $pattern, [int] $seconds = 60) {
     $until = [DateTime]::UtcNow.AddSeconds($seconds)
     while (-not $process.HasExited -and [DateTime]::UtcNow -lt $until) {
@@ -82,6 +88,12 @@ try {
     $start.CreateNoWindow = $true
     $quotedWorld = '"' + $world.Replace('"', '\"') + '"'
     $primaryPort = Get-LoopbackPort
+    do { $restPort = Get-LoopbackPort } while ($restPort -eq $primaryPort)
+    $readerToken = [Guid]::NewGuid().ToString('N') + [Guid]::NewGuid().ToString('N')
+    $writerToken = [Guid]::NewGuid().ToString('N') + [Guid]::NewGuid().ToString('N')
+    $start.EnvironmentVariables['VEGA_REST_PORT'] = [string]$restPort
+    $start.EnvironmentVariables['VEGA_REST_TOKEN_SHA256'] = Get-TokenFingerprint $readerToken
+    $start.EnvironmentVariables['VEGA_REST_MAINTENANCE_TOKEN_SHA256'] = Get-TokenFingerprint $writerToken
     $start.Arguments = "--vega-ui=plain -autocreate 1 -world $quotedWorld -ip 127.0.0.1 -port $primaryPort -maxplayers 4 -password deployment-smoke -noupnp"
 
     $process = [Diagnostics.Process]::new()
@@ -108,6 +120,32 @@ try {
     if (-not (Test-Path -LiteralPath (Join-Path $deploy 'data/vega.db') -PathType Leaf)) {
         throw 'The baseline SQLite database was not created.'
     }
+
+    $rest = "http://127.0.0.1:$restPort/v1/world"
+    $readHeaders = @{ Authorization = 'Bearer ' + $readerToken }
+    $writeHeaders = @{ Authorization = 'Bearer ' + $writerToken }
+    $worldDeadline = [DateTime]::UtcNow.AddSeconds(15)
+    while ($true) {
+        try { $initialWorld = Invoke-RestMethod -Uri $rest -Headers $readHeaders -TimeoutSec 5; break }
+        catch {
+            if ([DateTime]::UtcNow -ge $worldDeadline) { throw }
+            Start-Sleep -Milliseconds 200
+        }
+    }
+    if ($initialWorld.widthTiles -le 0 -or $initialWorld.heightTiles -le 0) { throw 'REST world snapshot was unavailable.' }
+    $timeResponse = Invoke-WebRequest -UseBasicParsing -Uri ($rest + '/time') -Method Post -Headers $writeHeaders `
+        -ContentType 'application/json' -Body '{"isDaytime":true,"timeTicks":12000}' -TimeoutSec 10
+    $weatherResponse = Invoke-WebRequest -UseBasicParsing -Uri ($rest + '/weather') -Method Post -Headers $writeHeaders `
+        -ContentType 'application/json' -Body '{"raining":true,"rainIntensity":0.5,"windSpeed":-0.4}' -TimeoutSec 10
+    $updatedWorld = Invoke-RestMethod -Uri $rest -Headers $readHeaders -TimeoutSec 10
+    if ($timeResponse.StatusCode -ne 204 -or $weatherResponse.StatusCode -ne 204 -or
+        -not $updatedWorld.isDaytime -or $updatedWorld.timeTicks -lt 12000 -or $updatedWorld.timeTicks -gt 13200 -or
+        -not $updatedWorld.raining -or [Math]::Abs($updatedWorld.windSpeed + 0.4) -gt 0.1) {
+        throw 'REST world mutations were not reflected by the native world snapshot.'
+    }
+    Wait-SmokeText $operationsLog 'action=time status=204'
+    Wait-SmokeText $operationsLog 'action=weather status=204'
+    Write-Output 'Native loopback REST world read, time/weather mutation and operation audit passed.'
 
     if ($TestSandboxIsolation) {
         Send-SmokeCommand 'antibuild on'

@@ -95,6 +95,23 @@ Local palette actions control only the view:
 Log retention is bounded and filtering supports minimum level, source and text. Pausing freezes the displayed immutable snapshot; it never pauses server execution or log ingestion.
 # Local scoped REST
 
-An optional primary-world operations listener binds `127.0.0.1` only (`VEGA_REST_PORT`, `VEGA_REST_TOKEN_SHA256`). Clients send a randomly generated bearer token in the Authorization header; the process retains only its SHA-256 fingerprint. `GET /v1/status`, `/v1/players`, `/v1/network`, `/v1/metrics`, and `/v1/scheduler` expose bounded immutable snapshots without endpoints or account secrets. Metrics include CPU time, working set and private memory, total allocations, GC collections and pause duration, plus game-thread pending/dropped work, capacity and scheduling budget. A distinct maintenance token (`VEGA_REST_MAINTENANCE_TOKEN_SHA256`) authorizes `POST /v1/world/save`; the endpoint calls only the existing typed native save boundary, never arbitrary commands. `rest status`, `rest listusers`, `rest destroytokens` are permission checked; token revocation lasts until restart. The default is disabled, and sandbox processes do not open this listener. See the [project guide](en/project-guide.md).
+An optional primary-world operations listener binds `127.0.0.1` only (`VEGA_REST_PORT`, `VEGA_REST_TOKEN_SHA256`). Clients send a randomly generated bearer token in the Authorization header; the process retains only its SHA-256 fingerprint. `GET /v1/status`, `/v1/players`, `/v1/network`, `/v1/metrics`, `/v1/scheduler`, and `/v1/world` expose bounded immutable snapshots without endpoints or account secrets. Metrics include CPU time, working set and private memory, total allocations, GC collections and pause duration, plus game-thread pending/dropped work, capacity and scheduling budget. A distinct maintenance token (`VEGA_REST_MAINTENANCE_TOKEN_SHA256`) authorizes typed world mutations, never arbitrary commands. `rest status`, `rest listusers`, `rest destroytokens` are permission checked; token revocation lasts until restart. The default is disabled, and sandbox processes do not open this listener. See the [project guide](en/project-guide.md).
+
+| Route | Scope | Contract |
+| --- | --- | --- |
+| `GET /v1/world` | Read or maintenance | Current world dimensions, spawn, time, moon, weather, mode and hardmode; no world file identity, seed or file paths. |
+| `POST /v1/world/save` | Maintenance | Empty body; existing typed native save operation. |
+| `POST /v1/world/time` | Maintenance | JSON `{"isDaytime":true,"timeTicks":12000}`; both fields required, native day/night tick range. |
+| `POST /v1/world/weather` | Maintenance | JSON containing one or more of `raining` (Boolean), `rainIntensity` (0–1), `windSpeed` (-1–1). |
+
+World changes operate only on the listener's owned ready world and return 204 on
+success. JSON mutations require `application/json` with a nonempty, known length
+of at most 4096 bytes; unknown or duplicate fields and out-of-range values are
+rejected. A read token cannot mutate. World snapshot/body reads have a five-second
+deadline; native mutations have a 30-second deadline. Unavailable world or
+dispatcher returns 503; cancelled/timed-out work returns 504. The native game
+thread remains the mutation authority. Each invoked maintenance action is audited
+by world, action and outcome without logging credentials or raw request bodies.
+World read/time/weather and audit are exercised by the clean deployment smoke.
 
 `scripts/Measure-LiveVegaServer.ps1` samples readiness, actual connected-player count, p50/p95/p99 tick duration, GC/process/network counters and scheduler depth into a timestamped CSV through the local read API. Supply the read bearer token in `VEGA_REST_READ_TOKEN` in the measurement process. Its `-MinimumPlayers` gate fails qualification if any measured sample falls below the requested connected-player count; loopback transport peers alone do not count as in-game players.

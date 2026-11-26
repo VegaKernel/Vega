@@ -20,8 +20,11 @@ public sealed class LoopbackRestService(
     INetworkMetricsReader network,
     IServerControl? maintenance = null,
     IRuntimeMetricsReader? runtimeMetrics = null,
-    Func<GameThreadQueueSnapshot>? queueMetrics = null) : IDisposable, ICommandHandler
+    Func<GameThreadQueueSnapshot>? queueMetrics = null,
+    IWorldEnvironmentService? environment = null,
+    IOperationsLogger? logger = null) : IDisposable, ICommandHandler
 {
+    private const int MaximumWorldPatchBytes = 4096;
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
     private HttpListener? listener;
     private Task? serveTask;
@@ -41,7 +44,7 @@ public sealed class LoopbackRestService(
             throw new InvalidDataException("REST requires a valid port and SHA-256 token fingerprint.");
         byte[] hash = ParseFingerprint(expectedTokenSha256);
         byte[]? writerHash = maintenanceTokenSha256 is null ? null : ParseFingerprint(maintenanceTokenSha256);
-        if (writerHash is not null && (maintenance is null || CryptographicOperations.FixedTimeEquals(hash, writerHash)))
+        if (writerHash is not null && (maintenance is null && environment is null || CryptographicOperations.FixedTimeEquals(hash, writerHash)))
             throw new InvalidDataException("REST maintenance requires a distinct token and an available maintenance service.");
 
         var next = new HttpListener();
@@ -85,7 +88,7 @@ public sealed class LoopbackRestService(
                 {
                     if (access != Access.Maintenance || maintenance is null) { response.StatusCode = 403; continue; }
                     if (request.HasEntityBody) { response.StatusCode = 400; continue; }
-                    if (lifecycle.CurrentStage < RuntimeLifecycleStage.NetworkReady || lifecycle.CurrentStage >= RuntimeLifecycleStage.Stopping || !state.Read().IsWorldReady)
+                    if (!WorldReady())
                     { response.StatusCode = 503; continue; }
                     using var deadline = CancellationTokenSource.CreateLinkedTokenSource(stopping.Token);
                     deadline.CancelAfter(TimeSpan.FromSeconds(30));
@@ -96,9 +99,32 @@ public sealed class LoopbackRestService(
                     }
                     catch (OperationCanceledException) { response.StatusCode = 504; }
                     catch (Exception) { response.StatusCode = 500; }
+                    AuditMaintenance("save", response.StatusCode);
+                    continue;
+                }
+                if (request.HttpMethod == "POST" && url.AbsolutePath is "/v1/world/time" or "/v1/world/weather")
+                {
+                    if (access != Access.Maintenance) { response.StatusCode = 403; continue; }
+                    if (environment is null) { response.StatusCode = 404; continue; }
+                    await ApplyWorldPatchAsync(request, response, url.AbsolutePath == "/v1/world/time").ConfigureAwait(false);
                     continue;
                 }
                 if (request.HttpMethod != "GET") { response.StatusCode = 405; continue; }
+                if (url.AbsolutePath == "/v1/world" && environment is not null)
+                {
+                    if (!WorldReady()) { response.StatusCode = 503; continue; }
+                    using var deadline = CancellationTokenSource.CreateLinkedTokenSource(stopping.Token);
+                    deadline.CancelAfter(TimeSpan.FromSeconds(5));
+                    try
+                    {
+                        WorldEnvironmentSnapshot? snapshot = await environment.CaptureAsync(worldId, deadline.Token).ConfigureAwait(false);
+                        if (snapshot is null || snapshot.WorldId != worldId) response.StatusCode = 503;
+                        else await WriteJsonAsync(response, WorldView(snapshot)).ConfigureAwait(false);
+                    }
+                    catch (OperationCanceledException) { response.StatusCode = 504; }
+                    catch (Exception) { response.StatusCode = 500; }
+                    continue;
+                }
                 object? payload = url.AbsolutePath switch
                 {
                     "/v1/status" => new
@@ -118,10 +144,7 @@ public sealed class LoopbackRestService(
                     _ => null
                 };
                 if (payload is null) { response.StatusCode = 404; continue; }
-                byte[] bytes = JsonSerializer.SerializeToUtf8Bytes(payload, JsonOptions);
-                response.ContentType = "application/json; charset=utf-8";
-                response.ContentLength64 = bytes.Length;
-                await response.OutputStream.WriteAsync(bytes).ConfigureAwait(false);
+                await WriteJsonAsync(response, payload).ConfigureAwait(false);
             }
             catch (Exception ex) when (ex is IOException or HttpListenerException or ObjectDisposedException or InvalidOperationException)
             {
@@ -134,6 +157,104 @@ public sealed class LoopbackRestService(
             }
         }
     }
+
+    private bool WorldReady() => lifecycle.CurrentStage >= RuntimeLifecycleStage.NetworkReady &&
+        lifecycle.CurrentStage < RuntimeLifecycleStage.Stopping && state.Read().IsWorldReady;
+
+    private async Task ApplyWorldPatchAsync(HttpListenerRequest request, HttpListenerResponse response, bool time)
+    {
+        if (!WorldReady()) { response.StatusCode = 503; return; }
+        if (request.ContentLength64 > MaximumWorldPatchBytes) { response.StatusCode = 413; return; }
+        if (!request.HasEntityBody || request.ContentLength64 <= 0) { response.StatusCode = 400; return; }
+        if (!string.Equals(request.ContentType?.Split(';', 2)[0].Trim(), "application/json", StringComparison.OrdinalIgnoreCase))
+        { response.StatusCode = 415; return; }
+
+        using var deadline = CancellationTokenSource.CreateLinkedTokenSource(stopping.Token);
+        deadline.CancelAfter(TimeSpan.FromSeconds(5));
+        WorldEnvironmentPatch? patch;
+        try
+        {
+            byte[] body = new byte[(int)request.ContentLength64];
+            await request.InputStream.ReadExactlyAsync(body, deadline.Token).ConfigureAwait(false);
+            patch = ParseWorldPatch(body, time);
+        }
+        catch (OperationCanceledException) { response.StatusCode = 504; return; }
+        catch (Exception ex) when (ex is IOException or JsonException) { response.StatusCode = 400; return; }
+        if (patch is null) { response.StatusCode = 400; return; }
+        // A token revoked while the body was arriving must not start a new mutation.
+        if (Authenticate(request.Headers["Authorization"]) != Access.Maintenance) { response.StatusCode = 401; return; }
+        if (!WorldReady()) { response.StatusCode = 503; return; }
+
+        deadline.CancelAfter(TimeSpan.FromSeconds(30));
+        try
+        {
+            var result = await environment!.PatchAsync(new(worldId, patch, "rest:maintenance"), deadline.Token).ConfigureAwait(false);
+            response.StatusCode = result.Status switch
+            {
+                WorldEnvironmentMutationStatus.Applied => 204,
+                WorldEnvironmentMutationStatus.Invalid => 400,
+                WorldEnvironmentMutationStatus.DispatcherUnavailable => 503,
+                WorldEnvironmentMutationStatus.Cancelled => 504,
+                _ => 500
+            };
+        }
+        catch (OperationCanceledException) { response.StatusCode = 504; }
+        catch (Exception) { response.StatusCode = 500; }
+        AuditMaintenance(time ? "time" : "weather", response.StatusCode);
+    }
+
+    private static WorldEnvironmentPatch? ParseWorldPatch(byte[] body, bool time)
+    {
+        using var document = JsonDocument.Parse(body);
+        var root = document.RootElement;
+        if (root.ValueKind != JsonValueKind.Object) return null;
+        if (time)
+        {
+            if (root.EnumerateObject().Count() != 2 ||
+                !root.TryGetProperty("isDaytime", out var day) || day.ValueKind is not (JsonValueKind.True or JsonValueKind.False) ||
+                !root.TryGetProperty("timeTicks", out var ticks) || ticks.ValueKind != JsonValueKind.Number ||
+                !ticks.TryGetDouble(out double value) || !double.IsFinite(value) || value < 0 || value > (day.GetBoolean() ? 54000 : 32400)) return null;
+            return new(IsDaytime: day.GetBoolean(), TimeTicks: value);
+        }
+
+        bool? raining = null;
+        float? intensity = null, wind = null;
+        foreach (var field in root.EnumerateObject())
+        {
+            var value = field.Value;
+            switch (field.Name)
+            {
+                case "raining" when raining is null && value.ValueKind is JsonValueKind.True or JsonValueKind.False:
+                    raining = value.GetBoolean(); break;
+                case "rainIntensity" when intensity is null && value.ValueKind == JsonValueKind.Number &&
+                    value.TryGetSingle(out float rain) && float.IsFinite(rain) && rain is >= 0 and <= 1:
+                    intensity = rain; break;
+                case "windSpeed" when wind is null && value.ValueKind == JsonValueKind.Number &&
+                    value.TryGetSingle(out float speed) && float.IsFinite(speed) && speed is >= -1 and <= 1:
+                    wind = speed; break;
+                default: return null;
+            }
+        }
+        return raining is null && intensity is null && wind is null ? null : new(Raining: raining, RainIntensity: intensity, WindSpeed: wind);
+    }
+
+    private static object WorldView(WorldEnvironmentSnapshot world) => new
+    {
+        world = world.WorldId.Value, world.Name, world.WidthTiles, world.HeightTiles, world.SpawnTileX, world.SpawnTileY,
+        world.IsDaytime, world.TimeTicks, world.MoonPhase, world.BloodMoon, world.Eclipse, world.Raining,
+        world.RainIntensity, world.WindSpeed, world.Hardmode, world.GameMode, world.CapturedAt
+    };
+
+    private static async Task WriteJsonAsync(HttpListenerResponse response, object payload)
+    {
+        byte[] bytes = JsonSerializer.SerializeToUtf8Bytes(payload, JsonOptions);
+        response.ContentType = "application/json; charset=utf-8";
+        response.ContentLength64 = bytes.Length;
+        await response.OutputStream.WriteAsync(bytes).ConfigureAwait(false);
+    }
+
+    private void AuditMaintenance(string action, int status) => logger?.Log(status == 204 ? OperationsLogLevel.Information : OperationsLogLevel.Warning,
+        "rest", $"Maintenance world={worldId.Value} action={action} status={status}");
 
     private static object ReadMetrics(IRuntimeMetricsReader reader)
     {
@@ -160,7 +281,12 @@ public sealed class LoopbackRestService(
         TokenHashes? current = Volatile.Read(ref tokens);
         if (current is null || authorization is null || !authorization.StartsWith("Bearer ", StringComparison.OrdinalIgnoreCase)
             || authorization.Length is < 39 or > 519) return Access.None;
-        byte[] input = SHA256.HashData(Encoding.UTF8.GetBytes(authorization[7..]));
+        ReadOnlySpan<char> token = authorization.AsSpan(7);
+        Span<byte> encoded = stackalloc byte[Encoding.UTF8.GetMaxByteCount(token.Length)];
+        int length = Encoding.UTF8.GetBytes(token, encoded);
+        Span<byte> input = stackalloc byte[32];
+        SHA256.HashData(encoded[..length], input);
+        CryptographicOperations.ZeroMemory(encoded[..length]);
         if (current.Maintenance is { } writer && CryptographicOperations.FixedTimeEquals(writer, input)) return Access.Maintenance;
         return CryptographicOperations.FixedTimeEquals(current.Reader, input) ? Access.Read : Access.None;
     }

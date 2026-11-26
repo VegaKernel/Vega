@@ -358,8 +358,12 @@ int Start()
             logger);
         var hostMetrics = new ProcessHostMetricsReader();
         var runtimeMetrics = new SampledRuntimeMetricsReader(hostMetrics);
+        WorldClockOptions worldClockOptions = WorldClockOptionsStore.Load(
+            Path.Combine(AppContext.BaseDirectory, "config", "world-clock.json"), logger);
+        var worldClock = new MonotonicWorldClock(worldClockOptions);
+        var worldEnvironment = new TerrariaWorldEnvironmentService(gameThreadDispatcher, runtimeWorldId, worldClock);
         using var rest = new LoopbackRestService(runtimeWorldId, lifecycle, operationsState, playerBoundary, networkMetrics, serverControl,
-            runtimeMetrics, gameThreadDispatcher.ReadQueueMetrics);
+            runtimeMetrics, gameThreadDispatcher.ReadQueueMetrics, worldEnvironment, logger);
         using IDisposable restRegistration = commandDispatcher.Register(rest);
         if (!backendLaunch.IsBackend && Environment.GetEnvironmentVariable("VEGA_REST_PORT") is { Length: > 0 } restPort)
         {
@@ -387,10 +391,6 @@ int Start()
         var worldEntities = new TerrariaWorldEntityMaintenance(gameThreadDispatcher, runtimeWorldId);
         var worldTiles = new TerrariaWorldTileService(gameThreadDispatcher, runtimeWorldId);
         var worldNpcs = new TerrariaWorldNpcService(gameThreadDispatcher, runtimeWorldId, playerBoundary);
-        WorldClockOptions worldClockOptions = WorldClockOptionsStore.Load(
-            Path.Combine(AppContext.BaseDirectory, "config", "world-clock.json"), logger);
-        var worldClock = new MonotonicWorldClock(worldClockOptions);
-        var worldEnvironment = new TerrariaWorldEnvironmentService(gameThreadDispatcher, runtimeWorldId, worldClock);
         WorldBuildProtection buildProtection;
         try { buildProtection = new WorldBuildProtection(Path.Combine(runtimeDataRoot, "build-protection.json"), runtimeWorldId, playerAuthorization, worldEnvironment.GetSpawnPosition); }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or System.Text.Json.JsonException or InvalidDataException)
