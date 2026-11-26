@@ -5,7 +5,7 @@ using Vega.Contracts.Worlds;
 
 namespace Vega.Core.Scenes;
 
-public sealed class SceneRuntime(ISceneRenderSink? sink = null) : ISceneRuntime
+public sealed partial class SceneRuntime(ISceneRenderSink? sink = null) : ISceneRuntime
 {
     private const int MaximumDirtyRegions = 128;
     private const int MaximumIndexedChunkEntries = 16_384;
@@ -94,6 +94,7 @@ public sealed class SceneRuntime(ISceneRenderSink? sink = null) : ISceneRuntime
 
     private void RemoveObserver(WorldId world, PlayerId player)
     {
+        pendingVirtualChestOpens.Remove((world, player));
         foreach (var scene in scenes.Values)
         {
             if (scene.WorldId != world) continue;
@@ -258,6 +259,7 @@ public sealed class SceneRuntime(ISceneRenderSink? sink = null) : ISceneRuntime
 
     private OverlayId Add(SceneId sceneId, SceneOverlayDefinition definition)
     {
+        definition = FreezeVirtualChests(definition);
         Validate(definition);
         SceneRenderRequest request;
         lock (sync)
@@ -283,6 +285,7 @@ public sealed class SceneRuntime(ISceneRenderSink? sink = null) : ISceneRuntime
 
     private bool Update(SceneId sceneId, OverlayId overlayId, SceneOverlayDefinition definition)
     {
+        definition = FreezeVirtualChests(definition);
         Validate(definition);
         SceneRenderRequest[] requests;
         lock (sync)
@@ -296,6 +299,11 @@ public sealed class SceneRuntime(ISceneRenderSink? sink = null) : ISceneRuntime
             SceneOverlayDefinition stored = definition with { Id = overlayId, Observers = FreezeScope(scene.WorldId, definition.Observers) };
             scene.Overlays[overlayId] = new OverlayState(stored, current.Sequence);
             Volatile.Write(ref lookup, null);
+            // Logical inventory changes must not enqueue tile data when the visible
+            // provider has not changed; the chest snapshots are published separately.
+            if ((stored.VirtualChests.Count != 0 || current.Definition.VirtualChests.Count != 0) &&
+                SameVisualProvider(current.Definition, stored)) return true;
+            RemoveVirtualChestOpens(sceneId, overlayId);
             RecordDirty(scene, current.Definition.Bounds);
             if (current.Definition.Bounds == stored.Bounds)
             {
@@ -350,6 +358,7 @@ public sealed class SceneRuntime(ISceneRenderSink? sink = null) : ISceneRuntime
             {
                 return false;
             }
+            RemoveVirtualChestOpens(sceneId, overlayId);
             Volatile.Write(ref lookup, null);
 
             RecordDirty(scene, removed.Definition.Bounds);
@@ -388,6 +397,7 @@ public sealed class SceneRuntime(ISceneRenderSink? sink = null) : ISceneRuntime
             {
                 return;
             }
+            RemoveVirtualChestOpens(sceneId);
             Volatile.Write(ref lookup, null);
 
             requests = scene.Overlays.Values

@@ -2,6 +2,8 @@ using NUnit.Framework;
 using System.Text;
 using Vega.Contracts.Commands;
 using Vega.Contracts.Operations;
+using Vega.Contracts.Players;
+using Vega.Contracts.Scenes;
 using Vega.Core.Commands;
 using Vega.Core.Modules;
 using Vega.Core.Scenes;
@@ -44,12 +46,23 @@ public sealed class ServerPluginHotReloadHostTests
             using var host = new ServerPluginHotReloadHost(directory, new ServerPluginHotReloadOptions(true, 100, 5000),
                 new CommandDispatcher([]), new RecordingLogger());
             host.Start();
-            var original = scenes.SnapshotScenes().Single().Id;
+            var originalScene = scenes.SnapshotScenes().Single();
+            var original = originalScene.Id;
+            var originalOverlay = originalScene.Overlays.Single();
+            var originalChest = originalOverlay.VirtualChests.Single().Id;
+            var opened = new PlayerSessionOpened(PlayerSessionId.New(), new(1), "viewer", DateTimeOffset.UtcNow);
+            scenes.OpenSession(WorldId.Primary, opened);
+            var player = new PlayerSnapshot(opened.PlayerId, opened.PlayerName, false, 100, 100, 20, 20, new(160, 160), false, 0)
+                { WorldId = WorldId.Primary, SessionId = opened.SessionId };
+            Assert.That(scenes.TryRequestVirtualChestOpen(player, 10, 10), Is.True);
             Assert.That(visibility.SnapshotLayers(), Has.Count.EqualTo(1));
             var reload = await host.ReloadAsync("Vega.Test.HotPlugin");
             Assert.That(reload.Succeeded, Is.True, reload.Message);
             Assert.That(reload.RestartRequired, Is.False);
             Assert.That(scenes.SnapshotScenes().Single().Id, Is.Not.EqualTo(original));
+            Assert.That(scenes.TryTakeVirtualChestOpen(original, originalOverlay.Id, originalChest, out _), Is.False);
+            Assert.That(scenes.TryResolveVirtualChest(WorldId.Primary, SceneSessionObserver.From(opened), 10, 10, out var replacement), Is.True);
+            Assert.That(replacement!.Value.Definition.Id, Is.Not.EqualTo(originalChest));
             Assert.That(visibility.SnapshotLayers(), Has.Count.EqualTo(1));
             var unload = await host.UnloadAsync("Vega.Test.HotPlugin");
             Assert.That(unload.Succeeded, Is.True, unload.Message);

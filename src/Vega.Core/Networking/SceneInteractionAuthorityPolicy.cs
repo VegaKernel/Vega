@@ -7,8 +7,11 @@ using Vega.Contracts.Worlds;
 
 namespace Vega.Core.Networking;
 
-public sealed class SceneInteractionAuthorityPolicy(ISceneRuntime scenes, WorldId? ownedWorld = null) : IPacketProcessor<PacketView>
+public sealed class SceneInteractionAuthorityPolicy(ISceneRuntime scenes, WorldId? ownedWorld,
+    IPlayerDirectory? players) : IPacketProcessor<PacketView>
 {
+    public SceneInteractionAuthorityPolicy(ISceneRuntime scenes, WorldId? ownedWorld = null) : this(scenes, ownedWorld, null) { }
+
     public PacketProcessingDecision Process(in PacketProcessingContext<PacketView> context)
     {
         if (context.Direction != PacketDirection.Inbound || !TryGetPosition(context.Packet, out int x, out int y))
@@ -16,15 +19,21 @@ public sealed class SceneInteractionAuthorityPolicy(ISceneRuntime scenes, WorldI
             return PacketProcessingDecision.Allow;
         }
 
-        return context.PlayerId is PlayerId playerId && scenes.TryResolveTile(
-            ownedWorld ?? WorldId.Primary,
+        WorldId world = ownedWorld ?? WorldId.Primary;
+        if (context.PlayerId is not PlayerId playerId || !scenes.TryResolveTile(
+            world,
             playerId,
             x,
             y,
             out _,
-            out _)
-            ? PacketProcessingDecision.Reject("scene.phantom_interaction")
-            : PacketProcessingDecision.Allow;
+            out _)) return PacketProcessingDecision.Allow;
+        // A visible virtual container may produce a plugin-owned intent, but the
+        // canonical chest interaction is still rejected. No native chest or item
+        // transaction is performed by this observation path.
+        if (context.Packet.PacketType == PacketTypes.ChestGetContents && players is not null &&
+            players.TryGet(playerId, out var player) && player is not null && player.WorldId == world)
+            scenes.TryRequestVirtualChestOpen(player, x, y);
+        return PacketProcessingDecision.Reject("scene.phantom_interaction");
     }
 
     private static bool TryGetPosition(PacketView packet, out int x, out int y)

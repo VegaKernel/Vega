@@ -18,6 +18,25 @@ public sealed class SceneWorldAuthorityTests
     private static readonly PlayerId Viewer = new(4);
 
     [Test]
+    public void OrdinaryVirtualChestOpenIsObservedWithoutPassingToNativeChestMutation()
+    {
+        var scenes = new SceneRuntime();
+        var opened = new PlayerSessionOpened(PlayerSessionId.New(), Viewer, "Viewer", DateTimeOffset.UtcNow);
+        scenes.OpenSession(Arena, opened);
+        var player = new PlayerSnapshot(Viewer, "Viewer", false, 100, 100, 20, 20, new(1600, 1600), false, 0)
+        { WorldId = Arena, SessionId = opened.SessionId };
+        using var scene = scenes.CreateScene(Arena, "virtual chest", "test");
+        var chest = new SceneVirtualChestDefinition(VirtualChestId.New(), 0, 0, "display", 1, []);
+        var overlay = scene.AddOverlay(new SceneOverlayDefinition(default, "container", new(100, 100, 2, 2), 1,
+            SceneObserverScope.Global, SceneTileArea.Fill(2, 2, new SceneTile(21, Flags: SceneTileFlags.Active))) { VirtualChests = [chest] });
+        var click = new ChestGetContents { TileX = 100, TileY = 100 };
+        Assert.That(Process(new SceneInteractionAuthorityPolicy(scenes, Arena, new Directory(player)), click, PacketTypes.ChestGetContents, Viewer),
+            Is.EqualTo(PacketProcessingDecision.Reject("scene.phantom_interaction")));
+        Assert.That(scenes.TryTakeVirtualChestOpen(scene.Id, overlay, chest.Id, out var request), Is.True);
+        Assert.That(request!.Value.Observer, Is.EqualTo(SceneSessionObserver.From(opened)));
+    }
+
+    [Test]
     public void TileInteractionUsesTheSceneInTheOwnedWorld()
     {
         var scenes = new SceneRuntime();
@@ -56,5 +75,12 @@ public sealed class SceneWorldAuthorityTests
         var view = PacketView.FromPayload(type, stream.ToArray());
         var context = new PacketProcessingContext<PacketView>(view, PacketDirection.Inbound, new ConnectionId(player.Slot), player, DateTimeOffset.UtcNow);
         return policy.Process(in context);
+    }
+
+    private sealed class Directory(PlayerSnapshot player) : IPlayerDirectory
+    {
+        public IReadOnlyList<PlayerSnapshot> SnapshotOnlinePlayers() => [player];
+        public bool TryGet(PlayerId id, out PlayerSnapshot? result) { result = id == player.Id ? player : null; return result is not null; }
+        public bool TryFindExact(string name, out PlayerSnapshot? result) { result = name == player.Name ? player : null; return result is not null; }
     }
 }

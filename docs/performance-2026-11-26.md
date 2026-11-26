@@ -485,3 +485,24 @@ and graceful shutdown. A separate package-copy smoke enabled Ordered TCP,
 verified its native listener and normal local connect/close, and observed queue
 diagnostics. The deployment workflow now includes both transport modes on
 Windows/Linux; the local result does not establish joined-client compatibility.
+
+### FakeProvider logical chest path
+
+The new scene benchmark resolves one visible logical chest from a world with
+64 existing overlays and 200 exact-session observers. It also records 200
+simultaneous logical open intents and consumes all 200 in a batch, checking
+that each is delivered once. No network or inventory transfer is performed.
+
+| Workload | Initial reference snapshots | Final value snapshots + indexed list loop |
+| --- | ---: | ---: |
+| 200,000 chest resolutions | 104 B/lookup | 56 B total (harness noise) |
+| 1,000 batches of 200 open/consume pairs | 336 B/pair | 56 B total (harness noise) |
+
+Two final runs measured 1.35–1.39 µs per resolve and 0.266–0.279 ms per batch
+of 200 open/consume pairs. The final ordinary tile lookup remained allocation-free
+in steady state (56 B across 250,000 checks); region checks were 216–220 ns/check.
+No latency improvement is claimed for the new chest path. Existing overlay
+mutation benchmarks allocate more than the previous checkpoint (WorldEdit move
+about 160 B more per operation); container metadata changes skip tile redraw but
+still invalidate the lazy immutable projection. Raw local outputs:
+`artifacts/performance-2026-11-26/vega-virtual-chest-scene-benchmark-*.json`.

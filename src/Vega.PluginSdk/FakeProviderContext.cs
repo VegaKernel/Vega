@@ -8,6 +8,7 @@ namespace Vega.PluginSdk;
 public interface IPluginFakeProvider
 {
     bool IsAvailable { get; }
+    bool SupportsVirtualChests => false;
     IPluginTileProvider CreateGlobal(string name, SceneBounds bounds, SceneTileArea tiles, int layer = 0);
     IPluginTileProvider CreatePersonal(string name, SceneBounds bounds, SceneTileArea tiles,
         IEnumerable<SceneSessionObserver> observers, int layer = 0);
@@ -32,6 +33,17 @@ public interface IPluginTileProvider : IDisposable
     void SetFillOutsideWithAir(bool enabled) => throw new NotSupportedException("Personal air backgrounds are unavailable.");
     void SetObservers(IEnumerable<SceneSessionObserver> observers);
     void Draw();
+    IPluginVirtualChest CreateVirtualChest(int localX, int localY, string name, IReadOnlyList<ChestItemSnapshot> items) =>
+        throw new NotSupportedException("Virtual chests are unavailable.");
+}
+
+/// <summary>Logical container owned by its provider, not a native inventory or item-transfer surface.</summary>
+public interface IPluginVirtualChest : IDisposable
+{
+    VirtualChestId Id { get; }
+    SceneVirtualChestDefinition Definition { get; }
+    bool TryReplace(long expectedRevision, string name, IReadOnlyList<ChestItemSnapshot> items);
+    bool TryTakeOpenRequest(out SceneVirtualChestOpenRequest? request);
 }
 
 /// <summary>Scoped entity visibility lease. NPC/projectile IDs remain native slot identities.</summary>
@@ -58,6 +70,7 @@ internal static partial class VegaPluginRuntime
         private bool disposed;
 
         public bool IsAvailable { get { lock (sync) return !disposed && Services.Scenes is not null; } }
+        public bool SupportsVirtualChests { get { lock (sync) return !disposed && Services.Scenes?.SupportsVirtualChests == true; } }
 
         public IPluginTileProvider CreateGlobal(string name, SceneBounds bounds, SceneTileArea tiles, int layer = 0) =>
             Create(name, bounds, tiles, SceneObserverScope.Global, layer);
@@ -86,7 +99,7 @@ internal static partial class VegaPluginRuntime
                     var definition = new SceneOverlayDefinition(default, name, bounds, layer, scope, tiles,
                         FillOutsideWithAir: fillOutsideWithAir);
                     var id = lease.AddOverlay(definition);
-                    var provider = new TileProvider(this, lease, definition with { Id = id });
+                    var provider = new TileProvider(this, lease, runtime, definition with { Id = id });
                     active.Add(provider);
                     return provider;
                 }
@@ -164,7 +177,7 @@ internal static partial class VegaPluginRuntime
             }
         }
 
-        private sealed class TileProvider(PluginFakeProvider owner, ISceneLease lease, SceneOverlayDefinition initial)
+        private sealed class TileProvider(PluginFakeProvider owner, ISceneLease lease, ISceneRuntime runtime, SceneOverlayDefinition initial)
             : OwnedLease(owner, lease), IPluginTileProvider
         {
             private SceneOverlayDefinition definition = initial;
@@ -189,6 +202,73 @@ internal static partial class VegaPluginRuntime
             }
             public void SetTop() => Mutate(() => Require(Scene.BringToFront(Id)));
             public void Draw() => Mutate(() => Require(Scene.Redraw(Id)));
+
+            public IPluginVirtualChest CreateVirtualChest(int localX, int localY, string name, IReadOnlyList<ChestItemSnapshot> items) => Read(() =>
+            {
+                if (!runtime.SupportsVirtualChests) throw new NotSupportedException("Virtual chests are unavailable in this host.");
+                var chest = new SceneVirtualChestDefinition(VirtualChestId.New(), localX, localY, name, 1, items);
+                SetChests([.. definition.VirtualChests, chest]);
+                return new VirtualChest(this, chest.Id);
+            });
+
+            private void SetChests(SceneVirtualChestDefinition[] chests)
+            {
+                var next = definition with { VirtualChests = chests.Length == 0 ? Array.Empty<SceneVirtualChestDefinition>() : Array.AsReadOnly(chests) };
+                Require(Scene.UpdateOverlay(Id, next));
+                definition = next;
+            }
+
+            private SceneVirtualChestDefinition ReadChest(VirtualChestId id) => Read(() =>
+                definition.VirtualChests.FirstOrDefault(chest => chest.Id == id) ??
+                    throw new ObjectDisposedException($"Virtual chest {id.Value}"));
+
+            private bool ReplaceChest(VirtualChestId id, long expectedRevision, string name, IReadOnlyList<ChestItemSnapshot> items) => Read(() =>
+            {
+                var current = definition.VirtualChests.FirstOrDefault(chest => chest.Id == id);
+                if (current is null || current.Revision != expectedRevision) return false;
+                var next = new SceneVirtualChestDefinition(id, current.LocalX, current.LocalY, name, checked(current.Revision + 1), items);
+                SetChests(definition.VirtualChests.Select(chest => chest.Id == id ? next : chest).ToArray());
+                return true;
+            });
+
+            private void RemoveChest(VirtualChestId id) => Mutate(() =>
+            {
+                if (definition.VirtualChests.Any(chest => chest.Id == id))
+                    SetChests(definition.VirtualChests.Where(chest => chest.Id != id).ToArray());
+            });
+
+            private (bool Found, SceneVirtualChestOpenRequest? Request) TakeChestOpen(VirtualChestId id) => Read<(bool Found, SceneVirtualChestOpenRequest? Request)>(() =>
+            {
+                if (!definition.VirtualChests.Any(chest => chest.Id == id)) return (false, null);
+                bool found = runtime.TryTakeVirtualChestOpen(Scene.Id, Id, id, out var request);
+                return (found, request);
+            });
+
+            private sealed class VirtualChest(TileProvider provider, VirtualChestId id) : IPluginVirtualChest
+            {
+                private int disposed;
+                public VirtualChestId Id => id;
+                public SceneVirtualChestDefinition Definition { get { AssertOpen(); return provider.ReadChest(id); } }
+                public bool TryReplace(long expectedRevision, string name, IReadOnlyList<ChestItemSnapshot> items)
+                {
+                    AssertOpen();
+                    return provider.ReplaceChest(id, expectedRevision, name, items);
+                }
+                public bool TryTakeOpenRequest(out SceneVirtualChestOpenRequest? request)
+                {
+                    AssertOpen();
+                    var result = provider.TakeChestOpen(id);
+                    request = result.Request;
+                    return result.Found;
+                }
+                public void Dispose()
+                {
+                    if (Interlocked.Exchange(ref disposed, 1) != 0) return;
+                    try { provider.RemoveChest(id); }
+                    catch (ObjectDisposedException) { /* The owning provider was already removed. */ }
+                }
+                private void AssertOpen() => ObjectDisposedException.ThrowIf(Volatile.Read(ref disposed) != 0, this);
+            }
 
             private void Update(Func<SceneOverlayDefinition, SceneOverlayDefinition> edit) => Mutate(() =>
             {

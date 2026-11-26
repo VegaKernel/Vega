@@ -77,8 +77,38 @@ contents and bounds (`ReplaceTiles`), changes observers and layer, and removes p
 Plugins can continue to create their own scoped providers with `context.World.Scenes`
 (scene leases are tied to plugin ownership). These are **visual, observer-scoped layers**;
 server-side world interaction on phantom tiles is still denied. They are not extra
-physics worlds, fake chest/tile-entity storage, nor binary compatibility with the
+physics worlds, native virtual chest inventories/tile entities, nor binary compatibility with the
 legacy FakeProvider API. Independent simulation remains process-isolated.
+
+### Logical virtual chests for plugins
+
+`IPluginTileProvider.CreateVirtualChest(localX, localY, name, items)` attaches a
+server-owned logical container to a 2x2 footprint inside an existing provider.
+`IPluginFakeProvider.SupportsVirtualChests` advertises the capability. The caller
+supplies the visual chest tiles; the container moves with its provider and uses
+the same world, layer order, enabled state, air-mask rules and observer membership.
+All four footprint tiles must be active and visible from the owning provider.
+A higher overlay covering even one corner suppresses the interaction.
+
+The handle exposes an immutable `Definition` (40 logical slots), revision-checked
+`TryReplace(expectedRevision, name, items)`, `TryTakeOpenRequest`, and `Dispose`.
+Content changes do not enqueue tile redraws. The immutable scene lookup is lazily
+republished after mutations; the first implementation scans scene owners only on
+container interaction, not for every resolved tile. Moving/removing/disabling the
+provider, disconnecting or replacing a session prevents stale opens from reaching
+another connection. The runtime retains only the latest open intent per active
+player, expires it after five seconds, and revalidates visibility and session when
+consumed. No plugin callback is executed directly in the native packet path.
+An open intent is recorded only for a living, exact-session observer within
+eight tiles of the container; this is a conservative logical interaction range.
+
+The ordinary chest-open interaction is **observed, not forwarded to a canonical
+chest**. This API does not assign native chest indices, open the vanilla inventory
+UI, transfer items, or persist data in `.wld`; logical item counts are not native
+item validation. Plugins can implement their own read-only display/actions and
+persist data using their storage API. A native inventory interface will require a
+separate authoritative transaction design and real-client qualification, particularly
+with SSC. See `samples/Vega.PluginSamples/VirtualChestPreviewCommand.cs` (`samplechest`).
 
 Personal providers can enable `FillOutsideWithAir` with `pfake air <name> on`,
 `IPluginFakeProvider.CreatePersonal(..., fillOutsideWithAir: true)`, or

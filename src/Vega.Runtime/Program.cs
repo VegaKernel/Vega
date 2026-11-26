@@ -631,7 +631,7 @@ int Start()
             gameplayEnforcement,
             new ChestInteractionAuthorityPolicy(playerBoundary),
             new TileEntityInteractionAuthorityPolicy(playerBoundary),
-            new SceneInteractionAuthorityPolicy(scenes, runtimeWorldId),
+            new SceneInteractionAuthorityPolicy(scenes, runtimeWorldId, playerBoundary),
             new SceneEntityInteractionAuthorityPolicy(visibility, runtimeWorldId),
             new RegionBuildAuthorizationPolicy(
                 database.Regions,

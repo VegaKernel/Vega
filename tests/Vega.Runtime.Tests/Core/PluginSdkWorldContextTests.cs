@@ -21,6 +21,47 @@ public sealed class PluginSdkWorldContextTests
     public void ClearRuntime() => VegaPluginRuntime.Configure(VegaPluginRuntimeServices.Empty);
 
     [Test]
+    public async Task PluginVirtualChestOwnsRevisionedContentsAndProviderLifetime()
+    {
+        var world = new WorldId("plugin-chests");
+        var scenes = new SceneRuntime();
+        VegaPluginRuntime.Configure(new VegaPluginRuntimeServices(world, null, null, null, null, scenes, null));
+        var opened = new PlayerSessionOpened(PlayerSessionId.New(), new(1), "viewer", DateTimeOffset.UtcNow);
+        scenes.OpenSession(world, opened);
+        var player = new PlayerSnapshot(opened.PlayerId, opened.PlayerName, false, 100, 100, 20, 20, new(160, 160), false, 0)
+        { WorldId = world, SessionId = opened.SessionId };
+        var scope = new HotModuleRegistrationScope(new NullCommandRegistry(), new NullLogger(), "Plugin.Chests", Path.GetTempPath());
+        try
+        {
+            var fake = ((IVegaPluginContext)scope).World.FakeProvider;
+            Assert.That(fake.SupportsVirtualChests, Is.True);
+            var provider = fake.CreatePersonal("display", new(10, 10, 4, 4),
+                SceneTileArea.Fill(4, 4, new SceneTile(21, Flags: SceneTileFlags.Active)), [SceneSessionObserver.From(opened)]);
+            using var chest = provider.CreateVirtualChest(0, 0, "Rewards", [new(0, 1, 5, 0)]);
+            Assert.That(chest.Definition.Revision, Is.EqualTo(1));
+            Assert.That(chest.TryReplace(1, "Rewards", [new(0, 1, 10, 0)]), Is.True);
+            Assert.That(chest.TryReplace(1, "stale", []), Is.False);
+            Assert.That(chest.Definition.Items.Single().Stack, Is.EqualTo(10));
+            Assert.Throws<ArgumentException>(() => provider.CreateVirtualChest(1, 1, "overlap", []));
+            Assert.That(scenes.TryRequestVirtualChestOpen(player, 10, 10), Is.True);
+            Assert.That(chest.TryTakeOpenRequest(out var request), Is.True);
+            Assert.That(request!.Value.Chest.Definition.Id, Is.EqualTo(chest.Id));
+            Assert.That(request.Value.Chest.Definition.Revision, Is.EqualTo(2));
+            provider.Move(5, 0);
+            Assert.That(scenes.TryResolveVirtualChest(world, SceneSessionObserver.From(opened), 15, 10, out _), Is.True);
+            using var second = provider.CreateVirtualChest(2, 2, "Other", []);
+            chest.Dispose();
+            Assert.That(scenes.TryResolveVirtualChest(world, SceneSessionObserver.From(opened), 15, 10, out _), Is.False);
+            Assert.That(scenes.TryResolveVirtualChest(world, SceneSessionObserver.From(opened), 17, 12, out _), Is.True);
+            Assert.Throws<ObjectDisposedException>(() => _ = chest.Definition);
+            await scope.DisposeAsync();
+            Assert.That(scenes.HasActiveOverlays, Is.False);
+            Assert.Throws<ObjectDisposedException>(() => _ = second.Definition);
+        }
+        finally { await scope.DisposeAsync(); }
+    }
+
+    [Test]
     public async Task FakeProviderUsesScopedLeasesAndExactSessionMembershipAcrossReloads()
     {
         var world = new WorldId("sandbox-fake");

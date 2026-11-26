@@ -114,6 +114,39 @@ Measurement sparseFlat = Measure("region_flat_1024_mixed", 200_000, SparseFlat);
 sparseIndex = 0;
 Measurement sparseIndexed = Measure("region_indexed_1024_mixed", 200_000, SparseIndexed);
 
+using var virtualScene = runtime.CreateScene(WorldId.Primary, "virtual chest", "benchmark");
+var virtualChest = new SceneVirtualChestDefinition(VirtualChestId.New(), 0, 0, "treasure", 1, [new(0, 1, 10, 0)]);
+var virtualOverlay = virtualScene.AddOverlay(new SceneOverlayDefinition(default, "container", new(500, 500, 2, 2), 1,
+    SceneObserverScope.Global, SceneTileArea.Fill(2, 2, new SceneTile(21, Flags: SceneTileFlags.Active))) { VirtualChests = [virtualChest] });
+var virtualPlayers = Enumerable.Range(0, 200).Select(slot =>
+{
+    var opened = new PlayerSessionOpened(PlayerSessionId.New(), new(slot), $"viewer-{slot}", DateTimeOffset.UtcNow);
+    runtime.OpenSession(WorldId.Primary, opened);
+    return new PlayerSnapshot(opened.PlayerId, opened.PlayerName, false, 100, 100, 20, 20, new(8000, 8000), false, 0)
+        { SessionId = opened.SessionId, WorldId = WorldId.Primary };
+}).ToArray();
+int virtualIndex = 0;
+void ResolveVirtual()
+{
+    var player = virtualPlayers[virtualIndex++ % virtualPlayers.Length];
+    if (!runtime.TryResolveVirtualChest(WorldId.Primary, SceneSessionObserver.From(player), 500, 500, out var resolved) ||
+        resolved?.Definition.Id != virtualChest.Id) throw new InvalidOperationException("Virtual chest lookup mismatch.");
+}
+void VirtualOpenBatch()
+{
+    foreach (var player in virtualPlayers)
+        if (!runtime.TryRequestVirtualChestOpen(player, 500, 500)) throw new InvalidOperationException("Virtual chest request missing.");
+    for (int i = 0; i < virtualPlayers.Length; i++)
+        if (!runtime.TryTakeVirtualChestOpen(virtualScene.Id, virtualOverlay, virtualChest.Id, out var request) || request is null)
+            throw new InvalidOperationException("Virtual chest intent missing.");
+    if (runtime.TryTakeVirtualChestOpen(virtualScene.Id, virtualOverlay, virtualChest.Id, out _))
+        throw new InvalidOperationException("Duplicate virtual chest intent.");
+}
+Measure("virtual_chest_warmup", 10_000, ResolveVirtual);
+Measure("virtual_open_warmup", 20, VirtualOpenBatch);
+Measurement virtualResolve = Measure("virtual_chest_resolve_200_observers", 200_000, ResolveVirtual);
+Measurement virtualOpen = Measure("virtual_chest_open_batch_200_observers", 1_000, VirtualOpenBatch);
+
 var visibility = new SceneVisibilityRuntime();
 using IVisibilityLayerLease layer = visibility.CreateLayer(WorldId.Primary, "cluster", "benchmark", []);
 Measurement observerChanges = Measure("observer_change_200", 1_000, () =>
@@ -172,7 +205,7 @@ Console.WriteLine(JsonSerializer.Serialize(
         Runtime = Environment.Version.ToString(),
         ProcessArchitecture = System.Runtime.InteropServices.RuntimeInformation.ProcessArchitecture.ToString(),
         OverlayCount = overlayCount,
-        Results = new[] { lookup, section, regionQueries, sectionSnapshot, sectionProjection, sparseFlat, sparseIndexed,
+        Results = new[] { lookup, section, regionQueries, sectionSnapshot, sectionProjection, sparseFlat, sparseIndexed, virtualResolve, virtualOpen,
             observerChanges, personalOverlays, worldEditMoves, lobbyChurn }
     },
     new JsonSerializerOptions { WriteIndented = true }));

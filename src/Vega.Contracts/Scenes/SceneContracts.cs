@@ -169,7 +169,10 @@ public sealed record SceneOverlayDefinition(
     SceneObserverScope Observers,
     SceneTileArea Tiles,
     bool Enabled = true,
-    bool FillOutsideWithAir = false);
+    bool FillOutsideWithAir = false)
+{
+    public IReadOnlyList<SceneVirtualChestDefinition> VirtualChests { get; init; } = Array.Empty<SceneVirtualChestDefinition>();
+}
 
 public sealed record SceneSnapshot(
     SceneId Id,
@@ -219,6 +222,15 @@ public interface ISceneLease : IDisposable
 public interface ISceneRuntime
 {
     bool HasActiveOverlays { get; }
+    bool SupportsVirtualChests => false;
+
+    bool TryResolveVirtualChest(WorldId worldId, SceneSessionObserver observer, int tileX, int tileY,
+        out SceneVirtualChestSnapshot? chest) { chest = null; return false; }
+
+    bool TryRequestVirtualChestOpen(PlayerSnapshot player, int tileX, int tileY) => false;
+
+    bool TryTakeVirtualChestOpen(SceneId scene, OverlayId overlay, VirtualChestId chest,
+        out SceneVirtualChestOpenRequest? request) { request = null; return false; }
 
     bool HasPersonalAirMask(WorldId worldId, PlayerId observer) =>
         SnapshotScenes().Any(scene => scene.WorldId == worldId && scene.Overlays.Any(overlay =>
