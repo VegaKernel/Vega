@@ -1,0 +1,14 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net11.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <IsPackable>false</IsPackable>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="../../src/Vega.PluginSdk/Vega.PluginSdk.csproj" />
+    <ProjectReference Include="../../src/Vega.Core/Vega.Core.csproj" />
+    <ProjectReference Include="../../src/Vega.Terraria/Vega.Terraria.csproj" />
+    <ProjectReference Include="../../src/Vega.Modules.Mentions/Vega.Modules.Mentions.csproj" />
+  </ItemGroup>
+</Project>

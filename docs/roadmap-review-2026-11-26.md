@@ -16,6 +16,8 @@
 
 ## Remaining work, ordered by actual release relevance
 
+**27 November update:** [255-player mixed native gameplay benchmark](performance-mixed-gameplay-2026-11-27.md) now exercises clustered movement, native boss AI/hits, chat rendering and native fanout in a disposable process. Two ABBA series verified identical workloads and reduced chat-render allocation by 43.8%. Movement fanout accounts for about 96% of measured process allocation; prioritize allocation stacks and a compatible TerrariaRuntime send-hook fast path over adding workers to the native simulation. This closes the initial mixed synthetic profiling milestone only, not the P0 full-tick, joined-client or sustained TCP qualification gates.
+
 | Priority | Phase | Work and acceptance criteria |
 | --- | --- | --- |
 | P0 | 25 / 27 | Complete ordinary stock-client password/passwordless joins, account login, first/restored character, explicit logout, reconnect, inventory/loadout/health restore, and direct sandbox transfer across SSC modes. Verify session isolation and client-visible synchronization; test both primary authority on and off. |

@@ -24,8 +24,9 @@ public sealed class MentionRenderer : IVegaModule, IChatRecipientRenderer
         PlayerSnapshot recipient,
         string content)
     {
-        string token = $"@{recipient.Name}";
-        int index = FindMention(content, token, 0);
+        string name = recipient.Name ?? string.Empty;
+        int tokenLength = name.Length + 1;
+        int index = FindMention(content, name, 0);
         if (index < 0)
         {
             return new ChatRecipientRenderResult(content);
@@ -37,10 +38,10 @@ public sealed class MentionRenderer : IVegaModule, IChatRecipientRenderer
         {
             rendered.Append(content, consumed, index - consumed)
                 .Append("[MENTION ")
-                .Append(content, index, token.Length)
+                .Append(content, index, tokenLength)
                 .Append(']');
-            consumed = index + token.Length;
-            index = FindMention(content, token, consumed);
+            consumed = index + tokenLength;
+            index = FindMention(content, name, consumed);
         }
         while (index >= 0);
 
@@ -52,12 +53,19 @@ public sealed class MentionRenderer : IVegaModule, IChatRecipientRenderer
     {
     }
 
-    private static int FindMention(string content, string token, int start)
+    private static int FindMention(string content, string name, int start)
     {
-        int index = content.IndexOf(token, start, StringComparison.OrdinalIgnoreCase);
+        int index = content.IndexOf('@', start);
         while (index >= 0)
         {
-            int end = index + token.Length;
+            int end = index + 1 + name.Length;
+            if (end > content.Length)
+                return -1;
+            if (!content.AsSpan(index + 1, name.Length).Equals(name.AsSpan(), StringComparison.OrdinalIgnoreCase))
+            {
+                index = content.IndexOf('@', index + 1);
+                continue;
+            }
             bool leftBoundary = index == 0 || !IsNameCharacter(content[index - 1]);
             bool rightBoundary = end == content.Length || !IsNameCharacter(content[end]);
             if (leftBoundary && rightBoundary)
@@ -65,7 +73,7 @@ public sealed class MentionRenderer : IVegaModule, IChatRecipientRenderer
                 return index;
             }
 
-            index = content.IndexOf(token, index + token.Length, StringComparison.OrdinalIgnoreCase);
+            index = content.IndexOf('@', end);
         }
 
         return -1;

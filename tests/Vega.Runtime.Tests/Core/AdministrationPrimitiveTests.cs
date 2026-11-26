@@ -16,6 +16,19 @@ namespace Vega.Runtime.Tests.Core;
 [TestFixture]
 public sealed class AdministrationPrimitiveTests
 {
+    [TestCase("attack now", "attack now", false)]
+    [TestCase("@bob, @BOB!", "[MENTION @bob], [MENTION @BOB]!", true)]
+    [TestCase("x@Bob @Bobby @Bob_ @Bob", "x@Bob @Bobby @Bob_ [MENTION @Bob]", true)]
+    [TestCase("@B @", "@B @", false)]
+    public void MentionRenderingPreservesBoundariesAndCase(string input, string expected, bool changed)
+    {
+        PlayerSnapshot bob = Player(2, "Bob");
+        var context = new ChatMessageContext(WorldId.Primary, bob, input, [bob]);
+        var result = new MentionRenderer().Render(context, bob, input);
+        Assert.That(result, Is.EqualTo(new ChatRecipientRenderResult(expected, changed)));
+        if (!changed) Assert.That(result.Content, Is.SameAs(input));
+    }
+
     [Test]
     public void ChatPipelineAppliesOrderedContentBeforePerRecipientMentionRendering()
     {
