@@ -56,6 +56,8 @@ public interface IPluginWorldChests
 
 public interface IPluginWorldNpcs
 {
+    ValueTask<NpcActorCreationResult> CreateActorAsync(NpcActorDefinition definition, PlayerPosition position,
+        CancellationToken cancellationToken = default) => ValueTask.FromResult(new NpcActorCreationResult(NpcOperationStatus.DispatcherUnavailable));
     ValueTask<IReadOnlyList<NpcSnapshot>> SnapshotAsync(CancellationToken cancellationToken = default);
 
     ValueTask<NpcSnapshot?> CaptureAsync(
@@ -113,7 +115,8 @@ internal sealed record VegaPluginRuntimeServices(
     ISceneRuntime? Scenes,
     IPlayerInventoryService? Inventory,
     ISceneVisibilityRuntime? Visibility = null,
-    IWorldSchematicService? Schematics = null)
+    IWorldSchematicService? Schematics = null,
+    IWorldNpcActorService? NpcActors = null)
 {
     public static VegaPluginRuntimeServices Empty { get; } = new(
         WorldId.Primary,
@@ -291,8 +294,82 @@ internal static partial class VegaPluginRuntime
         }
     }
 
-    private sealed class PluginNpcs(IVegaPluginContext context) : IPluginWorldNpcs
+    private sealed class PluginNpcs(IVegaPluginContext context) : IPluginWorldNpcs, IDisposable
     {
+        private readonly object actorSync = new();
+        private readonly HashSet<OwnedActor> actors = [];
+        private bool tracked;
+        private bool disposed;
+
+        public async ValueTask<NpcActorCreationResult> CreateActorAsync(NpcActorDefinition definition, PlayerPosition position,
+            CancellationToken cancellationToken = default)
+        {
+            VegaPluginRuntimeServices current = Services;
+            if (current.NpcActors is null || context is not IHotModuleContext owner)
+                return new(NpcOperationStatus.DispatcherUnavailable, ErrorCode: "npc.actors_unavailable");
+            var result = await current.NpcActors.CreateAsync(current.WorldId, definition, position, cancellationToken).ConfigureAwait(false);
+            if (result.Actor is { } actor)
+            {
+                try
+                {
+                    lock (actorSync)
+                    {
+                        ObjectDisposedException.ThrowIf(disposed, this);
+                        // One aggregate registration per plugin, not one retained registration per retired NPC.
+                        if (!tracked) { owner.Track(this); tracked = true; }
+                        actors.RemoveWhere(static lease => lease.IsRetired);
+                        var lease = new OwnedActor(this, actor);
+                        actors.Add(lease);
+                        return result with { Actor = lease };
+                    }
+                }
+                catch { actor.Dispose(); throw; }
+            }
+            return result;
+        }
+
+        public void Dispose()
+        {
+            OwnedActor[] owned;
+            lock (actorSync)
+            {
+                if (disposed) return;
+                disposed = true;
+                owned = actors.ToArray();
+                actors.Clear();
+            }
+            foreach (var actor in owned) actor.Dispose();
+        }
+
+        private sealed class OwnedActor(PluginNpcs owner, INpcActor actor) : INpcActor
+        {
+            private INpcActor? inner = actor;
+            public NpcActorId Id { get; } = actor.Id;
+            public bool IsRetired => Volatile.Read(ref inner)?.IsRetired != false;
+            public ValueTask<NpcActorSnapshot?> CaptureAsync(CancellationToken cancellationToken = default) =>
+                Volatile.Read(ref inner)?.CaptureAsync(cancellationToken) ?? ValueTask.FromResult<NpcActorSnapshot?>(null);
+            public ValueTask<bool> RenameAsync(string name, CancellationToken cancellationToken = default) =>
+                Volatile.Read(ref inner)?.RenameAsync(name, cancellationToken) ?? ValueTask.FromResult(false);
+            public ValueTask<bool> TeleportAsync(PlayerPosition position, CancellationToken cancellationToken = default) =>
+                Volatile.Read(ref inner)?.TeleportAsync(position, cancellationToken) ?? ValueTask.FromResult(false);
+            public ValueTask<bool> SetIntentAsync(NpcActorIntent intent, CancellationToken cancellationToken = default) =>
+                Volatile.Read(ref inner)?.SetIntentAsync(intent, cancellationToken) ?? ValueTask.FromResult(false);
+            public ValueTask<bool> SetShopAsync(NpcShopCatalog? shop, CancellationToken cancellationToken = default) =>
+                Volatile.Read(ref inner)?.SetShopAsync(shop, cancellationToken) ?? ValueTask.FromResult(false);
+            public ValueTask<NpcShopPresentationStatus> PresentShopAsync(PlayerSnapshot player, CancellationToken cancellationToken = default) =>
+                Volatile.Read(ref inner)?.PresentShopAsync(player, cancellationToken) ?? ValueTask.FromResult(NpcShopPresentationStatus.ActorGone);
+            public ValueTask<NpcShopPurchaseResult> PurchaseAsync(PlayerSnapshot player, string offerId, long expectedShopRevision, CancellationToken cancellationToken = default) =>
+                Volatile.Read(ref inner)?.PurchaseAsync(player, offerId, expectedShopRevision, cancellationToken) ??
+                    ValueTask.FromResult(new NpcShopPurchaseResult(NpcShopPurchaseStatus.ActorGone));
+            public void Dispose()
+            {
+                INpcActor? current = Interlocked.Exchange(ref inner, null);
+                if (current is null) return;
+                lock (owner.actorSync) owner.actors.Remove(this);
+                current.Dispose();
+            }
+        }
+
         public ValueTask<IReadOnlyList<NpcSnapshot>> SnapshotAsync(CancellationToken cancellationToken = default)
         {
             VegaPluginRuntimeServices current = Services;

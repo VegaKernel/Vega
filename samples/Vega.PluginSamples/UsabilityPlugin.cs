@@ -33,6 +33,7 @@ public sealed class UsabilityPlugin : VegaPlugin
         plugin.Commands.Register(new VirtualChestPreviewCommand(plugin));
         plugin.Commands.Register(new VirtualSignPreviewCommand(plugin));
         plugin.Commands.Register(new ChestRefillCommand(plugin));
+        plugin.Commands.Register(new CustomNpcCommand(plugin));
         plugin.Players.OnJoined(OnJoined);
         plugin.Players.OnLeft(_ => SaveState());
         plugin.WorldEvents.OnNpcKilled(e =>

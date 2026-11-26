@@ -391,6 +391,8 @@ int Start()
         var worldEntities = new TerrariaWorldEntityMaintenance(gameThreadDispatcher, runtimeWorldId);
         var worldTiles = new TerrariaWorldTileService(gameThreadDispatcher, runtimeWorldId);
         var worldNpcs = new TerrariaWorldNpcService(gameThreadDispatcher, runtimeWorldId, playerBoundary);
+        var worldEvents = new WorldGameplayEventHub();
+        using var worldNpcActors = new TerrariaNpcActorService(gameThreadDispatcher, runtimeWorldId, playerBoundary, worldEvents, logger);
         var worldSchematics = new SchematicSnapshotService(runtimeWorldId, new TerrariaSchematicCapture(gameThreadDispatcher), gameThreadDispatcher,
             new TerrariaSchematicPlacement(gameThreadDispatcher, runtimeWorldId).Place);
         WorldBuildProtection buildProtection;
@@ -741,8 +743,7 @@ int Start()
             worldNpcs,
             scenes,
             inventoryService,
-            visibility, worldSchematics));
-        var worldEvents = new WorldGameplayEventHub();
+            visibility, worldSchematics, worldNpcActors));
         using var serverPlugins = new ServerPluginHotReloadHost(
             Path.Combine(AppContext.BaseDirectory, "ServerPlugins"),
             hotReloadOptions,

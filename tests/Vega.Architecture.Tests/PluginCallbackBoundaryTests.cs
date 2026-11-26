@@ -21,7 +21,8 @@ public sealed class PluginCallbackBoundaryTests
             "IPluginTasks.RunIo", "IPluginConfiguration.Use", "IPluginStorage.LoadJson",
             "IPluginWorldEvents.OnNpcCreating", "IPluginWorldEvents.OnNpcKilled", "IPluginWorldEvents.OnNpcTransforming",
             "IPluginWorldEvents.OnNpcLootDropped", "IPluginWorldEvents.OnProjectileSynchronized", "IPluginWorldEvents.OnProjectileRemoved",
-            "IPluginWorldEvents.AllowNpcTransform", "IPluginWorldEvents.AllowNpcLoot"
+            "IPluginWorldEvents.AllowNpcTransform", "IPluginWorldEvents.AllowNpcLoot", "IPluginWorldEvents.OnNpcActorInteracted",
+            "IPluginWorldEvents.OnNpcActorPurchased"
         }), "A new ordinary SDK delegate surface requires a fault-boundary audit and regression.");
         // Storage defaults/validation run synchronously at the direct plugin call site and are
         // not retained as host callbacks. Managed configuration diagnostics are retained and guarded below.

@@ -21,6 +21,81 @@ public sealed class PluginSdkWorldContextTests
 {
     [Test]
     [NonParallelizable]
+    public async Task CustomNpcActorOwnsNativeGenerationMotionShopAndPluginLifetime()
+    {
+        var world = new WorldId("actors");
+        var oldNpc = global::Terraria.Main.npc[0];
+        var oldRight = global::Terraria.Main.rightWorld;
+        var oldBottom = global::Terraria.Main.bottomWorld;
+        var oldMode = global::Terraria.Main.netMode;
+        var dispatcher = new EventGameThread();
+        bool substitute = false;
+        using var actors = new Vega.Terraria.Worlds.TerrariaNpcActorService(dispatcher, world, null, new WorldGameplayEventHub(), new NullLogger())
+        {
+            SpawnNative = (x, y, type) =>
+            {
+                global::Terraria.Main.npc[0] = new global::Terraria.NPC { whoAmI = 0, active = true, type = substitute ? 22 : type,
+                    generation = 1, townNPC = true, life = 100, width = 18, height = 40 };
+                return 0;
+            }
+        };
+        VegaPluginRuntime.Configure(new VegaPluginRuntimeServices(world, null, null, null, null, null, null, NpcActors: actors));
+        var scope = new HotModuleRegistrationScope(new NullCommandRegistry(), new NullLogger(), "Plugin.Actor", Path.GetTempPath());
+        try
+        {
+            global::Terraria.Main.rightWorld = global::Terraria.Main.bottomWorld = 10000;
+            global::Terraria.Main.netMode = 0;
+            global::Terraria.Main.npc[0] = new global::Terraria.NPC();
+            var shop = new NpcShopCatalog([new("torch", 8, 5, 100, CoinPrice: 100)]);
+            var api = ((IVegaPluginContext)scope).World.Npcs;
+            substitute = true;
+            Assert.That((await api.CreateActorAsync(new NpcActorDefinition(17, "Rejected"), new(100, 200))).Status, Is.EqualTo(NpcOperationStatus.Failed));
+            Assert.That(global::Terraria.Main.npc[0].active, Is.False);
+            substitute = false;
+            var created = await api.CreateActorAsync(new NpcActorDefinition(17, "Trader", Shop: shop), new(100, 200));
+            Assert.That(created.Status, Is.EqualTo(NpcOperationStatus.Applied));
+            var actor = created.Actor!;
+            var native = global::Terraria.Main.npc[0];
+            Assert.That(native.GivenName, Is.EqualTo("Trader"));
+            Assert.That(native.friendly && native.immortal && native.dontTakeDamage, Is.True);
+            native.velocity = new(5, 2);
+            Assert.That(global::HookEvents.Terraria.NPC.InvokeAI(native, () => { }).ContinueExecution, Is.False);
+            Assert.That(native.velocity.X, Is.Zero);
+            Assert.That(native.velocity.Y, Is.EqualTo(2));
+            Assert.That(await actor.SetIntentAsync(new NpcActorIntent(NpcActorIntentKind.MoveTo, new(500, 200))), Is.True);
+            Assert.That(global::HookEvents.Terraria.NPC.InvokeAI(native, () => { }).ContinueExecution, Is.False);
+            Assert.That(native.velocity.X, Is.GreaterThan(0));
+            Assert.That(await actor.RenameAsync("New Trader"), Is.True);
+            Assert.That(await actor.TeleportAsync(new(150, 200)), Is.True);
+            Assert.That(await actor.SetShopAsync(new NpcShopCatalog([new("stone", 2, 1, 50)])), Is.True);
+            var snapshot = await actor.CaptureAsync();
+            Assert.That(snapshot!.Name, Is.EqualTo("New Trader"));
+            Assert.That(snapshot.ShopRevision, Is.EqualTo(2));
+            Assert.That(snapshot.Npc.Position, Is.EqualTo(new PlayerPosition(150, 200)));
+
+            // Even byte-generation and type reuse must not let the old lease mutate the new actor.
+            var replacement = new global::Terraria.NPC { whoAmI = 0, active = true, type = 17, generation = 1 };
+            global::Terraria.Main.npc[0] = replacement;
+            Assert.That(await actor.RenameAsync("wrong"), Is.False);
+            actor.Dispose();
+            Assert.That(replacement.active, Is.True);
+            replacement.active = false;
+            var next = await api.CreateActorAsync(new NpcActorDefinition(17, "Another"), new(200, 200));
+            Assert.That(next.Actor, Is.Not.Null);
+            await scope.DisposeAsync();
+            Assert.That(global::Terraria.Main.npc[0].active, Is.False);
+        }
+        finally
+        {
+            await scope.DisposeAsync();
+            global::Terraria.Main.npc[0] = oldNpc;
+            global::Terraria.Main.rightWorld = oldRight;
+            global::Terraria.Main.bottomWorld = oldBottom;
+            global::Terraria.Main.netMode = oldMode;
+        }
+    }
+    [Test]
+    [NonParallelizable]
     public async Task NativeNpcNotificationsAreWorldScopedDetachedGuardedAndUnsubscribed()
     {
         var world = new WorldId("event-world");

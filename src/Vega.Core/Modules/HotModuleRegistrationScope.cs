@@ -375,6 +375,8 @@ internal sealed class HotModuleRegistrationScope : IHotModuleContext, IVegaPlugi
         public void OnNpcLootDropped(Action<NpcLootDroppedEvent> handler) => Register("world.npc.loot", handler);
         public void OnProjectileSynchronized(Action<ProjectileSynchronizedEvent> handler) => Register("world.projectile.sync", handler);
         public void OnProjectileRemoved(Action<ProjectileRemovedEvent> handler) => Register("world.projectile.removed", handler);
+        public void OnNpcActorInteracted(Action<NpcActorInteractedEvent> handler) => Register("world.npc.actor.interacted", handler);
+        public void OnNpcActorPurchased(Action<NpcActorPurchasedEvent> handler) => Register("world.npc.actor.purchased", handler);
         public void AllowNpcTransform(Func<NpcTransformingEvent, bool> allow) => RegisterPolicy("world.npc.transform.policy", allow);
         public void AllowNpcLoot(Func<NpcLootCreatingEvent, bool> allow) => RegisterPolicy("world.npc.loot.policy", allow);
 

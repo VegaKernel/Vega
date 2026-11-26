@@ -98,6 +98,14 @@ materializes tiles and NPCs in an idle, isolated sandbox only. It refuses other
 entity sections; keep the supplied encoded memory unchanged until completion.
 See [schematics](schematics.md) for exact placement constraints and support.
 
+### Custom NPC actors
+
+`plugin.World.Npcs.CreateActorAsync` produces a tracked native NPC actor lease.
+Its reusable definition selects a vanilla presentation, name, friendliness,
+immortality, movement mode and optional shop catalog. See
+[custom NPCs and shops](custom-npcs.md) for actor commands, conversation events,
+stock shop presentation and explicit server inventory purchases.
+
 ```csharp
 WorldEnvironmentSnapshot? state = await plugin.World.Environment.CaptureAsync();
 IReadOnlyList<NpcSnapshot> npcs = await plugin.World.Npcs.SnapshotAsync();
