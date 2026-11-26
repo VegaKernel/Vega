@@ -27,12 +27,15 @@ public sealed class SceneInteractionAuthorityPolicy(ISceneRuntime scenes, WorldI
             y,
             out _,
             out _)) return PacketProcessingDecision.Allow;
-        // A visible virtual container may produce a plugin-owned intent, but the
-        // canonical chest interaction is still rejected. No native chest or item
-        // transaction is performed by this observation path.
-        if (context.Packet.PacketType == PacketTypes.ChestGetContents && players is not null &&
+        // A visible virtual object may produce a plugin-owned intent, but
+        // the canonical interaction is still rejected. No native chest, sign
+        // or item mutation is performed by this observation path.
+        if (context.Packet.PacketType is PacketTypes.ChestGetContents or PacketTypes.SignRead && players is not null &&
             players.TryGet(playerId, out var player) && player is not null && player.WorldId == world)
-            scenes.TryRequestVirtualChestOpen(player, x, y);
+        {
+            if (context.Packet.PacketType == PacketTypes.ChestGetContents) scenes.TryRequestVirtualChestOpen(player, x, y);
+            else scenes.TryRequestVirtualSignRead(player, x, y);
+        }
         return PacketProcessingDecision.Reject("scene.phantom_interaction");
     }
 
@@ -47,6 +50,8 @@ public sealed class SceneInteractionAuthorityPolicy(ISceneRuntime scenes, WorldI
             PacketTypes.PlaceChest => (packet.AsPlaceChestView().TileX, packet.AsPlaceChestView().TileY),
             PacketTypes.ChestGetContents => (packet.AsChestGetContentsView().TileX, packet.AsChestGetContentsView().TileY),
             PacketTypes.ChestUnlock => (packet.AsChestUnlockView().X, packet.AsChestUnlockView().Y),
+            PacketTypes.SignRead => (packet.AsSignReadView().X, packet.AsSignReadView().Y),
+            PacketTypes.SignNew => (packet.AsSignNewView().X, packet.AsSignNewView().Y),
             PacketTypes.LiquidSet => (packet.AsLiquidSetView().X, packet.AsLiquidSetView().Y),
             PacketTypes.PlaceTileEntity => (packet.AsPlaceTileEntityView().X, packet.AsPlaceTileEntityView().Y),
             _ => (int.MinValue, int.MinValue)

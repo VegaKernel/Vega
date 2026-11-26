@@ -116,8 +116,10 @@ Measurement sparseIndexed = Measure("region_indexed_1024_mixed", 200_000, Sparse
 
 using var virtualScene = runtime.CreateScene(WorldId.Primary, "virtual chest", "benchmark");
 var virtualChest = new SceneVirtualChestDefinition(VirtualChestId.New(), 0, 0, "treasure", 1, [new(0, 1, 10, 0)]);
-var virtualOverlay = virtualScene.AddOverlay(new SceneOverlayDefinition(default, "container", new(500, 500, 2, 2), 1,
-    SceneObserverScope.Global, SceneTileArea.Fill(2, 2, new SceneTile(21, Flags: SceneTileFlags.Active))) { VirtualChests = [virtualChest] });
+var virtualSign = new SceneVirtualSignDefinition(VirtualSignId.New(), 2, 0, "Welcome", 1);
+var virtualOverlay = virtualScene.AddOverlay(new SceneOverlayDefinition(default, "mixed objects", new(500, 500, 4, 2), 1,
+    SceneObserverScope.Global, SceneTileArea.Fill(4, 2, new SceneTile(21, Flags: SceneTileFlags.Active)))
+    { VirtualChests = [virtualChest], VirtualSigns = [virtualSign] });
 var virtualPlayers = Enumerable.Range(0, 200).Select(slot =>
 {
     var opened = new PlayerSessionOpened(PlayerSessionId.New(), new(slot), $"viewer-{slot}", DateTimeOffset.UtcNow);
@@ -146,6 +148,27 @@ Measure("virtual_chest_warmup", 10_000, ResolveVirtual);
 Measure("virtual_open_warmup", 20, VirtualOpenBatch);
 Measurement virtualResolve = Measure("virtual_chest_resolve_200_observers", 200_000, ResolveVirtual);
 Measurement virtualOpen = Measure("virtual_chest_open_batch_200_observers", 1_000, VirtualOpenBatch);
+
+void ResolveSign()
+{
+    var player = virtualPlayers[virtualIndex++ % virtualPlayers.Length];
+    if (!runtime.TryResolveVirtualSign(WorldId.Primary, SceneSessionObserver.From(player), 502, 500, out var resolved) ||
+        resolved?.Definition.Id != virtualSign.Id) throw new InvalidOperationException("Virtual sign lookup mismatch.");
+}
+void SignReadBatch()
+{
+    foreach (var player in virtualPlayers)
+        if (!runtime.TryRequestVirtualSignRead(player, 502, 500)) throw new InvalidOperationException("Virtual sign request missing.");
+    for (int i = 0; i < virtualPlayers.Length; i++)
+        if (!runtime.TryTakeVirtualSignRead(virtualScene.Id, virtualOverlay, virtualSign.Id, out var request) || request is null)
+            throw new InvalidOperationException("Virtual sign intent missing.");
+    if (runtime.TryTakeVirtualSignRead(virtualScene.Id, virtualOverlay, virtualSign.Id, out _))
+        throw new InvalidOperationException("Duplicate virtual sign intent.");
+}
+Measure("virtual_sign_warmup", 10_000, ResolveSign);
+Measure("virtual_sign_read_warmup", 20, SignReadBatch);
+Measurement signResolve = Measure("virtual_sign_resolve_200_observers", 200_000, ResolveSign);
+Measurement signRead = Measure("virtual_sign_read_batch_200_observers", 1_000, SignReadBatch);
 
 var visibility = new SceneVisibilityRuntime();
 using IVisibilityLayerLease layer = visibility.CreateLayer(WorldId.Primary, "cluster", "benchmark", []);
@@ -205,7 +228,7 @@ Console.WriteLine(JsonSerializer.Serialize(
         Runtime = Environment.Version.ToString(),
         ProcessArchitecture = System.Runtime.InteropServices.RuntimeInformation.ProcessArchitecture.ToString(),
         OverlayCount = overlayCount,
-        Results = new[] { lookup, section, regionQueries, sectionSnapshot, sectionProjection, sparseFlat, sparseIndexed, virtualResolve, virtualOpen,
+        Results = new[] { lookup, section, regionQueries, sectionSnapshot, sectionProjection, sparseFlat, sparseIndexed, virtualResolve, virtualOpen, signResolve, signRead,
             observerChanges, personalOverlays, worldEditMoves, lobbyChurn }
     },
     new JsonSerializerOptions { WriteIndented = true }));

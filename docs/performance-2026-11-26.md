@@ -506,3 +506,32 @@ mutation benchmarks allocate more than the previous checkpoint (WorldEdit move
 about 160 B more per operation); container metadata changes skip tile redraw but
 still invalidate the lazy immutable projection. Raw local outputs:
 `artifacts/performance-2026-11-26/vega-virtual-chest-scene-benchmark-*.json`.
+
+### Mixed FakeProvider chests and logical signs
+
+The same 64-overlay / 200-observer scene workload now includes a chest and a
+logical sign in one provider. Two final Release runs measured:
+
+| Workload | Time | Managed allocations |
+| --- | ---: | ---: |
+| 200,000 sign resolutions | 0.768–0.769 µs/lookup | 56 B total |
+| 1,000 batches of 200 sign read/consume pairs | 0.289–0.302 ms/batch | 56 B total |
+| 200,000 chest resolutions | 1.40–1.46 µs/lookup | 56 B total |
+| 1,000 batches of 200 chest open/consume pairs | ~0.279 ms/batch | 56 B total |
+
+Every intent was checked for one-time consumption. The steady-state allocation
+figures are harness noise. SDK empty polling also avoids captured delegates and
+interface enumeration; a regression test checks 20,000 combined empty polls.
+Ordinary tile and region lookups retain the same sparse projection (328–330 ns
+and 213–219 ns respectively in these runs). No joined-client latency claim is made.
+
+The initial sign implementation exposed another allocation in the existing
+metadata cleanup path: captured LINQ predicates were allocating even with no
+pending intents. Replacing them with an empty fast path and explicit scans
+reduced the 10,000-move WorldEdit preview allocation from 11,924,144 to
+9,364,144 bytes (256 B/move), also saving 128 B/move versus the prior published
+chest checkpoint (10,644,144 bytes). The earlier pre-chest baseline was
+9,044,144 bytes; the remaining ~32 B/move difference is not claimed as a
+regression-free result. The shared nullable metadata reference avoids adding
+another field to every ordinary overlay. Raw local outputs:
+`artifacts/performance-2026-11-26/vega-virtual-sign-scene-benchmark-*.json`.

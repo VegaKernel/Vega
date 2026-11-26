@@ -171,6 +171,8 @@ public sealed partial class TerrariaPlayerBoundary :
 		string message,
 		CancellationToken cancellationToken = default) => SendMessageCoreAsync(id, null, message, cancellationToken);
 
+	public bool SupportsSessionBoundMessages => true;
+
 	public ValueTask<PlayerOperationResult> SendMessageAsync(PlayerSnapshot player, string message, CancellationToken cancellationToken = default) =>
 		SendMessageCoreAsync(player.Id, player, message, cancellationToken);
 

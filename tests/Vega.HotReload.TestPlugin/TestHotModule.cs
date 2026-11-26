@@ -18,10 +18,12 @@ public sealed class TestHotModule : VegaPlugin
         plugin.Commands.Register(new FaultProbeCommand());
         if (plugin.World.FakeProvider.IsAvailable)
         {
-            var provider = plugin.World.FakeProvider.CreateGlobal("reload-probe", new SceneBounds(10, 10, 2, 2),
-                SceneTileArea.Fill(2, 2, new SceneTile(21, Flags: SceneTileFlags.Active)));
+            var provider = plugin.World.FakeProvider.CreateGlobal("reload-probe", new SceneBounds(10, 10, 4, 2),
+                SceneTileArea.Fill(4, 2, new SceneTile(21, Flags: SceneTileFlags.Active)));
             if (plugin.World.FakeProvider.SupportsVirtualChests)
                 provider.CreateVirtualChest(0, 0, "reload chest", [new(0, 1, 1, 0)]);
+            if (plugin.World.FakeProvider.SupportsVirtualSigns)
+                provider.CreateVirtualSign(2, 0, "reload sign");
             plugin.World.FakeProvider.CreateVisibilityLayer("reload-visibility", []).AssignNpc(7);
         }
     }

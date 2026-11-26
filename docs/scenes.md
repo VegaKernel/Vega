@@ -110,6 +110,30 @@ persist data using their storage API. A native inventory interface will require 
 separate authoritative transaction design and real-client qualification, particularly
 with SSC. See `samples/Vega.PluginSamples/VirtualChestPreviewCommand.cs` (`samplechest`).
 
+### Logical virtual signs
+
+`IPluginFakeProvider.SupportsVirtualSigns` advertises support for
+`IPluginTileProvider.CreateVirtualSign(localX, localY, text)`. A sign owns a
+2x2 local footprint and immutable text (up to 1024 characters) with a revision.
+`IPluginVirtualSign.TrySetText(expectedRevision, text)` replaces that text;
+`TryTakeReadRequest` returns the latest, exact-session read intent. The same
+visibility, active-footprint, world, reach, expiry and unload rules apply as for
+logical chests. A provider supports up to 256 combined virtual objects; their
+footprints cannot overlap. Chests and signs share one optional metadata reference
+on the overlay, so ordinary tile-only providers do not gain a field for every kind.
+
+The ordinary sign-read interaction is observed by the plugin, and sign reads/edits
+in virtual terrain do not reach canonical sign state. Existing signs outside an
+overlay remain native. Text is owned by the plugin, not written to the `.wld` or
+assigned a native sign index. This is not the vanilla sign editor or a native
+tile-entity implementation. See `samples/Vega.PluginSamples/VirtualSignPreviewCommand.cs`
+(`samplesign`), which displays text through chat from a tracked game-thread task.
+Both virtual-object samples use `plugin.Players.Message(playerSnapshot, text)`;
+the snapshot overload checks the observed session/world and preserves the exact
+native target when dispatching the tracked message operation. Hosts without an
+explicit session-bound messenger capability return unavailable rather than
+falling back to a reusable numeric slot.
+
 Personal providers can enable `FillOutsideWithAir` with `pfake air <name> on`,
 `IPluginFakeProvider.CreatePersonal(..., fillOutsideWithAir: true)`, or
 `IPluginTileProvider.SetFillOutsideWithAir(true)`. With at least one enabled mask

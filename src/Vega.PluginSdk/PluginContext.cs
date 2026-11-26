@@ -57,10 +57,16 @@ public interface IPluginPlayers
     /// <summary>Sends a message through a host-tracked player operation.</summary>
     void Message(PlayerId id, string message);
 
+    /// <summary>Send only to the observed session, including when work is dispatched later.</summary>
+    void Message(PlayerSnapshot player, string message) => throw new NotSupportedException("Session-bound messaging is unavailable.");
+
     ValueTask<PlayerOperationResult> MessageAsync(
         PlayerId id,
         string message,
         CancellationToken cancellationToken = default);
+
+    ValueTask<PlayerOperationResult> MessageAsync(PlayerSnapshot player, string message, CancellationToken cancellationToken = default) =>
+        ValueTask.FromResult(PlayerOperationResult.DispatcherUnavailable());
 
     ValueTask<PlayerOperationResult> KickAsync(
         PlayerId id,

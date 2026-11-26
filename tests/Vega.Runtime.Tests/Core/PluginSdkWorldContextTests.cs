@@ -35,9 +35,16 @@ public sealed class PluginSdkWorldContextTests
         {
             var fake = ((IVegaPluginContext)scope).World.FakeProvider;
             Assert.That(fake.SupportsVirtualChests, Is.True);
+            Assert.That(fake.SupportsVirtualSigns, Is.True);
             var provider = fake.CreatePersonal("display", new(10, 10, 4, 4),
                 SceneTileArea.Fill(4, 4, new SceneTile(21, Flags: SceneTileFlags.Active)), [SceneSessionObserver.From(opened)]);
             using var chest = provider.CreateVirtualChest(0, 0, "Rewards", [new(0, 1, 5, 0)]);
+            using var sign = provider.CreateVirtualSign(2, 0, "Welcome");
+            Assert.That(sign.TrySetText(1, "Updated text"), Is.True);
+            Assert.That(sign.TrySetText(1, "stale"), Is.False);
+            Assert.That(scenes.TryRequestVirtualSignRead(player, 12, 10), Is.True);
+            Assert.That(sign.TryTakeReadRequest(out var read), Is.True);
+            Assert.That(read!.Value.Sign.Definition.Text, Is.EqualTo("Updated text"));
             Assert.That(chest.Definition.Revision, Is.EqualTo(1));
             Assert.That(chest.TryReplace(1, "Rewards", [new(0, 1, 10, 0)]), Is.True);
             Assert.That(chest.TryReplace(1, "stale", []), Is.False);
@@ -47,11 +54,24 @@ public sealed class PluginSdkWorldContextTests
             Assert.That(chest.TryTakeOpenRequest(out var request), Is.True);
             Assert.That(request!.Value.Chest.Definition.Id, Is.EqualTo(chest.Id));
             Assert.That(request.Value.Chest.Definition.Revision, Is.EqualTo(2));
+            for (int i = 0; i < 100; i++) { chest.TryTakeOpenRequest(out _); sign.TryTakeReadRequest(out _); }
+            long beforePolls = GC.GetAllocatedBytesForCurrentThread();
+            bool unexpected = false;
+            for (int i = 0; i < 10_000; i++)
+                unexpected |= chest.TryTakeOpenRequest(out _) | sign.TryTakeReadRequest(out _);
+            long pollAllocations = GC.GetAllocatedBytesForCurrentThread() - beforePolls;
+            Assert.That(unexpected, Is.False);
+            Assert.That(pollAllocations, Is.LessThanOrEqualTo(4096), "Empty SDK polling must not allocate a closure or enumerator per call.");
             provider.Move(5, 0);
             Assert.That(scenes.TryResolveVirtualChest(world, SceneSessionObserver.From(opened), 15, 10, out _), Is.True);
+            Assert.That(scenes.TryResolveVirtualSign(world, SceneSessionObserver.From(opened), 17, 10, out _), Is.True);
             using var second = provider.CreateVirtualChest(2, 2, "Other", []);
             chest.Dispose();
             Assert.That(scenes.TryResolveVirtualChest(world, SceneSessionObserver.From(opened), 15, 10, out _), Is.False);
+            Assert.That(scenes.TryResolveVirtualChest(world, SceneSessionObserver.From(opened), 17, 12, out _), Is.True);
+            Assert.That(scenes.TryResolveVirtualSign(world, SceneSessionObserver.From(opened), 17, 10, out _), Is.True);
+            sign.Dispose();
+            Assert.That(scenes.TryResolveVirtualSign(world, SceneSessionObserver.From(opened), 17, 10, out _), Is.False);
             Assert.That(scenes.TryResolveVirtualChest(world, SceneSessionObserver.From(opened), 17, 12, out _), Is.True);
             Assert.Throws<ObjectDisposedException>(() => _ = chest.Definition);
             await scope.DisposeAsync();

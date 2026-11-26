@@ -9,6 +9,7 @@ public interface IPluginFakeProvider
 {
     bool IsAvailable { get; }
     bool SupportsVirtualChests => false;
+    bool SupportsVirtualSigns => false;
     IPluginTileProvider CreateGlobal(string name, SceneBounds bounds, SceneTileArea tiles, int layer = 0);
     IPluginTileProvider CreatePersonal(string name, SceneBounds bounds, SceneTileArea tiles,
         IEnumerable<SceneSessionObserver> observers, int layer = 0);
@@ -35,6 +36,8 @@ public interface IPluginTileProvider : IDisposable
     void Draw();
     IPluginVirtualChest CreateVirtualChest(int localX, int localY, string name, IReadOnlyList<ChestItemSnapshot> items) =>
         throw new NotSupportedException("Virtual chests are unavailable.");
+    IPluginVirtualSign CreateVirtualSign(int localX, int localY, string text) =>
+        throw new NotSupportedException("Virtual signs are unavailable.");
 }
 
 /// <summary>Logical container owned by its provider, not a native inventory or item-transfer surface.</summary>
@@ -62,7 +65,7 @@ public interface IPluginVisibilityLayer : IDisposable
 internal static partial class VegaPluginRuntime
 {
     // One tracked owner per plugin generation, not one tracked registration per temporary preview.
-    private sealed class PluginFakeProvider(IVegaPluginContext context) : IPluginFakeProvider, IDisposable
+    private sealed partial class PluginFakeProvider(IVegaPluginContext context) : IPluginFakeProvider, IDisposable
     {
         private readonly object sync = new();
         private readonly HashSet<OwnedLease> active = [];
@@ -71,6 +74,7 @@ internal static partial class VegaPluginRuntime
 
         public bool IsAvailable { get { lock (sync) return !disposed && Services.Scenes is not null; } }
         public bool SupportsVirtualChests { get { lock (sync) return !disposed && Services.Scenes?.SupportsVirtualChests == true; } }
+        public bool SupportsVirtualSigns { get { lock (sync) return !disposed && Services.Scenes?.SupportsVirtualSigns == true; } }
 
         public IPluginTileProvider CreateGlobal(string name, SceneBounds bounds, SceneTileArea tiles, int layer = 0) =>
             Create(name, bounds, tiles, SceneObserverScope.Global, layer);
@@ -160,10 +164,11 @@ internal static partial class VegaPluginRuntime
             {
                 lock (Owner.sync)
                 {
-                    ObjectDisposedException.ThrowIf(disposed || Owner.disposed, this);
+                    AssertAlive();
                     return action();
                 }
             }
+            protected void AssertAlive() => ObjectDisposedException.ThrowIf(disposed || Owner.disposed, this);
             protected void Mutate(Action action) => Read(() => { action(); return true; });
             public void Dispose()
             {
@@ -177,10 +182,11 @@ internal static partial class VegaPluginRuntime
             }
         }
 
-        private sealed class TileProvider(PluginFakeProvider owner, ISceneLease lease, ISceneRuntime runtime, SceneOverlayDefinition initial)
+        private sealed partial class TileProvider(PluginFakeProvider owner, ISceneLease lease, ISceneRuntime runtime, SceneOverlayDefinition initial)
             : OwnedLease(owner, lease), IPluginTileProvider
         {
             private SceneOverlayDefinition definition = initial;
+            private readonly ISceneRuntime sceneRuntime = runtime;
             private ISceneLease Scene => (ISceneLease)Lease;
             public OverlayId Id => definition.Id;
             public SceneOverlayDefinition Definition => Read(() => definition);
@@ -205,7 +211,7 @@ internal static partial class VegaPluginRuntime
 
             public IPluginVirtualChest CreateVirtualChest(int localX, int localY, string name, IReadOnlyList<ChestItemSnapshot> items) => Read(() =>
             {
-                if (!runtime.SupportsVirtualChests) throw new NotSupportedException("Virtual chests are unavailable in this host.");
+                if (!sceneRuntime.SupportsVirtualChests) throw new NotSupportedException("Virtual chests are unavailable in this host.");
                 var chest = new SceneVirtualChestDefinition(VirtualChestId.New(), localX, localY, name, 1, items);
                 SetChests([.. definition.VirtualChests, chest]);
                 return new VirtualChest(this, chest.Id);
@@ -237,12 +243,21 @@ internal static partial class VegaPluginRuntime
                     SetChests(definition.VirtualChests.Where(chest => chest.Id != id).ToArray());
             });
 
-            private (bool Found, SceneVirtualChestOpenRequest? Request) TakeChestOpen(VirtualChestId id) => Read<(bool Found, SceneVirtualChestOpenRequest? Request)>(() =>
+            private (bool Found, SceneVirtualChestOpenRequest? Request) TakeChestOpen(VirtualChestId id)
             {
-                if (!definition.VirtualChests.Any(chest => chest.Id == id)) return (false, null);
-                bool found = runtime.TryTakeVirtualChestOpen(Scene.Id, Id, id, out var request);
-                return (found, request);
-            });
+                lock (Owner.sync)
+                {
+                    AssertAlive();
+                    var chests = definition.VirtualChests;
+                    for (int i = 0; i < chests.Count; i++)
+                        if (chests[i].Id == id)
+                        {
+                            bool found = sceneRuntime.TryTakeVirtualChestOpen(Scene.Id, Id, id, out var request);
+                            return (found, request);
+                        }
+                    return (false, null);
+                }
+            }
 
             private sealed class VirtualChest(TileProvider provider, VirtualChestId id) : IPluginVirtualChest
             {

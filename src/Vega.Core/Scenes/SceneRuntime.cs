@@ -95,6 +95,7 @@ public sealed partial class SceneRuntime(ISceneRenderSink? sink = null) : IScene
     private void RemoveObserver(WorldId world, PlayerId player)
     {
         pendingVirtualChestOpens.Remove((world, player));
+        pendingVirtualSignReads.Remove((world, player));
         foreach (var scene in scenes.Values)
         {
             if (scene.WorldId != world) continue;
@@ -259,7 +260,7 @@ public sealed partial class SceneRuntime(ISceneRenderSink? sink = null) : IScene
 
     private OverlayId Add(SceneId sceneId, SceneOverlayDefinition definition)
     {
-        definition = FreezeVirtualChests(definition);
+        definition = FreezeVirtualObjects(definition);
         Validate(definition);
         SceneRenderRequest request;
         lock (sync)
@@ -285,7 +286,7 @@ public sealed partial class SceneRuntime(ISceneRenderSink? sink = null) : IScene
 
     private bool Update(SceneId sceneId, OverlayId overlayId, SceneOverlayDefinition definition)
     {
-        definition = FreezeVirtualChests(definition);
+        definition = FreezeVirtualObjects(definition);
         Validate(definition);
         SceneRenderRequest[] requests;
         lock (sync)
@@ -301,9 +302,10 @@ public sealed partial class SceneRuntime(ISceneRenderSink? sink = null) : IScene
             Volatile.Write(ref lookup, null);
             // Logical inventory changes must not enqueue tile data when the visible
             // provider has not changed; the chest snapshots are published separately.
-            if ((stored.VirtualChests.Count != 0 || current.Definition.VirtualChests.Count != 0) &&
+            if ((HasVirtualObjects(stored) || HasVirtualObjects(current.Definition)) &&
                 SameVisualProvider(current.Definition, stored)) return true;
             RemoveVirtualChestOpens(sceneId, overlayId);
+            RemoveVirtualSignReads(sceneId, overlayId);
             RecordDirty(scene, current.Definition.Bounds);
             if (current.Definition.Bounds == stored.Bounds)
             {
@@ -359,6 +361,7 @@ public sealed partial class SceneRuntime(ISceneRenderSink? sink = null) : IScene
                 return false;
             }
             RemoveVirtualChestOpens(sceneId, overlayId);
+            RemoveVirtualSignReads(sceneId, overlayId);
             Volatile.Write(ref lookup, null);
 
             RecordDirty(scene, removed.Definition.Bounds);
@@ -398,6 +401,7 @@ public sealed partial class SceneRuntime(ISceneRenderSink? sink = null) : IScene
                 return;
             }
             RemoveVirtualChestOpens(sceneId);
+            RemoveVirtualSignReads(sceneId);
             Volatile.Write(ref lookup, null);
 
             requests = scene.Overlays.Values

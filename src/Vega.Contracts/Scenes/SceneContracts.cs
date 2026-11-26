@@ -171,7 +171,31 @@ public sealed record SceneOverlayDefinition(
     bool Enabled = true,
     bool FillOutsideWithAir = false)
 {
-    public IReadOnlyList<SceneVirtualChestDefinition> VirtualChests { get; init; } = Array.Empty<SceneVirtualChestDefinition>();
+    // Most overlays are just tiles. Use one nullable reference for optional
+    // object metadata rather than adding a field per virtual object kind.
+    private VirtualObjects? virtualObjects;
+    public IReadOnlyList<SceneVirtualChestDefinition> VirtualChests
+    {
+        get => virtualObjects?.Chests ?? Array.Empty<SceneVirtualChestDefinition>();
+        init
+        {
+            ArgumentNullException.ThrowIfNull(value);
+            var signs = VirtualSigns;
+            virtualObjects = value.Count == 0 && signs.Count == 0 ? null : new(value, signs);
+        }
+    }
+    public IReadOnlyList<SceneVirtualSignDefinition> VirtualSigns
+    {
+        get => virtualObjects?.Signs ?? Array.Empty<SceneVirtualSignDefinition>();
+        init
+        {
+            ArgumentNullException.ThrowIfNull(value);
+            var chests = VirtualChests;
+            virtualObjects = value.Count == 0 && chests.Count == 0 ? null : new(chests, value);
+        }
+    }
+    private sealed record VirtualObjects(IReadOnlyList<SceneVirtualChestDefinition> Chests,
+        IReadOnlyList<SceneVirtualSignDefinition> Signs);
 }
 
 public sealed record SceneSnapshot(
@@ -223,6 +247,7 @@ public interface ISceneRuntime
 {
     bool HasActiveOverlays { get; }
     bool SupportsVirtualChests => false;
+    bool SupportsVirtualSigns => false;
 
     bool TryResolveVirtualChest(WorldId worldId, SceneSessionObserver observer, int tileX, int tileY,
         out SceneVirtualChestSnapshot? chest) { chest = null; return false; }
@@ -231,6 +256,14 @@ public interface ISceneRuntime
 
     bool TryTakeVirtualChestOpen(SceneId scene, OverlayId overlay, VirtualChestId chest,
         out SceneVirtualChestOpenRequest? request) { request = null; return false; }
+
+    bool TryResolveVirtualSign(WorldId worldId, SceneSessionObserver observer, int tileX, int tileY,
+        out SceneVirtualSignSnapshot? sign) { sign = null; return false; }
+
+    bool TryRequestVirtualSignRead(PlayerSnapshot player, int tileX, int tileY) => false;
+
+    bool TryTakeVirtualSignRead(SceneId scene, OverlayId overlay, VirtualSignId sign,
+        out SceneVirtualSignReadRequest? request) { request = null; return false; }
 
     bool HasPersonalAirMask(WorldId worldId, PlayerId observer) =>
         SnapshotScenes().Any(scene => scene.WorldId == worldId && scene.Overlays.Any(overlay =>

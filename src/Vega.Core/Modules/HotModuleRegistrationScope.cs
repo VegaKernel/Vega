@@ -273,6 +273,13 @@ internal sealed class HotModuleRegistrationScope : IHotModuleContext, IVegaPlugi
             owner.TrackTask(SendMessageCoreAsync(id, message));
         }
 
+        public void Message(PlayerSnapshot player, string message)
+        {
+            ArgumentNullException.ThrowIfNull(player);
+            ArgumentNullException.ThrowIfNull(message);
+            owner.TrackTask(SendMessageCoreAsync(player.Id, message, player));
+        }
+
         public ValueTask<PlayerOperationResult> MessageAsync(
             PlayerId id,
             string message,
@@ -280,11 +287,24 @@ internal sealed class HotModuleRegistrationScope : IHotModuleContext, IVegaPlugi
             messenger?.SendMessageAsync(id, message, cancellationToken) ??
             ValueTask.FromResult(PlayerOperationResult.DispatcherUnavailable());
 
-        private async Task SendMessageCoreAsync(PlayerId id, string message)
+        public ValueTask<PlayerOperationResult> MessageAsync(PlayerSnapshot player, string message, CancellationToken cancellationToken = default)
+        {
+            ArgumentNullException.ThrowIfNull(player);
+            ArgumentNullException.ThrowIfNull(message);
+            if (player.SessionId is not { } session || directory is null || !directory.TryGet(player.Id, out var current) ||
+                current is null || current.SessionId != session || current.WorldId != player.WorldId)
+                return ValueTask.FromResult(PlayerOperationResult.NotFound());
+            return messenger?.SupportsSessionBoundMessages == true
+                ? messenger.SendMessageAsync(player, message, cancellationToken)
+                : ValueTask.FromResult(PlayerOperationResult.DispatcherUnavailable());
+        }
+
+        private async Task SendMessageCoreAsync(PlayerId id, string message, PlayerSnapshot? expected = null)
         {
             try
             {
-                PlayerOperationResult result = await MessageAsync(id, message, owner.lifetime.Token)
+                PlayerOperationResult result = await (expected is null ? MessageAsync(id, message, owner.lifetime.Token) :
+                    MessageAsync(expected, message, owner.lifetime.Token))
                     .ConfigureAwait(false);
                 if (!result.IsSuccess)
                 {

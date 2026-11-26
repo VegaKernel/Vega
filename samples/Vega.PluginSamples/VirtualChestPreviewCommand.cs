@@ -71,7 +71,7 @@ internal sealed class VirtualChestPreviewCommand : ICommandHandler
                 !plugin.Players.TryGet(request.Observer.Player, out var player) || player is null ||
                 player.SessionId != request.Observer.Session || player.WorldId != request.Chest.Identity.WorldId) return;
             var contents = request.Chest.Definition;
-            plugin.Players.Message(player.Id, $"{contents.Name}: " + string.Join(", ", contents.Items
+            plugin.Players.Message(player, $"{contents.Name}: " + string.Join(", ", contents.Items
                 .Where(item => item.ItemType != 0).Select(item => $"item {item.ItemType} x{item.Stack}")));
         }
     }

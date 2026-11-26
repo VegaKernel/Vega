@@ -14,6 +14,34 @@ namespace Vega.Runtime.Tests.Core;
 public sealed class PluginSdkContextTests
 {
     [Test]
+    public async Task SessionBoundMessageNeverFallsBackToReusedPlayerSlot()
+    {
+        var players = new RecordingPlayers();
+        var first = new PlayerSnapshot(new(1), "Viewer", false, 100, 100, 20, 20, new(0, 0), false, 0)
+        { SessionId = PlayerSessionId.New() };
+        players.Current = first;
+        var scope = new HotModuleRegistrationScope(new RecordingCommandRegistry(), new RecordingLogger(), "Plugin.SessionMessages",
+            Path.GetTempPath(), players, players);
+        IVegaPluginContext plugin = scope;
+        try
+        {
+            Assert.That((await plugin.Players.MessageAsync(first, "Welcome")).IsSuccess, Is.True);
+            Assert.That(players.ExactMessages, Is.EqualTo(new[] { first }));
+            var replacement = first with { SessionId = PlayerSessionId.New() };
+            players.Current = replacement;
+            plugin.Players.Message(replacement, "New session");
+            Assert.That((await plugin.Players.MessageAsync(first, "Old session")).Status, Is.EqualTo(PlayerOperationStatus.PlayerNotFound));
+            Assert.That((await plugin.Players.MessageAsync(replacement with { WorldId = new("other") }, "Other world")).IsSuccess, Is.False);
+            players.SupportsSessionBoundMessages = false;
+            Assert.That((await plugin.Players.MessageAsync(replacement, "Unsupported host")).Status,
+                Is.EqualTo(PlayerOperationStatus.DispatcherUnavailable));
+            Assert.That(players.ExactMessages, Is.EqualTo(new[] { first, replacement }));
+            Assert.That(players.RawMessages, Is.Zero);
+        }
+        finally { await scope.DisposeAsync(); }
+    }
+
+    [Test]
     public async Task ScopeOwnsCommandsHooksTasksAndStorageUntilUnload()
     {
         string dataDirectory = Path.Combine(
@@ -334,25 +362,38 @@ public sealed class PluginSdkContextTests
         public int OpenedSubscribers => Opened?.GetInvocationList().Length ?? 0;
         public int ClosedSubscribers => Closed?.GetInvocationList().Length ?? 0;
 
-        public IReadOnlyList<PlayerSnapshot> SnapshotOnlinePlayers() => [];
+        public PlayerSnapshot? Current { get; set; }
+        public bool SupportsSessionBoundMessages { get; set; } = true;
+        public List<PlayerSnapshot> ExactMessages { get; } = [];
+        public int RawMessages { get; private set; }
+        public IReadOnlyList<PlayerSnapshot> SnapshotOnlinePlayers() => Current is { } player ? [player] : [];
 
         public bool TryGet(PlayerId id, out PlayerSnapshot? player)
         {
-            player = null;
-            return false;
+            player = Current is { } current && current.Id == id ? current : null;
+            return player is not null;
         }
 
         public bool TryFindExact(string name, out PlayerSnapshot? player)
         {
-            player = null;
-            return false;
+            player = Current is { } current && current.Name == name ? current : null;
+            return player is not null;
         }
 
         public ValueTask<PlayerOperationResult> SendMessageAsync(
             PlayerId id,
             string message,
-            CancellationToken cancellationToken = default) =>
-            ValueTask.FromResult(PlayerOperationResult.Applied());
+            CancellationToken cancellationToken = default)
+        {
+            RawMessages++;
+            return ValueTask.FromResult(PlayerOperationResult.Applied());
+        }
+
+        public ValueTask<PlayerOperationResult> SendMessageAsync(PlayerSnapshot player, string message, CancellationToken cancellationToken = default)
+        {
+            ExactMessages.Add(player);
+            return ValueTask.FromResult(PlayerOperationResult.Applied());
+        }
 
         public ValueTask<PlayerOperationResult> KickAsync(
             PlayerId id,

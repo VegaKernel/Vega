@@ -5,6 +5,9 @@ namespace Vega.Contracts.Players;
 /// </summary>
 public interface IPlayerMessenger
 {
+    /// <summary>True only when the snapshot overload revalidates the original session at delivery.</summary>
+    bool SupportsSessionBoundMessages => false;
+
     ValueTask<PlayerOperationResult> SendMessageAsync(
         PlayerId id,
         string message,

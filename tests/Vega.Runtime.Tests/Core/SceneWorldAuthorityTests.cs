@@ -37,6 +37,31 @@ public sealed class SceneWorldAuthorityTests
     }
 
     [Test]
+    public void OrdinaryVirtualSignReadProducesIntentButCanonicalSignsRemainNative()
+    {
+        var scenes = new SceneRuntime();
+        var opened = new PlayerSessionOpened(PlayerSessionId.New(), Viewer, "Viewer", DateTimeOffset.UtcNow);
+        scenes.OpenSession(Arena, opened);
+        var player = new PlayerSnapshot(Viewer, "Viewer", false, 100, 100, 20, 20, new(1600, 1600), false, 0)
+        { WorldId = Arena, SessionId = opened.SessionId };
+        using var scene = scenes.CreateScene(Arena, "virtual sign", "test");
+        var sign = new SceneVirtualSignDefinition(VirtualSignId.New(), 0, 0, "Welcome", 1);
+        var overlay = scene.AddOverlay(new SceneOverlayDefinition(default, "sign", new(100, 100, 2, 2), 1,
+            SceneObserverScope.Global, SceneTileArea.Fill(2, 2, new SceneTile(55, Flags: SceneTileFlags.Active))) { VirtualSigns = [sign] });
+        var policy = new SceneInteractionAuthorityPolicy(scenes, Arena, new Directory(player));
+        Assert.That(Process(policy, new SignRead { X = 50, Y = 50 }, PacketTypes.SignRead, Viewer),
+            Is.EqualTo(PacketProcessingDecision.Allow));
+        Assert.That(Process(policy, new SignRead { X = 100, Y = 100 }, PacketTypes.SignRead, Viewer),
+            Is.EqualTo(PacketProcessingDecision.Reject("scene.phantom_interaction")));
+        Assert.That(scenes.TryTakeVirtualSignRead(scene.Id, overlay, sign.Id, out var request), Is.True);
+        Assert.That(request!.Value.Observer, Is.EqualTo(SceneSessionObserver.From(opened)));
+        Assert.That(Process(policy, new SignNew { X = 100, Y = 100, Text = "Edited", PlayerId = (byte)Viewer.Slot }, PacketTypes.SignNew, Viewer),
+            Is.EqualTo(PacketProcessingDecision.Reject("scene.phantom_interaction")));
+        Assert.That(scenes.TryResolveVirtualSign(Arena, SceneSessionObserver.From(opened), 100, 100, out var current), Is.True);
+        Assert.That(current!.Value.Definition.Text, Is.EqualTo("Welcome"));
+    }
+
+    [Test]
     public void TileInteractionUsesTheSceneInTheOwnedWorld()
     {
         var scenes = new SceneRuntime();
