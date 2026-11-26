@@ -52,8 +52,10 @@ internal sealed class NativeSceneNetworkHooks(
                 Math.Max(1, (int)args.Number4));
             if (!scenes.HasOverlayInRegion(worldId, bounds,
                     args.RemoteClient >= 0 ? new PlayerId(args.RemoteClient) : null)) return;
-            renderer.Invalidate(Request(bounds, args.RemoteClient, args.IgnoreClient));
-            args.Result = HookResult.Cancel;
+            // Keep the canonical native update when bounded redraw admission fails.
+            // Scenes are visual; losing the original update harms ordinary players too.
+            if (renderer.TryInvalidate(Request(bounds, args.RemoteClient, args.IgnoreClient)))
+                args.Result = HookResult.Cancel;
             return;
         }
 

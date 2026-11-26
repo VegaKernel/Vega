@@ -195,6 +195,12 @@ public sealed record SceneRenderRequest(
 public interface ISceneRenderSink
 {
     void Invalidate(SceneRenderRequest request);
+    /// <summary>True if the renderer accepted responsibility for this update.</summary>
+    bool TryInvalidate(SceneRenderRequest request)
+    {
+        Invalidate(request);
+        return true;
+    }
 }
 
 public interface ISceneLease : IDisposable

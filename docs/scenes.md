@@ -123,6 +123,10 @@ composition across ticks. Ordinary native tile squares outside applicable overla
 are not intercepted; section refreshes redraw only their intersection with an enabled
 overlay, for recipients within its observer scope. Large overlapping redraws still
 share the bounded FIFO; real-client redraw latency under load remains to be measured.
+If the dirty-region queue or game-thread dispatcher refuses admission, the original
+native tile-square send is retained rather than canceled. A rejected reservation
+does not remain in an unscheduled queue; the visual layer may temporarily lag the
+vanilla state and its next successful redraw restores the composed tiles.
 
 A local .NET 11 Release A/B composed and encoded 24 repeated 64x64 regions using the
 previously built scene runtime, the original encoder, and the new cache. Payloads were

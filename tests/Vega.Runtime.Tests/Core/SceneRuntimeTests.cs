@@ -3,6 +3,7 @@ using Multiplicity.Packets;
 using Multiplicity.Packets.Views;
 using Vega.Contracts.Commands;
 using Vega.Contracts.Networking;
+using Vega.Contracts.Operations;
 using Vega.Contracts.Players;
 using Vega.Contracts.Scenes;
 using Vega.Contracts.Threading;
@@ -11,12 +12,36 @@ using Vega.Core.Networking;
 using Vega.Core.Commands;
 using Vega.Core.Scenes;
 using Vega.Modules.Scenes;
+using Vega.Terraria.Scenes;
 
 namespace Vega.Runtime.Tests.Core;
 
 [TestFixture]
 public sealed class SceneRuntimeTests
 {
+    [Test]
+    public void RenderAdmissionRejectsSaturationAndRollsBackFailedDispatcherReservations()
+    {
+        var dispatcher = new AdmissionDispatcher();
+        var online = new PlayerSnapshot(new PlayerId(1), "viewer", false, 100, 100, 20, 20, new(0, 0), false, 0);
+        var runtime = new SceneRuntime();
+        using var scene = runtime.CreateScene(WorldId.Primary, "admission", "test");
+        using var renderer = new TerrariaSceneRenderSink(dispatcher, new PlayerDirectory(online), new QuietLogger());
+        renderer.Attach(runtime, new TestSessions());
+        var request = new SceneRenderRequest(scene.Id, WorldId.Primary, new SceneBounds(10, 10, 2, 2), true,
+            SceneObserverScope.Global.Players);
+        for (int i = 0; i < 300; i++) Assert.That(renderer.TryInvalidate(request), Is.False);
+        Assert.That(dispatcher.ScheduleAttempts, Is.EqualTo(300));
+        dispatcher.Accept = true;
+        for (int i = 0; i < 256; i++) Assert.That(renderer.TryInvalidate(request), Is.True);
+        Assert.That(dispatcher.ScheduleAttempts, Is.EqualTo(301), "A single scheduled drain owns the accepted queue.");
+        Assert.That(renderer.TryInvalidate(request), Is.False);
+        Assert.That(runtime.SnapshotScenes().Single().Failure, Does.Contain("capacity"));
+        Assert.That(renderer.TryInvalidate(request with { WorldId = new WorldId("other") }), Is.False);
+        renderer.Dispose();
+        Assert.That(renderer.TryInvalidate(request), Is.False);
+    }
+
     [Test]
     public void PersonalAirMaskSuppressesGlobalTilesAndRefreshesOnlyChangedObservers()
     {
@@ -516,6 +541,22 @@ public sealed class SceneRuntimeTests
         public void AssertGameThread() { }
         public bool TryPost(string name, Action action) { action(); return true; }
         public bool TrySchedule(string name, Func<bool> step) => step();
+    }
+
+    private sealed class AdmissionDispatcher : IGameThreadDispatcher
+    {
+        public bool Accept { get; set; }
+        public int ScheduleAttempts { get; private set; }
+        public bool IsGameThreadKnown => true;
+        public bool IsGameThread => false;
+        public void AssertGameThread() => throw new InvalidOperationException();
+        public bool TryPost(string name, Action action) => throw new NotSupportedException();
+        public bool TrySchedule(string name, Func<bool> step) { ScheduleAttempts++; return Accept; }
+    }
+
+    private sealed class QuietLogger : IOperationsLogger
+    {
+        public void Log(OperationsLogLevel level, string source, string text, Exception? exception = null, string? correlationId = null) { }
     }
 
     private sealed class Principal(bool allowed) : ICommandPrincipal

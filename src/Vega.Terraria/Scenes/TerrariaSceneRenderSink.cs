@@ -20,10 +20,11 @@ public sealed class TerrariaSceneRenderSink(
     // Worst-case 15 bytes per tile + 10-byte packet header must fit Int16 length.
     internal const int MaximumTileSquareSide = 46;
     private readonly ConcurrentQueue<SceneRenderRequest> pending = new();
+    private readonly object admission = new();
     private ISceneRuntime? scenes;
     private IPlayerSessionLifecycle? sessions;
     private int queued;
-    private int drainPosted;
+    private bool drainPosted;
     internal const int MaximumRecipientsPerBatch = 4;
     internal const int MaximumBatchesPerStep = 4;
     private SceneRenderRequest? activeRequest;
@@ -42,27 +43,39 @@ public sealed class TerrariaSceneRenderSink(
         sessions.Opened += OnSessionOpened;
     }
 
-    public void Invalidate(SceneRenderRequest request)
-    {
-        if (scenes is null) return;
-        if (request.WorldId != currentWorld)
-        {
-            scenes?.ReportFailure(request.SceneId, "Scene belongs to another world.");
-            return;
-        }
-        if (Interlocked.Increment(ref queued) > MaximumQueuedRegions)
-        {
-            Interlocked.Decrement(ref queued);
-            scenes?.ReportFailure(request.SceneId, "Dirty-region queue capacity was exceeded.");
-            logger.Log(
-                OperationsLogLevel.Warning,
-                "scenes",
-                "Scene dirty-region queue is full; update was dropped.");
-            return;
-        }
+    public void Invalidate(SceneRenderRequest request) => TryInvalidate(request);
 
-        pending.Enqueue(request);
-        PostDrain();
+    public bool TryInvalidate(SceneRenderRequest request)
+    {
+        lock (admission)
+        {
+            if (scenes is null) return false;
+            if (request.WorldId != currentWorld)
+            {
+                scenes.ReportFailure(request.SceneId, "Scene belongs to another world.");
+                return false;
+            }
+            if (Volatile.Read(ref queued) >= MaximumQueuedRegions)
+            {
+                scenes.ReportFailure(request.SceneId, "Dirty-region queue capacity was exceeded.");
+                logger.Log(OperationsLogLevel.Warning, "scenes", "Scene dirty-region queue is full; redraw rejected.");
+                return false;
+            }
+
+            Interlocked.Increment(ref queued);
+            pending.Enqueue(request);
+            if (drainPosted) return true;
+            drainPosted = true;
+            if (dispatcher.TrySchedule("scenes.render", DrainStep)) return true;
+
+            // No drain owns the queue and no other producer can enter until this
+            // lock exits. Roll back the sole reservation instead of stranding it.
+            drainPosted = false;
+            if (pending.TryDequeue(out _)) Interlocked.Decrement(ref queued);
+            scenes.ReportFailure(request.SceneId, "Game-thread queue capacity was exceeded.");
+            logger.Log(OperationsLogLevel.Warning, "scenes", "Scene redraw could not enter the game-thread queue.");
+            return false;
+        }
     }
 
     public void Dispose()
@@ -72,10 +85,10 @@ public sealed class TerrariaSceneRenderSink(
             sessions.Opened -= OnSessionOpened;
         }
 
-        scenes = null;
-        while (pending.TryDequeue(out _))
+        lock (admission)
         {
-            Interlocked.Decrement(ref queued);
+            scenes = null;
+            while (pending.TryDequeue(out _)) Interlocked.Decrement(ref queued);
         }
 
         sessions = null;
@@ -107,23 +120,6 @@ public sealed class TerrariaSceneRenderSink(
                     false,
                     new HashSet<PlayerId> { opened.PlayerId }));
             }
-        }
-    }
-
-    private void PostDrain()
-    {
-        if (Interlocked.Exchange(ref drainPosted, 1) != 0)
-        {
-            return;
-        }
-
-        if (!dispatcher.TrySchedule("scenes.render", DrainStep))
-        {
-            Interlocked.Exchange(ref drainPosted, 0);
-            logger.Log(
-                OperationsLogLevel.Warning,
-                "scenes",
-                "Scene redraw could not enter the game-thread queue.");
         }
     }
 
@@ -164,10 +160,12 @@ public sealed class TerrariaSceneRenderSink(
             }
         }
 
-        if (scenes is not null && (activeRequest is not null || !pending.IsEmpty)) return false;
-        Interlocked.Exchange(ref drainPosted, 0);
-        if (scenes is not null && !pending.IsEmpty) PostDrain();
-        return true;
+        lock (admission)
+        {
+            if (scenes is not null && (activeRequest is not null || !pending.IsEmpty)) return false;
+            drainPosted = false;
+            return true;
+        }
     }
 
     private void FinishRequest()
