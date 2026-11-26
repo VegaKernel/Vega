@@ -19,6 +19,8 @@ internal sealed record NativeTcpTransportOptions
     public int MaxBatchRequests { get; init; } = 1;
     /// <summary>Use one wake for an idle writer instead of counting each queued request.</summary>
     public bool EdgeTriggeredWake { get; init; } = true;
+    /// <summary>One cancellation registration wakes an idle writer; the per-wait mode remains for A/B measurement.</summary>
+    public bool SingleCancellationWake { get; init; } = true;
     /// <summary>Experimental A/B: close already disposes the socket to interrupt pending I/O.</summary>
     public bool CancelPendingSocketSend { get; init; } = true;
 

@@ -11,13 +11,15 @@ public sealed record ServerNetworkOptions
     public bool OrderedQueueDiagnostics { get; init; }
     public int DistantMovementUpdatesPerSecond { get; init; }
     public int OrderedCallbacksPerPass { get; init; } = NativeTcpTransportOptions.DefaultCallbacksPerPass;
+    public int OrderedBatchRequests { get; init; } = NativeOutboundQueue.BatchRequestLimit;
 
     public static ServerNetworkOptions Normalize(ServerNetworkOptions options) => options with
     {
         PendingConnectionLimit = Math.Clamp(options.PendingConnectionLimit, 1, 1024),
         FramesPerSlotPerPass = Math.Clamp(options.FramesPerSlotPerPass, 1, 256),
         DistantMovementUpdatesPerSecond = Math.Clamp(options.DistantMovementUpdatesPerSecond, 0, 20),
-        OrderedCallbacksPerPass = Math.Clamp(options.OrderedCallbacksPerPass, 1, NativeTcpTransportOptions.DefaultCallbacksPerPass)
+        OrderedCallbacksPerPass = Math.Clamp(options.OrderedCallbacksPerPass, 1, NativeTcpTransportOptions.DefaultCallbacksPerPass),
+        OrderedBatchRequests = Math.Clamp(options.OrderedBatchRequests, 1, NativeOutboundQueue.BatchRequestLimit)
     };
 
     public static ServerNetworkOptions Load(string path, IOperationsLogger logger)

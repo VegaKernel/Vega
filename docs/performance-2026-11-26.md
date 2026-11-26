@@ -386,6 +386,67 @@ The long run also shows the allocation cost accumulating (about 1.78 GB versus
 0.76 GB across the measured period). Keep the transport opt-in; this is a local,
 equal-payload transport test, not a joined-client or WAN qualification.
 
+The above run deliberately uses `batch=1`. The updated server host already
+selects `batch=16` when Ordered is enabled. `orderedBatchRequests` now exposes
+that setting (default 16, normalized to 1–16), without changing the transport
+default. An additional `--sustained-production` run matches that host setting:
+vanilla / Ordered respectively completed in 32.382 / 30.005 s, validated
+147.07 / 158.72 MiB/s, used 204.94 / 141.13 process CPU-seconds, and measured
+19.26 / 5.16 ms producer p95. All 3,672,000 callbacks and 4762.57 MiB were
+validated in each mode. Ordered's sampled send/completion maxima were 5.97 / 31.60 ms;
+managed allocations were 208.0 / 490.7 B/request (including the benchmark process).
+The separate short `--production-batch` ABBA measurements showed overlapping
+throughput and CPU ranges for batch sizes 1 and 16, so these runs do not establish
+a robust allocation reduction from batching. Keep the existing opt-in setting
+and use the configuration for controlled comparisons rather than changing defaults.
+
+### Ordered TCP: lifetime cancellation wake
+
+The expensive idle path was `SemaphoreSlim.WaitAsync(token)`, which attaches a
+cancellable task wrapper to each wait. The measured alternative registers one
+cancellation callback per writer and uses the same queue-gated semaphore signal
+for idle cancellation. The writer checks cancellation under the publication gate
+before waiting; actual socket writes still use their cancellation token. The A/B
+changes only this wait mechanism and uses the current host's batch size of 16.
+
+| Peers | Per-wait allocation (B/request) | Lifetime wake (B/request) | Lifetime wake throughput (MiB/s) |
+| ---: | ---: | ---: | ---: |
+| 200 | 493.8–520.6 | 139.7–141.3 | 121.86–123.58 |
+| 255 | 503.6–506.8 | 143.2–143.9 | 156.72–158.34 |
+
+At 255 peers, the allocation reduction is approximately 71–72%, and gen0
+collections fell from 9 to 2 in each measured repeat. Baseline throughput was
+156.85–157.34 MiB/s, overlapping the candidate range. All bytes and callbacks
+were validated; CPU and callback timing are not a hard guarantee. Regression
+coverage checks idle and pre-start cancellation, concurrent publication, complete,
+abort and active-I/O cancellation. The lifetime registration is now the internal
+default for opt-in Ordered TCP. Reproduce old/new comparisons with
+`--wait-cancellation` and the historical sustained wait path using
+`--sustained-production --legacy-wait-cancellation`.
+
+The current `--sustained-production` repeat (255 peers, 30 seconds offered)
+validates all 3,672,000 requests and 4762.57 MiB in each mode:
+
+| Metric | Vanilla | Ordered, batch 16 + lifetime wake |
+| --- | ---: | ---: |
+| Elapsed (s) | 32.791 | 30.007 |
+| Validated MiB/s | 145.24 | 158.72 |
+| Process CPU (s) | 214.08 | 136.80 |
+| Producer p95 (ms) | 20.66 | 4.14 |
+| Managed allocation (MB) | 763.83 | 508.32 |
+| B/request | 208.0 | 138.4 |
+| Gen0 / gen1 / gen2 collections | 46 / 5 / 0 | 31 / 4 / 0 |
+| Callback p95 (ms) | 0.010 | 28.485 |
+
+The previous same-host batch-16 run with per-wait cancellation allocated
+1801.96 MB / 490.7 B/request. The lifetime wake reduces that measured allocation
+by about 72%, and is even below vanilla in this particular loopback workload.
+Queue-age diagnostics were enabled in Ordered: maximum sampled send age 4.10 ms,
+completion age 31.62 ms. As always, process allocations include the benchmark
+reader tasks; these are not a measurement of native world ticks or a claim about
+WAN or joined-player workloads. Raw output: `vega-e2f95603-native-tcp-single-wake-abba.txt`
+and `vega-e2f95603-native-tcp-sustained-single-wake.txt` in the same local artifact directory.
+
 Scene packet interception now uses the existing sparse 64x64 index for small
 rectangles, falling back to the flat projection for broad regions. Section refresh
 enumerates only enabled intersecting overlay definitions from the immutable runtime

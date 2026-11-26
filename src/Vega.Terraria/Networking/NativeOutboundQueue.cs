@@ -45,6 +45,7 @@ internal sealed class NativeOutboundQueue
     private readonly int maxBatchRequests;
     private readonly bool edgeTriggeredWake;
     private readonly bool measureAge;
+    private readonly bool singleCancellationWake;
     private QueueState state;
     private int outstanding;
     private long retainedBytes;
@@ -54,7 +55,8 @@ internal sealed class NativeOutboundQueue
     private bool writerWaiting;
 
     public NativeOutboundQueue(int maxEntries, long maxRetainedBytes, int maxRequestBytes, ArrayPool<byte>? pool = null,
-        NativeOutboundBudget? sharedBudget = null, int maxBatchRequests = 1, bool edgeTriggeredWake = true, bool measureAge = false)
+        NativeOutboundBudget? sharedBudget = null, int maxBatchRequests = 1, bool edgeTriggeredWake = true, bool measureAge = false,
+        bool singleCancellationWake = true)
     {
         ArgumentOutOfRangeException.ThrowIfNegativeOrZero(maxEntries);
         ArgumentOutOfRangeException.ThrowIfNegativeOrZero(maxRetainedBytes);
@@ -69,6 +71,7 @@ internal sealed class NativeOutboundQueue
         this.maxBatchRequests = maxBatchRequests;
         this.edgeTriggeredWake = edgeTriggeredWake;
         this.measureAge = measureAge;
+        this.singleCancellationWake = singleCancellationWake;
         available = new(0, edgeTriggeredWake ? 1 : int.MaxValue);
     }
 
@@ -191,6 +194,11 @@ internal sealed class NativeOutboundQueue
     {
         using var linked = CancellationTokenSource.CreateLinkedTokenSource(abort.Token, cancellationToken);
         CancellationToken token = linked.Token;
+        // Cancellation has one lifetime registration instead of
+        // attaching a cancellable Task wrapper to every idle semaphore wait.
+        using var wakeOnCancellation = singleCancellationWake
+            ? token.UnsafeRegister(static state => ((NativeOutboundQueue)state!).WakeCancelledWriter(), this)
+            : default;
         long sent = 0, written = 0;
         // One small metadata array per coalescing writer, not per batch; disabled mode remains allocation-free here.
         NativeSendCompletion[]? batch = maxBatchRequests > 1 ? new NativeSendCompletion[maxBatchRequests] : null;
@@ -198,13 +206,17 @@ internal sealed class NativeOutboundQueue
         {
             while (true)
             {
-                if (!edgeTriggeredWake) await available.WaitAsync(token).ConfigureAwait(false);
+                if (singleCancellationWake) token.ThrowIfCancellationRequested();
+                if (!edgeTriggeredWake) await WaitForSignalAsync(token).ConfigureAwait(false);
                 OwnedSend request;
                 byte[]? buffer = null;
                 int length = 0, count = 1;
                 lock (gate)
                 {
                     if (state == QueueState.Aborted) return new(NativeOutboundWriterStatus.Aborted, sent, written);
+                    // Cancellation and publication of writerWaiting use the same gate,
+                    // preventing a lost wake between the outer check and the idle wait.
+                    if (singleCancellationWake) token.ThrowIfCancellationRequested();
                     if (!pending.TryDequeue(out request))
                     {
                         if (state == QueueState.Completing) return new(NativeOutboundWriterStatus.Completed, sent, written);
@@ -227,7 +239,7 @@ internal sealed class NativeOutboundQueue
                 }
                 if (buffer is null)
                 {
-                    if (edgeTriggeredWake) await available.WaitAsync(token).ConfigureAwait(false);
+                    if (edgeTriggeredWake) await WaitForSignalAsync(token).ConfigureAwait(false);
                     continue;
                 }
 
@@ -338,6 +350,14 @@ internal sealed class NativeOutboundQueue
             writerWaiting = false;
             available.Release();
         }
+    }
+
+    private Task WaitForSignalAsync(CancellationToken token) => singleCancellationWake
+        ? available.WaitAsync() : available.WaitAsync(token);
+
+    private void WakeCancelledWriter()
+    {
+        lock (gate) WakeWriterLocked();
     }
 
     private void AbortLocked()

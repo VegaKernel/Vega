@@ -111,20 +111,21 @@ public static class TerrariaServerHost
         AppDomain.CurrentDomain.UnhandledException += ReportUnhandled;
         using var nativeLifecycleHooks = new NativeLifecycleHooks(lifecycle);
         using var networkMetricsHooks = new NativeNetworkMetricsHooks(networkMetrics);
-        using var networkBudgetHooks = new NativeNetworkBudgetHooks(networkOptions ?? new());
-        int distantMovementRate = ServerNetworkOptions.Normalize(networkOptions ?? new()).DistantMovementUpdatesPerSecond;
+        ServerNetworkOptions networkLimits = ServerNetworkOptions.Normalize(networkOptions ?? new());
+        using var networkBudgetHooks = new NativeNetworkBudgetHooks(networkLimits);
+        int distantMovementRate = networkLimits.DistantMovementUpdatesPerSecond;
         using var movementInterest = distantMovementRate > 0
             ? new NativeMovementInterestHooks(distantMovementRate, () => gameThreadDispatcher.IsGameThread) : null;
-        using var orderedTransport = networkOptions?.UseOrderedTcp == true
+        using var orderedTransport = networkLimits.UseOrderedTcp
             ? new NativeTcpTransportHost(new NativeTcpTransportOptions
             {
-                MaxCallbacksPerPass = ServerNetworkOptions.Normalize(networkOptions).OrderedCallbacksPerPass,
-                MeasureQueueAge = networkOptions.OrderedQueueDiagnostics,
-                MaxBatchRequests = NativeOutboundQueue.BatchRequestLimit
+                MaxCallbacksPerPass = networkLimits.OrderedCallbacksPerPass,
+                MeasureQueueAge = networkLimits.OrderedQueueDiagnostics,
+                MaxBatchRequests = networkLimits.OrderedBatchRequests
             },
                 onSendRejected: (generation, reason) => logger.Log(OperationsLogLevel.Warning, "network",
                     $"Ordered TCP connection {generation} closed: outbound queue rejected a send ({reason}).")) : null;
-        using var queueDiagnostics = orderedTransport is not null && networkOptions?.OrderedQueueDiagnostics == true
+        using var queueDiagnostics = orderedTransport is not null && networkLimits.OrderedQueueDiagnostics
             ? new Timer(_ =>
             {
                 var (slot, send, completion) = orderedTransport.ReadQueueAges();

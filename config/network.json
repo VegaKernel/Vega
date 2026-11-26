@@ -4,5 +4,6 @@
   "useOrderedTcp": false,
   "orderedQueueDiagnostics": false,
   "distantMovementUpdatesPerSecond": 0,
-  "orderedCallbacksPerPass": 8192
+  "orderedCallbacksPerPass": 8192,
+  "orderedBatchRequests": 16
 }

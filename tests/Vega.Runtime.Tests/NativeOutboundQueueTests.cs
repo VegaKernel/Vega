@@ -200,11 +200,12 @@ public sealed class NativeOutboundQueueTests
         });
     }
 
-    [Test]
-    public async Task ExternalCancellationReleasesActiveAndPendingBuffers()
+    [TestCase(false)]
+    [TestCase(true)]
+    public async Task ExternalCancellationReleasesActiveAndPendingBuffers(bool singleCancellationWake)
     {
         var pool = new TrackingPool();
-        var queue = new NativeOutboundQueue(4, 32, 8, pool);
+        var queue = new NativeOutboundQueue(4, 32, 8, pool, singleCancellationWake: singleCancellationWake);
         Assert.That(queue.TryEnqueue([1, 2], 0, 2, 1), Is.EqualTo(NativeOutboundEnqueueResult.Accepted));
         Assert.That(queue.TryEnqueue([3, 4], 0, 2, 1), Is.EqualTo(NativeOutboundEnqueueResult.Accepted));
         using var stopping = new CancellationTokenSource();
@@ -368,12 +369,14 @@ public sealed class NativeOutboundQueueTests
         Assert.That(budget.Snapshot, Is.EqualTo((0, 0L)));
     }
 
-    [TestCase(false)]
-    [TestCase(true)]
-    public async Task WakeModeDoesNotLosePublicationsDuringIdleAndConcurrentDrain(bool edgeTriggeredWake)
+    [TestCase(false, false)]
+    [TestCase(false, true)]
+    [TestCase(true, false)]
+    [TestCase(true, true)]
+    public async Task WakeModeDoesNotLosePublicationsDuringIdleAndConcurrentDrain(bool edgeTriggeredWake, bool singleCancellationWake)
     {
         const int rounds = 12, requestsPerRound = 32;
-        var queue = new NativeOutboundQueue(64, 4096, 1, edgeTriggeredWake: edgeTriggeredWake);
+        var queue = new NativeOutboundQueue(64, 4096, 1, edgeTriggeredWake: edgeTriggeredWake, singleCancellationWake: singleCancellationWake);
         var received = new ConcurrentQueue<byte>();
         var writer = queue.RunWriterAsync((bytes, _) => { received.Enqueue(bytes.Span[0]); return ValueTask.FromResult(1); });
         using var deadline = new CancellationTokenSource(Timeout);
@@ -406,15 +409,36 @@ public sealed class NativeOutboundQueueTests
         finally { queue.Abort(); }
     }
 
+    [TestCase(false, false, false)]
+    [TestCase(false, true, false)]
+    [TestCase(true, false, false)]
+    [TestCase(true, true, false)]
+    [TestCase(false, true, true)]
+    [TestCase(true, true, true)]
+    public async Task CancellationWakesAnIdleWriter(bool edgeTriggeredWake, bool singleCancellationWake, bool cancelBeforeStart)
+    {
+        var queue = new NativeOutboundQueue(2, 32, 8, edgeTriggeredWake: edgeTriggeredWake, singleCancellationWake: singleCancellationWake);
+        using var cancellation = new CancellationTokenSource();
+        if (cancelBeforeStart) await cancellation.CancelAsync();
+        var writer = queue.RunWriterAsync((_, _) => throw new InvalidOperationException("No writes were published."), cancellation.Token);
+        if (!cancelBeforeStart)
+        {
+            await Task.Delay(10);
+            await cancellation.CancelAsync();
+        }
+        Assert.That((await writer.WaitAsync(Timeout)).Status, Is.EqualTo(NativeOutboundWriterStatus.Cancelled));
+        Assert.That(queue.Snapshot, Is.EqualTo(new NativeOutboundQueueSnapshot(0, 0, 0, 0, false, true)));
+    }
+
     [TestCase(false)]
     [TestCase(true)]
-    public async Task CancellationWakesAnIdleWriter(bool edgeTriggeredWake)
+    public async Task AbortWakesAnIdleWriterWithoutExternalCancellation(bool edgeTriggeredWake)
     {
         var queue = new NativeOutboundQueue(2, 32, 8, edgeTriggeredWake: edgeTriggeredWake);
-        using var cancellation = new CancellationTokenSource();
-        var writer = queue.RunWriterAsync((_, _) => throw new InvalidOperationException("No writes were published."), cancellation.Token);
-        await cancellation.CancelAsync();
-        Assert.That((await writer.WaitAsync(Timeout)).Status, Is.EqualTo(NativeOutboundWriterStatus.Cancelled));
+        var writer = queue.RunWriterAsync((_, _) => throw new InvalidOperationException("No writes were published."));
+        await Task.Delay(10);
+        queue.Abort();
+        Assert.That((await writer.WaitAsync(Timeout)).Status, Is.EqualTo(NativeOutboundWriterStatus.Aborted));
         Assert.That(queue.Snapshot, Is.EqualTo(new NativeOutboundQueueSnapshot(0, 0, 0, 0, false, true)));
     }
 

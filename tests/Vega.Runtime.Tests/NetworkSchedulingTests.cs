@@ -17,6 +17,11 @@ public sealed class NetworkSchedulingTests
         Assert.That(ServerNetworkOptions.Normalize(new() { OrderedCallbacksPerPass = int.MaxValue }).OrderedCallbacksPerPass, Is.EqualTo(8192));
         Assert.That(ServerNetworkOptions.Normalize(new() { OrderedCallbacksPerPass = 1 }).OrderedCallbacksPerPass, Is.EqualTo(1));
         Assert.That(new NativeTcpTransportOptions().CallbackBudget, Is.EqualTo(TimeSpan.FromMilliseconds(2)));
+        Assert.That(new NativeTcpTransportOptions().SingleCancellationWake, Is.True);
+        Assert.That(new ServerNetworkOptions().OrderedBatchRequests, Is.EqualTo(16));
+        Assert.That(ServerNetworkOptions.Normalize(new() { OrderedBatchRequests = int.MaxValue }).OrderedBatchRequests, Is.EqualTo(16));
+        Assert.That(ServerNetworkOptions.Normalize(new() { OrderedBatchRequests = 0 }).OrderedBatchRequests, Is.EqualTo(1));
+        Assert.That(ServerNetworkOptions.Normalize(new() { OrderedBatchRequests = 4 }).OrderedBatchRequests, Is.EqualTo(4));
     }
     [Test]
     public void YieldingWorkRunsAtMostOncePerTickAndRetainsItsQueueReservation()
