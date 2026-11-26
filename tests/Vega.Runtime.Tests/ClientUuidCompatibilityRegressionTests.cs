@@ -1,7 +1,13 @@
 using System.Text;
 using Multiplicity.Packets;
+using Multiplicity.Packets.Views;
 using NUnit.Framework;
+using TerrariaRuntime;
 using Vega.Contracts.Networking;
+using Vega.Core.Networking;
+using Vega.Operations.Logging;
+using Vega.Operations.Metrics;
+using Vega.Terraria.Hooking;
 using Vega.Terraria.Networking;
 
 namespace Vega.Runtime.Tests;
@@ -9,6 +15,52 @@ namespace Vega.Runtime.Tests;
 [TestFixture]
 public sealed class ClientUuidCompatibilityRegressionTests
 {
+    [Test]
+    [NonParallelizable]
+    public void ReceiveHookAcceptsUuidWithoutReadingIntoNextFrame()
+    {
+        const int slot = 12;
+        string token = new('u', 128);
+        var registry = new TerrariaConnectionMetadataRegistry();
+        using var hooks = new NativePlayerPacketSecurityHooks(
+            new PacketProcessorPipeline<PacketView>([]), registry,
+            new StructuredOperationsLogger([]), new NetworkMetricsCounter(), new BoundedSecuritySignalStore());
+        byte[] payload = EncodeString(token);
+        var buffer = new global::Terraria.MessageBuffer { whoAmI = slot };
+        byte packetId = (byte)PacketTypes.ClientUUID;
+        int start = 7;
+        int readOffset = start + 1;
+        int length = payload.Length + 1;
+        int messageType = packetId;
+        buffer.readBuffer[start] = packetId;
+        payload.CopyTo(buffer.readBuffer, readOffset);
+        buffer.readBuffer[start + length] = 3;
+        buffer.readBuffer[start + length + 2] = global::Terraria.ID.MessageID.RequestWorldData;
+
+        var previousClient = global::Terraria.Netplay.Clients[slot];
+        global::Terraria.Netplay.Clients[slot] = new global::Terraria.RemoteClient
+        {
+            State = (int)TerrariaConnectionState.ProtocolAccepted
+        };
+        try
+        {
+            hooks.Attach();
+            bool allowed = Hooks.MessageBuffer.InvokeGetData(
+                buffer, ref packetId, ref readOffset, ref start, ref length, ref messageType, 256);
+
+            Assert.Multiple(() =>
+            {
+                Assert.That(allowed, Is.True);
+                Assert.That(registry.Snapshot(slot, null, TerrariaConnectionState.ProtocolAccepted).ClientUuid,
+                    Is.EqualTo(token));
+            });
+        }
+        finally
+        {
+            global::Terraria.Netplay.Clients[slot] = previousClient;
+        }
+    }
+
     [Test]
     public void MaximumLengthOpaqueTokenIsAcceptedExactly()
     {

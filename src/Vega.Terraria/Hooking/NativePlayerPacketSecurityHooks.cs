@@ -74,11 +74,12 @@ internal sealed class NativePlayerPacketSecurityHooks : IDisposable
 
         int slot = args.Instance.whoAmI;
         TerrariaConnectionState connectionState = GetConnectionState(slot);
+        int payloadLength = args.Length - (args.ReadOffset - args.Start);
         try
         {
             ConnectionMetadataObservation metadata = connectionMetadata.ObserveInboundDetailed(
                 args.PacketId,
-                args.Instance.readBuffer.AsSpan(args.ReadOffset, args.Length),
+                args.Instance.readBuffer.AsSpan(args.ReadOffset, payloadLength),
                 slot,
                 connectionState,
                 // The registry only needs a transport endpoint when interpreting
@@ -139,7 +140,7 @@ internal sealed class NativePlayerPacketSecurityHooks : IDisposable
                 args.PacketId,
                 args.Instance.readBuffer,
                 args.ReadOffset,
-                args.Length,
+                payloadLength,
                 new ConnectionId(slot),
                 new PlayerId(slot),
                 processor,
