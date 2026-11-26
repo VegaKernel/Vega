@@ -28,11 +28,11 @@ directLifecycle.Opened += joined;
 plugin.Players.OnJoined(joined);
 
 if (!ReferenceEquals(handler, directRegistry.Handler) ||
-    !ReferenceEquals(handler, facadeRegistry.Handler) ||
     !ReferenceEquals(joined, directLifecycle.Handler) ||
-    !ReferenceEquals(joined, facadeLifecycle.Handler))
+    facadeRegistry.Handler is null || facadeLifecycle.Handler is null ||
+    ReferenceEquals(handler, facadeRegistry.Handler) || ReferenceEquals(joined, facadeLifecycle.Handler))
 {
-    throw new InvalidOperationException("The plugin facade inserted a dispatch wrapper.");
+    throw new InvalidOperationException("The plugin facade must register guarded command and lifecycle callbacks.");
 }
 
 var invocation = new CommandInvocation("noop", [], new Principal(), new Output());
@@ -50,6 +50,10 @@ var opened = new PlayerSessionOpened(PlayerSessionId.New(), new PlayerId(1), "pl
 var directHook = MeasureHook(directLifecycle);
 var facadeHook = MeasureHook(facadeLifecycle);
 
+if (joinCount != 2 * iterations || scope.Faults.Count != 0 ||
+    facadeCommand.AllocatedBytes > 4096 || facadeHook.AllocatedBytes > 4096)
+    throw new InvalidOperationException("Guarded success paths dropped callbacks, recorded unexpected faults, or allocated per dispatch.");
+
 await scope.DisposeAsync();
 directLifecycle.Opened -= joined;
 Console.WriteLine(JsonSerializer.Serialize(new
@@ -58,7 +62,8 @@ Console.WriteLine(JsonSerializer.Serialize(new
     Iterations = iterations,
     Command = new { Direct = directCommand, Facade = facadeCommand },
     PlayerJoinHook = new { Direct = directHook, Facade = facadeHook },
-    DispatchWrapperInserted = false,
+    DispatchWrapperInserted = true,
+    GuardedSuccessPathsVerified = true,
     ManualLifetimeCallsRequired = 0,
     JoinCallbacksObserved = joinCount
 }, new JsonSerializerOptions { WriteIndented = true }));

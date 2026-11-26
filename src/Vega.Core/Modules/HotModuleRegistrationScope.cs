@@ -208,17 +208,27 @@ internal sealed class HotModuleRegistrationScope : IHotModuleContext, IVegaPlugi
         public IDisposable RegisterCore(ICommandHandler handler) =>
             commands.Register(new GuardedCommandHandler(owner, handler));
 
-        private sealed class GuardedCommandHandler(
-            HotModuleRegistrationScope owner,
-            ICommandHandler inner) : ICommandHandler
+        private sealed class GuardedCommandHandler : ICommandHandler
         {
-            public CommandDescriptor Descriptor { get; } = inner.Descriptor;
+            private readonly HotModuleRegistrationScope owner;
+            private readonly ICommandHandler inner;
+            private readonly string operation;
+
+            public GuardedCommandHandler(HotModuleRegistrationScope owner, ICommandHandler inner)
+            {
+                this.owner = owner;
+                this.inner = inner;
+                Descriptor = inner.Descriptor;
+                operation = $"command:{Descriptor.Name}";
+            }
+
+            public CommandDescriptor Descriptor { get; }
 
             public ValueTask<CommandExecutionResult> ExecuteAsync(
                 CommandInvocation invocation,
                 CancellationToken cancellationToken) =>
                 owner.executionGuard.InvokeCommandAsync(
-                    $"command:{Descriptor.Name}",
+                    operation,
                     inner,
                     invocation,
                     cancellationToken);
@@ -315,7 +325,7 @@ internal sealed class HotModuleRegistrationScope : IHotModuleContext, IVegaPlugi
             }
 
             Action<PlayerSessionOpened> guarded = opened =>
-                owner.executionGuard.TryInvoke("players.joined", () => handler(opened));
+                owner.executionGuard.TryInvoke("players.joined", handler, opened);
             lifecycle.Opened += guarded;
             owner.Track(new CleanupRegistration(() => lifecycle.Opened -= guarded));
         }
@@ -329,7 +339,7 @@ internal sealed class HotModuleRegistrationScope : IHotModuleContext, IVegaPlugi
             }
 
             Action<PlayerSessionClosed> guarded = closed =>
-                owner.executionGuard.TryInvoke("players.left", () => handler(closed));
+                owner.executionGuard.TryInvoke("players.left", handler, closed);
             lifecycle.Closed += guarded;
             owner.Track(new CleanupRegistration(() => lifecycle.Closed -= guarded));
         }

@@ -79,6 +79,25 @@ internal sealed class PluginExecutionGuard
         finally { Interlocked.Decrement(ref activeCalls); }
     }
 
+    public bool TryInvoke<T>(string operation, Action<T> callback, T argument)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(operation);
+        ArgumentNullException.ThrowIfNull(callback);
+        if (!TryEnter()) return false;
+
+        try
+        {
+            callback(argument);
+            return true;
+        }
+        catch (Exception exception)
+        {
+            Record(operation, exception);
+            return false;
+        }
+        finally { Interlocked.Decrement(ref activeCalls); }
+    }
+
     public async ValueTask<CommandExecutionResult> InvokeCommandAsync(
         string operation,
         ICommandHandler handler,
