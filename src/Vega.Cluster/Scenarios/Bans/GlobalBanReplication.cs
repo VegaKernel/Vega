@@ -148,14 +148,14 @@ public sealed class GlobalBanCreatedHandler(
 
         foreach (PlayerSnapshot player in players.SnapshotOnlinePlayers())
         {
-            IPAddress? address = TryGetIpAddress(player.RemoteEndpoint);
+            IPAddress? address = TryGetIpAddress(player.Connection?.EffectiveEndpoint ?? player.RemoteEndpoint);
             BanSnapshot? active = await bans.FindActiveBanAsync(
                 new BanIdentity(player.Name, null, player.Connection?.ClientUuid, address),
                 cancellationToken).ConfigureAwait(false);
             if (active?.Id == created.BanId)
             {
                 await playerOperations
-                    .KickAsync(player.Id, $"Globally banned: {created.Reason}", cancellationToken)
+                    .KickAsync(player, $"Globally banned: {created.Reason}", cancellationToken)
                     .ConfigureAwait(false);
             }
         }

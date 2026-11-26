@@ -3,6 +3,7 @@ using Vega.Contracts.Networking;
 using Vega.Contracts.Players;
 using Vega.Contracts.Sandboxes;
 using Vega.Contracts.Threading;
+using Vega.Terraria.Players;
 
 namespace Vega.Terraria.Networking;
 
@@ -11,13 +12,21 @@ public sealed class TerrariaSandboxPlayerTransfer(
     TerrariaConnectionMetadataRegistry connections,
     ISandboxTransferAdmissionService admissions,
     ISandboxSscStore? sscStore = null,
-    ISandboxSscCharacterAdapter? characterAdapter = null) : ISandboxPlayerTransferBoundary
+    ISandboxSscCharacterAdapter? characterAdapter = null,
+    TerrariaPlayerBoundary? players = null) : ISandboxPlayerTransferBoundary
 {
-    public async ValueTask<SandboxPlayerTransferResult> TransferAsync(
+    public ValueTask<SandboxPlayerTransferResult> TransferAsync(
         PlayerId playerId,
         SandboxEndpoint endpoint,
         SandboxTransferTicket ticket,
         CancellationToken cancellationToken = default)
+    {
+        if (players is null || !players.TryGet(playerId, out var player) || player is null)
+            return ValueTask.FromResult(new SandboxPlayerTransferResult(false, "sandbox.transfer.player_not_found"));
+        return TransferAsync(player, endpoint, ticket, cancellationToken);
+    }
+
+    public async ValueTask<SandboxPlayerTransferResult> TransferAsync(PlayerSnapshot player, SandboxEndpoint endpoint, SandboxTransferTicket ticket, CancellationToken cancellationToken = default)
     {
         if (cancellationToken.IsCancellationRequested)
         {
@@ -32,7 +41,7 @@ public sealed class TerrariaSandboxPlayerTransfer(
             }
 
             SandboxSscCharacterCaptureResult captured = await characterAdapter.CaptureAsync(
-                playerId,
+                player,
                 cancellationToken).ConfigureAwait(false);
             if (!captured.Succeeded || captured.Payload is null)
             {
@@ -61,7 +70,7 @@ public sealed class TerrariaSandboxPlayerTransfer(
 
         if (dispatcher.IsGameThread)
         {
-            return Transfer(playerId, endpoint, ticket);
+            return Transfer(player, endpoint, ticket);
         }
 
         var completion = new TaskCompletionSource<SandboxPlayerTransferResult>(
@@ -69,7 +78,7 @@ public sealed class TerrariaSandboxPlayerTransfer(
         if (!dispatcher.TryPost("sandbox.transfer", () => completion.TrySetResult(
                 cancellationToken.IsCancellationRequested
                     ? new SandboxPlayerTransferResult(false, "sandbox.transfer.cancelled")
-                    : Transfer(playerId, endpoint, ticket))))
+                    : Transfer(player, endpoint, ticket))))
         {
             return new SandboxPlayerTransferResult(false, "sandbox.transfer.dispatcher_unavailable");
         }
@@ -78,11 +87,12 @@ public sealed class TerrariaSandboxPlayerTransfer(
     }
 
     private SandboxPlayerTransferResult Transfer(
-        PlayerId playerId,
+        PlayerSnapshot player,
         SandboxEndpoint endpoint,
         SandboxTransferTicket ticket)
     {
-        if ((uint)playerId.Slot >= (uint)global::Terraria.Netplay.Clients.Length ||
+        PlayerId playerId = player.Id;
+        if (players?.TryGetSessionPlayer(player, out _) != true || (uint)playerId.Slot >= (uint)global::Terraria.Netplay.Clients.Length ||
             global::Terraria.Netplay.Clients[playerId.Slot] is not { IsActive: true } client)
         {
             return new SandboxPlayerTransferResult(false, "sandbox.transfer.player_not_found");

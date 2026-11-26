@@ -4,6 +4,7 @@ using Multiplicity.Packets;
 using Terraria.ID;
 using Terraria.Localization;
 using Vega.Contracts.Players;
+using Vega.Contracts.Accounts;
 using Vega.Contracts.Sandboxes;
 using Vega.Contracts.Threading;
 
@@ -14,10 +15,56 @@ namespace Vega.Terraria.Players;
 /// The serialized payload is intentionally Vega-owned so the shared sandbox store remains independent
 /// from legacy database schemas and from any one Terraria process.
 /// </summary>
-public sealed class TerrariaSandboxSscCharacterAdapter(IGameThreadDispatcher dispatcher) : ISandboxSscCharacterAdapter
+public sealed class TerrariaSandboxSscCharacterAdapter(IGameThreadDispatcher dispatcher, TerrariaPlayerBoundary? players = null) : ISandboxSscCharacterAdapter
 {
     private const int SchemaVersion = 1;
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
+    private readonly object earlyJoinSync = new();
+    private readonly Dictionary<int, EarlyJoinCapture> earlyJoin = [];
+
+    /// <summary>Native pre-WorldData hook: receives initial character data before the player is active.</summary>
+    public void ObserveCharacterReceived(int slot, global::Terraria.Net.Sockets.ISocket socket)
+    {
+        if (!dispatcher.IsGameThread || (uint)slot >= (uint)global::Terraria.Netplay.Clients.Length ||
+            global::Terraria.Netplay.Clients[slot] is not { State: 2 } client || !ReferenceEquals(client.Socket, socket)) return;
+        SandboxSscCharacterCaptureResult captured;
+        try { captured = Capture(new PlayerId(slot)); }
+        catch (Exception) { captured = new(false, ErrorCode: "ssc.join_snapshot_unavailable"); }
+        if (captured.Payload is { Length: > 131072 }) captured = new(false, ErrorCode: "ssc.join_snapshot_too_large");
+        lock (earlyJoinSync)
+        {
+            if (!earlyJoin.TryGetValue(slot, out var previous) || !ReferenceEquals(previous.Socket, socket))
+                earlyJoin[slot] = new(socket, captured);
+        }
+    }
+
+    public void ForgetCharacterReceived(int slot, global::Terraria.Net.Sockets.ISocket socket)
+    {
+        lock (earlyJoinSync)
+            if (earlyJoin.TryGetValue(slot, out var capture) && ReferenceEquals(capture.Socket, socket)) earlyJoin.Remove(slot);
+    }
+
+    // Once the initial client character has been captured for explicit administrator import,
+    // the SSC world starts this exact connection with an empty server-owned pending character.
+    public bool PrepareAuthoritativeJoin(int slot, global::Terraria.Net.Sockets.ISocket socket)
+    {
+        if (!dispatcher.IsGameThread || (uint)slot >= (uint)global::Terraria.Netplay.Clients.Length ||
+            global::Terraria.Netplay.Clients[slot] is not { State: 2 } client || !ReferenceEquals(client.Socket, socket)) return false;
+        return Apply(new PlayerId(slot), CreateStarterState(global::Terraria.Main.GameMode == 3, includeItems: false), synchronize: false).Succeeded;
+    }
+
+    public bool SynchronizePendingJoin(int slot, global::Terraria.Net.Sockets.ISocket socket)
+    {
+        if (!dispatcher.IsGameThread || (uint)slot >= (uint)global::Terraria.Netplay.Clients.Length ||
+            global::Terraria.Netplay.Clients[slot] is not { State: 10 } client || !ReferenceEquals(client.Socket, socket) ||
+            !TryGetPlayer(new PlayerId(slot), out var player) || player is null) return false;
+        SyncCharacter(player, broadcast: false);
+        return true;
+    }
+
+    public bool ResetPendingCharacter(PlayerSnapshot expected) => dispatcher.IsGameThread &&
+        players?.TryGetSessionPlayer(expected, out _) == true &&
+        Apply(expected.Id, CreateStarterState(global::Terraria.Main.GameMode == 3, includeItems: false)).Succeeded;
 
     public ValueTask<SandboxSscCharacterCaptureResult> CaptureAsync(
         PlayerId playerId,
@@ -29,10 +76,67 @@ public sealed class TerrariaSandboxSscCharacterAdapter(IGameThreadDispatcher dis
             new SandboxSscCharacterCaptureResult(false, ErrorCode: "sandbox.ssc.dispatcher_unavailable"),
             new SandboxSscCharacterCaptureResult(false, ErrorCode: "sandbox.ssc.cancelled"));
 
+    public ValueTask<SandboxSscCharacterCaptureResult> CaptureAsync(PlayerSnapshot player, CancellationToken cancellationToken = default) =>
+        DispatchAsync("sandbox.ssc.capture", () => players?.TryGetSessionPlayer(player, out _) == true
+            ? Capture(player.Id) : new SandboxSscCharacterCaptureResult(false, ErrorCode: "sandbox.ssc.session_changed"), cancellationToken,
+            new SandboxSscCharacterCaptureResult(false, ErrorCode: "sandbox.ssc.dispatcher_unavailable"),
+            new SandboxSscCharacterCaptureResult(false, ErrorCode: "sandbox.ssc.cancelled"));
+
+    public ValueTask<SandboxSscCharacterCaptureResult> CaptureJoinAsync(PlayerSnapshot player, CancellationToken cancellationToken = default) =>
+        DispatchAsync("ssc.join.capture", () =>
+        {
+            if (players?.TryGetSessionPlayer(player, out _) != true)
+                return new SandboxSscCharacterCaptureResult(false, ErrorCode: "sandbox.ssc.session_changed");
+            int slot = player.Id.Slot;
+            var socket = global::Terraria.Netplay.Clients[slot]?.Socket;
+            lock (earlyJoinSync)
+            {
+                if (earlyJoin.Remove(slot, out var capture) && ReferenceEquals(capture.Socket, socket))
+                    return capture.Result;
+            }
+            // A missing early snapshot is not interchangeable with a later character state.
+            return new SandboxSscCharacterCaptureResult(false, ErrorCode: "ssc.join_snapshot_unavailable");
+        }, cancellationToken, new SandboxSscCharacterCaptureResult(false, ErrorCode: "sandbox.ssc.dispatcher_unavailable"),
+            new SandboxSscCharacterCaptureResult(false, ErrorCode: "sandbox.ssc.cancelled"));
+
+    private sealed record EarlyJoinCapture(global::Terraria.Net.Sockets.ISocket Socket, SandboxSscCharacterCaptureResult Result);
+
+    public ValueTask<SandboxSscCharacterCaptureResult> CreateInitialAsync(PlayerSnapshot player, IPlayerAccountSessionService accounts,
+        PlayerAccountBinding binding, CancellationToken cancellationToken = default) =>
+        DispatchAsync("ssc.primary.initial", () => WithBinding(player, accounts, binding,
+            () => new SandboxSscCharacterCaptureResult(true, CreateStarterPayload(global::Terraria.Main.GameMode == 3)),
+            new SandboxSscCharacterCaptureResult(false, ErrorCode: "ssc.binding_changed")), cancellationToken,
+            new SandboxSscCharacterCaptureResult(false, ErrorCode: "sandbox.ssc.dispatcher_unavailable"),
+            new SandboxSscCharacterCaptureResult(false, ErrorCode: "sandbox.ssc.cancelled"));
+
+    public ValueTask<SandboxSscCharacterCaptureResult> CaptureAuthenticatedAsync(PlayerSnapshot player, IPlayerAccountSessionService accounts,
+        PlayerAccountBinding binding, CancellationToken cancellationToken = default) =>
+        DispatchAsync("ssc.primary.capture", () => WithBinding(player, accounts, binding, () => Capture(player.Id),
+            new SandboxSscCharacterCaptureResult(false, ErrorCode: "ssc.binding_changed")), cancellationToken,
+            new SandboxSscCharacterCaptureResult(false, ErrorCode: "sandbox.ssc.dispatcher_unavailable"),
+            new SandboxSscCharacterCaptureResult(false, ErrorCode: "sandbox.ssc.cancelled"));
+
+    public ValueTask<SandboxSscCharacterApplyResult> ApplyAuthenticatedAsync(PlayerSnapshot player, IPlayerAccountSessionService accounts,
+        PlayerAccountBinding binding, string payload, CancellationToken cancellationToken = default) =>
+        ApplyCoreAsync(player.Id, player, payload, cancellationToken, accounts, binding);
+
+    private T WithBinding<T>(PlayerSnapshot player, IPlayerAccountSessionService accounts, PlayerAccountBinding binding, Func<T> action, T rejected)
+    {
+        if (binding.PlayerId != player.Id || binding.SessionId != player.SessionId || players?.TryGetSessionPlayer(player, out _) != true)
+            return rejected;
+        return accounts.TryRunWithBinding(binding, action, out T result) ? result : rejected;
+    }
+
     public ValueTask<SandboxSscCharacterApplyResult> ApplyAsync(
         PlayerId playerId,
         string payload,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default) => ApplyCoreAsync(playerId, null, payload, cancellationToken);
+
+    public ValueTask<SandboxSscCharacterApplyResult> ApplyAsync(PlayerSnapshot player, string payload, CancellationToken cancellationToken = default) =>
+        ApplyCoreAsync(player.Id, player, payload, cancellationToken);
+
+    private ValueTask<SandboxSscCharacterApplyResult> ApplyCoreAsync(PlayerId playerId, PlayerSnapshot? expected, string payload, CancellationToken cancellationToken,
+        IPlayerAccountSessionService? accounts = null, PlayerAccountBinding? binding = null)
     {
         ArgumentNullException.ThrowIfNull(payload);
         CharacterState? state;
@@ -52,7 +156,10 @@ public sealed class TerrariaSandboxSscCharacterAdapter(IGameThreadDispatcher dis
 
         return DispatchAsync(
             "sandbox.ssc.apply",
-            () => Apply(playerId, state),
+            () => expected is not null && accounts is not null && binding is { } accountBinding
+                ? WithBinding(expected, accounts, accountBinding, () => Apply(playerId, state), new SandboxSscCharacterApplyResult(false, "ssc.binding_changed"))
+                : expected is null || players?.TryGetSessionPlayer(expected, out _) == true
+                ? Apply(playerId, state) : new SandboxSscCharacterApplyResult(false, "sandbox.ssc.session_changed"),
             cancellationToken,
             new SandboxSscCharacterApplyResult(false, "sandbox.ssc.dispatcher_unavailable"),
             new SandboxSscCharacterApplyResult(false, "sandbox.ssc.cancelled"));
@@ -69,9 +176,9 @@ public sealed class TerrariaSandboxSscCharacterAdapter(IGameThreadDispatcher dis
         var state = new CharacterState
         {
             Version = SchemaVersion,
-            Life = Math.Max(1, player.statLife),
+            Life = Math.Clamp(player.statLife, 1, Math.Max(1, player.statLifeMax)),
             MaxLife = player.statLifeMax,
-            Mana = player.statMana,
+            Mana = Math.Clamp(player.statMana, 0, Math.Max(0, player.statManaMax)),
             MaxMana = player.statManaMax,
             SpawnX = player.SpawnX,
             SpawnY = player.SpawnY,
@@ -124,10 +231,11 @@ public sealed class TerrariaSandboxSscCharacterAdapter(IGameThreadDispatcher dis
             })]
         };
 
-        return new SandboxSscCharacterCaptureResult(true, JsonSerializer.Serialize(state, JsonOptions));
+        return Validate(state) ? new SandboxSscCharacterCaptureResult(true, JsonSerializer.Serialize(state, JsonOptions))
+            : new SandboxSscCharacterCaptureResult(false, ErrorCode: "sandbox.ssc.capture_invalid");
     }
 
-    private SandboxSscCharacterApplyResult Apply(PlayerId playerId, CharacterState state)
+    private SandboxSscCharacterApplyResult Apply(PlayerId playerId, CharacterState state, bool synchronize = true)
     {
         dispatcher.AssertGameThread();
         if (!TryGetPlayer(playerId, out global::Terraria.Player? player) || player is null)
@@ -188,15 +296,15 @@ public sealed class TerrariaSandboxSscCharacterAdapter(IGameThreadDispatcher dis
             ApplyItems(player.bank3.item, state.Forge);
             ApplyItems(player.bank4.item, state.VoidVault);
             ApplyItem(player.trashItem, state.Trash);
-            for (int index = 0; index < player.Loadouts.Length && index < state.Loadouts.Length; index++)
+            for (int index = 0; index < player.Loadouts.Length; index++)
             {
-                ApplyItems(player.Loadouts[index].Armor, state.Loadouts[index].Armor);
-                ApplyItems(player.Loadouts[index].Dye, state.Loadouts[index].Dye);
+                ApplyItems(player.Loadouts[index].Armor, index < state.Loadouts.Length ? state.Loadouts[index].Armor : []);
+                ApplyItems(player.Loadouts[index].Dye, index < state.Loadouts.Length ? state.Loadouts[index].Dye : []);
             }
 
             Array.Clear(player.buffType);
             Array.Clear(player.buffTime);
-            SyncCharacter(player);
+            if (synchronize) SyncCharacter(player);
             return new SandboxSscCharacterApplyResult(true);
         }
         catch (Exception)
@@ -235,7 +343,9 @@ public sealed class TerrariaSandboxSscCharacterAdapter(IGameThreadDispatcher dis
     {
         if (state.Life <= 0 || state.MaxLife <= 0 || state.Life > state.MaxLife ||
             state.Mana < 0 || state.MaxMana < 0 || state.Mana > state.MaxMana ||
-            state.Loadouts.Length > 3)
+            state.Loadouts is null || state.Loadouts.Length > 3 || state.Loadouts.Any(loadout => loadout is null || loadout.Armor is null || loadout.Dye is null) ||
+            state.HideVisuals is null || state.Inventory is null || state.Armor is null || state.Dye is null || state.MiscEquips is null ||
+            state.MiscDyes is null || state.Piggy is null || state.Safe is null || state.Forge is null || state.VoidVault is null)
         {
             return false;
         }
@@ -243,6 +353,27 @@ public sealed class TerrariaSandboxSscCharacterAdapter(IGameThreadDispatcher dis
         return AllItems(state).All(static item =>
             item.Type >= 0 && item.Type < ItemID.Count && item.Stack >= 0);
     }
+
+    internal static string CreateStarterPayload(bool journey) => JsonSerializer.Serialize(CreateStarterState(journey, includeItems: true), JsonOptions);
+
+    /// <summary>Encode an explicitly validated offline migration state using the current native adapter schema.</summary>
+    public static string SerializeImportedCharacter(CharacterState state)
+    {
+        ArgumentNullException.ThrowIfNull(state);
+        if (state.Version != SchemaVersion || !Validate(state))
+            throw new InvalidDataException("Imported character does not match the native SSC schema.");
+        return JsonSerializer.Serialize(state, JsonOptions);
+    }
+
+    internal static CharacterState CreateStarterState(bool journey, bool includeItems) => new()
+    {
+        Version = SchemaVersion, Life = 100, MaxLife = 100, Mana = 20, MaxMana = 20,
+        SpawnX = -1, SpawnY = -1, Difficulty = journey ? (byte)3 : (byte)0,
+        HairColor = new(92, 68, 48, 255), SkinColor = new(255, 205, 148, 255), EyeColor = new(105, 90, 75, 255),
+        ShirtColor = new(80, 130, 180, 255), UnderShirtColor = new(160, 160, 160, 255),
+        PantsColor = new(80, 90, 110, 255), ShoeColor = new(80, 60, 45, 255),
+        Inventory = includeItems ? [new(ItemID.CopperShortsword, 1, 0, false), new(ItemID.CopperPickaxe, 1, 0, false), new(ItemID.CopperAxe, 1, 0, false)] : []
+    };
 
     private static IEnumerable<ItemState> AllItems(CharacterState state) =>
         state.Inventory
@@ -257,7 +388,7 @@ public sealed class TerrariaSandboxSscCharacterAdapter(IGameThreadDispatcher dis
             .Append(state.Trash)
             .Concat(state.Loadouts.SelectMany(static loadout => loadout.Armor.Concat(loadout.Dye)));
 
-    private static void SyncCharacter(global::Terraria.Player player)
+    private static void SyncCharacter(global::Terraria.Player player, bool broadcast = true)
     {
         int index = player.whoAmI;
         global::Terraria.NetMessage.SendData(
@@ -267,7 +398,7 @@ public sealed class TerrariaSandboxSscCharacterAdapter(IGameThreadDispatcher dis
             NetworkText.Empty,
             index,
             player.CurrentLoadoutIndex);
-        global::Terraria.NetMessage.SendData(
+        if (broadcast) global::Terraria.NetMessage.SendData(
             (int)PacketTypes.SyncLoadout,
             -1,
             index,
@@ -275,48 +406,49 @@ public sealed class TerrariaSandboxSscCharacterAdapter(IGameThreadDispatcher dis
             index,
             player.CurrentLoadoutIndex);
 
-        SyncSlots(index, PlayerItemSlotID.Inventory0, player.inventory.Length);
-        SyncSlots(index, PlayerItemSlotID.Armor0, player.armor.Length);
-        SyncSlots(index, PlayerItemSlotID.Dye0, player.dye.Length);
-        SyncSlots(index, PlayerItemSlotID.Misc0, player.miscEquips.Length);
-        SyncSlots(index, PlayerItemSlotID.MiscDye0, player.miscDyes.Length);
-        SyncSlots(index, PlayerItemSlotID.Bank1_0, player.bank.item.Length);
-        SyncSlots(index, PlayerItemSlotID.Bank2_0, player.bank2.item.Length);
-        SyncSingleSlot(index, PlayerItemSlotID.TrashItem);
-        SyncSlots(index, PlayerItemSlotID.Bank3_0, player.bank3.item.Length);
-        SyncSlots(index, PlayerItemSlotID.Bank4_0, player.bank4.item.Length);
+        SyncSlots(index, PlayerItemSlotID.Inventory0, player.inventory.Length, broadcast);
+        SyncSlots(index, PlayerItemSlotID.Armor0, player.armor.Length, broadcast);
+        SyncSlots(index, PlayerItemSlotID.Dye0, player.dye.Length, broadcast);
+        SyncSlots(index, PlayerItemSlotID.Misc0, player.miscEquips.Length, broadcast);
+        SyncSlots(index, PlayerItemSlotID.MiscDye0, player.miscDyes.Length, broadcast);
+        SyncSlots(index, PlayerItemSlotID.Bank1_0, player.bank.item.Length, broadcast: false);
+        SyncSlots(index, PlayerItemSlotID.Bank2_0, player.bank2.item.Length, broadcast: false);
+        SyncSingleSlot(index, PlayerItemSlotID.TrashItem, broadcast: false);
+        SyncSlots(index, PlayerItemSlotID.Bank3_0, player.bank3.item.Length, broadcast: false);
+        SyncSlots(index, PlayerItemSlotID.Bank4_0, player.bank4.item.Length, broadcast: false);
         if (player.Loadouts.Length >= 3)
         {
-            SyncSlots(index, PlayerItemSlotID.Loadout1_Armor_0, player.Loadouts[0].Armor.Length);
-            SyncSlots(index, PlayerItemSlotID.Loadout1_Dye_0, player.Loadouts[0].Dye.Length);
-            SyncSlots(index, PlayerItemSlotID.Loadout2_Armor_0, player.Loadouts[1].Armor.Length);
-            SyncSlots(index, PlayerItemSlotID.Loadout2_Dye_0, player.Loadouts[1].Dye.Length);
-            SyncSlots(index, PlayerItemSlotID.Loadout3_Armor_0, player.Loadouts[2].Armor.Length);
-            SyncSlots(index, PlayerItemSlotID.Loadout3_Dye_0, player.Loadouts[2].Dye.Length);
+            SyncSlots(index, PlayerItemSlotID.Loadout1_Armor_0, player.Loadouts[0].Armor.Length, broadcast);
+            SyncSlots(index, PlayerItemSlotID.Loadout1_Dye_0, player.Loadouts[0].Dye.Length, broadcast);
+            SyncSlots(index, PlayerItemSlotID.Loadout2_Armor_0, player.Loadouts[1].Armor.Length, broadcast);
+            SyncSlots(index, PlayerItemSlotID.Loadout2_Dye_0, player.Loadouts[1].Dye.Length, broadcast);
+            SyncSlots(index, PlayerItemSlotID.Loadout3_Armor_0, player.Loadouts[2].Armor.Length, broadcast);
+            SyncSlots(index, PlayerItemSlotID.Loadout3_Dye_0, player.Loadouts[2].Dye.Length, broadcast);
         }
 
-        global::Terraria.NetMessage.SendData(4, -1, -1, NetworkText.FromLiteral(player.name), index);
-        global::Terraria.NetMessage.SendData(42, -1, -1, NetworkText.Empty, index);
-        global::Terraria.NetMessage.SendData(16, -1, -1, NetworkText.Empty, index);
-        global::Terraria.NetMessage.SendData(50, -1, -1, NetworkText.Empty, index);
+        int destination = broadcast ? -1 : index;
+        global::Terraria.NetMessage.SendData(4, destination, -1, NetworkText.FromLiteral(player.name), index);
+        global::Terraria.NetMessage.SendData(42, destination, -1, NetworkText.Empty, index);
+        global::Terraria.NetMessage.SendData(16, destination, -1, NetworkText.Empty, index);
+        if (broadcast) global::Terraria.NetMessage.SendData(50, -1, index, NetworkText.Empty, index);
         global::Terraria.NetMessage.SendData(50, index, -1, NetworkText.Empty, index);
         global::Terraria.NetMessage.SendData(76, index, -1, NetworkText.Empty, index);
-        global::Terraria.NetMessage.SendData(76, -1, -1, NetworkText.Empty, index);
+        if (broadcast) global::Terraria.NetMessage.SendData(76, -1, index, NetworkText.Empty, index);
         global::Terraria.NetMessage.SendData(45, index, -1, NetworkText.Empty, index);
-        global::Terraria.NetMessage.SendData(45, -1, -1, NetworkText.Empty, index);
+        if (broadcast) global::Terraria.NetMessage.SendData(45, -1, index, NetworkText.Empty, index);
     }
 
-    private static void SyncSlots(int playerIndex, int firstSlot, int count)
+    private static void SyncSlots(int playerIndex, int firstSlot, int count, bool broadcast = true)
     {
         for (int offset = 0; offset < count; offset++)
         {
-            SyncSingleSlot(playerIndex, firstSlot + offset);
+            SyncSingleSlot(playerIndex, firstSlot + offset, broadcast);
         }
     }
 
-    private static void SyncSingleSlot(int playerIndex, int slot)
+    private static void SyncSingleSlot(int playerIndex, int slot, bool broadcast = true)
     {
-        global::Terraria.NetMessage.SendData(5, -1, -1, NetworkText.Empty, playerIndex, slot);
+        if (broadcast) global::Terraria.NetMessage.SendData(5, -1, playerIndex, NetworkText.Empty, playerIndex, slot);
         global::Terraria.NetMessage.SendData(5, playerIndex, -1, NetworkText.Empty, playerIndex, slot);
     }
 
@@ -356,13 +488,16 @@ public sealed class TerrariaSandboxSscCharacterAdapter(IGameThreadDispatcher dis
         }
 
         var completion = new TaskCompletionSource<T>(TaskCreationOptions.RunContinuationsAsynchronously);
-        if (!dispatcher.TryPost(operation, () => completion.TrySetResult(
-                cancellationToken.IsCancellationRequested ? cancelled : action())))
+        if (!dispatcher.TryPost(operation, () =>
+            {
+                try { completion.TrySetResult(cancellationToken.IsCancellationRequested ? cancelled : action()); }
+                catch (Exception ex) { completion.TrySetException(ex); }
+            }))
         {
             return ValueTask.FromResult(unavailable);
         }
 
-        return new ValueTask<T>(completion.Task);
+        return new ValueTask<T>(completion.Task.WaitAsync(cancellationToken));
     }
 
     public sealed class CharacterState

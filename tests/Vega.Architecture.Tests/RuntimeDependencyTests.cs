@@ -317,12 +317,15 @@ public sealed class RuntimeDependencyTests
             Assert.That(workflow, Does.Not.Contain("foreach ($project in $projects)"));
             Assert.That(workflow, Does.Not.Contain("artifacts/nuget/*.snupkg"));
             Assert.That(Regex.Matches(workflow, "dotnet pack").Count, Is.EqualTo(1));
-            Assert.That(Regex.Matches(nuspec, @"\.dll"" target=""lib\\\$tfm\$""").Count, Is.EqualTo(18));
-            Assert.That(Regex.Matches(nuspec, @"\.pdb"" target=""lib\\\$tfm\$""").Count, Is.EqualTo(18));
+            Assert.That(Regex.Matches(nuspec, @"\.dll"" target=""lib\\\$tfm\$""").Count, Is.EqualTo(20));
+            Assert.That(Regex.Matches(nuspec, @"\.pdb"" target=""lib\\\$tfm\$""").Count, Is.EqualTo(20));
             Assert.That(nuspec, Does.Contain("Vega.Contracts.dll"));
             Assert.That(nuspec, Does.Contain("Vega.Contracts.pdb"));
             Assert.That(nuspec, Does.Contain("Vega.PluginSdk.dll"));
             Assert.That(nuspec, Does.Contain("Vega.PluginSdk.pdb"));
+            Assert.That(nuspec, Does.Contain("Vega.Modules.Navigation.dll"));
+            Assert.That(nuspec, Does.Contain("Vega.Modules.Navigation.pdb"));
+            Assert.That(nuspec, Does.Contain("Vega.Modules.Restrictions.dll"));
             Assert.That(nuspec, Does.Not.Contain("<dependency id=\"Vega."));
         });
     }
@@ -491,12 +494,20 @@ public sealed class RuntimeDependencyTests
             repositoryRoot, "src", "Vega.Terraria", "Vega.Terraria.csproj"));
         string runtimeProject = File.ReadAllText(Path.Combine(
             repositoryRoot, "src", "Vega.Runtime", "Vega.Runtime.csproj"));
+        string playerBoundary = File.ReadAllText(Path.Combine(repositoryRoot, "src", "Vega.Terraria", "Players", "TerrariaPlayerBoundary.cs"));
+        string nativeHost = File.ReadAllText(Path.Combine(repositoryRoot, "src", "Vega.Terraria", "TerrariaServerHost.cs"));
 
         Assert.Multiple(() =>
         {
-            Assert.That(terrariaProject, Does.Contain("PackageReference Include=\"TerrariaRuntime\" Version=\"1.0.1\""));
+            Assert.That(terrariaProject, Does.Contain("PackageReference Include=\"TerrariaRuntime\" Version=\"1.1.5\""));
             Assert.That(terrariaProject, Does.Not.Contain("TerrariaRuntime.Upcoming"));
             Assert.That(runtimeProject, Does.Not.Contain("ModFramework"));
+            Assert.That(playerBoundary, Does.Contain("Hooks.Netplay.ServerConnectionClosing += OnConnectionClosing"));
+            Assert.That(playerBoundary, Does.Contain("Hooks.Netplay.ServerPlayerEnteringWorld += OnPlayerEnteringWorld"));
+            Assert.That(nativeHost, Does.Contain("Hooks.Netplay.ServerPlayerBeforeWorldData += OnBeforeWorldData"));
+            Assert.That(nativeHost, Does.Contain("earlyJoinCharacters!.ObserveCharacterReceived(slot, socket)"));
+            Assert.That(nativeHost, Does.Contain("Hooks.Netplay.ServerPlayerEnteringWorld += OnEnteringWorld"));
+            Assert.That(playerBoundary, Does.Not.Contain("HookEvents.Terraria.RemoteClient.Reset"));
         });
     }
 
@@ -569,7 +580,7 @@ public sealed class RuntimeDependencyTests
 
         Assert.Multiple(() =>
         {
-            Assert.That(source, Does.Contain("PacketViewParser.TryParsePayloadBounded"));
+            Assert.That(source, Does.Contain("MultiplicityPacketProcessing.TryParseInboundPayload"));
             Assert.That(source, Does.Contain("NetTextModuleView"));
             Assert.That(source, Does.Contain("IPlayerMessenger"));
             Assert.That(source, Does.Not.Contain("Commands.HandleCommand"));
@@ -605,7 +616,9 @@ public sealed class RuntimeDependencyTests
             Assert.That(classification, Does.Contain("internal static class PacketPipelineClassification"));
             Assert.That(classification, Does.Contain("PacketPreparationClass.GameThreadOnly"));
             Assert.That(classification, Does.Contain("PacketPreparationClass.PartiallyOffloadable"));
-            Assert.That(ingress, Does.Contain("PacketViewParser.TryParsePayloadBounded"));
+            Assert.That(ingress, Does.Contain("PacketViewParser.TryParsePayload(rawPacketId, buffer.AsMemory(offset, availableLength)"));
+            Assert.That(ingress, Does.Contain("availableLength <= buffer.Length - offset"));
+            Assert.That(ingress, Does.Not.Contain(".ToArray()"));
             Assert.That(ingress, Does.Contain("processor.Process(in context)"));
             Assert.That(hook, Does.Not.Contain("Task.Run"));
             Assert.That(hook, Does.Not.Contain("Channel<"));

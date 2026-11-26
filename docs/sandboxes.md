@@ -28,13 +28,18 @@ An empty enabled-module set means all bundled modules. Backend command and regio
 contexts carry the sandbox `WorldId`; accounts, bans and baseline authorization use the
 same configured database, while regions and module policy remain world-scoped.
 
-SSC modes are explicit and fully wired. `Inherit` uses the shared primary account scope,
+Sandbox transfer SSC modes are explicit. `Inherit` uses the shared primary account scope,
 `CopyOnEnter` seeds a world-local copy and preserves the primary baseline on return,
 `Isolated` keeps a world-local character scope, and `Disabled` leaves character authority
 to the client. A cross-process file-locked store provides revisions and transfer leases;
 Terraria capture/apply persists inventory, armor/dyes, banks, trash, loadouts, life/mana,
 spawn, appearance and permanent character flags. Conflicting revisions fail closed rather
-than overwriting newer state.
+than overwriting newer state. Periodic and transfer captures are bound to the original
+connection session. A final capture is taken synchronously before the native slot reset;
+if that hook cannot capture, the last persisted checkpoint remains unchanged. Normal primary-world
+login/initial character provisioning and complete live-client SSC authority are still pending.
+
+The `config/primary-character-persistence.json` option (`enabled: false` by default) restores and saves authenticated primary sessions. Legacy persistence without `authoritative` uses `data/primary-characters.json`; opt-in authority sets the native SSC flag, keeps a blank server-owned pending character, checks readiness before gameplay, and uses the shared `data/sandboxes/ssc.json` primary scope. Non-disabled sandbox SSC modes set the native flag as well. Initial data is server-created rather than implicitly imported from the client inventory. Use the [offline migration command](migration.md) before switching from legacy primary state. The server-side lifecycle and synthetic migration are tested; stock-client login, restore and cross-world transfer remain qualification gates.
 
 ## Lifecycle and commands
 
@@ -70,7 +75,7 @@ Transfer admission checks target readiness, capacity and access policy before is
 30-second HMAC ticket bound to account, origin, target, nonce and ticket ID. Because
 Dimensions packet 67/type 3 carries only host and port, Vega does not expose the ticket
 to the client. The source instead writes a short-lived shared rendezvous bound to the
-trusted forwarded client IP and canonical UUID; the receiving sandbox must atomically
+trusted forwarded client IP and exact bounded opaque Terraria UUID; the receiving sandbox must atomically
 consume that rendezvous after trusted type-0 forwarding and packet 68. Acceptance is
 target-bound and single-use; replay, expiry, wrong target and backend loss fail closed. Shared identity/bans remain server-wide. SSC and world-local region/rule
 policy are named in the descriptor rather than inferred from the process.
@@ -89,6 +94,10 @@ Operations/TUI shows every descriptor and lifecycle state together with endpoint
 players, uptime timestamps, TPS, CPU, working set, instance bytes, restart count,
 template revision and TTL. Backend stdout/stderr is copied into bounded parent logs and
 each backend writes a separate JSONL diagnostic under `logs/sandboxes/<WorldId>/`.
+
+Each backend launches in `data/sandboxes/instances/<WorldId>/runtime/` with a private `saves/` directory. Mutable plugin configuration/data, chest templates, warps and restrictions live in that runtime's `data/` directory. The executable and read-only deployment config remain shared; account/ban database and authenticated transfer state are intentionally shared control-plane services. Native socket activation/close owns connection metadata lifetime and the dedicated stopping hook withdraws readiness. The native console input encoding is set explicitly for graceful Windows/Linux backend shutdown. Sandbox TCP listeners bind to `127.0.0.1` by default (`backendBindAddress`); change the address only when the trusted proxy deployment requires it.
+
+Whitelist and bans are deployment-wide, including already running backends. The sole whitelist is `data/whitelist.json` next to `data/whitelist.json.lock` at deployment root, not the worker runtime directory. The store serializes updates across processes, and new admissions read the latest committed policy. Existing clients are not kicked merely because the whitelist changes. Active bans use the shared account/ban database and periodic session-bound enforcement. Regions, build protection, warps, restrictions and plugin state remain world-local.
 
 Run `dotnet run --project benchmarks/Vega.Sandbox.Benchmarks -c Release -- 32 4` for
 the process-control regression harness. On the x64 .NET 10.0.11 development host, four

@@ -127,6 +127,8 @@ jobs:
             'Vega.Modules.Administration.dll',
             'Vega.Modules.AutoWorldCleaner.dll',
             'Vega.Modules.Chests.dll',
+            'Vega.Modules.Navigation.dll',
+            'Vega.Modules.Restrictions.dll',
             'Vega.Modules.Mentions.dll',
             'Vega.Modules.Pvp.dll',
             'Vega.Modules.CustomItems.dll',
@@ -154,7 +156,7 @@ jobs:
 
       - name: Smoke-test clean deployment
         shell: pwsh
-        run: ./scripts/Test-DeployableServer.ps1 -ServerRoot artifacts/server
+        run: ./scripts/Test-DeployableServer.ps1 -ServerRoot artifacts/server -TestSandboxIsolation
 
       - name: Create release artifacts
         shell: pwsh

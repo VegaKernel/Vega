@@ -58,8 +58,7 @@ public sealed class WorldMutationSanityPolicy(
             PacketTypes.SyncChestSize => ValidateChestSize(context.Packet.AsSyncChestSizeView()),
             PacketTypes.ChestName => ValidateChestName(context.Packet.AsChestNameView()),
             PacketTypes.SyncPlayerChestIndex => ValidatePlayerChestIndex(context.Packet.AsSyncPlayerChestIndexView().Chest),
-            PacketTypes.ForceItemIntoNearestChest => ValidateInventorySlot(
-                context.Packet.AsForceItemIntoNearestChestView().InventorySlot),
+            PacketTypes.ForceItemIntoNearestChest => ValidateQuickStack(context.Packet.AsForceItemIntoNearestChestView()),
             PacketTypes.ChestUnlock => ValidateCoordinates(
                 context.Packet.AsChestUnlockView().X,
                 context.Packet.AsChestUnlockView().Y,
@@ -294,12 +293,15 @@ public sealed class WorldMutationSanityPolicy(
     private PacketProcessingDecision ValidatePlayerChestIndex(int chest) =>
         chest is >= -5 and <= -1 ? PacketProcessingDecision.Allow : ValidateChestId(chest);
 
-    private PacketProcessingDecision ValidateInventorySlot(int slot)
+    private PacketProcessingDecision ValidateQuickStack(ForceItemIntoNearestChestView value)
     {
+        if (value.PayloadKind != QuickStackChestsPayloadKind.InventoryRequest)
+            return PacketProcessingDecision.Reject("packet.quick_stack.direction");
         int count = inventorySlotCount();
-        return count <= 0 || slot < 0 || slot >= count
-            ? PacketProcessingDecision.Violation("packet.inventory.slot_out_of_range")
-            : PacketProcessingDecision.Allow;
+        foreach (short slot in value.InventorySlots)
+            if (count <= 0 || slot < 0 || slot >= count)
+                return PacketProcessingDecision.Violation("packet.inventory.slot_out_of_range");
+        return PacketProcessingDecision.Allow;
     }
 
     private PacketProcessingDecision ValidateMassWire(MassWireOperationView value)

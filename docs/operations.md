@@ -91,3 +91,8 @@ Local palette actions control only the view:
 ```
 
 Log retention is bounded and filtering supports minimum level, source and text. Pausing freezes the displayed immutable snapshot; it never pauses server execution or log ingestion.
+# Local scoped REST
+
+An optional primary-world operations listener binds `127.0.0.1` only (`VEGA_REST_PORT`, `VEGA_REST_TOKEN_SHA256`). Clients send a randomly generated bearer token in the Authorization header; the process retains only its SHA-256 fingerprint. `GET /v1/status`, `/v1/players`, `/v1/network`, `/v1/metrics`, and `/v1/scheduler` expose bounded immutable snapshots without endpoints or account secrets. Metrics include CPU time, working set and private memory, total allocations, GC collections and pause duration, plus game-thread pending/dropped work, capacity and scheduling budget. A distinct maintenance token (`VEGA_REST_MAINTENANCE_TOKEN_SHA256`) authorizes `POST /v1/world/save`; the endpoint calls only the existing typed native save boundary, never arbitrary commands. `rest status`, `rest listusers`, `rest destroytokens` are permission checked; token revocation lasts until restart. The default is disabled, and sandbox processes do not open this listener. See the [project guide](en/project-guide.md).
+
+`scripts/Measure-LiveVegaServer.ps1` samples readiness, actual connected-player count, p50/p95/p99 tick duration, GC/process/network counters and scheduler depth into a timestamped CSV through the local read API. Supply the read bearer token in `VEGA_REST_READ_TOKEN` in the measurement process. Its `-MinimumPlayers` gate fails qualification if any measured sample falls below the requested connected-player count; loopback transport peers alone do not count as in-game players.

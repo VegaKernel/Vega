@@ -45,24 +45,55 @@ internal sealed class SqliteGlobalBanReplica(
                     revoked_at_utc = NULL
                 WHERE excluded.revision > global_bans.revision;
                 """;
-            command.Parameters.AddWithValue("$id", created.BanId.Value.ToString("D"));
-            command.Parameters.AddWithValue("$subjectKind", (int)created.Subject.Kind);
-            command.Parameters.AddWithValue("$subjectValue", created.Subject.Value);
-            command.Parameters.AddWithValue("$reason", created.Reason);
-            command.Parameters.AddWithValue("$createdBy", created.CreatedBy);
-            command.Parameters.AddWithValue("$createdAt", Format(created.CreatedAt));
-            command.Parameters.AddWithValue(
-                "$expiresAt",
-                created.ExpiresAt is DateTimeOffset expiresAt
-                    ? Format(expiresAt)
-                    : DBNull.Value);
-            command.Parameters.AddWithValue("$revision", created.Revision);
+            BindCreated(command, created);
             return await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false) == 1;
         }
         finally
         {
             writes.Release();
         }
+    }
+
+    internal async ValueTask<int> ImportNewAsync(IReadOnlyList<GlobalBanCreated> bans, CancellationToken token)
+    {
+        ensureReady();
+        foreach (var ban in bans) Validate(ban);
+        if (bans.Select(ban => ban.BanId).Distinct().Count() != bans.Count)
+            throw new InvalidDataException("Ban import contains duplicate identifiers.");
+        await writes.WaitAsync(token).ConfigureAwait(false);
+        try
+        {
+            await using var connection = await connections.OpenAsync(token).ConfigureAwait(false);
+            await using var transaction = connection.BeginTransaction();
+            int imported = 0;
+            foreach (var ban in bans)
+            {
+                await using var command = connection.CreateCommand();
+                command.Transaction = transaction;
+                command.CommandText = """
+                    INSERT INTO global_bans (id, subject_kind, subject_value, reason, created_by, created_at_utc, expires_at_utc, revision, revoked)
+                    VALUES ($id, $subjectKind, $subjectValue, $reason, $createdBy, $createdAt, $expiresAt, $revision, 0)
+                    ON CONFLICT(id) DO NOTHING;
+                    """;
+                BindCreated(command, ban);
+                imported += await command.ExecuteNonQueryAsync(token).ConfigureAwait(false);
+            }
+            await transaction.CommitAsync(token).ConfigureAwait(false);
+            return imported;
+        }
+        finally { writes.Release(); }
+    }
+
+    private static void BindCreated(SqliteCommand command, GlobalBanCreated created)
+    {
+        command.Parameters.AddWithValue("$id", created.BanId.Value.ToString("D"));
+        command.Parameters.AddWithValue("$subjectKind", (int)created.Subject.Kind);
+        command.Parameters.AddWithValue("$subjectValue", created.Subject.Value);
+        command.Parameters.AddWithValue("$reason", created.Reason);
+        command.Parameters.AddWithValue("$createdBy", created.CreatedBy);
+        command.Parameters.AddWithValue("$createdAt", Format(created.CreatedAt));
+        command.Parameters.AddWithValue("$expiresAt", created.ExpiresAt is DateTimeOffset expiresAt ? Format(expiresAt) : DBNull.Value);
+        command.Parameters.AddWithValue("$revision", created.Revision);
     }
 
     public async ValueTask<bool> ApplyRevokedAsync(

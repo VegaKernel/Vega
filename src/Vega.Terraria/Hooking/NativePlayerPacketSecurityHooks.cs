@@ -18,6 +18,8 @@ internal sealed class NativePlayerPacketSecurityHooks : IDisposable
     private readonly IOperationsLogger logger;
     private readonly INetworkMetricsRecorder metrics;
     private readonly ISecuritySignalRecorder securitySignals;
+    private readonly IConnectionAdmissionPolicy? admission;
+    private readonly IPacketProcessor<PacketView>? joinInventoryPolicy;
     private bool attached;
 
     public NativePlayerPacketSecurityHooks(
@@ -25,7 +27,9 @@ internal sealed class NativePlayerPacketSecurityHooks : IDisposable
         TerrariaConnectionMetadataRegistry connectionMetadata,
         IOperationsLogger logger,
         INetworkMetricsRecorder metrics,
-        ISecuritySignalRecorder securitySignals)
+        ISecuritySignalRecorder securitySignals,
+        IConnectionAdmissionPolicy? admission = null,
+        IPacketProcessor<PacketView>? joinInventoryPolicy = null)
     {
         this.packetProcessor = packetProcessor ??
             throw new ArgumentNullException(nameof(packetProcessor));
@@ -35,6 +39,8 @@ internal sealed class NativePlayerPacketSecurityHooks : IDisposable
         this.metrics = metrics ?? throw new ArgumentNullException(nameof(metrics));
         this.securitySignals = securitySignals ??
             throw new ArgumentNullException(nameof(securitySignals));
+        this.admission = admission;
+        this.joinInventoryPolicy = joinInventoryPolicy;
     }
 
     public void Attach()
@@ -75,7 +81,10 @@ internal sealed class NativePlayerPacketSecurityHooks : IDisposable
                 args.Instance.readBuffer.AsSpan(args.ReadOffset, args.Length),
                 slot,
                 connectionState,
-                TryGetRemoteEndpoint(args));
+                // The registry only needs a transport endpoint when interpreting
+                // a forwarding-metadata packet. Ordinary gameplay never formats
+                // the socket address; admission/rejection still resolve it explicitly.
+                args.PacketId == (byte)PacketTypes.Placeholder ? TryGetRemoteEndpoint(args) : null);
             if (metadata.Decision.Kind != PacketDecisionKind.Allow)
             {
                 RecordRejection(args, slot, metadata.Decision);
@@ -86,6 +95,18 @@ internal sealed class NativePlayerPacketSecurityHooks : IDisposable
             {
                 args.Result = HookResult.Cancel;
                 return;
+            }
+
+            if (ShouldApplyAdmission(connectionState, args.PacketId))
+            {
+                PacketProcessingDecision decision = connectionMetadata.ValidateWorldAdmission(slot);
+                if (decision.Kind == PacketDecisionKind.Allow && admission is not null)
+                    decision = admission.Evaluate(connectionMetadata.Snapshot(slot, TryGetRemoteEndpoint(args), connectionState));
+                if (decision.Kind != PacketDecisionKind.Allow)
+                {
+                    RecordRejection(args, slot, decision);
+                    return;
+                }
             }
         }
         catch (Exception ex)
@@ -104,7 +125,10 @@ internal sealed class NativePlayerPacketSecurityHooks : IDisposable
             return;
         }
 
-        if (!ShouldApplySecurity(connectionState, args.PacketId))
+        bool preWorldInventory = ShouldApplyPreWorldInventory(connectionState, args.PacketId);
+        var processor = ShouldApplySecurity(connectionState, args.PacketId) ? packetProcessor
+            : preWorldInventory ? joinInventoryPolicy : null;
+        if (processor is null)
         {
             return;
         }
@@ -118,7 +142,7 @@ internal sealed class NativePlayerPacketSecurityHooks : IDisposable
                 args.Length,
                 new ConnectionId(slot),
                 new PlayerId(slot),
-                packetProcessor,
+                processor,
                 DateTimeOffset.UtcNow);
 
             if (decision.Kind != PacketDecisionKind.Allow)
@@ -132,6 +156,12 @@ internal sealed class NativePlayerPacketSecurityHooks : IDisposable
         }
         catch (Exception ex)
         {
+            if (preWorldInventory)
+            {
+                logger.Log(OperationsLogLevel.Error, "packet-security", "Initial character synchronization could not be validated.", ex);
+                RecordRejection(args, slot, PacketProcessingDecision.Reject("packet.inventory.validation_failed"));
+                return;
+            }
             // Packet policy is an additional Vega guard, not the Terraria connection state machine.
             // A policy bug must not strand a client or tear down MessageBuffer.GetData.
             logger.Log(
@@ -193,7 +223,12 @@ internal sealed class NativePlayerPacketSecurityHooks : IDisposable
         {
             global::Terraria.NetMessage.BootPlayer(
                 slot,
-                global::Terraria.Localization.NetworkText.FromLiteral("Invalid connection handshake."));
+                global::Terraria.Localization.NetworkText.FromLiteral(reason switch
+                {
+                    "admission.whitelist" => "This server requires a whitelisted IP address.",
+                    "admission.whitelist_unavailable" => "The shared whitelist is temporarily unavailable. Contact the server operator.",
+                    _ => "Invalid connection handshake."
+                }));
             logger.Log(
                 OperationsLogLevel.Debug,
                 "packet-security",
@@ -226,6 +261,13 @@ internal sealed class NativePlayerPacketSecurityHooks : IDisposable
 
     internal static bool ShouldApplySecurity(TerrariaConnectionState connectionState, byte packetId) =>
         connectionState >= TerrariaConnectionState.FullyConnected && IsProcessedPacket(packetId);
+
+    internal static bool ShouldApplyPreWorldInventory(TerrariaConnectionState connectionState, byte packetId) =>
+        connectionState >= TerrariaConnectionState.ProtocolAccepted && connectionState < TerrariaConnectionState.FullyConnected &&
+        (PacketTypes)packetId is PacketTypes.PlayerSlot or PacketTypes.SyncLoadout;
+
+    internal static bool ShouldApplyAdmission(TerrariaConnectionState connectionState, byte packetId) =>
+        connectionState < TerrariaConnectionState.FullyConnected && packetId == global::Terraria.ID.MessageID.RequestWorldData;
 
     internal static bool ShouldTerminateConnection(
         TerrariaConnectionState connectionState,

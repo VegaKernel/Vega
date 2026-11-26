@@ -9,6 +9,12 @@ namespace Vega.Runtime.Tests.Modules;
 public sealed class CustomItemPacketFactoryTests
 {
 	[Test]
+	public void Protocol329DoesNotTransmitRemovedDimensionOverrides()
+	{
+		var definition = new CustomItemDefinition("dimensions", 39, new CustomItemOverride { Width = 20 });
+		Assert.Throws<NotSupportedException>(() => CustomItemPacketFactory.Create(12, 7, 100, 200, definition));
+	}
+	[Test]
 	public void TypedPartialOverrideUsesMultiplicityPacketsAndOnlySetsSuppliedFlags()
 	{
 		var definition = new CustomItemDefinition(

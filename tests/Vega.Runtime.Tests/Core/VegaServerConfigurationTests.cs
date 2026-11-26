@@ -79,7 +79,22 @@ public sealed class VegaServerConfigurationTests
         {
             Assert.That(effective.Arguments, Does.Not.Contain("-world"));
             Assert.That(effective.Values["world"].DisplayValue, Is.EqualTo("<default>"));
+            Assert.That(effective.Values["pagedTileStorage"].DisplayValue, Is.EqualTo("off"));
         });
+    }
+
+    [Test]
+    public void PagedTileStorageCanBeEnabledInFileAndOverriddenByEnvironmentOrCommandLine()
+    {
+        string path = Write("""{"pagedTileStorageEnabled":true}""");
+        Assert.That(VegaServerConfigurationStore.Compose(path, [], _ => null).Arguments,
+            Does.Contain("--vega-paged-tiles=on"));
+        var environment = new Dictionary<string, string> { ["VEGA_PAGED_TILES"] = "off" };
+        Assert.That(VegaServerConfigurationStore.Compose(path, [], name => environment.GetValueOrDefault(name)).Arguments,
+            Does.Contain("--vega-paged-tiles=off"));
+        var effective = VegaServerConfigurationStore.Compose(path, ["--vega-paged-tiles=on"], name => environment.GetValueOrDefault(name));
+        Assert.That(effective.Values["pagedTileStorage"], Is.EqualTo(new EffectiveConfigurationValue("on", "command-line")));
+        Assert.That(effective.Arguments.Count(value => value.StartsWith("--vega-paged-tiles", StringComparison.Ordinal)), Is.EqualTo(1));
     }
 
     [TestCase("{ \"port\": 0 }")]

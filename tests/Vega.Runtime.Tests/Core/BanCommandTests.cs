@@ -2,6 +2,8 @@ using NUnit.Framework;
 using Vega.Contracts.Cluster.Events;
 using Vega.Contracts.Commands;
 using Vega.Contracts.Players;
+using Vega.Contracts.Networking;
+using Vega.Contracts.Worlds;
 using Vega.Core.Bans;
 using Vega.Core.Commands.Administration;
 
@@ -58,6 +60,26 @@ public sealed class BanCommandTests
             Assert.That(result.ErrorCode, Is.EqualTo("command.ban.multiple-matches"));
             Assert.That(bans.Created, Is.Empty);
         });
+    }
+
+    [Test]
+    public async Task OnlineBanUsesEffectiveAddressAndOriginalWorldSession()
+    {
+        var world = new WorldId("arena");
+        var target = Player(4, "Target") with
+        {
+            WorldId = world, SessionId = PlayerSessionId.New(), RemoteEndpoint = "127.0.0.1:1234",
+            Connection = new(new ConnectionId(4), "127.0.0.1:1234", "192.0.2.25", ConnectionForwardingProvenance.TrustedForwarder,
+                ClientPlatformInfo.Unknown, null, ConnectionLoginPhase.FullyConnected)
+        };
+        var other = target with { WorldId = WorldId.Primary, SessionId = PlayerSessionId.New() };
+        var replica = new FakeBans();
+        var operations = new FakeOperations();
+        var command = new BanCommand(new FakeDirectory([other, target]), operations, new GlobalBanService(replica));
+        var result = await command.ExecuteAsync(Invocation(["tsi:4"]) with { WorldId = world }, default);
+        Assert.That(result.Status, Is.EqualTo(CommandExecutionStatus.Success));
+        Assert.That(replica.Created.Single(b => b.Subject.Kind == GlobalBanSubjectKind.IpAddress).Subject.Value, Is.EqualTo("192.0.2.25"));
+        Assert.That(operations.KickedSnapshot, Is.EqualTo(target));
     }
 
     [Test]
@@ -184,6 +206,13 @@ public sealed class BanCommandTests
     {
         public PlayerId? KickedPlayer { get; private set; }
         public string? KickReason { get; private set; }
+        public PlayerSnapshot? KickedSnapshot { get; private set; }
+
+        public ValueTask<PlayerOperationResult> KickAsync(PlayerSnapshot player, string reason, CancellationToken cancellationToken = default)
+        {
+            KickedSnapshot = player;
+            return KickAsync(player.Id, reason, cancellationToken);
+        }
 
         public ValueTask<PlayerOperationResult> KickAsync(
             PlayerId id,

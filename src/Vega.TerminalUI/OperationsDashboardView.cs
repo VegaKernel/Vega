@@ -718,7 +718,7 @@ internal sealed class OperationsDashboardView : IDisposable
     private void UpdateModuleList(OperationsSnapshot snapshot)
     {
         string[] rows = snapshot.Modules.Select(module =>
-            $"{StateGlyph(module.State)} {module.Name} {module.Version} {module.StartupDuration.TotalMilliseconds:F0}ms{FormatFailure(module.Failure)}").ToArray();
+            $"{StateGlyph(module.State)} {module.Name} {module.Version} {module.StartupDuration.TotalMilliseconds:F0}ms{(module.FaultCount > 0 ? $" faults={module.FaultCount} last={module.LastFaultOperation}: {module.LastFaultSummary}" : "")}{FormatFailure(module.Failure)}").ToArray();
         if (moduleRows.SequenceEqual(rows, StringComparer.Ordinal))
         {
             return;

@@ -132,6 +132,55 @@ public sealed class AutoWorldCleanerModuleTests
     }
 
     [Test]
+    public async Task QueuedCleanupCancellationCompletesWithoutWaitingForNativeTick()
+    {
+        var entities = new RecordingWorldEntities(CreateSnapshot());
+        var dispatcher = new QueuedDispatcher();
+        using AutoWorldCleanerModule cleaner = CreateCleaner(entities, 1,
+            AutoWorldCleanerOptions.Default with { Enabled = true }, dispatcher);
+        cleaner.Start();
+        using var cancellation = new CancellationTokenSource();
+        Task<AutoWorldCleanerRunResult> pending = cleaner.RunNowAsync(WorldId.Primary, cancellation.Token).AsTask();
+        Assert.That(dispatcher.HasWork, Is.True);
+        cancellation.Cancel();
+        AutoWorldCleanerRunResult result = await pending.WaitAsync(TimeSpan.FromSeconds(5));
+        Assert.That(result.Status, Is.EqualTo(AutoWorldCleanerRunStatus.Cancelled));
+        // A later native tick may still consume the canceled reservation; it must be a no-op.
+        dispatcher.Execute();
+        Assert.That(entities.SnapshotCalls, Is.Zero);
+    }
+
+    [Test]
+    public async Task CancellationAfterCleanupStartsWaitsForActualMutationResult()
+    {
+        var entities = new RecordingWorldEntities(CreateSnapshot());
+        var dispatcher = new QueuedDispatcher();
+        using AutoWorldCleanerModule cleaner = CreateCleaner(entities, 1,
+            AutoWorldCleanerOptions.Default with { Enabled = true }, dispatcher);
+        using var release = new ManualResetEventSlim();
+        var started = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        entities.BeforeSnapshot = () =>
+        {
+            started.TrySetResult();
+            if (!release.Wait(TimeSpan.FromSeconds(5))) throw new TimeoutException("Test cleanup was not released.");
+        };
+        cleaner.Start();
+        using var cancellation = new CancellationTokenSource();
+        Task<AutoWorldCleanerRunResult> pending = cleaner.RunNowAsync(WorldId.Primary, cancellation.Token).AsTask();
+        Task executing = Task.Run(dispatcher.Execute);
+        try
+        {
+            await started.Task.WaitAsync(TimeSpan.FromSeconds(5));
+            cancellation.Cancel();
+            Assert.That(pending.IsCompleted, Is.False);
+            Assert.That((await cleaner.RunNowAsync(WorldId.Primary)).Status, Is.EqualTo(AutoWorldCleanerRunStatus.Busy));
+        }
+        finally { release.Set(); }
+        await executing.WaitAsync(TimeSpan.FromSeconds(5));
+        Assert.That((await pending.WaitAsync(TimeSpan.FromSeconds(5))).Status, Is.EqualTo(AutoWorldCleanerRunStatus.Applied));
+    }
+
+    [Test]
     public async Task CommandRunsCleanerAndExposesStatus()
     {
         var entities = new RecordingWorldEntities(CreateSnapshot());
@@ -170,7 +219,7 @@ public sealed class AutoWorldCleanerModuleTests
         RecordingWorldEntities entities,
         int onlinePlayers,
         AutoWorldCleanerOptions options,
-        InlineDispatcher? dispatcher = null,
+        IGameThreadDispatcher? dispatcher = null,
         RuntimeLifecycleStage lifecycleStage = RuntimeLifecycleStage.WorldReady)
     {
         var logger = new StructuredOperationsLogger([new BoundedOperationsLogStore()]);
@@ -202,9 +251,11 @@ public sealed class AutoWorldCleanerModuleTests
     {
         public int SnapshotCalls { get; private set; }
         public WorldEntityRemovalRequest? LastRemoval { get; private set; }
+        public Action? BeforeSnapshot { get; set; }
 
         public WorldEntityCleanupSnapshot Snapshot(WorldId worldId)
         {
+            BeforeSnapshot?.Invoke();
             SnapshotCalls++;
             Assert.That(worldId, Is.EqualTo(WorldId.Primary));
             return snapshot;
@@ -262,6 +313,18 @@ public sealed class AutoWorldCleanerModuleTests
             step();
             return true;
         }
+    }
+
+    private sealed class QueuedDispatcher : IGameThreadDispatcher
+    {
+        private Action? work;
+        public bool HasWork => Volatile.Read(ref work) is not null;
+        public bool IsGameThreadKnown => true;
+        public bool IsGameThread => false;
+        public void AssertGameThread() { }
+        public bool TryPost(string name, Action action) => Interlocked.CompareExchange(ref work, action, null) is null;
+        public bool TrySchedule(string name, Func<bool> step) => throw new NotSupportedException();
+        public void Execute() => Interlocked.Exchange(ref work, null)?.Invoke();
     }
 
     private sealed class TestPlayers(int count) : IPlayerDirectory

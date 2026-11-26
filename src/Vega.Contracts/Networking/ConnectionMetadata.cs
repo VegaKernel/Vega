@@ -10,7 +10,8 @@ public enum ClientPlatformKind
     Editor,
     Switch,
     Pc,
-    Unrecognized
+    Unrecognized,
+    GameCenter
 }
 
 public readonly record struct ClientPlatformInfo(

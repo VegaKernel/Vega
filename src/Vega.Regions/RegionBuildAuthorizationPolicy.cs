@@ -14,7 +14,8 @@ public sealed class RegionBuildAuthorizationPolicy(
     IPlayerDirectory players,
     IPlayerAuthorizationService authorization,
     IPlayerAccountSessionService? accountSessions = null,
-    IWorldInteractionState? worldInteractions = null) : IPacketProcessor<PacketView>
+    IWorldInteractionState? worldInteractions = null,
+    WorldBuildProtection? worldProtection = null) : IPacketProcessor<PacketView>
 {
     public const string BypassPermission = "vega.regions.bypass";
 
@@ -29,7 +30,7 @@ public sealed class RegionBuildAuthorizationPolicy(
                 out int endX,
                 out int endY,
                 out RegionInteraction interaction) ||
-            authorization.HasPermission(playerId, BypassPermission))
+            (worldProtection is null && authorization.HasPermission(playerId, BypassPermission)))
         {
             return PacketProcessingDecision.Allow;
         }
@@ -38,6 +39,13 @@ public sealed class RegionBuildAuthorizationPolicy(
         {
             return PacketProcessingDecision.Reject("packet.region.player_unavailable");
         }
+
+        if (interaction == RegionInteraction.Build && worldProtection is not null)
+        {
+            var decision = worldProtection.Evaluate(player.WorldId, playerId, startX, startY, endX, endY);
+            if (decision.Kind != PacketDecisionKind.Allow) return decision;
+        }
+        if (authorization.HasPermission(playerId, BypassPermission)) return PacketProcessingDecision.Allow;
 
         if (context.Packet.PacketType == PacketTypes.MassWireOperation)
         {
@@ -64,17 +72,15 @@ public sealed class RegionBuildAuthorizationPolicy(
         PlayerId playerId,
         RegionInteraction interaction)
     {
-        string subject = accountSessions is not null &&
-            accountSessions.TryGetAccount(playerId, out AccountSnapshot? account) && account is not null
-                ? account.Name
-                : player.Name;
+        string? subject = accountSessions is null ? player.Name :
+            accountSessions.TryGetAccount(playerId, out AccountSnapshot? account) ? account?.Name : null;
         if (region is null ||
             (region.Flags.TryGetValue("protected", out bool protectedFlag) && !protectedFlag) ||
             (region.Flags.TryGetValue(
                 interaction == RegionInteraction.Use ? "use" : "build",
                 out bool publicAccess) && publicAccess) ||
-            string.Equals(region.Owner, subject, StringComparison.OrdinalIgnoreCase) ||
-            region.Members.Contains(subject))
+            (subject is not null && (string.Equals(region.Owner, subject, StringComparison.OrdinalIgnoreCase) ||
+            region.Members.Contains(subject))))
         {
             return true;
         }

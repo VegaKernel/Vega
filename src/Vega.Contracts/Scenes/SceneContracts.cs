@@ -1,3 +1,5 @@
+using System.Buffers;
+using System.Collections.Frozen;
 using Vega.Contracts.Players;
 using Vega.Contracts.Worlds;
 
@@ -72,6 +74,31 @@ public sealed record SceneTileArea
         Tiles = Array.AsReadOnly(tiles.ToArray());
     }
 
+    private SceneTileArea(int width, int height, SceneTile[] ownedTiles)
+    {
+        Width = width;
+        Height = height;
+        Tiles = Array.AsReadOnly(ownedTiles);
+    }
+
+    public static SceneTileArea Fill(int width, int height, SceneTile tile)
+    {
+        if (width <= 0 || height <= 0) throw new ArgumentOutOfRangeException(nameof(width), "Tile area dimensions must be positive.");
+        var tiles = new SceneTile[checked(width * height)];
+        Array.Fill(tiles, tile);
+        return new SceneTileArea(width, height, tiles);
+    }
+
+    /// <summary>Fills an internally owned tile array in a single callback; the temporary span cannot be retained.</summary>
+    public static SceneTileArea Create<TState>(int width, int height, TState state, SpanAction<SceneTile, TState> populate)
+    {
+        ArgumentNullException.ThrowIfNull(populate);
+        if (width <= 0 || height <= 0) throw new ArgumentOutOfRangeException(nameof(width), "Tile area dimensions must be positive.");
+        var tiles = new SceneTile[checked(width * height)];
+        populate(tiles, state);
+        return new SceneTileArea(width, height, tiles);
+    }
+
     public int Width { get; }
 
     public int Height { get; }
@@ -83,12 +110,42 @@ public sealed record SceneTileArea
 
 public sealed record SceneObserverScope(bool IsGlobal, IReadOnlySet<PlayerId> Players)
 {
-    public static SceneObserverScope Global { get; } = new(true, new HashSet<PlayerId>());
+    public static SceneObserverScope Global { get; } = new(true, Array.Empty<PlayerId>().ToFrozenSet());
+    private static readonly SceneObserverScope[] SingleSlotScopes = Enumerable.Range(0, 256)
+        .Select(static slot => new SceneObserverScope(false, new[] { new PlayerId(slot) }.ToFrozenSet())).ToArray();
+
+    public static SceneObserverScope Personal(PlayerId player) => (uint)player.Slot < (uint)SingleSlotScopes.Length
+        ? SingleSlotScopes[player.Slot]
+        : new(false, new[] { player }.ToFrozenSet());
 
     public static SceneObserverScope Personal(IEnumerable<PlayerId> players) =>
-        new(false, new HashSet<PlayerId>(players));
+        players.TryGetNonEnumeratedCount(out int count) && count == 1
+            ? Personal(players.First()) : new(false, players.ToFrozenSet());
+
+    /// <summary>When non-null, personal membership is bound to these exact connections.</summary>
+    public IReadOnlyDictionary<PlayerId, PlayerSessionId>? Sessions { get; init; }
+
+    public static SceneObserverScope PersonalSessions(IEnumerable<SceneSessionObserver> observers)
+    {
+        var selected = new Dictionary<PlayerId, PlayerSessionId>();
+        foreach (var observer in observers)
+        {
+            if (selected.TryGetValue(observer.Player, out var previous) && previous != observer.Session)
+                throw new ArgumentException("Conflicting sessions for one player slot.", nameof(observers));
+            selected[observer.Player] = observer.Session;
+        }
+        var sessions = selected.ToFrozenDictionary();
+        return Personal(sessions.Keys) with { Sessions = sessions };
+    }
 
     public bool Contains(PlayerId playerId) => IsGlobal || Players.Contains(playerId);
+}
+
+public readonly record struct SceneSessionObserver(PlayerId Player, PlayerSessionId Session)
+{
+    public static SceneSessionObserver From(PlayerSnapshot player) => new(player.Id,
+        player.SessionId ?? throw new ArgumentException("The player has no active session.", nameof(player)));
+    public static SceneSessionObserver From(PlayerSessionOpened opened) => new(opened.PlayerId, opened.SessionId);
 }
 
 public sealed record SceneOverlayDefinition(
@@ -132,6 +189,8 @@ public interface ISceneLease : IDisposable
     bool UpdateOverlay(OverlayId overlayId, SceneOverlayDefinition definition);
 
     bool RemoveOverlay(OverlayId overlayId);
+    bool BringToFront(OverlayId overlayId) => throw new NotSupportedException("Overlay ordering is unavailable.");
+    bool Redraw(OverlayId overlayId) => throw new NotSupportedException("Overlay redraw is unavailable.");
 }
 
 public interface ISceneRuntime
@@ -184,6 +243,12 @@ public interface IVisibilityLayerLease : IDisposable
     void Assign(SceneEntity entity);
 
     bool Remove(SceneEntity entity);
+    void SetSessionObservers(IEnumerable<SceneSessionObserver> observers) =>
+        throw new NotSupportedException("Session-bound visibility is unavailable.");
+    bool AssignPlayerSession(SceneSessionObserver observer) =>
+        throw new NotSupportedException("Session-bound visibility is unavailable.");
+    bool RemovePlayerSession(SceneSessionObserver observer) =>
+        throw new NotSupportedException("Session-bound visibility is unavailable.");
 }
 
 public interface ISceneVisibilityRuntime
@@ -195,6 +260,9 @@ public interface ISceneVisibilityRuntime
         string name,
         string owner,
         IEnumerable<PlayerId> observers);
+    IVisibilityLayerLease CreateSessionLayer(WorldId worldId, string name, string owner,
+        IEnumerable<SceneSessionObserver> observers) =>
+        throw new NotSupportedException("Session-bound visibility is unavailable.");
 
     bool CanObserve(WorldId worldId, PlayerId observer, SceneEntity entity);
 

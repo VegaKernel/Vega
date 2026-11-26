@@ -202,7 +202,7 @@ public static class OperationsDashboardRenderer
         }
         foreach (ModuleOperationsSnapshot module in snapshot.Modules)
         {
-            text.AppendLine($"  {module.Name,-22} {module.Version,-12} {module.State,-10} {module.StartupDuration.TotalMilliseconds,7:F1} ms deps=[{string.Join(",", module.Dependencies)}]{FormatFailure(module.Failure)}");
+            text.AppendLine($"  {module.Name,-22} {module.Version,-12} {module.State,-10} {module.StartupDuration.TotalMilliseconds,7:F1} ms deps=[{string.Join(",", module.Dependencies)}]{(module.FaultCount > 0 ? $" faults={module.FaultCount} last={module.LastFaultOperation}: {module.LastFaultSummary}" : "")}{FormatFailure(module.Failure)}");
         }
 
         text.AppendLine();

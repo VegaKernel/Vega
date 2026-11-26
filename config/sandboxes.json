@@ -1,5 +1,6 @@
 {
   "enabled": true,
+  "backendBindAddress": "127.0.0.1",
   "basePort": 7780,
   "maximumActiveWorlds": 8,
   "maximumConcurrentStarts": 1,

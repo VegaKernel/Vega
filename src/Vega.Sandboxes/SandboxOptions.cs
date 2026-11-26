@@ -17,6 +17,9 @@ public sealed record SandboxOptions(
     int MaximumInstanceMegabytes,
     int DefaultIdleTtlMinutes)
 {
+    /// <summary>Sandbox listeners are local by default; a separately deployed proxy may opt into another bind address.</summary>
+    public string BackendBindAddress { get; init; } = "127.0.0.1";
+
     public static SandboxOptions Default { get; } = new(
         true, 7780, 8, 1, 60, 15, 15, 3, 5, 100, 2048, 4096, 30);
 }
@@ -55,7 +58,8 @@ public static class SandboxOptionsStore
 
     private static void Validate(SandboxOptions options)
     {
-        if (options.BasePort is < 1 or > 65535 ||
+        if (!System.Net.IPAddress.TryParse(options.BackendBindAddress, out _) ||
+            options.BasePort is < 1 or > 65535 ||
             options.MaximumActiveWorlds is < 1 or > 64 ||
             options.MaximumConcurrentStarts != 1 ||
             options.StartTimeoutSeconds is < 5 or > 600 ||

@@ -29,6 +29,7 @@ internal sealed class NativeLifecycleHooks : IDisposable
         HookWorldFile.LoadWorld += OnWorldLoadStarted;
         HookWorldGen.GenerateWorld += OnWorldGenerationStarted;
         Hooks.Main.DedicatedWorldReady += OnDedicatedWorldReady;
+        Hooks.Main.DedicatedWorldStopping += OnDedicatedWorldStopping;
         attached = true;
     }
 
@@ -42,6 +43,7 @@ internal sealed class NativeLifecycleHooks : IDisposable
         HookWorldFile.LoadWorld -= OnWorldLoadStarted;
         HookWorldGen.GenerateWorld -= OnWorldGenerationStarted;
         Hooks.Main.DedicatedWorldReady -= OnDedicatedWorldReady;
+        Hooks.Main.DedicatedWorldStopping -= OnDedicatedWorldStopping;
         attached = false;
     }
 
@@ -73,5 +75,11 @@ internal sealed class NativeLifecycleHooks : IDisposable
         // once the module startup pipeline introduced by ADR 0017 is implemented.
         lifecycle.Advance(RuntimeLifecycleStage.BackgroundWarmup);
         lifecycle.Advance(RuntimeLifecycleStage.FullyWarmed);
+    }
+
+    private void OnDedicatedWorldStopping()
+    {
+        if (lifecycle.CurrentStage >= RuntimeLifecycleStage.WorldLoading)
+            lifecycle.Advance(RuntimeLifecycleStage.Stopping);
     }
 }

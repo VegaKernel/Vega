@@ -29,6 +29,15 @@ public sealed class PlayingCommandTests
         });
     }
 
+    [Test]
+    public async Task CurrentWorldListDoesNotIncludeOtherWorlds()
+    {
+        var command = Command(Player(2, "Alice"), Player(7, "Bob") with { WorldId = new("arena") });
+        var result = await command.ExecuteAsync(Invocation("playing", []), CancellationToken.None);
+        Assert.That(result.Messages![0].Arguments, Is.EqualTo(new object?[] { 1 }));
+        Assert.That(result.Messages[1].Arguments, Is.EqualTo(new object?[] { "Alice" }));
+    }
+
     [TestCase("playing")]
     [TestCase("online")]
     [TestCase("who")]

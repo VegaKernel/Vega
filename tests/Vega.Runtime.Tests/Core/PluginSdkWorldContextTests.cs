@@ -6,6 +6,7 @@ using Vega.Contracts.Players;
 using Vega.Contracts.Scenes;
 using Vega.Contracts.Worlds;
 using Vega.Core.Modules;
+using Vega.Core.Scenes;
 using Vega.PluginSdk;
 
 namespace Vega.Runtime.Tests.Core;
@@ -18,6 +19,82 @@ public sealed class PluginSdkWorldContextTests
 
     [TearDown]
     public void ClearRuntime() => VegaPluginRuntime.Configure(VegaPluginRuntimeServices.Empty);
+
+    [Test]
+    public async Task FakeProviderUsesScopedLeasesAndExactSessionMembershipAcrossReloads()
+    {
+        var world = new WorldId("sandbox-fake");
+        var scenes = new SceneRuntime();
+        var visibility = new SceneVisibilityRuntime();
+        VegaPluginRuntime.Configure(new VegaPluginRuntimeServices(world, null, null, null, null, scenes, null, visibility));
+        var first = new PlayerSessionOpened(PlayerSessionId.New(), new PlayerId(1), "first", DateTimeOffset.UtcNow);
+        var second = new PlayerSessionOpened(PlayerSessionId.New(), new PlayerId(2), "second", DateTimeOffset.UtcNow);
+        scenes.OpenSession(world, first); scenes.OpenSession(world, second);
+        visibility.OpenSession(world, first); visibility.OpenSession(world, second);
+        var a = new HotModuleRegistrationScope(new NullCommandRegistry(), new NullLogger(), "Plugin.A", Path.GetTempPath());
+        var b = new HotModuleRegistrationScope(new NullCommandRegistry(), new NullLogger(), "Plugin.B", Path.GetTempPath());
+        try
+        {
+            IPluginFakeProvider ownerA = ((IVegaPluginContext)a).World.FakeProvider;
+            IPluginFakeProvider ownerB = ((IVegaPluginContext)b).World.FakeProvider;
+            var bounds = new SceneBounds(10, 10, 2, 2);
+            var stone = SceneTileArea.Fill(2, 2, new SceneTile(1, Flags: SceneTileFlags.Active));
+            var air = SceneTileArea.Fill(2, 2, SceneTile.Air);
+            var global = ownerA.CreateGlobal("same-name", bounds, stone);
+            var competing = ownerB.CreateGlobal("same-name", bounds, air);
+            Assert.That(scenes.TryResolveTile(world, first.PlayerId, 10, 10, out var tile, out _), Is.True);
+            Assert.That(tile, Is.EqualTo(SceneTile.Air));
+            global.SetTop();
+            Assert.That(scenes.TryResolveTile(world, first.PlayerId, 10, 10, out tile, out _), Is.True);
+            Assert.That(tile.TileType, Is.EqualTo(1));
+            var personal = ownerA.CreatePersonal("private", new SceneBounds(20, 20, 2, 2), stone,
+                [SceneSessionObserver.From(first), SceneSessionObserver.From(second)], 10);
+            personal.Move(1, 0);
+            personal.Draw();
+            Assert.That(scenes.TryResolveTile(world, first.PlayerId, 21, 20, out _, out _), Is.True);
+            var layerA = ownerA.CreateVisibilityLayer("arena", [SceneSessionObserver.From(first)]);
+            var layerB = ownerB.CreateVisibilityLayer("arena", [SceneSessionObserver.From(second)]);
+            layerA.AssignNpc(7);
+            layerB.AssignNpc(7);
+            Assert.That(layerA.RemoveNpc(7), Is.False);
+            Assert.That(visibility.CanObserve(world, first.PlayerId, new(SceneEntityKind.Npc, 7)), Is.False);
+            Assert.That(layerA.AssignPlayer(SceneSessionObserver.From(first)), Is.True);
+
+            var oldClosed = new PlayerSessionClosed(first.SessionId, first.PlayerId, first.PlayerName, DateTimeOffset.UtcNow);
+            scenes.CloseSession(world, oldClosed); visibility.CloseSession(world, oldClosed);
+            var replacement = first with { SessionId = PlayerSessionId.New() };
+            scenes.OpenSession(world, replacement); visibility.OpenSession(world, replacement);
+            personal.Move(1, 0); // old requested session cannot be re-added by a later update
+            Assert.That(scenes.TryResolveTile(world, replacement.PlayerId, 22, 20, out _, out _), Is.False);
+            Assert.That(scenes.TryResolveTile(world, second.PlayerId, 22, 20, out _, out _), Is.True);
+            Assert.That(layerA.AssignPlayer(SceneSessionObserver.From(first)), Is.False);
+            Assert.That(layerA.AssignPlayer(SceneSessionObserver.From(replacement)), Is.True);
+            Assert.That(layerA.RemovePlayer(SceneSessionObserver.From(first)), Is.False);
+            personal.SetObservers([SceneSessionObserver.From(replacement)]);
+            Assert.That(scenes.TryResolveTile(world, replacement.PlayerId, 22, 20, out _, out _), Is.True);
+            // A delayed duplicate notification for the old generation must not clear the new one.
+            scenes.CloseSession(world, oldClosed); visibility.CloseSession(world, oldClosed);
+            Assert.That(scenes.TryResolveTile(world, replacement.PlayerId, 22, 20, out _, out _), Is.True);
+            personal.SetEnabled(false);
+            Assert.That(scenes.TryResolveTile(world, replacement.PlayerId, 22, 20, out _, out _), Is.False);
+            personal.SetEnabled(true);
+            for (int i = 0; i < 100; i++) ownerA.CreateGlobal("temporary", bounds, air).Dispose();
+            Assert.That(scenes.SnapshotScenes(), Has.Count.EqualTo(3));
+
+            await a.DisposeAsync();
+            Assert.That(scenes.SnapshotScenes().Single().Owner, Is.EqualTo("Plugin.B"));
+            Assert.That(visibility.SnapshotLayers().Single().Owner, Is.EqualTo("Plugin.B"));
+            Assert.That(visibility.CanObserve(world, first.PlayerId, new(SceneEntityKind.Npc, 7)), Is.False);
+            Assert.Throws<ObjectDisposedException>(() => personal.Move(1, 0));
+            Assert.Throws<ObjectDisposedException>(() => ownerA.CreateGlobal("late", bounds, air));
+            Assert.Throws<ObjectDisposedException>(() => ((IVegaPluginContext)a).World.Scenes.Create("late-legacy"));
+            Assert.That(scenes.SnapshotScenes(), Has.Count.EqualTo(1));
+            competing.Dispose(); competing.Dispose();
+            Assert.That(scenes.HasActiveOverlays, Is.False);
+        }
+        finally { await a.DisposeAsync(); await b.DisposeAsync(); }
+        Assert.That(visibility.SnapshotLayers(), Is.Empty);
+    }
 
     [Test]
     public async Task WorldAndInventoryFacadesUseTypedRuntimeCapabilitiesAndTrackSceneLifetime()
@@ -97,7 +174,7 @@ public sealed class PluginSdkWorldContextTests
 
         await scope.DisposeAsync();
         Assert.That(((RecordingSceneLease)lease).Disposed, Is.True);
-        Directory.Delete(Path.GetDirectoryName(dataDirectory)!, recursive: true);
+        if (Directory.Exists(dataDirectory)) Directory.Delete(dataDirectory, recursive: true);
     }
 
     private sealed class RecordingEnvironment : IWorldEnvironmentService

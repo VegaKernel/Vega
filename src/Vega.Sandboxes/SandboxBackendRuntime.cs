@@ -163,9 +163,12 @@ public sealed class SandboxBackendReporter : IDisposable
         }
     }
 
-    private SandboxLifecycleState CurrentState() => lifecycle.CurrentStage >= RuntimeLifecycleStage.NetworkReady
-        ? SandboxLifecycleState.Ready
-        : SandboxLifecycleState.Starting;
+    private SandboxLifecycleState CurrentState() => lifecycle.CurrentStage switch
+    {
+        >= RuntimeLifecycleStage.Stopping => SandboxLifecycleState.Stopping,
+        >= RuntimeLifecycleStage.NetworkReady => SandboxLifecycleState.Ready,
+        _ => SandboxLifecycleState.Starting
+    };
 
     private void Write(SandboxLifecycleState state)
     {

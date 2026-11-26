@@ -9,6 +9,37 @@ public sealed class SceneVisibilityRuntime : ISceneVisibilityRuntime
     private readonly object sync = new();
     private readonly Dictionary<VisibilityLayerId, LayerState> layers = [];
     private readonly Dictionary<(WorldId WorldId, SceneEntity Entity), VisibilityLayerId> assignments = [];
+    private readonly Dictionary<(WorldId World, PlayerId Player), PlayerSessionId> sessions = [];
+
+    public void OpenSession(WorldId world, PlayerSessionOpened opened)
+    {
+        lock (sync)
+        {
+            var key = (world, opened.PlayerId);
+            if (sessions.TryGetValue(key, out var previous) && previous != opened.SessionId) RemovePlayer(world, opened.PlayerId);
+            sessions[key] = opened.SessionId;
+        }
+    }
+
+    public void CloseSession(WorldId world, PlayerSessionClosed closed)
+    {
+        lock (sync)
+        {
+            var key = (world, closed.PlayerId);
+            if (!sessions.TryGetValue(key, out var current) || current != closed.SessionId) return;
+            sessions.Remove(key);
+            RemovePlayer(world, closed.PlayerId);
+        }
+    }
+
+    private void RemovePlayer(WorldId world, PlayerId player)
+    {
+        foreach (var layer in layers.Values)
+            if (layer.WorldId == world) layer.Observers.Remove(player);
+        var entity = new SceneEntity(SceneEntityKind.Player, player.Slot);
+        if (assignments.Remove((world, entity), out var layerId) && layers.TryGetValue(layerId, out var owner))
+            owner.Entities.Remove(entity);
+    }
 
     public bool HasAssignments
     {
@@ -46,6 +77,19 @@ public sealed class SceneVisibilityRuntime : ISceneVisibilityRuntime
         return new Lease(this, state.Id);
     }
 
+    public IVisibilityLayerLease CreateSessionLayer(WorldId worldId, string name, string owner,
+        IEnumerable<SceneSessionObserver> observers)
+    {
+        lock (sync)
+            return CreateLayer(worldId, name, owner, ActiveObservers(worldId, observers));
+    }
+
+    private IEnumerable<PlayerId> ActiveObservers(WorldId world, IEnumerable<SceneSessionObserver> observers) =>
+        observers.Where(observer => IsCurrent(world, observer)).Select(static observer => observer.Player);
+
+    private bool IsCurrent(WorldId world, SceneSessionObserver observer) =>
+        sessions.TryGetValue((world, observer.Player), out var session) && session == observer.Session;
+
     public bool CanObserve(WorldId worldId, PlayerId observer, SceneEntity entity)
     {
         lock (sync)
@@ -82,6 +126,31 @@ public sealed class SceneVisibilityRuntime : ISceneVisibilityRuntime
         }
     }
 
+    private void SetSessionObservers(VisibilityLayerId id, IEnumerable<SceneSessionObserver> observers)
+    {
+        lock (sync)
+        {
+            LayerState layer = Get(id);
+            layer.Observers = new HashSet<PlayerId>(ActiveObservers(layer.WorldId, observers));
+        }
+    }
+
+    private bool AssignPlayerSession(VisibilityLayerId id, SceneSessionObserver observer)
+    {
+        lock (sync)
+        {
+            if (!IsCurrent(Get(id).WorldId, observer)) return false;
+            Assign(id, new SceneEntity(SceneEntityKind.Player, observer.Player.Slot));
+            return true;
+        }
+    }
+
+    private bool RemovePlayerSession(VisibilityLayerId id, SceneSessionObserver observer)
+    {
+        lock (sync)
+            return IsCurrent(Get(id).WorldId, observer) && Remove(id, new SceneEntity(SceneEntityKind.Player, observer.Player.Slot));
+    }
+
     private void Assign(VisibilityLayerId id, SceneEntity entity)
     {
         if (entity.Id < 0)
@@ -109,8 +178,10 @@ public sealed class SceneVisibilityRuntime : ISceneVisibilityRuntime
         lock (sync)
         {
             LayerState layer = Get(id);
-            assignments.Remove((layer.WorldId, entity));
-            return layer.Entities.Remove(entity);
+            if (!layer.Entities.Remove(entity)) return false;
+            if (assignments.TryGetValue((layer.WorldId, entity), out var assigned) && assigned == id)
+                assignments.Remove((layer.WorldId, entity));
+            return true;
         }
     }
 
@@ -125,7 +196,8 @@ public sealed class SceneVisibilityRuntime : ISceneVisibilityRuntime
 
             foreach (SceneEntity entity in layer.Entities)
             {
-                assignments.Remove((layer.WorldId, entity));
+                if (assignments.TryGetValue((layer.WorldId, entity), out var assigned) && assigned == id)
+                    assignments.Remove((layer.WorldId, entity));
             }
         }
     }
@@ -150,6 +222,24 @@ public sealed class SceneVisibilityRuntime : ISceneVisibilityRuntime
         {
             ObjectDisposedException.ThrowIf(disposed != 0, this);
             owner.Assign(id, entity);
+        }
+
+        public void SetSessionObservers(IEnumerable<SceneSessionObserver> observers)
+        {
+            ObjectDisposedException.ThrowIf(disposed != 0, this);
+            owner.SetSessionObservers(id, observers);
+        }
+
+        public bool AssignPlayerSession(SceneSessionObserver observer)
+        {
+            ObjectDisposedException.ThrowIf(disposed != 0, this);
+            return owner.AssignPlayerSession(id, observer);
+        }
+
+        public bool RemovePlayerSession(SceneSessionObserver observer)
+        {
+            ObjectDisposedException.ThrowIf(disposed != 0, this);
+            return owner.RemovePlayerSession(id, observer);
         }
 
         public bool Remove(SceneEntity entity)

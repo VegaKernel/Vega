@@ -1,5 +1,6 @@
 using Vega.Contracts.Worlds;
 using Vega.Contracts.Players;
+using Vega.Contracts.Accounts;
 
 namespace Vega.Contracts.Sandboxes;
 
@@ -250,6 +251,10 @@ public interface ISandboxSscStore
         long expectedRevision,
         DateTimeOffset now);
 
+    /// <summary>Periodic checkpoint; implementations may retain an identical revision after checking expectedRevision.</summary>
+    SandboxSscWriteResult SaveCheckpoint(string accountId, WorldId worldId, SandboxSscMode mode, string payload,
+        long expectedRevision, DateTimeOffset now) => Save(accountId, worldId, mode, payload, expectedRevision, now);
+
     SandboxSscTransferPreparation PrepareTransfer(
         string accountId,
         WorldId originWorldId,
@@ -293,6 +298,29 @@ public interface ISandboxSscCharacterAdapter
         PlayerId playerId,
         string payload,
         CancellationToken cancellationToken = default);
+
+    ValueTask<SandboxSscCharacterCaptureResult> CaptureAsync(PlayerSnapshot player, CancellationToken cancellationToken = default) =>
+        CaptureAsync(player.Id, cancellationToken);
+
+    /// <summary>Returns the initial connection character, preferring an earlier native character-received snapshot where available.</summary>
+    ValueTask<SandboxSscCharacterCaptureResult> CaptureJoinAsync(PlayerSnapshot player, CancellationToken cancellationToken = default) =>
+        CaptureAsync(player, cancellationToken);
+
+    ValueTask<SandboxSscCharacterApplyResult> ApplyAsync(PlayerSnapshot player, string payload, CancellationToken cancellationToken = default) =>
+        ApplyAsync(player.Id, payload, cancellationToken);
+
+    /// <summary>Produces a server-owned starter character, never an import of a client character.</summary>
+    ValueTask<SandboxSscCharacterCaptureResult> CreateInitialAsync(PlayerSnapshot player, IPlayerAccountSessionService accounts,
+        PlayerAccountBinding binding, CancellationToken cancellationToken = default) =>
+        ValueTask.FromResult(new SandboxSscCharacterCaptureResult(false, ErrorCode: "ssc.initial_unavailable"));
+
+    ValueTask<SandboxSscCharacterCaptureResult> CaptureAuthenticatedAsync(PlayerSnapshot player, IPlayerAccountSessionService accounts,
+        PlayerAccountBinding binding, CancellationToken cancellationToken = default) =>
+        ValueTask.FromResult(new SandboxSscCharacterCaptureResult(false, ErrorCode: "ssc.authenticated_capture_unavailable"));
+
+    ValueTask<SandboxSscCharacterApplyResult> ApplyAuthenticatedAsync(PlayerSnapshot player, IPlayerAccountSessionService accounts,
+        PlayerAccountBinding binding, string payload, CancellationToken cancellationToken = default) =>
+        ValueTask.FromResult(new SandboxSscCharacterApplyResult(false, "ssc.authenticated_apply_unavailable"));
 }
 
 public sealed record SandboxTransferAdmissionResult(
@@ -325,6 +353,9 @@ public interface ISandboxPlayerTransferBoundary
         SandboxEndpoint endpoint,
         SandboxTransferTicket ticket,
         CancellationToken cancellationToken = default);
+
+    ValueTask<SandboxPlayerTransferResult> TransferAsync(PlayerSnapshot player, SandboxEndpoint endpoint, SandboxTransferTicket ticket, CancellationToken cancellationToken = default) =>
+        TransferAsync(player.Id, endpoint, ticket, cancellationToken);
 }
 
 public sealed record SandboxBackendHeartbeat(

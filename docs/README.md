@@ -19,6 +19,8 @@ This directory contains Vega's project documentation, implementation notes, road
 - `extension-state.md` — scoped typed session state.
 - `operations.md` — operations API and Terminal UI.
 - `packet-pipeline.md` — Phase 22 ingress classification, threading boundary, and synchronous baseline.
+- `native-transport-design.md` — accepted-socket ownership, queue budgets, callback and native lifecycle contract.
+- [Measured performance checkpoint](performance-2026-11-26.md) — local transport and server comparison evidence, with limitations.
 - `native-aot.md` — Phase 23 CoreCLR boundary, executable audit, and NativeAOT admission gate.
 - `plugin-sdk.md` / `ru/plugin-sdk.md` — Phase 24 first-plugin path, lifecycle ownership, async I/O, and TShock behavior mapping.
 - `plugin-api-audit.md` — Phase 24 public-surface findings, rejected framework patterns, and remaining gaps.

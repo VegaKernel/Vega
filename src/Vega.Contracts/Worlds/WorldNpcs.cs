@@ -29,7 +29,16 @@ public sealed record NpcSpawnRequest(
     int Type,
     PlayerPosition Position,
     string Actor,
-    int? TargetPlayerSlot = null);
+    int? TargetPlayerSlot = null)
+{
+    /// <summary>When set, the native adapter must resolve the same live session on the game thread.</summary>
+    public PlayerSnapshot? TargetPlayer { get; init; }
+    public bool Boss { get; init; }
+}
+
+public sealed record NpcButcherRequest(WorldId WorldId, int? Type, bool IncludeBosses, string Actor);
+
+public sealed record NpcRenameRequest(WorldId WorldId, int Type, string Name, string Actor);
 
 public sealed record NpcTeleportRequest(
     NpcHandle Expected,
@@ -59,6 +68,11 @@ public sealed record NpcOperationResult(
     public bool IsSuccess => Status == NpcOperationStatus.Applied;
 }
 
+public sealed record NpcBatchOperationResult(NpcOperationStatus Status, int Affected = 0, string? ErrorCode = null)
+{
+    public bool IsSuccess => Status == NpcOperationStatus.Applied;
+}
+
 /// <summary>
 /// Immutable NPC inspection and guarded mutation. Implementations own Terraria state and game-thread dispatch.
 /// </summary>
@@ -83,4 +97,17 @@ public interface IWorldNpcService
     ValueTask<NpcOperationResult> DespawnAsync(
         NpcDespawnRequest request,
         CancellationToken cancellationToken = default);
+
+    ValueTask<NpcBatchOperationResult> ButcherAsync(NpcButcherRequest request, CancellationToken cancellationToken = default) =>
+        ValueTask.FromResult(new NpcBatchOperationResult(NpcOperationStatus.Invalid, ErrorCode: "npc.unsupported"));
+
+    ValueTask<NpcBatchOperationResult> RenameAsync(NpcRenameRequest request, CancellationToken cancellationToken = default) =>
+        ValueTask.FromResult(new NpcBatchOperationResult(NpcOperationStatus.Invalid, ErrorCode: "npc.unsupported"));
+}
+
+public sealed record NpcTypeDefinition(int Type, string Name, bool Boss = false);
+
+public interface IWorldNpcCatalog
+{
+    ValueTask<IReadOnlyList<NpcTypeDefinition>> FindTypesAsync(string query, CancellationToken cancellationToken = default);
 }

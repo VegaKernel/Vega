@@ -76,6 +76,15 @@ public sealed class TerrariaWorldEntityMaintenanceTests
         Assert.Throws<NotSupportedException>(() => maintenance.Snapshot(new WorldId("sandbox")));
     }
 
+    [Test]
+    public void SandboxAdapterRejectsPrimaryBeforeTerrariaAccess()
+    {
+        var dispatcher = new GameThreadDispatcher();
+        var maintenance = new TerrariaWorldEntityMaintenance(dispatcher, new WorldId("sandbox"));
+        Assert.Throws<NotSupportedException>(() => maintenance.Snapshot(WorldId.Primary));
+        Assert.That(dispatcher.AssertCalls, Is.Zero);
+    }
+
     private sealed class GameThreadDispatcher : IGameThreadDispatcher
     {
         public int AssertCalls { get; private set; }

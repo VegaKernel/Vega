@@ -3,6 +3,7 @@ using System.Reflection;
 using Multiplicity.Packets.Views;
 using Vega.Contracts.Commands;
 using Vega.Contracts.Operations;
+using Vega.Contracts.Players;
 using Vega.Contracts.Sandboxes;
 using Vega.Contracts.Localization;
 using Vega.Contracts.Modules;
@@ -32,6 +33,9 @@ using Vega.Modules.AutoWorldCleaner;
 using Vega.Modules.Chests;
 using Vega.Modules.CustomItems;
 using Vega.Modules.Mentions;
+using Vega.Modules.Navigation;
+using Vega.Modules.Restrictions;
+using Vega.Contracts.Items;
 using Vega.Modules.Pvp;
 using Vega.Modules.Scenes;
 using Vega.Modules.Wipe;
@@ -110,6 +114,8 @@ Assembly? ResolveFromRuntimeDirectories(System.Runtime.Loader.AssemblyLoadContex
 
 int Start()
 {
+    if (OfflineMigrationCommands.TryRun(args, AppContext.BaseDirectory) is { } migrationExitCode) return migrationExitCode;
+
     SandboxBackendLaunchOptions backendLaunch;
     try
     {
@@ -147,9 +153,11 @@ int Start()
     }
 
     WorldImageOptions worldImageOptions;
+    NativeTileStorageOptions tileStorageOptions;
     try
     {
         worldImageOptions = WorldImageOptionsParser.Parse(uiOptions.ServerArguments);
+        tileStorageOptions = NativeTileStorageOptions.Parse(worldImageOptions.ServerArguments);
     }
     catch (ArgumentException ex)
     {
@@ -157,7 +165,22 @@ int Start()
         return 2;
     }
 
-    string[] serverArgs = worldImageOptions.ServerArguments.ToArray();
+    string[] serverArgs = tileStorageOptions.ServerArguments.ToArray();
+    using var tileStorage = tileStorageOptions.Enabled ? new NativeTileStorageScope() : null;
+    TerrariaServerHost.PrepareSavePath(serverArgs);
+    if (tileStorage is not null)
+    {
+        try
+        {
+            PagedNativeTileCollection canonical = tileStorage.Complete();
+            Console.WriteLine($"Vega paged native tile storage: {canonical.Width}x{canonical.Height}.");
+        }
+        catch (Exception ex) when (ex is InvalidOperationException or TypeInitializationException)
+        {
+            Console.Error.WriteLine($"Paged tile storage initialization failed: {ex.Message}");
+            return 2;
+        }
+    }
     string configuredWorldPath = serverConfiguration.Current.Values["world"].DisplayValue;
     if (!configuredWorldPath.StartsWith('<'))
     {
@@ -187,6 +210,9 @@ int Start()
 
     using var gameThreadDispatcher = new TerrariaRuntimeGameThreadDispatcher();
     WorldId runtimeWorldId = backendLaunch.IsBackend ? backendLaunch.WorldId : WorldId.Primary;
+    string runtimeDataRoot = backendLaunch.IsBackend
+        ? Path.Combine(AppContext.BaseDirectory, "data", "sandboxes", "instances", runtimeWorldId.Value, "runtime", "data")
+        : Path.Combine(AppContext.BaseDirectory, "data");
     var connectionMetadata = new TerrariaConnectionMetadataRegistry();
     using var playerBoundary = new TerrariaPlayerBoundary(gameThreadDispatcher, connectionMetadata, runtimeWorldId);
     using var playerAuthorization = new PlayerSessionAuthorizationService(playerBoundary);
@@ -203,14 +229,35 @@ int Start()
         new PlayingCommand(playerBoundary)
     ];
     var commandDispatcher = new CommandDispatcher(commandHandlers);
+    using IDisposable broadcastRegistration = commandDispatcher.Register(new BroadcastCommand(playerBoundary, playerBoundary));
+    using IDisposable giveCommandRegistration = commandDispatcher.Register(new ItemCommand(playerBoundary, playerBoundary, giveOthers: true));
+    using IDisposable itemCommandRegistration = commandDispatcher.Register(new ItemCommand(playerBoundary, playerBoundary));
+    using IDisposable healCommandRegistration = commandDispatcher.Register(new HealCommand(playerBoundary, playerBoundary));
+    using IDisposable buffCommandRegistration = commandDispatcher.Register(new BuffCommand(playerBoundary, playerBoundary));
+    using IDisposable giveBuffCommandRegistration = commandDispatcher.Register(new BuffCommand(playerBoundary, playerBoundary, others: true));
+    using IDisposable killRegistration = commandDispatcher.Register(new KillCommand(playerBoundary, playerBoundary));
+    using IDisposable slapRegistration = commandDispatcher.Register(new SlapCommand(playerBoundary, playerBoundary));
+    using IDisposable respawnRegistration = commandDispatcher.Register(new RespawnCommand(playerBoundary, playerBoundary));
+    using IDisposable syncRegistration = commandDispatcher.Register(new SyncCommand(playerBoundary, playerBoundary));
+    using IDisposable annoyRegistration = commandDispatcher.Register(new AnnoyCommand(playerBoundary, playerBoundary));
+    using IDisposable fireworkRegistration = commandDispatcher.Register(new FireworkCommand(playerBoundary, playerBoundary));
+    using IDisposable godModeRegistration = commandDispatcher.Register(new GodModeCommand(playerBoundary, playerBoundary));
+    using IDisposable deathRegistration = commandDispatcher.Register(new PlayerDeathStatisticsCommand(playerBoundary, pvp: false, all: false));
+    using IDisposable pvpDeathRegistration = commandDispatcher.Register(new PlayerDeathStatisticsCommand(playerBoundary, pvp: true, all: false));
+    using IDisposable allDeathRegistration = commandDispatcher.Register(new PlayerDeathStatisticsCommand(playerBoundary, pvp: false, all: true));
+    using IDisposable allPvpDeathRegistration = commandDispatcher.Register(new PlayerDeathStatisticsCommand(playerBoundary, pvp: true, all: true));
+    using IDisposable motdRegistration = commandDispatcher.Register(new ServerTextCommand("motd", Path.Combine(runtimeDataRoot, "motd.txt"), Path.Combine(AppContext.BaseDirectory, "config", "motd.txt")));
+    using IDisposable rulesRegistration = commandDispatcher.Register(new ServerTextCommand("rules", Path.Combine(runtimeDataRoot, "rules.txt"), Path.Combine(AppContext.BaseDirectory, "config", "rules.txt")));
+    using IDisposable versionRegistration = commandDispatcher.Register(new ServerVersionCommand(
+        Assembly.GetExecutingAssembly().GetCustomAttribute<AssemblyInformationalVersionAttribute>()?.InformationalVersion ?? "unknown",
+        typeof(global::Terraria.Main).Assembly.GetName().Version?.ToString() ?? "unknown"));
     using IDisposable helpCommandRegistration = commandDispatcher.Register(new HelpCommand(commandDispatcher));
     using IDisposable aliasesCommandRegistration = commandDispatcher.Register(new AliasesCommand(commandDispatcher));
-    using IDisposable configCommandRegistration = commandDispatcher.Register(
-        new ConfigurationCommand(serverConfiguration));
     var lifecycle = new RuntimeLifecycleTracker(processStartedAt);
     var networkMetrics = new NetworkMetricsCounter();
     var securitySignals = new BoundedSecuritySignalStore();
     var logStore = new BoundedOperationsLogStore();
+    using IDisposable displayLogsRegistration = commandDispatcher.Register(new DisplayLogsCommand(logStore));
     var consoleSink = new ConsoleOperationsLogSink();
     JsonFileOperationsLogSink? fileSink = TryCreateFileSink(backendLaunch);
     var sinks = new List<IOperationsLogSink> { logStore };
@@ -227,6 +274,27 @@ int Start()
     using (fileSink)
     {
         var logger = new StructuredOperationsLogger(sinks);
+        ConnectionWhitelist whitelist;
+        try { whitelist = new ConnectionWhitelist(Path.Combine(AppContext.BaseDirectory, "data", "whitelist.json")); }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or InvalidDataException or System.Text.Json.JsonException)
+        {
+            logger.Log(OperationsLogLevel.Critical, "admission", "Invalid whitelist configuration; refusing to start.", ex);
+            return 2;
+        }
+        using IDisposable whitelistRegistration = commandDispatcher.Register(new WhitelistCommand(whitelist));
+        RestrictionStore restrictions;
+        try { restrictions = new RestrictionStore(Path.Combine(runtimeDataRoot, "restrictions.json"),
+            TerrariaPacketSecurityLimits.ItemTypeCount, TerrariaPacketSecurityLimits.ProjectileTypeCount, TerrariaPacketSecurityLimits.TileTypeCount); }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or InvalidDataException or System.Text.Json.JsonException)
+        {
+            logger.Log(OperationsLogLevel.Critical, "restrictions", "Invalid content restriction configuration; refusing to start.", ex);
+            return 2;
+        }
+        var restrictionPolicy = new ContentRestrictionPolicy(restrictions, playerAuthorization, playerBoundary);
+        playerBoundary.ConfigureContentRestrictions(restrictionPolicy);
+        using IDisposable itemBanRegistration = commandDispatcher.Register(new RestrictionCommand(restrictions, RestrictedContentKind.Item));
+        using IDisposable projectileBanRegistration = commandDispatcher.Register(new RestrictionCommand(restrictions, RestrictedContentKind.Projectile));
+        using IDisposable tileBanRegistration = commandDispatcher.Register(new RestrictionCommand(restrictions, RestrictedContentKind.Tile));
         SandboxOptions sandboxOptions = SandboxOptionsStore.Load(
             Path.Combine(AppContext.BaseDirectory, "config", "sandboxes.json"));
         string sandboxDataRoot = Path.Combine(AppContext.BaseDirectory, "data", "sandboxes");
@@ -234,7 +302,7 @@ int Start()
             ? backendLaunch.SscStorePath
             : Path.Combine(sandboxDataRoot, "ssc.json");
         var sandboxSscStore = new SandboxSscStore(sandboxSscPath);
-        var sandboxCharacterAdapter = new TerrariaSandboxSscCharacterAdapter(gameThreadDispatcher);
+        var sandboxCharacterAdapter = new TerrariaSandboxSscCharacterAdapter(gameThreadDispatcher, playerBoundary);
         using var sandboxControl = backendLaunch.IsBackend
             ? null
             : new SandboxControlService(
@@ -259,9 +327,23 @@ int Start()
         using var sceneRenderer = new TerrariaSceneRenderSink(
             gameThreadDispatcher,
             playerBoundary,
-            logger);
+            logger,
+            runtimeWorldId);
         var scenes = new SceneRuntime(sceneRenderer);
         var visibility = new SceneVisibilityRuntime();
+        void OnSceneSessionOpened(PlayerSessionOpened opened)
+        {
+            scenes.OpenSession(runtimeWorldId, opened);
+            visibility.OpenSession(runtimeWorldId, opened);
+        }
+        void OnSceneSessionClosed(PlayerSessionClosed closed)
+        {
+            scenes.CloseSession(runtimeWorldId, closed);
+            visibility.CloseSession(runtimeWorldId, closed);
+        }
+        playerBoundary.Opened += OnSceneSessionOpened;
+        playerBoundary.Closing += OnSceneSessionClosed;
+        playerBoundary.Closed += OnSceneSessionClosed;
         sceneRenderer.Attach(scenes, playerBoundary);
         WorldMaintenanceOptions worldMaintenanceOptions = WorldMaintenanceOptionsStore.Load(
             Path.Combine(AppContext.BaseDirectory, "config", "world-maintenance.json"),
@@ -274,6 +356,26 @@ int Start()
             worldMaintenance,
             gameThreadDispatcher,
             logger);
+        var hostMetrics = new ProcessHostMetricsReader();
+        var runtimeMetrics = new SampledRuntimeMetricsReader(hostMetrics);
+        using var rest = new LoopbackRestService(runtimeWorldId, lifecycle, operationsState, playerBoundary, networkMetrics, serverControl,
+            runtimeMetrics, gameThreadDispatcher.ReadQueueMetrics);
+        using IDisposable restRegistration = commandDispatcher.Register(rest);
+        if (!backendLaunch.IsBackend && Environment.GetEnvironmentVariable("VEGA_REST_PORT") is { Length: > 0 } restPort)
+        {
+            try
+            {
+                if (!int.TryParse(restPort, out int port)) throw new InvalidDataException("Invalid REST port.");
+                rest.Start(port, Environment.GetEnvironmentVariable("VEGA_REST_TOKEN_SHA256") ?? "",
+                    Environment.GetEnvironmentVariable("VEGA_REST_MAINTENANCE_TOKEN_SHA256"));
+                logger.Log(OperationsLogLevel.Information, "rest", $"Scoped REST available on loopback port {port}.");
+            }
+            catch (Exception ex) when (ex is IOException or InvalidDataException or System.Net.HttpListenerException or UnauthorizedAccessException or ArgumentException)
+            {
+                logger.Log(OperationsLogLevel.Critical, "rest", "Could not start configured loopback REST listener.", ex);
+                return 2;
+            }
+        }
         var regionReset = new BindableWorldResetParticipant("regions");
         using var worldReset = new WorldResetOrchestrator(
             new FileWorldResetBackend(),
@@ -282,10 +384,53 @@ int Start()
         AutoWorldCleanerOptions cleanerOptions = AutoWorldCleanerOptionsStore.Load(
             Path.Combine(AppContext.BaseDirectory, "config", "auto-world-cleaner.json"),
             logger);
-        var worldEntities = new TerrariaWorldEntityMaintenance(gameThreadDispatcher);
+        var worldEntities = new TerrariaWorldEntityMaintenance(gameThreadDispatcher, runtimeWorldId);
         var worldTiles = new TerrariaWorldTileService(gameThreadDispatcher, runtimeWorldId);
-        var worldNpcs = new TerrariaWorldNpcService(gameThreadDispatcher, runtimeWorldId);
-        var worldEnvironment = new TerrariaWorldEnvironmentService(gameThreadDispatcher, runtimeWorldId);
+        var worldNpcs = new TerrariaWorldNpcService(gameThreadDispatcher, runtimeWorldId, playerBoundary);
+        WorldClockOptions worldClockOptions = WorldClockOptionsStore.Load(
+            Path.Combine(AppContext.BaseDirectory, "config", "world-clock.json"), logger);
+        var worldClock = new MonotonicWorldClock(worldClockOptions);
+        var worldEnvironment = new TerrariaWorldEnvironmentService(gameThreadDispatcher, runtimeWorldId, worldClock);
+        WorldBuildProtection buildProtection;
+        try { buildProtection = new WorldBuildProtection(Path.Combine(runtimeDataRoot, "build-protection.json"), runtimeWorldId, playerAuthorization, worldEnvironment.GetSpawnPosition); }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or System.Text.Json.JsonException or InvalidDataException)
+        {
+            logger.Log(OperationsLogLevel.Critical, "build-protection", "Build protection settings are invalid.", ex);
+            return 2;
+        }
+        using IDisposable antiBuildRegistration = commandDispatcher.Register(new WorldBuildProtectionCommand(buildProtection, spawn: false));
+        using IDisposable protectSpawnRegistration = commandDispatcher.Register(new WorldBuildProtectionCommand(buildProtection, spawn: true));
+        var reloadConfiguration = new ReloadConfigurationCommand(serverConfiguration, runtimeWorldId,
+            [("shared whitelist", whitelist.ReloadAsync), ("restrictions", restrictions.ReloadAsync), ("build-protection", buildProtection.ReloadAsync)]);
+        using IDisposable reloadRegistration = commandDispatcher.Register(reloadConfiguration);
+        using IDisposable configCommandRegistration = commandDispatcher.Register(new ConfigurationCommand(serverConfiguration, reloadConfiguration));
+        using var navigationModule = new NavigationModule(commandDispatcher, playerBoundary, playerBoundary, playerBoundary,
+            worldEnvironment, new WarpStore(Path.Combine(runtimeDataRoot, "warps")), worldNpcs);
+        navigationModule.Start();
+        using IDisposable timeCommandRegistration = commandDispatcher.Register(new TimeCommand(worldEnvironment));
+        using IDisposable windCommandRegistration = commandDispatcher.Register(new WindCommand(worldEnvironment));
+        using IDisposable worldInfoCommandRegistration = commandDispatcher.Register(new WorldInfoCommand(worldEnvironment));
+        using IDisposable worldEventCommandRegistration = commandDispatcher.Register(new WorldEventCommand(worldEnvironment));
+        using IDisposable modeRegistration = commandDispatcher.Register(new WorldModeCommand(worldEnvironment));
+        using IDisposable spawnRateRegistration = commandDispatcher.Register(new WorldSpawnSettingsCommand(worldEnvironment, rate: true));
+        using IDisposable maxSpawnsRegistration = commandDispatcher.Register(new WorldSpawnSettingsCommand(worldEnvironment, rate: false));
+        using IDisposable setSpawnRegistration = commandDispatcher.Register(new WorldPointCommand(worldEnvironment, playerBoundary, dungeon: false));
+        using IDisposable setDungeonRegistration = commandDispatcher.Register(new WorldPointCommand(worldEnvironment, playerBoundary, dungeon: true));
+        using IDisposable forceHalloweenRegistration = commandDispatcher.Register(new ForceSeasonCommand(worldEnvironment, halloween: true));
+        using IDisposable forceChristmasRegistration = commandDispatcher.Register(new ForceSeasonCommand(worldEnvironment, halloween: false));
+        using IDisposable clearAnglerRegistration = commandDispatcher.Register(new ClearAnglerCommand(worldEnvironment));
+        using IDisposable hardmodeRegistration = commandDispatcher.Register(new HardmodeCommand(worldEnvironment));
+        using IDisposable bossDamageRegistration = commandDispatcher.Register(new BossDamageCommand(new TerrariaBossDamageHistory(gameThreadDispatcher, runtimeWorldId)));
+        var worldNativeActions = new TerrariaWorldNativeActions(gameThreadDispatcher, runtimeWorldId, playerBoundary);
+        using IDisposable evilRegistration = commandDispatcher.Register(new EvilCommand(worldNativeActions));
+        using IDisposable settleRegistration = commandDispatcher.Register(new SettleCommand(worldNativeActions));
+        using IDisposable growRegistration = commandDispatcher.Register(new GrowCommand(worldNativeActions, playerBoundary));
+        using IDisposable referenceDataRegistration = commandDispatcher.Register(new ReferenceDataCommand(new TerrariaReferenceDataExporter(runtimeDataRoot, runtimeWorldId)));
+        using IDisposable spawnMobCommandRegistration = commandDispatcher.Register(new SpawnMobCommand(playerBoundary, worldNpcs, worldNpcs));
+        using IDisposable spawnBossRegistration = commandDispatcher.Register(new SpawnMobCommand(playerBoundary, worldNpcs, worldNpcs, boss: true));
+        using IDisposable butcherRegistration = commandDispatcher.Register(new ButcherCommand(worldNpcs, worldNpcs));
+        using IDisposable renameNpcRegistration = commandDispatcher.Register(new RenameNpcCommand(worldNpcs, worldNpcs));
+        using IDisposable clearCommandRegistration = commandDispatcher.Register(new ClearCommand(worldEntities, worldNpcs, gameThreadDispatcher));
         var chestBackend = new TerrariaChestBackend(gameThreadDispatcher, runtimeWorldId);
         var chestService = new ChestService(
             chestBackend,
@@ -303,17 +448,18 @@ int Start()
                 lifecycle,
                 gameThreadDispatcher,
                 playerBoundary,
-                logger);
+                logger,
+                worldId: runtimeWorldId);
             var mentions = new MentionRenderer();
             var chests = new ChestPolicyModule(
                 chestService,
                 logger,
-                Path.Combine(AppContext.BaseDirectory, "data", "chest-templates.json"));
+                Path.Combine(runtimeDataRoot, "chest-templates.json"));
             var wipe = new WipeModule(
                 worldReset,
                 serverControl,
                 configuredWorldPath.StartsWith('<') ? null : configuredWorldPath);
-            var sceneConsumers = new SceneConsumersModule(scenes, visibility, playerBoundary);
+            var sceneConsumers = new SceneConsumersModule(scenes, visibility, playerBoundary, runtimeWorldId);
             IVegaModule[] candidates = [pvp, customItems, cleaner, mentions, chests, wipe, sceneConsumers];
             IVegaModule[] configured = backendLaunch.IsBackend && backendLaunch.EnabledModules.Count > 0
                 ? candidates.Where(module =>
@@ -329,7 +475,12 @@ int Start()
             if (Enabled(cleaner)) moduleCommands.Add(new AutoWorldCleanerCommand(cleaner));
             if (Enabled(chests)) moduleCommands.Add(new ChestPolicyCommand(chests));
             if (Enabled(wipe)) moduleCommands.Add(new WipeCommand(wipe));
-            if (Enabled(sceneConsumers)) moduleCommands.Add(new SceneCommand(sceneConsumers, scenes, playerBoundary));
+            if (Enabled(sceneConsumers))
+            {
+                moduleCommands.Add(new SceneCommand(sceneConsumers, scenes, playerBoundary));
+                moduleCommands.Add(new FakeProviderCommand(sceneConsumers.FakeProviders, playerBoundary, gameThreadDispatcher, personal: false));
+                moduleCommands.Add(new FakeProviderCommand(sceneConsumers.FakeProviders, playerBoundary, gameThreadDispatcher, personal: true));
+            }
             IReadOnlyDictionary<string, ICommandHandler> commands = moduleCommands.ToDictionary(
                 static command => command.Descriptor.Name,
                 StringComparer.OrdinalIgnoreCase);
@@ -387,6 +538,8 @@ int Start()
             playerBoundary,
             banService,
             database.RoleLeases);
+        using IDisposable rocketRegistration = commandDispatcher.Register(new RocketCommand(playerBoundary,
+            (player, token) => playerBoundary.RocketAsync(player, accountSessions, token)));
         using IDisposable registerAccountCommandRegistration = commandDispatcher.Register(
             new RegisterAccountCommand(accountSessions));
         using IDisposable loginAccountCommandRegistration = commandDispatcher.Register(
@@ -397,7 +550,7 @@ int Start()
             new PasswordAccountCommand(accountSessions));
         using IDisposable languageCommandRegistration = commandDispatcher.Register(
             new LanguageCommand(localization, accountSessions));
-        var inventoryService = new TerrariaPlayerInventoryService(gameThreadDispatcher);
+        var inventoryService = new TerrariaPlayerInventoryService(gameThreadDispatcher, playerBoundary);
         var inspectionService = new PlayerInspectionService(playerBoundary, inventoryService);
         using IDisposable userInfoCommandRegistration = commandDispatcher.Register(
             new UserInfoCommand(playerBoundary, inspectionService));
@@ -406,6 +559,7 @@ int Start()
         var chat = new ChatPipeline(
             moderation: [new MuteChatModerationRule(accountSessions, database.Mutes)],
             renderers: [moduleRouter]);
+        using var chatCommands = new PlayerChatCommands(commandDispatcher, playerBoundary, playerBoundary, playerBoundary, chat);
 
         GameplayEnforcementOptions gameplayOptions = GameplayEnforcementOptionsStore.Load(
             Path.Combine(AppContext.BaseDirectory, "config", "security.json"),
@@ -425,6 +579,22 @@ int Start()
             logger.Log(OperationsLogLevel.Critical, "connection-metadata", "Dimensions trust configuration is invalid.", ex);
             return 2;
         }
+        PrimaryCharacterPersistenceOptions primaryCharacterOptions;
+        try { primaryCharacterOptions = PrimaryCharacterPersistenceOptions.Load(Path.Combine(AppContext.BaseDirectory, "config", "primary-character-persistence.json")); }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or System.Text.Json.JsonException or InvalidDataException)
+        {
+            logger.Log(OperationsLogLevel.Critical, "character-persistence", "Primary character persistence settings are invalid.", ex);
+            return 2;
+        }
+        bool authoritativeCharacters = backendLaunch.IsBackend
+            ? backendLaunch.SscMode != SandboxSscMode.Disabled : primaryCharacterOptions.Authoritative;
+        string legacyPrimaryCharacterPath = Path.Combine(runtimeDataRoot, "primary-characters.json");
+        if (!backendLaunch.IsBackend && primaryCharacterOptions.Authoritative && File.Exists(legacyPrimaryCharacterPath))
+        {
+            logger.Log(OperationsLogLevel.Critical, "character-persistence",
+                "Authoritative SSC shares the Inherit character store with sandbox transfers. A legacy primary-characters.json exists; stop all worlds and run --vega-migrate-primary-ssc before enabling this mode. No character data was changed.");
+            return 2;
+        }
         using var sandboxSscSessions = new SandboxSscSessionCoordinator(
             playerBoundary,
             playerBoundary,
@@ -434,7 +604,12 @@ int Start()
             sandboxCharacterAdapter,
             runtimeWorldId,
             backendLaunch.IsBackend ? backendLaunch.SscMode : SandboxSscMode.Inherit,
-            logger);
+            logger,
+            primaryCharacterStore: !backendLaunch.IsBackend && primaryCharacterOptions.Enabled
+                ? (primaryCharacterOptions.Authoritative ? sandboxSscStore : new SandboxSscStore(legacyPrimaryCharacterPath)) : null);
+        using IDisposable saveSscRegistration = commandDispatcher.Register(new SaveSscCommand(sandboxSscSessions));
+        using IDisposable overrideSscRegistration = commandDispatcher.Register(new OverrideSscCommand(sandboxSscSessions, playerBoundary));
+        using IDisposable uploadSscRegistration = commandDispatcher.Register(new UploadSscCommand(sandboxSscSessions, playerBoundary));
 
         using var gameplayEnforcement = new GameplayEnforcementPolicy(
             gameplayOptions,
@@ -442,20 +617,29 @@ int Start()
             playerBoundary,
             playerBoundary);
         using var packetRateLimits = new PacketRateLimitPolicy(playerBoundary);
+        var inventoryPolicy = new PlayerInventorySanityPolicy(
+            static () => TerrariaPacketSecurityLimits.CharacterSlotCount,
+            static () => TerrariaPacketSecurityLimits.LoadoutCount,
+            TerrariaPacketSecurityLimits.ItemTypeCount,
+            TerrariaPacketSecurityLimits.PrefixCount,
+            TerrariaPacketSecurityLimits.MaximumItemStack);
         var playerPacketPolicies = new PacketProcessorPipeline<PacketView>(
         [
             packetRateLimits,
+            inventoryPolicy,
+            new PlayerCharacterSyncPolicy(static () => TerrariaPacketSecurityLimits.BuffSlotCount, TerrariaPacketSecurityLimits.BuffTypeCount),
             gameplayEnforcement,
             new ChestInteractionAuthorityPolicy(playerBoundary),
             new TileEntityInteractionAuthorityPolicy(playerBoundary),
-            new SceneInteractionAuthorityPolicy(scenes),
-            new SceneEntityInteractionAuthorityPolicy(visibility),
+            new SceneInteractionAuthorityPolicy(scenes, runtimeWorldId),
+            new SceneEntityInteractionAuthorityPolicy(visibility, runtimeWorldId),
             new RegionBuildAuthorizationPolicy(
                 database.Regions,
                 playerBoundary,
                 playerAuthorization,
                 accountSessions,
-                playerBoundary),
+                playerBoundary,
+                buildProtection),
             new NpcCoinPickupAuthorityPolicy(),
             new WorldItemSyncSanityPolicy(
                 TerrariaPacketSecurityLimits.ItemTypeCount,
@@ -472,13 +656,14 @@ int Start()
                 static () => TerrariaPacketSecurityLimits.WorldWidth,
                 static () => TerrariaPacketSecurityLimits.WorldHeight,
                 static () => TerrariaPacketSecurityLimits.ChestCount,
-                static () => TerrariaPacketSecurityLimits.InventorySlotCount,
+                static () => TerrariaPacketSecurityLimits.QuickStackSlotCount,
                 TerrariaPacketSecurityLimits.TileTypeCount,
                 TerrariaPacketSecurityLimits.WallTypeCount,
                 TerrariaPacketSecurityLimits.ItemTypeCount,
                 TerrariaPacketSecurityLimits.PrefixCount,
                 TerrariaPacketSecurityLimits.PaintColorCount),
             new PlayerPacketOwnershipPolicy(),
+            restrictionPolicy,
             moduleRouter
         ]);
         using IDisposable? sandboxCommandRegistration = sandboxControl is null
@@ -492,7 +677,8 @@ int Start()
                 connectionMetadata,
                 sandboxAdmissions,
                 sandboxSscStore,
-                sandboxCharacterAdapter),
+                sandboxCharacterAdapter,
+                playerBoundary),
             playerBoundary,
             playerAuthorization,
             accountSessions));
@@ -501,8 +687,11 @@ int Start()
             new BanCommand(playerBoundary, playerBoundary, banService));
         using IDisposable muteCommandRegistration = commandDispatcher.Register(
             new MuteCommand(playerBoundary, accountSessions, database.Mutes));
-        using IDisposable accountCommandRegistration = commandDispatcher.Register(
-            new AccountCommand(database.Accounts, database.Authorization, database.RoleLeases));
+        var accountCommand = new AccountCommand(database.Accounts, database.Authorization, database.RoleLeases);
+        using IDisposable setupRegistration = commandDispatcher.Register(new SetupCommand());
+        using IDisposable accountCommandRegistration = commandDispatcher.Register(accountCommand);
+        using IDisposable accountInfoRegistration = commandDispatcher.Register(new AccountInfoCommand(accountCommand));
+        using IDisposable tempGroupRegistration = commandDispatcher.Register(new TempGroupCommand(accountCommand));
         using IDisposable groupCommandRegistration = commandDispatcher.Register(
             new GroupCommand(database.Authorization));
         using IDisposable regionCommandRegistration = commandDispatcher.Register(
@@ -512,7 +701,9 @@ int Start()
             playerBoundary,
             playerBoundary,
             playerBoundary,
-            logger);
+            logger,
+            accounts: accountSessions,
+            dispatcher: gameThreadDispatcher);
         using var worldImages = new TerrariaWorldImageService(logger, lifecycle, worldImageOptions.Enabled);
         var backupBarrier = new TerrariaBackupConsistencyBarrier(serverControl, worldImages);
         BackupOptions backupOptions = BackupOptionsStore.Load(
@@ -533,12 +724,8 @@ int Start()
             new SaveCommand(serverControl));
         using IDisposable shutdownCommandRegistration = commandDispatcher.Register(
             new ShutdownCommand(serverControl));
-        var hostMetrics = new ProcessHostMetricsReader();
-        var runtimeMetrics = new SampledRuntimeMetricsReader(hostMetrics);
-        WorldClockOptions worldClockOptions = WorldClockOptionsStore.Load(
-            Path.Combine(AppContext.BaseDirectory, "config", "world-clock.json"),
-            logger);
-        var worldClock = new MonotonicWorldClock(worldClockOptions);
+        using IDisposable shutdownNoSaveRegistration = commandDispatcher.Register(new ShutdownCommand(serverControl, save: false));
+        using IDisposable serverPasswordRegistration = commandDispatcher.Register(new ServerPasswordCommand(serverControl));
         var staticModules = new StaticModuleOperationsCatalog(CreateModuleSnapshots(softRestart));
         ServerPluginHotReloadOptions hotReloadOptions = ServerPluginHotReloadOptionsStore.Load(
             Path.Combine(AppContext.BaseDirectory, "config", "modules.json"),
@@ -550,7 +737,8 @@ int Start()
             chestService,
             worldNpcs,
             scenes,
-            inventoryService));
+            inventoryService,
+            visibility));
         using var serverPlugins = new ServerPluginHotReloadHost(
             Path.Combine(AppContext.BaseDirectory, "ServerPlugins"),
             hotReloadOptions,
@@ -561,7 +749,8 @@ int Start()
             playerOperations: playerBoundary,
             playerLifecycle: playerBoundary,
             gameThread: gameThreadDispatcher,
-            pluginDataRoot: Path.Combine(AppContext.BaseDirectory, "data", "plugins"));
+            pluginDataRoot: Path.Combine(runtimeDataRoot, "plugins"),
+            pluginConfigurationRoot: backendLaunch.IsBackend ? Path.Combine(runtimeDataRoot, "plugin-config") : null);
         serverPlugins.Start();
         softRestart.SetProcessRestartGuard(() => serverPlugins.Read().IsRestartRequired
             ? "ServerPlugins contains a change or cleanup failure that requires a process restart."
@@ -597,7 +786,8 @@ int Start()
             mutes: database.Mutes,
             scenes: scenes,
             visibility: visibility,
-            backups: backups);
+            backups: backups,
+            localWorldId: runtimeWorldId);
         using var backendReporter = backendLaunch.IsBackend
             ? new SandboxBackendReporter(backendLaunch, lifecycle, operationsState, playerBoundary)
             : null;
@@ -605,7 +795,8 @@ int Start()
         var operationsCommands = new OperationsCommandService(
             commandDispatcher,
             localization,
-            localization);
+            localization,
+            runtimeWorldId);
         using var startupProgress = new TerrariaStartupProgress(logger);
         using var terminalUi = new TerminalUiHost(
             snapshots,
@@ -678,7 +869,15 @@ int Start()
             visibility,
             sceneRenderer,
             localization,
-            localization);
+            localization,
+            ServerNetworkOptions.Load(Path.Combine(AppContext.BaseDirectory, "config", "network.json"), logger),
+            whitelist,
+            primaryGameplayReadiness: authoritativeCharacters ? sandboxSscSessions.IsCharacterReady
+                : !backendLaunch.IsBackend && primaryCharacterOptions.GameplayGateEnabled
+                    ? player => sandboxSscSessions.IsGameplayAllowed(player, primaryCharacterOptions.EffectiveRequireCharacterReady) : null,
+            earlyJoinCharacters: authoritativeCharacters || !backendLaunch.IsBackend && primaryCharacterOptions.Enabled ? sandboxCharacterAdapter : null,
+            joinInventoryPolicy: inventoryPolicy,
+            authoritativeCharacters: authoritativeCharacters);
     }
 }
 
@@ -694,6 +893,25 @@ IDisposable RegisterCoreRussianCatalog(ILocalizationService localization) =>
             ["command.lang.changed"] = "Язык изменён на {0}.",
             ["command.lang.unavailable"] = "Язык '{0}' недоступен. Доступные языки: {1}.",
             ["command.lang.usage"] = "Использование: lang | lang list | lang <культура> | lang reset.",
+            ["command.time.current"] = "Время в мире: {0}.",
+            ["command.time.applied"] = "Время установлено на {0}.",
+            ["command.time.usage"] = "Использование: time [day|noon|night|midnight|HH:mm].",
+            ["command.time.unavailable"] = "Не удалось получить или изменить время мира.",
+            ["command.wind.applied"] = "Скорость ветра установлена на {0} миль/ч.",
+            ["command.wind.usage"] = "Использование: wind <скорость от -40 до 40 миль/ч>.",
+            ["command.wind.unavailable"] = "Не удалось изменить ветер в мире.",
+            ["navigation.spawn"] = "Вы телепортированы на спавн мира.",
+            ["navigation.teleported"] = "Игрок {0} телепортирован к {1}.",
+            ["navigation.teleported_position"] = "Телепортация к тайлу ({0}, {1}) выполнена.",
+            ["navigation.position"] = "Игрок {0} находится в тайле ({1}, {2}).",
+            ["navigation.teleports_allowed"] = "Входящие телепортации разрешены.",
+            ["navigation.teleports_blocked"] = "Входящие телепортации запрещены.",
+            ["navigation.player_not_found"] = "Игрок не найден в этом мире.",
+            ["navigation.teleport_disabled"] = "Игрок запретил входящие телепортации.",
+            ["navigation.same_player"] = "Исходный и целевой игроки должны различаться.",
+            ["navigation.ambiguous"] = "Найдено несколько игроков: {0}.",
+            ["navigation.usage"] = "Использование: {0}.",
+            ["navigation.failed"] = "Телепортация не выполнена.",
             ["command.permission_denied"] = "Недостаточно прав для этой команды.",
             ["command.not_found"] = "Неизвестная команда."
         });
@@ -703,8 +921,8 @@ JsonFileOperationsLogSink? TryCreateFileSink(SandboxBackendLaunchOptions backend
     try
     {
         string path = backendLaunch.IsBackend
-            ? Path.Combine("logs", "sandboxes", backendLaunch.WorldId.Value, "vega-operations.jsonl")
-            : Path.Combine("logs", "vega-operations.jsonl");
+            ? Path.Combine(AppContext.BaseDirectory, "logs", "sandboxes", backendLaunch.WorldId.Value, "vega-operations.jsonl")
+            : Path.Combine(AppContext.BaseDirectory, "logs", "vega-operations.jsonl");
         return new JsonFileOperationsLogSink(path);
     }
     catch (Exception ex)
@@ -719,10 +937,12 @@ IReadOnlyList<ModuleOperationsSnapshot> CreateModuleSnapshots(IModuleOperationsC
     Module(
         "Vega.Runtime",
         Assembly.GetExecutingAssembly(),
-        ["Vega.Backups", "Vega.Cluster", "Vega.Core", "Vega.Modules.Administration", "Vega.Modules.AutoWorldCleaner", "Vega.Modules.Pvp", "Vega.Operations", "Vega.Persistence", "Vega.Regions", "Vega.Sandboxes", "Vega.Terraria", "Vega.TerminalUI"]),
+        ["Vega.Backups", "Vega.Cluster", "Vega.Core", "Vega.Modules.Administration", "Vega.Modules.AutoWorldCleaner", "Vega.Modules.Navigation", "Vega.Modules.Pvp", "Vega.Modules.Restrictions", "Vega.Operations", "Vega.Persistence", "Vega.Regions", "Vega.Sandboxes", "Vega.Terraria", "Vega.TerminalUI"]),
     Module("Vega.Backups", typeof(DeploymentBackupService).Assembly, ["Vega.Contracts"]),
     Module("Vega.Core", typeof(CommandDispatcher).Assembly, ["Vega.Contracts"]),
     Module("Vega.Modules.Administration", typeof(AccountCommand).Assembly, ["Vega.Contracts"]),
+    Module("Vega.Modules.Navigation", typeof(NavigationModule).Assembly, ["Vega.Contracts"]),
+    Module("Vega.Modules.Restrictions", typeof(RestrictionStore).Assembly, ["Vega.Contracts", "Multiplicity"]),
     Module("Vega.Cluster", typeof(UnavailableClusterClient).Assembly, ["Vega.Contracts"]),
     Module("Vega.Operations", typeof(OperationsSnapshotProvider).Assembly, ["Vega.Contracts"]),
     Module("Vega.Persistence", typeof(IVegaDatabase).Assembly, ["Vega.Contracts", "System.Data.Common"]),

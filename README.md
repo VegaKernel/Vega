@@ -12,7 +12,7 @@
   · <a href="docs/decisions/">ADR</a>
 </p>
 
-Vega — самостоятельный серверный runtime и framework для Terraria на .NET 11 Preview 7. Он запускает Terraria через TerrariaRuntime, отделяет игровую интеграцию от серверной логики и предоставляет типизированные контракты для команд, событий, игроков, пакетов, модулей, операций и кластерных сценариев.
+Vega — самостоятельный серверный framework для Terraria 1.4.6.1 на .NET 11. Он запускает патченый официальный dedicated server через TerrariaRuntime 1.1.5, отделяет игровую интеграцию от серверной логики и предоставляет типизированные контракты для команд, событий, игроков, пакетов, модулей, операций и кластерных сценариев.
 
 Vega не является форком TShock и не поддерживает бинарную или исходную совместимость с TShock/TSAPI-плагинами. Старые реализации используются только как источник проверенных сценариев, требований и регрессионных тестов.
 
@@ -71,9 +71,11 @@ flowchart TB
 
 - нативный host `Vega.Server` без TSAPI и TShockAPI;
 - строгая граница `Vega.Contracts` / `Vega.Core` / `Vega.Terraria` / `Vega.Runtime`;
-- типизированные события, команды и packet pipeline на базе `TZ.Multiplicity`;
+- типизированные события, команды и packet pipeline на базе `Multiplicity 4.0.1` (нативный протокол 329);
 - безопасные player snapshots и операции через game-thread dispatcher;
 - встроенные модули PvP и Custom Items;
+- встроенный [FakeProvider SDK](docs/ru/plugin-sdk.md#fakeprovider-для-плагинов): `context.World.FakeProvider`, глобальные и персональные тайловые слои, команды `fake`/`pfake`, видимость сущностей;
+- опциональное [постраничное хранилище нативных тайлов](docs/paged-native-tiles.md), сохраняющее поведение `ITile`;
 - режимы Terminal UI, plain console и headless;
 - структурные логи, runtime/GC/network/TPS-метрики и readiness telemetry;
 - опциональные типизированные cluster-контракты и reference transport;
@@ -82,9 +84,11 @@ flowchart TB
 
 ## Требования
 
-- .NET SDK 11.0.100-preview.7.26381.103, закреплённый в `src/global.json`;
+- .NET SDK 11.0.100, закреплённый в `src/global.json`;
 - доступ к NuGet при первом восстановлении пакетов;
 - совместимая Terraria/TerrariaRuntime server runtime-среда.
+
+Для разработки хуков используется соседний репозиторий `TerrariaRuntime`: его патчер создаёт пакет версии 1.1.5. Подробности о границах интеграции и сетевых настройках: [руководство](docs/ru/project-guide.md).
 
 ## Сборка и тесты
 
@@ -136,7 +140,7 @@ artifacts/server/Vega.Server.exe --vega-ui=plain
 
 ## Статус
 
-Roadmap фиксирует завершённые возможности и переход активной разработки на .NET 11 Preview 7; перевод production-канала по-прежнему требует compatibility-, deployment- и soak-проверок. Dimensions-forwarding, sandbox-процессы, мягкий перезапуск и резервное копирование реализованы, но опасные operational-возможности выключены консервативными настройками. Авторитетный SSC, legacy whitelist/warps и совместимость с TShock REST не входят в цели Vega 1.0.
+Roadmap фиксирует завершённые возможности и переход на патченый официальный сервер Terraria 1.4.6.1; production-релиз требует compatibility-, deployment- и soak-проверок. Dimensions-forwarding, sandbox-процессы, мягкий перезапуск, резервное копирование, базовые whitelist и warps реализованы. Авторитетный SSC и полное функциональное покрытие веток TShock остаются отдельными задачами; бинарная совместимость с TShock не является целью.
 
 ## Лицензия
 

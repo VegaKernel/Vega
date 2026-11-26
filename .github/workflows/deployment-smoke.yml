@@ -40,4 +40,4 @@ jobs:
 
       - name: Run clean deployment smoke
         shell: pwsh
-        run: ./scripts/Test-DeployableServer.ps1 -ServerRoot artifacts/server
+        run: ./scripts/Test-DeployableServer.ps1 -ServerRoot artifacts/server -TestSandboxIsolation

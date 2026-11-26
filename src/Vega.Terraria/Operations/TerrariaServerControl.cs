@@ -13,23 +13,46 @@ public sealed class TerrariaServerControl(
     public ValueTask SaveAsync(CancellationToken cancellationToken = default) =>
         worldMaintenance.SaveAsync(cancellationToken);
 
-    public async ValueTask ShutdownAsync(
+    public ValueTask ShutdownAsync(
         string reason,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default) => ShutdownCoreAsync(reason, true, cancellationToken);
+
+    public ValueTask ShutdownWithoutSaveAsync(string reason, CancellationToken cancellationToken = default) =>
+        ShutdownCoreAsync(reason, false, cancellationToken);
+
+    private ValueTask ShutdownCoreAsync(string reason, bool save, CancellationToken cancellationToken)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(reason);
+        return DispatchAsync("server-shutdown", () =>
+        {
+            global::Terraria.Netplay.SaveOnServerExit = save;
+            global::Terraria.Netplay.Disconnect = true;
+            logger.Log(OperationsLogLevel.Warning, "server-control", (save ? "" : "Without world save: ") + (reason.Length <= 512 ? reason : reason[..512]));
+        }, cancellationToken);
+    }
+
+    public ValueTask SetPasswordAsync(string password, CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(password);
+        if (password.Length > 128 || password.Any(char.IsControl)) throw new ArgumentException("Invalid server password.", nameof(password));
+        return DispatchAsync("server-password", () =>
+        {
+            global::Terraria.Netplay.ServerPassword = password;
+            logger.Log(OperationsLogLevel.Information, "server-control", password.Length == 0 ? "Server password cleared." : "Server password changed.");
+        }, cancellationToken);
+    }
+
+    private async ValueTask DispatchAsync(string operation, Action action, CancellationToken cancellationToken)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
         var completion = new TaskCompletionSource(
             TaskCreationOptions.RunContinuationsAsynchronously);
-        if (!gameThread.TryPost("server-shutdown", () =>
+        if (!gameThread.TryPost(operation, () =>
             {
                 try
                 {
-                    global::Terraria.Netplay.SaveOnServerExit = true;
-                    global::Terraria.Netplay.Disconnect = true;
-                    logger.Log(
-                        OperationsLogLevel.Warning,
-                        "server-control",
-                        reason.Length <= 512 ? reason : reason[..512]);
+                    cancellationToken.ThrowIfCancellationRequested();
+                    action();
                     completion.TrySetResult();
                 }
                 catch (Exception ex)

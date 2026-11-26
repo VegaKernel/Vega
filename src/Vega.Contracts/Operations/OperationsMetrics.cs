@@ -13,7 +13,12 @@ public sealed record RuntimeMetricsSnapshot(
     int Gen2Collections,
     int AvailableWorkerThreads,
     int MaximumWorkerThreads,
-    DateTimeOffset SampledAt);
+    DateTimeOffset SampledAt)
+{
+    public double TotalGcPauseMilliseconds { get; init; }
+}
+
+public readonly record struct GameThreadQueueSnapshot(int Pending, int Capacity, long Dropped, int MaximumStepsPerTick, double BudgetMilliseconds);
 
 public interface IRuntimeMetricsReader
 {

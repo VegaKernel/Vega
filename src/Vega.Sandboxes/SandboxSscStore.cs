@@ -38,8 +38,105 @@ public sealed class SandboxSscStore : ISandboxSscStore
         }
 
         ArgumentException.ThrowIfNullOrWhiteSpace(accountId);
+        // A snapshot read does not change entries or consume transfer leases.
         return WithLockedState(DateTimeOffset.UtcNow, state =>
-            FindState(state, accountId, Scope(worldId, mode))?.ToSnapshot());
+            FindState(state, accountId, Scope(worldId, mode))?.ToSnapshot(), write: false);
+    }
+
+    /// <summary>Offline migration of the old primary-only store into this shared store. Never overwrites existing characters.</summary>
+    public PrimaryMigrationResult MigrateLegacyPrimary(string legacyPath, DateTimeOffset now)
+    {
+        var legacy = new SandboxSscStore(legacyPath);
+        if (string.Equals(legacy.path, path, StringComparison.OrdinalIgnoreCase))
+            throw new InvalidDataException("Legacy and shared SSC paths must differ.");
+        string archive = legacy.path + ".migrated";
+        lock (sync)
+        {
+            if (!File.Exists(legacy.path)) throw new FileNotFoundException("Legacy primary SSC store does not exist.", legacy.path);
+            using FileStream legacyLock = legacy.AcquireFileLock();
+            if (File.Exists(archive)) throw new IOException("Legacy SSC archive already exists; preserve it before retrying.");
+            Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+            using FileStream sharedLock = AcquireFileLock();
+
+            State source = Load(legacy.path, requireExisting: true);
+            ValidateMigrationState(source, primaryOnly: true);
+            if (source.Leases.Any(lease => lease.ExpiresAt > now))
+                throw new InvalidDataException("Active SSC transfers exist. Stop all worlds and wait for the leases to expire before migrating.");
+            var result = MergePrimaryAndPublish(source, now);
+            File.Move(legacy.path, archive, overwrite: false);
+            return new PrimaryMigrationResult(result.Imported, result.AlreadyPresent, archive, result.SharedBackup);
+        }
+    }
+
+    public sealed record PrimaryMigrationResult(int Imported, int AlreadyPresent, string LegacyArchive, string? SharedBackup);
+
+    public sealed record PrimaryImportResult(int Imported, int AlreadyPresent, string? SharedBackup);
+
+    /// <summary>Atomically import primary characters into the shared store, preserving other worlds and refusing conflicting records.</summary>
+    public PrimaryImportResult ImportPrimary(IReadOnlyDictionary<string, string> payloads, DateTimeOffset now)
+    {
+        var source = new State();
+        foreach (var pair in payloads)
+            source.Entries.Add(new Entry(pair.Key, WorldId.Primary.Value, ++source.Sequence, pair.Value, now));
+        ValidateMigrationState(source, primaryOnly: true);
+        lock (sync)
+        {
+            Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+            using FileStream sharedLock = AcquireFileLock();
+            return MergePrimaryAndPublish(source, now);
+        }
+    }
+
+    private PrimaryImportResult MergePrimaryAndPublish(State source, DateTimeOffset now)
+    {
+        State target = Load(path);
+        ValidateMigrationState(target, primaryOnly: false);
+        if (target.Leases.Any(lease => lease.ExpiresAt > now))
+            throw new InvalidDataException("Active SSC transfers exist. Stop all worlds and wait for the leases to expire before migrating.");
+        int imported = 0;
+        int identical = 0;
+        var primary = target.Entries.Where(entry => string.Equals(entry.ScopeWorldId, WorldId.Primary.Value, StringComparison.OrdinalIgnoreCase))
+            .ToDictionary(entry => entry.AccountId, StringComparer.OrdinalIgnoreCase);
+        foreach (Entry entry in source.Entries)
+        {
+            if (primary.TryGetValue(entry.AccountId, out Entry? existing))
+            {
+                if (!string.Equals(existing.Payload, entry.Payload, StringComparison.Ordinal))
+                    throw new InvalidDataException("Primary SSC stores contain conflicting character data. Neither store was modified.");
+                identical++;
+                continue;
+            }
+            target.Sequence = checked(target.Sequence + 1);
+            target.Entries.Add(entry with { Revision = target.Sequence, ScopeWorldId = WorldId.Primary.Value });
+            imported++;
+        }
+
+        // Backup precedes atomic publication; a retry recognizes byte-identical payloads.
+        string? backup = null;
+        if (File.Exists(path))
+        {
+            backup = path + $".before-primary-migration.{Guid.NewGuid():N}";
+            File.Copy(path, backup, overwrite: false);
+        }
+        target.Leases.RemoveAll(lease => lease.ExpiresAt <= now);
+        SaveAtomic(target);
+        return new(imported, identical, backup);
+    }
+
+    private static void ValidateMigrationState(State state, bool primaryOnly)
+    {
+        if (state.Sequence < 0 || state.Entries is null || state.Leases is null || state.Leases.Any(lease => lease is null))
+            throw new InvalidDataException("SSC store metadata is invalid.");
+        var keys = new HashSet<(string AccountId, string Scope)>();
+        foreach (Entry entry in state.Entries)
+        {
+            if (entry is null || string.IsNullOrWhiteSpace(entry.AccountId) || string.IsNullOrWhiteSpace(entry.ScopeWorldId) ||
+                entry.AccountId != entry.AccountId.Trim() || entry.Revision <= 0 || entry.Revision > state.Sequence ||
+                entry.Payload is null || !IsPayloadValid(entry.Payload) ||
+                (primaryOnly && !string.Equals(entry.ScopeWorldId, WorldId.Primary.Value, StringComparison.OrdinalIgnoreCase)) ||
+                !keys.Add((entry.AccountId.ToUpperInvariant(), entry.ScopeWorldId.ToUpperInvariant())))
+                throw new InvalidDataException("SSC store contains invalid or duplicate character entries.");
+        }
     }
 
     public SandboxSscWriteResult Save(
@@ -48,7 +145,14 @@ public sealed class SandboxSscStore : ISandboxSscStore
         SandboxSscMode mode,
         string payload,
         long expectedRevision,
-        DateTimeOffset now)
+        DateTimeOffset now) => SaveCore(accountId, worldId, mode, payload, expectedRevision, now, skipUnchanged: false);
+
+    public SandboxSscWriteResult SaveCheckpoint(string accountId, WorldId worldId, SandboxSscMode mode,
+        string payload, long expectedRevision, DateTimeOffset now) =>
+        SaveCore(accountId, worldId, mode, payload, expectedRevision, now, skipUnchanged: true);
+
+    private SandboxSscWriteResult SaveCore(string accountId, WorldId worldId, SandboxSscMode mode,
+        string payload, long expectedRevision, DateTimeOffset now, bool skipUnchanged)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(accountId);
         ArgumentNullException.ThrowIfNull(payload);
@@ -82,9 +186,12 @@ public sealed class SandboxSscStore : ISandboxSscStore
                     $"Expected SSC revision {expectedRevision}, current revision is {current}.");
             }
 
+            if (skipUnchanged && existing is not null && string.Equals(existing.Payload, payload, StringComparison.Ordinal))
+                return new SandboxSscWriteResult(SandboxSscWriteStatus.Applied, existing.ToSnapshot());
+
             Entry next = WriteEntry(state, accountId, scope, payload, now);
             return new SandboxSscWriteResult(SandboxSscWriteStatus.Applied, next.ToSnapshot());
-        });
+        }, shouldWrite: result => result.IsSuccess && result.State?.Revision != expectedRevision);
     }
 
     public SandboxSscTransferPreparation PrepareTransfer(
@@ -283,16 +390,16 @@ public sealed class SandboxSscStore : ISandboxSscStore
         });
     }
 
-    private T WithLockedState<T>(DateTimeOffset now, Func<State, T> action)
+    private T WithLockedState<T>(DateTimeOffset now, Func<State, T> action, bool write = true, Func<T, bool>? shouldWrite = null)
     {
         lock (sync)
         {
             Directory.CreateDirectory(Path.GetDirectoryName(path)!);
             using FileStream fileLock = AcquireFileLock();
             State state = Load(path);
-            state.Leases.RemoveAll(lease => lease.ExpiresAt <= now);
+            if (write) state.Leases.RemoveAll(lease => lease.ExpiresAt <= now);
             T result = action(state);
-            SaveAtomic(state);
+            if (write && (shouldWrite is null || shouldWrite(result))) SaveAtomic(state);
             return result;
         }
     }
@@ -352,16 +459,19 @@ public sealed class SandboxSscStore : ISandboxSscStore
 
     private static bool IsPayloadValid(string payload) => Encoding.UTF8.GetByteCount(payload) <= MaximumPayloadBytes;
 
-    private static State Load(string path)
+    private static State Load(string path, bool requireExisting = false)
     {
         if (!File.Exists(path))
         {
+            if (requireExisting) throw new FileNotFoundException("SSC store does not exist.", path);
             return new State();
         }
 
         try
         {
-            return JsonSerializer.Deserialize<State>(File.ReadAllText(path), JsonOptions) ?? new State();
+            using var stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read);
+            return JsonSerializer.Deserialize<State>(stream, JsonOptions)
+                ?? throw new InvalidDataException($"SSC store '{path}' is empty.");
         }
         catch (JsonException ex)
         {
@@ -372,8 +482,16 @@ public sealed class SandboxSscStore : ISandboxSscStore
     private void SaveAtomic(State state)
     {
         string temporary = path + $".tmp.{Environment.ProcessId}.{Guid.NewGuid():N}";
-        File.WriteAllText(temporary, JsonSerializer.Serialize(state, JsonOptions));
-        File.Move(temporary, path, true);
+        try
+        {
+            using (var stream = new FileStream(temporary, FileMode.CreateNew, FileAccess.Write, FileShare.None))
+            {
+                JsonSerializer.Serialize(stream, state, JsonOptions);
+                stream.Flush(flushToDisk: true);
+            }
+            File.Move(temporary, path, true);
+        }
+        finally { if (File.Exists(temporary)) File.Delete(temporary); }
     }
 
     private static SandboxSscTransferPreparation Reject(string code, string message) =>

@@ -81,6 +81,38 @@ public sealed class RegionBuildAuthorizationPolicyTests
     }
 
     [Test]
+    public async Task WorldBuildProtectionIsDurableAndIndependentOfRegionPermissions()
+    {
+        string root = Path.Combine(Path.GetTempPath(), "vega-build-protection", Guid.NewGuid().ToString("N"));
+        string path = Path.Combine(root, "build-protection.json");
+        try
+        {
+            var authorization = new FakeAuthorization([RegionBuildAuthorizationPolicy.BypassPermission]);
+            WorldTilePosition spawn = new(100, 100);
+            var protection = new WorldBuildProtection(path, WorldId.Primary, authorization, () => spawn);
+            await protection.ChangeAsync(s => s with { SpawnProtected = true, SpawnRadius = 10 });
+            var reopened = new WorldBuildProtection(path, WorldId.Primary, authorization, () => spawn);
+            var policy = new RegionBuildAuthorizationPolicy(new FakeRegions(Region()), new FakeDirectory(), authorization, worldProtection: reopened);
+            Assert.That(Process(policy, new Tile { Action = TileAction.PlaceTile, TileX = 100, TileY = 100, Value = 1 }).Reason,
+                Is.EqualTo("packet.build.spawn_protected"));
+            Assert.That(Process(policy, new Tile { Action = TileAction.PlaceTile, TileX = 80, TileY = 80, Value = 1 }).Kind,
+                Is.EqualTo(PacketDecisionKind.Allow));
+            spawn = new(80, 80);
+            Assert.That(Process(policy, new Tile { Action = TileAction.PlaceTile, TileX = 80, TileY = 80, Value = 1 }).Reason,
+                Is.EqualTo("packet.build.spawn_protected"));
+            Assert.That(Process(policy, new ChestOpen { ChestId = 1, ChestX = 80, ChestY = 80 }).Kind, Is.EqualTo(PacketDecisionKind.Allow));
+            await reopened.ChangeAsync(s => s with { GlobalDisabled = true });
+            Assert.That(Process(policy, new Tile { Action = TileAction.PlaceTile, TileX = 200, TileY = 200, Value = 1 }).Reason,
+                Is.EqualTo("packet.build.disabled"));
+            var bypass = new WorldBuildProtection(path, WorldId.Primary,
+                new FakeAuthorization([WorldBuildProtection.GlobalBypass, WorldBuildProtection.SpawnBypass]), () => spawn);
+            Assert.That(bypass.Evaluate(WorldId.Primary, new(4), 80, 80, 80, 80).Kind, Is.EqualTo(PacketDecisionKind.Allow));
+            Assert.That(bypass.Evaluate(new("another"), new(4), 80, 80, 80, 80).Reason, Is.EqualTo("packet.build.wrong_world"));
+        }
+        finally { if (Directory.Exists(root)) Directory.Delete(root, true); }
+    }
+
+    [Test]
     public void AuthenticatedAccountIdentityOwnsRegionEvenWhenCharacterNameDiffers()
     {
         RegionSnapshot region = Region() with { Owner = "alice" };
@@ -281,12 +313,23 @@ public sealed class RegionBuildAuthorizationPolicyTests
             throw new NotSupportedException();
     }
 
-    private sealed class FakeAccountSessions : IPlayerAccountSessionService
+    [Test]
+    public void AccountScopedRegionMembershipRequiresAuthenticatedSession()
+    {
+        var region = Region() with { Members = Set("Player", "alice") };
+        var unauthenticated = new RegionBuildAuthorizationPolicy(new FakeRegions(region), new FakeDirectory(), new FakeAuthorization([]), new FakeAccountSessions(false));
+        var authenticated = new RegionBuildAuthorizationPolicy(new FakeRegions(region), new FakeDirectory(), new FakeAuthorization([]), new FakeAccountSessions());
+        var operation = new Tile { Action = TileAction.PlaceTile, TileX = 12, TileY = 14, Value = 1 };
+        Assert.That(Process(unauthenticated, operation).Kind, Is.EqualTo(PacketDecisionKind.Reject));
+        Assert.That(Process(authenticated, operation).Kind, Is.EqualTo(PacketDecisionKind.Allow));
+    }
+
+    private sealed class FakeAccountSessions(bool authenticated = true) : IPlayerAccountSessionService
     {
         public bool TryGetAccount(PlayerId playerId, out AccountSnapshot? account)
         {
-            account = new AccountSnapshot(new AccountId(1), "alice", "default", null) { Revision = 1 };
-            return true;
+            account = authenticated ? new AccountSnapshot(new AccountId(1), "alice", "default", null) { Revision = 1 } : null;
+            return authenticated;
         }
 
         public ValueTask<bool> SetCultureAsync(

@@ -59,18 +59,7 @@ public sealed class TerrariaWorldTileService(
             return null;
         }
 
-        SceneTile[] tiles = new SceneTile[checked(bounds.Width * bounds.Height)];
-        var index = 0;
-        for (var y = bounds.Y; y < bounds.Bottom; y++)
-        {
-            for (var x = bounds.X; x < bounds.Right; x++)
-            {
-                tiles[index++] = Snapshot(global::Terraria.Main.tile[x, y]);
-            }
-        }
-
-        var area = new SceneTileArea(bounds.Width, bounds.Height, tiles);
-        long fingerprint = Fingerprint(area);
+        (SceneTileArea area, long fingerprint) = CaptureArea(global::Terraria.Main.tile, bounds);
         var identity = new AreaIdentity(requestedWorldId, bounds);
         VersionState state = versions.AddOrUpdate(
             identity,
@@ -85,6 +74,31 @@ public sealed class TerrariaWorldTileService(
             state.Revision,
             area,
             DateTimeOffset.UtcNow);
+    }
+
+    internal static (SceneTileArea Area, long Fingerprint) CaptureArea(
+        global::TerrariaRuntime.ICollection<global::Terraria.ITile> nativeTiles, SceneBounds bounds)
+    {
+        var hash = new HashCode();
+        hash.Add(bounds.Width);
+        hash.Add(bounds.Height);
+        SceneTileArea area = SceneTileArea.Create(bounds.Width, bounds.Height, bounds, (tiles, rectangle) =>
+        {
+            int index = 0;
+            int bottom = rectangle.Bottom;
+            int right = rectangle.Right;
+            for (int y = rectangle.Y; y < bottom; y++)
+            {
+                for (int x = rectangle.X; x < right; x++)
+                {
+                    SceneTile tile = Snapshot(nativeTiles[x, y]);
+                    tiles[index++] = tile;
+                    hash.Add(tile);
+                }
+            }
+        });
+
+        return (area, hash.ToHashCode());
     }
 
     private WorldTileMutationResult Replace(WorldTileMutationRequest request)
@@ -255,19 +269,6 @@ public sealed class TerrariaWorldTileService(
         tile.fullbrightWall((value.Flags & SceneTileFlags.FullbrightWall) != 0);
         tile.invisibleBlock((value.Flags & SceneTileFlags.InvisibleBlock) != 0);
         tile.invisibleWall((value.Flags & SceneTileFlags.InvisibleWall) != 0);
-    }
-
-    private static long Fingerprint(SceneTileArea area)
-    {
-        var hash = new HashCode();
-        hash.Add(area.Width);
-        hash.Add(area.Height);
-        foreach (SceneTile tile in area.Tiles)
-        {
-            hash.Add(tile);
-        }
-
-        return hash.ToHashCode();
     }
 
     private ValueTask<T> DispatchAsync<T>(

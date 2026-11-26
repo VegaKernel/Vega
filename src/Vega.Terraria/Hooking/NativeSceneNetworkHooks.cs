@@ -9,7 +9,8 @@ namespace Vega.Terraria.Hooking;
 internal sealed class NativeSceneNetworkHooks(
     ISceneRuntime scenes,
     ISceneRenderSink renderer,
-    IPlayerDirectory players) : IDisposable
+    IPlayerDirectory players,
+    WorldId worldId) : IDisposable
 {
     private bool attached;
 
@@ -62,7 +63,7 @@ internal sealed class NativeSceneNetworkHooks(
                 Math.Max(1, (int)args.Number3),
                 Math.Max(1, (int)args.Number4));
             foreach (SceneOverlayDefinition overlay in scenes.SnapshotScenes()
-                         .Where(scene => scene.WorldId == WorldId.Primary)
+                         .Where(scene => scene.WorldId == worldId)
                          .SelectMany(static scene => scene.Overlays)
                          .Where(overlay => overlay.Enabled && overlay.Bounds.Intersects(section)))
             {
@@ -77,7 +78,7 @@ internal sealed class NativeSceneNetworkHooks(
         {
             return new SceneRenderRequest(
                 default,
-                WorldId.Primary,
+                worldId,
                 bounds,
                 false,
                 new HashSet<PlayerId> { new(remoteClient) });
@@ -85,10 +86,11 @@ internal sealed class NativeSceneNetworkHooks(
 
         return new SceneRenderRequest(
             default,
-            WorldId.Primary,
+            worldId,
             bounds,
             false,
             new HashSet<PlayerId>(players.SnapshotOnlinePlayers()
+                .Where(player => player.WorldId == worldId)
                 .Select(static player => player.Id)
                 .Where(playerId => playerId.Slot != ignoreClient)));
     }

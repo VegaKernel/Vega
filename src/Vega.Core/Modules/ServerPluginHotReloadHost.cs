@@ -30,6 +30,7 @@ public sealed class ServerPluginHotReloadHost :
     private readonly IPlayerSessionLifecycle? playerLifecycle;
     private readonly IGameThreadDispatcher? gameThread;
     private readonly string pluginDataRoot;
+    private readonly string? pluginConfigurationRoot;
     private readonly Dictionary<string, LoadedPlugin> loaded = new(StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<string, ModuleOperationsSnapshot> snapshots = new(StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<string, long> changeVersions = new(StringComparer.OrdinalIgnoreCase);
@@ -55,7 +56,8 @@ public sealed class ServerPluginHotReloadHost :
         IPlayerOperations? playerOperations = null,
         IPlayerSessionLifecycle? playerLifecycle = null,
         IGameThreadDispatcher? gameThread = null,
-        string? pluginDataRoot = null)
+        string? pluginDataRoot = null,
+        string? pluginConfigurationRoot = null)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(directory);
         this.directory = Path.GetFullPath(directory);
@@ -68,6 +70,7 @@ public sealed class ServerPluginHotReloadHost :
         this.playerLifecycle = playerLifecycle;
         this.gameThread = gameThread;
         this.pluginDataRoot = Path.GetFullPath(pluginDataRoot ?? Path.Combine(this.directory, ".data"));
+        this.pluginConfigurationRoot = pluginConfigurationRoot is null ? null : Path.GetFullPath(pluginConfigurationRoot);
     }
 
     public bool HotReloadEnabled => options.Enabled;
@@ -174,7 +177,9 @@ public sealed class ServerPluginHotReloadHost :
     {
         lock (sync)
         {
-            return Array.AsReadOnly(snapshots.Values
+            return Array.AsReadOnly(snapshots.Select(pair =>
+                loaded.TryGetValue(pair.Key, out var plugin) && plugin.Scope is { } scope
+                    ? WithFaults(pair.Value, scope.Faults) : pair.Value)
                 .OrderBy(static snapshot => snapshot.Name, StringComparer.OrdinalIgnoreCase)
                 .Select(static snapshot => snapshot with
                 {
@@ -399,6 +404,8 @@ public sealed class ServerPluginHotReloadHost :
                 $"A server plugin named '{staged.Name}' is already loaded.");
         }
 
+        Guid activationId = Guid.NewGuid();
+        string activationPath = staged.Path;
         var scope = new HotModuleRegistrationScope(
             commands,
             logger,
@@ -408,7 +415,11 @@ public sealed class ServerPluginHotReloadHost :
             playerMessenger,
             playerOperations,
             playerLifecycle,
-            gameThread);
+            gameThread,
+            pluginConfigurationRoot: pluginConfigurationRoot,
+            activationId: activationId, faultThreshold: options.FaultThreshold,
+            faultWindow: TimeSpan.FromSeconds(options.FaultWindowSeconds),
+            onQuarantine: () => QueueFaultRetirement(activationPath, activationId));
         long startedAt = Stopwatch.GetTimestamp();
         try
         {
@@ -421,6 +432,7 @@ public sealed class ServerPluginHotReloadHost :
             }
 
             staged.Detach();
+            if (scope.Faults.Quarantined) QueueFaultRetirement(activationPath, activationId);
             return new ServerPluginOperationResult(true, false, $"Server plugin '{active.Name}' is loaded.");
         }
         catch (Exception ex)
@@ -463,10 +475,55 @@ public sealed class ServerPluginHotReloadHost :
         }
     }
 
+    private void QueueFaultRetirement(string path, Guid activationId) =>
+        _ = Task.Run(() => RetireFaultedAsync(path, activationId));
+
+    private async Task RetireFaultedAsync(string path, Guid activationId)
+    {
+        try
+        {
+            await mutation.WaitAsync(shutdown.Token).ConfigureAwait(false);
+            try
+            {
+                LoadedPlugin? plugin;
+                lock (sync)
+                {
+                    if (!loaded.TryGetValue(path, out plugin) || plugin.Scope?.ActivationId != activationId ||
+                        !plugin.Scope!.Faults.Quarantined) return;
+                }
+                using var deadline = CancellationTokenSource.CreateLinkedTokenSource(shutdown.Token);
+                deadline.CancelAfter(options.UnloadTimeoutMilliseconds);
+                try { await plugin.Scope!.DrainForRetirementAsync(deadline.Token).ConfigureAwait(false); }
+                catch (OperationCanceledException) when (!shutdown.IsCancellationRequested)
+                {
+                    MarkRestartRequired(path, "Quarantined plugin callbacks or lifetime tasks did not drain within the unload timeout.");
+                    return;
+                }
+                if (!shutdown.IsCancellationRequested) await UnloadCoreAsync(plugin, CancellationToken.None).ConfigureAwait(false);
+            }
+            finally { mutation.Release(); }
+        }
+        catch (OperationCanceledException) when (shutdown.IsCancellationRequested) { }
+        catch (Exception ex)
+        {
+            MarkRestartRequired(path, "Faulted plugin retirement failed.");
+            logger.Log(OperationsLogLevel.Error, "plugin-loader", "Could not retire quarantined server plugin.", ex);
+        }
+    }
+
+    private static ModuleOperationsSnapshot WithFaults(ModuleOperationsSnapshot snapshot, PluginExecutionGuard.FaultSnapshot faults) =>
+        snapshot with
+        {
+            State = faults.Quarantined && snapshot.State == ModuleLoadState.Loaded ? ModuleLoadState.Degraded : snapshot.State,
+            FaultCount = faults.Count, LastFaultOperation = faults.Operation, LastFaultSummary = faults.Summary,
+            Failure = faults.Quarantined ? snapshot.Failure ?? "Plugin callback breaker tripped." : snapshot.Failure
+        };
+
     private async Task<ServerPluginOperationResult> UnloadCoreAsync(
         LoadedPlugin plugin,
         CancellationToken cancellationToken)
     {
+        var faults = plugin.Scope?.Faults ?? default;
         lock (sync)
         {
             loaded.Remove(plugin.Path);
@@ -484,13 +541,13 @@ public sealed class ServerPluginHotReloadHost :
 
         lock (sync)
         {
-            snapshots[plugin.Path] = new ModuleOperationsSnapshot(
+            snapshots[plugin.Path] = WithFaults(new ModuleOperationsSnapshot(
                 plugin.Name,
                 plugin.Version,
                 succeeded ? ModuleLoadState.Disabled : ModuleLoadState.Degraded,
                 plugin.Dependencies,
                 TimeSpan.Zero,
-                error);
+                error), faults);
         }
 
         if (!succeeded)

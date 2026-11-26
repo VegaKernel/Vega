@@ -55,7 +55,7 @@ public sealed class SandboxPlayerTransferCommand(
         }
 
         SandboxPlayerTransferResult applied = await boundary.TransferAsync(
-            player.Id,
+            player,
             prepared.Endpoint,
             prepared.Ticket,
             cancellationToken).ConfigureAwait(false);

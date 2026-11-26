@@ -7,15 +7,16 @@ namespace Vega.Core.Networking;
 
 public sealed class PacketRateLimitPolicy : IPacketProcessor<PacketView>, IDisposable
 {
-    private static readonly IReadOnlyDictionary<PacketTypes, int> Limits =
-        new Dictionary<PacketTypes, int>
+    private static readonly TimeSpan WindowLength = TimeSpan.FromSeconds(1);
+    private static readonly IReadOnlyDictionary<PacketTypes, RateLimit> Limits =
+        new Dictionary<PacketTypes, RateLimit>
         {
-            [PacketTypes.ChestGetContents] = 2,
-            [PacketTypes.PlaceChest] = 3,
-            [PacketTypes.SpectatePlayer] = 2,
-            [PacketTypes.PlayerDeathV2] = 2,
-            [PacketTypes.LiquidSet] = 60,
-            [PacketTypes.MassWireOperation] = 60
+            [PacketTypes.ChestGetContents] = CreateLimit(PacketTypes.ChestGetContents, 2),
+            [PacketTypes.PlaceChest] = CreateLimit(PacketTypes.PlaceChest, 3),
+            [PacketTypes.SpectatePlayer] = CreateLimit(PacketTypes.SpectatePlayer, 2),
+            [PacketTypes.PlayerDeathV2] = CreateLimit(PacketTypes.PlayerDeathV2, 2),
+            [PacketTypes.LiquidSet] = CreateLimit(PacketTypes.LiquidSet, 60),
+            [PacketTypes.MassWireOperation] = CreateLimit(PacketTypes.MassWireOperation, 60)
         };
 
     private readonly object sync = new();
@@ -31,7 +32,7 @@ public sealed class PacketRateLimitPolicy : IPacketProcessor<PacketView>, IDispo
 
     public PacketProcessingDecision Process(scoped in PacketProcessingContext<PacketView> context)
     {
-        if (!Limits.TryGetValue(context.Packet.PacketType, out int limit))
+        if (!Limits.TryGetValue(context.Packet.PacketType, out RateLimit limit))
         {
             return PacketProcessingDecision.Allow;
         }
@@ -39,20 +40,23 @@ public sealed class PacketRateLimitPolicy : IPacketProcessor<PacketView>, IDispo
         lock (sync)
         {
             var key = (context.ConnectionId, context.Packet.PacketType);
-            if (!windows.TryGetValue(key, out Window? window) ||
-                context.Timestamp - window.Start >= TimeSpan.FromSeconds(1) ||
-                context.Timestamp < window.Start)
+            if (!windows.TryGetValue(key, out Window? window))
             {
                 windows[key] = new Window(context.Timestamp, 1);
                 return PacketProcessingDecision.Allow;
             }
 
+            if (context.Timestamp - window.Start >= WindowLength || context.Timestamp < window.Start)
+            {
+                window.Start = context.Timestamp;
+                window.Count = 1;
+                return PacketProcessingDecision.Allow;
+            }
+
             window.Count++;
-            return window.Count <= limit
+            return window.Count <= limit.Count
                 ? PacketProcessingDecision.Allow
-                : new PacketProcessingDecision(
-                    PacketDecisionKind.Reject,
-                    $"packet.rate_limit.{context.Packet.PacketType}");
+                : limit.Rejection;
         }
     }
 
@@ -85,9 +89,14 @@ public sealed class PacketRateLimitPolicy : IPacketProcessor<PacketView>, IDispo
         }
     }
 
+    private static RateLimit CreateLimit(PacketTypes packetType, int count) =>
+        new(count, PacketProcessingDecision.Reject($"packet.rate_limit.{packetType}"));
+
+    private readonly record struct RateLimit(int Count, PacketProcessingDecision Rejection);
+
     private sealed class Window(DateTimeOffset start, int count)
     {
-        public DateTimeOffset Start { get; } = start;
+        public DateTimeOffset Start { get; set; } = start;
 
         public int Count { get; set; } = count;
     }

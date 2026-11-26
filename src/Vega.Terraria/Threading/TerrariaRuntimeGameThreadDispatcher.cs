@@ -1,6 +1,7 @@
 using System.Collections.Concurrent;
 using System.Diagnostics;
 using TerrariaRuntime;
+using Vega.Contracts.Operations;
 using Vega.Contracts.Threading;
 
 namespace Vega.Terraria.Threading;
@@ -10,14 +11,26 @@ namespace Vega.Terraria.Threading;
 /// </summary>
 public sealed class TerrariaRuntimeGameThreadDispatcher : IGameThreadDispatcher, IDisposable
 {
-    private readonly record struct WorkItem(string Name, Func<bool> Step);
+    private readonly record struct WorkItem(string Name, Delegate Callback)
+    {
+        public bool Step()
+        {
+            if (Callback is Action action)
+            {
+                action();
+                return true;
+            }
+
+            return ((Func<bool>)Callback)();
+        }
+    }
 
     private readonly ConcurrentQueue<WorkItem> pending = new();
     private readonly int queueCapacity;
     private readonly int maxStepsPerTick;
     private readonly long budgetTicks;
     private int pendingCount;
-    private int droppedCount;
+    private long droppedCount;
     private int gameThreadId;
     private int threadMismatchReported;
     private bool attached;
@@ -49,6 +62,10 @@ public sealed class TerrariaRuntimeGameThreadDispatcher : IGameThreadDispatcher,
     }
 
     public bool IsGameThreadKnown => Volatile.Read(ref gameThreadId) != 0;
+
+    public GameThreadQueueSnapshot ReadQueueMetrics() => new(
+        Math.Clamp(Volatile.Read(ref pendingCount), 0, queueCapacity), queueCapacity, Volatile.Read(ref droppedCount),
+        maxStepsPerTick, budgetTicks * 1000d / Stopwatch.Frequency);
 
     public bool IsGameThread
     {
@@ -89,21 +106,21 @@ public sealed class TerrariaRuntimeGameThreadDispatcher : IGameThreadDispatcher,
     public bool TryPost(string name, Action action)
     {
         ArgumentNullException.ThrowIfNull(action);
-        return TrySchedule(name, () =>
-        {
-            action();
-            return true;
-        });
+        return TryEnqueue(name, action);
     }
 
     public bool TrySchedule(string name, Func<bool> step)
     {
         ArgumentNullException.ThrowIfNull(step);
+        return TryEnqueue(name, step);
+    }
 
+    private bool TryEnqueue(string name, Delegate callback)
+    {
         var size = Interlocked.Increment(ref pendingCount);
         if (size <= queueCapacity)
         {
-            pending.Enqueue(new WorkItem(NormalizeName(name), step));
+            pending.Enqueue(new WorkItem(NormalizeName(name), callback));
             return true;
         }
 
@@ -143,7 +160,7 @@ public sealed class TerrariaRuntimeGameThreadDispatcher : IGameThreadDispatcher,
         }
     }
 
-    private void RunTick()
+    internal void RunTick()
     {
         if (!TryCaptureGameThread())
         {
@@ -156,7 +173,9 @@ public sealed class TerrariaRuntimeGameThreadDispatcher : IGameThreadDispatcher,
     private bool TryCaptureGameThread()
     {
         int current = Environment.CurrentManagedThreadId;
-        int captured = Interlocked.CompareExchange(ref gameThreadId, current, 0);
+        int captured = Volatile.Read(ref gameThreadId);
+        if (captured == 0)
+            captured = Interlocked.CompareExchange(ref gameThreadId, current, 0);
         if (captured == 0 || captured == current)
         {
             return true;
@@ -174,11 +193,18 @@ public sealed class TerrariaRuntimeGameThreadDispatcher : IGameThreadDispatcher,
     private void Drain()
     {
         AssertGameThread();
+        if (Volatile.Read(ref pendingCount) == 0)
+        {
+            return;
+        }
 
         var startedAt = Stopwatch.GetTimestamp();
         var processed = 0;
+        // A cooperative step that yields must wait until the next tick. Do not repeatedly
+        // invoke it (or immediately consume newly posted work) within the same drain.
+        int stepsThisTick = Math.Min(maxStepsPerTick, pending.Count);
 
-        while (processed < maxStepsPerTick &&
+        while (processed < stepsThisTick &&
                Stopwatch.GetTimestamp() - startedAt < budgetTicks &&
                pending.TryDequeue(out var item))
         {

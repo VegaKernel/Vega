@@ -6,7 +6,7 @@ using Vega.Contracts.Worlds;
 
 namespace Vega.Core.Networking;
 
-public sealed class SceneEntityInteractionAuthorityPolicy(ISceneVisibilityRuntime visibility)
+public sealed class SceneEntityInteractionAuthorityPolicy(ISceneVisibilityRuntime visibility, WorldId? ownedWorld = null)
     : IPacketProcessor<PacketView>
 {
     public PacketProcessingDecision Process(scoped in PacketProcessingContext<PacketView> context)
@@ -19,7 +19,7 @@ public sealed class SceneEntityInteractionAuthorityPolicy(ISceneVisibilityRuntim
             return PacketProcessingDecision.Allow;
         }
 
-        return visibility.CanObserve(WorldId.Primary, playerId, entity)
+        return visibility.CanObserve(ownedWorld ?? WorldId.Primary, playerId, entity)
             ? PacketProcessingDecision.Allow
             : PacketProcessingDecision.Reject("scene.hidden_entity_interaction");
     }

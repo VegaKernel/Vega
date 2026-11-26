@@ -8,6 +8,8 @@ namespace Vega.Runtime.Tests;
 public sealed class PacketPipelineClassificationTests
 {
     [TestCase(PacketTypes.PlayerUpdate, "PlayerState", true)]
+    [TestCase(PacketTypes.PlayerInfo, "PlayerState", true)]
+    [TestCase(PacketTypes.PlayerBuff, "PlayerState", true)]
     [TestCase(PacketTypes.ProjectileNew, "Projectile", true)]
     [TestCase(PacketTypes.Tile, "WorldInteraction", false)]
     [TestCase(PacketTypes.ChestItem, "Chest", false)]

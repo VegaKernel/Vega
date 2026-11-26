@@ -6,11 +6,12 @@ namespace Vega.Terraria.Worlds;
 /// <summary>
 /// Terraria-backed bounded entity snapshot/removal capability. All access is game-thread-only.
 /// </summary>
-public sealed class TerrariaWorldEntityMaintenance(IGameThreadDispatcher dispatcher) : IWorldEntityMaintenance
+public sealed class TerrariaWorldEntityMaintenance(IGameThreadDispatcher dispatcher, WorldId? ownedWorld = null) : IWorldEntityMaintenance
 {
+    private readonly WorldId currentWorld = ownedWorld ?? WorldId.Primary;
     public WorldEntityCleanupSnapshot Snapshot(WorldId worldId)
     {
-        RequirePrimaryWorld(worldId);
+        RequireOwnedWorld(worldId);
         dispatcher.AssertGameThread();
 
         var items = new List<WorldItemCleanupSnapshot>();
@@ -51,7 +52,7 @@ public sealed class TerrariaWorldEntityMaintenance(IGameThreadDispatcher dispatc
     public WorldEntityRemovalResult Remove(WorldEntityRemovalRequest request)
     {
         ArgumentNullException.ThrowIfNull(request);
-        RequirePrimaryWorld(request.WorldId);
+        RequireOwnedWorld(request.WorldId);
         dispatcher.AssertGameThread();
 
         int removedItems = 0;
@@ -131,12 +132,12 @@ public sealed class TerrariaWorldEntityMaintenance(IGameThreadDispatcher dispatc
         return projectile is { active: true } && projectile.key == handle.Key;
     }
 
-    private static void RequirePrimaryWorld(WorldId worldId)
+    private void RequireOwnedWorld(WorldId worldId)
     {
-        if (worldId != WorldId.Primary)
+        if (worldId != currentWorld)
         {
             throw new NotSupportedException(
-                $"TerrariaWorldEntityMaintenance currently owns only '{WorldId.Primary}'.");
+                $"TerrariaWorldEntityMaintenance currently owns only '{currentWorld}'.");
         }
     }
 }

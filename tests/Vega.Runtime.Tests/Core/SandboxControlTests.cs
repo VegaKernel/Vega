@@ -180,8 +180,9 @@ public sealed class SandboxControlTests
         }
     }
 
-    [Test]
-    public void TransferAdmissionBindsTrustedIdentityAndIsSingleUse()
+    [TestCase("755a3c87-6f2b-4ec9-aed4-b8eeaf855c81")]
+    [TestCase("Persisted-Client-Token")]
+    public void TransferAdmissionBindsTrustedIdentityAndIsSingleUse(string uuid)
     {
         string root = Path.Combine(Path.GetTempPath(), "vega-sandbox-admission-tests", Guid.NewGuid().ToString("N"));
         try
@@ -191,7 +192,6 @@ public sealed class SandboxControlTests
             var admissions = new SandboxTransferAdmissionService(Path.Combine(root, "admissions.json"), tickets);
             var target = new WorldId("arena");
             SandboxTransferTicket ticket = tickets.Issue("account", WorldId.Primary, target);
-            const string uuid = "755a3c87-6f2b-4ec9-aed4-b8eeaf855c81";
 
             Assert.That(admissions.Register(ticket, "203.0.113.9", uuid, DateTimeOffset.UtcNow).Accepted, Is.True);
             Assert.That(admissions.Consume(target, "203.0.113.10", uuid, DateTimeOffset.UtcNow).Accepted, Is.False);
@@ -316,6 +316,14 @@ public sealed class SandboxControlTests
 
             SandboxOperationResult stopped = await control.StopAsync(new WorldId("ready"));
             Assert.That(stopped.Sandbox?.State, Is.EqualTo(SandboxLifecycleState.Stopped));
+            string isolatedRuntime = Path.Combine(root, "data", "sandboxes", "instances", "ready", "runtime");
+            string[] backendArguments = File.ReadAllLines(Path.Combine(isolatedRuntime, "backend-arguments.txt"));
+            int bindIndex = Array.IndexOf(backendArguments, "-ip");
+            Assert.That(bindIndex, Is.GreaterThanOrEqualTo(0));
+            Assert.That(backendArguments[bindIndex + 1], Is.EqualTo("127.0.0.1"));
+            Assert.That(File.ReadAllText(Path.Combine(isolatedRuntime, "backend-working-directory.txt")), Is.EqualTo(isolatedRuntime));
+            Assert.That(File.ReadAllText(Path.Combine(isolatedRuntime, "backend-graceful-stop.txt")), Does.StartWith("shutdown"));
+            Assert.That(Directory.Exists(Path.Combine(isolatedRuntime, "saves")), Is.True);
         }
         finally
         {

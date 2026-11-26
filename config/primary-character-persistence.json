@@ -1,0 +1,6 @@
+{
+  "enabled": false,
+  "requireLogin": false,
+  "requireCharacterReady": false,
+  "authoritative": false
+}

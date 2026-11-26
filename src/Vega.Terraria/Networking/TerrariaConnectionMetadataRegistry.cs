@@ -9,7 +9,6 @@ namespace Vega.Terraria.Networking;
 
 public sealed class TerrariaConnectionMetadataRegistry
 {
-    private const int MaxClientUuidLength = 128;
 
     private readonly object sync = new();
     private readonly Dictionary<int, MutableMetadata> connections = [];
@@ -121,17 +120,29 @@ public sealed class TerrariaConnectionMetadataRegistry
         lock (sync)
         {
             connections.TryGetValue(slot, out MutableMetadata? metadata);
-            return new ConnectionMetadataSnapshot(
+            ConnectionLoginPhase phase = ToLoginPhase(state);
+            // A connection's metadata changes rarely compared with player/tick sampling.
+            // Publish a new immutable record only when one of its projected values changes.
+            if (metadata?.Published is { } cached &&
+                cached.TransportEndpoint == transportEndpoint && cached.EffectiveEndpoint == (metadata.EffectiveEndpoint ?? transportEndpoint) &&
+                cached.ForwardingProvenance == metadata.ForwardingProvenance && cached.Platform == metadata.Platform &&
+                cached.ClientUuid == metadata.ClientUuid && cached.LoginPhase == phase &&
+                cached.TrustedTransferAccountId == metadata.TrustedTransferAccountId)
+                return cached;
+
+            var snapshot = new ConnectionMetadataSnapshot(
                 new ConnectionId(slot),
                 transportEndpoint,
                 metadata?.EffectiveEndpoint ?? transportEndpoint,
                 metadata?.ForwardingProvenance ?? ConnectionForwardingProvenance.Direct,
                 metadata?.Platform ?? ClientPlatformInfo.Unknown,
                 metadata?.ClientUuid,
-                ToLoginPhase(state))
+                phase)
             {
                 TrustedTransferAccountId = metadata?.TrustedTransferAccountId
             };
+            if (metadata is not null) metadata.Published = snapshot;
+            return snapshot;
         }
     }
 
@@ -220,6 +231,17 @@ public sealed class TerrariaConnectionMetadataRegistry
         }
     }
 
+    /// <summary>World transfer must be admitted before any world data is sent.</summary>
+    public PacketProcessingDecision ValidateWorldAdmission(int slot)
+    {
+        lock (sync)
+        {
+            return sandboxAdmissionRequired &&
+                (!connections.TryGetValue(slot, out var metadata) || string.IsNullOrWhiteSpace(metadata.TrustedTransferAccountId))
+                ? Reject("sandbox.transfer.admission_required") : Allow();
+        }
+    }
+
     private static PacketProcessingDecision ObserveUuid(
         PacketView packet,
         TerrariaConnectionState state,
@@ -235,7 +257,7 @@ public sealed class TerrariaConnectionMetadataRegistry
             PacketReader reader = packet.CreatePayloadReader();
             string value = reader.ReadStringUtf8();
             reader.EnsureEnd();
-            if (string.IsNullOrWhiteSpace(value) || value.Length > MaxClientUuidLength)
+            if (!ClientUuidToken.IsValid(value))
             {
                 return Reject("connection_metadata.uuid_invalid");
             }
@@ -257,28 +279,26 @@ public sealed class TerrariaConnectionMetadataRegistry
         TerrariaConnectionState state,
         MutableMetadata metadata)
     {
-        if (state < TerrariaConnectionState.ProtocolAccepted || packet.PayloadSpan.Length != 2)
+        if (state < TerrariaConnectionState.ProtocolAccepted)
+            return Reject("connection_metadata.platform_invalid");
+        try
+        {
+            // Protocol 329 sends slot/platform, length-prefixed user ID, optional Nintendo name and host flag.
+            // The retired two-byte mobile extension is not valid vanilla metadata in this protocol.
+            var view = new PlayerPlatformInfoView(packet);
+            if (view.PlayerSlot != senderSlot)
+                return new PacketProcessingDecision(PacketDecisionKind.Violation, "connection_metadata.platform_sender_mismatch");
+            var platform = new ClientPlatformInfo(ToPlatform(view.Platform), (byte)view.Platform);
+            if (metadata.Platform.ReportedCode.HasValue && metadata.Platform != platform)
+                return Reject("connection_metadata.platform_changed");
+            // Account strings and host flag are client-reported, not an authentication source.
+            metadata.Platform = platform;
+            return Allow();
+        }
+        catch (Exception ex) when (ex is InvalidDataException or EndOfStreamException or FormatException or ArgumentException)
         {
             return Reject("connection_metadata.platform_invalid");
         }
-
-        byte claimedSlot = packet.PayloadSpan[0];
-        if (claimedSlot != senderSlot)
-        {
-            return new PacketProcessingDecision(
-                PacketDecisionKind.Violation,
-                "connection_metadata.platform_sender_mismatch");
-        }
-
-        byte reportedCode = packet.PayloadSpan[1];
-        var platform = new ClientPlatformInfo(ToPlatform(reportedCode), reportedCode);
-        if (metadata.Platform.Kind != ClientPlatformKind.Unknown && metadata.Platform != platform)
-        {
-            return Reject("connection_metadata.platform_changed");
-        }
-
-        metadata.Platform = platform;
-        return Allow();
     }
 
     private PacketProcessingDecision ConsumeSandboxAdmission(MutableMetadata metadata, bool required)
@@ -311,15 +331,16 @@ public sealed class TerrariaConnectionMetadataRegistry
         return Allow();
     }
 
-    private static ClientPlatformKind ToPlatform(byte value) => value switch
+    private static ClientPlatformKind ToPlatform(PlayerPlatform value) => value switch
     {
-        0 => ClientPlatformKind.Mobile,
-        1 => ClientPlatformKind.Stadia,
-        2 => ClientPlatformKind.Xbox,
-        3 => ClientPlatformKind.PlayStation,
-        4 => ClientPlatformKind.Editor,
-        5 => ClientPlatformKind.Switch,
-        233 => ClientPlatformKind.Pc,
+        PlayerPlatform.None => ClientPlatformKind.Unknown,
+        PlayerPlatform.Stadia => ClientPlatformKind.Stadia,
+        PlayerPlatform.Xbox => ClientPlatformKind.Xbox,
+        PlayerPlatform.PlayStation => ClientPlatformKind.PlayStation,
+        PlayerPlatform.Editor => ClientPlatformKind.Editor,
+        PlayerPlatform.Nintendo => ClientPlatformKind.Switch,
+        PlayerPlatform.Steam => ClientPlatformKind.Pc,
+        PlayerPlatform.GameCenter => ClientPlatformKind.GameCenter,
         _ => ClientPlatformKind.Unrecognized
     };
 
@@ -332,13 +353,14 @@ public sealed class TerrariaConnectionMetadataRegistry
         _ => ConnectionLoginPhase.Connected
     };
 
-    private static PacketProcessingDecision Allow() => new(PacketDecisionKind.Allow);
+    private static PacketProcessingDecision Allow() => PacketProcessingDecision.Allow;
 
     private static PacketProcessingDecision Reject(string reason) =>
         new(PacketDecisionKind.Reject, reason);
 
     private sealed class MutableMetadata
     {
+        public ConnectionMetadataSnapshot? Published { get; set; }
         public ClientPlatformInfo Platform { get; set; } = ClientPlatformInfo.Unknown;
 
         public string? ClientUuid { get; set; }

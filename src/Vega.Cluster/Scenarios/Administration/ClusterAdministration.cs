@@ -18,7 +18,7 @@ public sealed class DisconnectPlayerHandler(
         if (players.TryFindExact(envelope.Message.PlayerName, out PlayerSnapshot? player) && player is not null)
         {
             await operations
-                .KickAsync(player.Id, envelope.Message.Reason, cancellationToken)
+                .KickAsync(player, envelope.Message.Reason, cancellationToken)
                 .ConfigureAwait(false);
         }
     }

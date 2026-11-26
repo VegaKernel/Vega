@@ -35,7 +35,7 @@ public sealed class PlayingCommand(IPlayerDirectory players) : ICommandHandler
                     .WithDefaultText("You do not have permission to see player IDs.")]));
         }
 
-        IReadOnlyList<PlayerSnapshot> onlinePlayers = players.SnapshotOnlinePlayers();
+        IReadOnlyList<PlayerSnapshot> onlinePlayers = players.SnapshotOnlinePlayers().Where(player => player.WorldId == invocation.WorldId).ToArray();
         if (onlinePlayers.Count == 0)
         {
             return ValueTask.FromResult(CommandExecutionResult.WithMessages(

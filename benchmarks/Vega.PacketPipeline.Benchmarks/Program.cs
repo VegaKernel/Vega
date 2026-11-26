@@ -17,7 +17,20 @@ const int warmupPackets = 50_000;
 byte[][] payloads = Enumerable.Range(0, sessionCount)
     .Select(static slot => Serialize(new PlayerUpdate { PlayerId = (byte)slot }))
     .ToArray();
+bool realisticReceiveBuffer = args.Contains("--receive-buffer", StringComparer.Ordinal);
+const int receiveBufferSize = 128 * 1024;
+int payloadOffset = realisticReceiveBuffer ? 128 : 0;
+byte[][] buffers = realisticReceiveBuffer
+    ? payloads.Select(payload =>
+    {
+        var receiveBuffer = new byte[receiveBufferSize];
+        payload.CopyTo(receiveBuffer, payloadOffset);
+        return receiveBuffer;
+    }).ToArray()
+    : payloads;
 var processor = new PlayerPacketOwnershipPolicy();
+bool measureMetadata = args.Contains("--metadata", StringComparer.Ordinal);
+var metadataRegistry = new TerrariaConnectionMetadataRegistry();
 
 for (int index = 0; index < warmupPackets; index++)
 {
@@ -62,7 +75,9 @@ Console.WriteLine(JsonSerializer.Serialize(new
     Framework = AppContext.TargetFrameworkName,
     OperatingSystem = Environment.OSVersion.ToString(),
     ProcessArchitecture = System.Runtime.InteropServices.RuntimeInformation.ProcessArchitecture.ToString(),
-    Variant = "synchronous-zero-copy-player-update-ownership",
+    Variant = measureMetadata ? "synchronous-bounded-memory-player-update-ownership-and-metadata" : "synchronous-bounded-memory-player-update-ownership",
+    ReceiveBufferBytes = buffers[0].Length,
+    PayloadWindowBytes = payloads[0].Length,
     Sessions = sessionCount,
     PacketCount = packetCount,
     PacketsPerTick = packetsPerTick,
@@ -93,10 +108,13 @@ void ProcessPacket(int sequence)
 {
     int slot = sequence % sessionCount;
     byte[] payload = payloads[slot];
+    if (measureMetadata && metadataRegistry.ObserveInboundDetailed((byte)PacketTypes.PlayerUpdate,
+        buffers[slot].AsSpan(payloadOffset, payload.Length), slot, TerrariaConnectionState.FullyConnected, null).Decision.Kind != PacketDecisionKind.Allow)
+        throw new InvalidOperationException("Ordinary packet metadata was unexpectedly rejected.");
     PacketProcessingDecision decision = MultiplicityPacketProcessing.ProcessInboundPayload(
         (byte)PacketTypes.PlayerUpdate,
-        payload,
-        0,
+        buffers[slot],
+        payloadOffset,
         payload.Length,
         new ConnectionId(slot),
         new PlayerId(slot),

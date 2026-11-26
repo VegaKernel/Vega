@@ -7,17 +7,17 @@ using Vega.Contracts.Worlds;
 
 namespace Vega.Core.Networking;
 
-public sealed class SceneInteractionAuthorityPolicy(ISceneRuntime scenes) : IPacketProcessor<PacketView>
+public sealed class SceneInteractionAuthorityPolicy(ISceneRuntime scenes, WorldId? ownedWorld = null) : IPacketProcessor<PacketView>
 {
     public PacketProcessingDecision Process(in PacketProcessingContext<PacketView> context)
     {
-        if (!TryGetPosition(context.Packet, out int x, out int y))
+        if (context.Direction != PacketDirection.Inbound || !TryGetPosition(context.Packet, out int x, out int y))
         {
             return PacketProcessingDecision.Allow;
         }
 
         return context.PlayerId is PlayerId playerId && scenes.TryResolveTile(
-            WorldId.Primary,
+            ownedWorld ?? WorldId.Primary,
             playerId,
             x,
             y,

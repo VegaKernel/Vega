@@ -10,5 +10,6 @@ public enum RuntimeLifecycleStage
     WorldReady = 5,
     NetworkReady = 6,
     BackgroundWarmup = 7,
-    FullyWarmed = 8
+    FullyWarmed = 8,
+    Stopping = 9
 }

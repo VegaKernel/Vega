@@ -4,6 +4,7 @@ using TerrariaRuntime;
 using Vega.Contracts.Operations;
 using Vega.Contracts.Threading;
 using Vega.Contracts.Worlds;
+using Vega.Terraria.Networking;
 
 namespace Vega.Terraria.Hooking;
 
@@ -11,7 +12,8 @@ internal sealed class NativeChestPolicyHooks(
     IWorldInteractionState interactions,
     IChestInteractionPolicy policy,
     IGameThreadDispatcher dispatcher,
-    IOperationsLogger logger) : IDisposable
+    IOperationsLogger logger,
+    WorldId worldId) : IDisposable
 {
     private bool attached;
 
@@ -40,7 +42,7 @@ internal sealed class NativeChestPolicyHooks(
     private void OnReceiveData(object? sender, Hooks.MessageBuffer.GetDataEventArgs args)
     {
         if (args.Result == HookResult.Cancel || args.PacketId != (byte)PacketTypes.ChestItem ||
-            !PacketViewParser.TryParsePayloadBounded(
+            !MultiplicityPacketProcessing.TryParseInboundPayload(
                 args.PacketId,
                 args.Instance.readBuffer,
                 args.ReadOffset,
@@ -65,7 +67,7 @@ internal sealed class NativeChestPolicyHooks(
             return;
         }
 
-        var identity = new ChestIdentity(WorldId.Primary, position.X, position.Y);
+        var identity = new ChestIdentity(worldId, position.X, position.Y);
         _ = dispatcher.TryPost("chest-policy.observe", () => _ = ObserveSafeAsync(identity));
     }
 

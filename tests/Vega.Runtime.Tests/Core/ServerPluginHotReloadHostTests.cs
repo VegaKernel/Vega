@@ -1,8 +1,12 @@
 using NUnit.Framework;
 using System.Text;
+using Vega.Contracts.Commands;
 using Vega.Contracts.Operations;
 using Vega.Core.Commands;
 using Vega.Core.Modules;
+using Vega.Core.Scenes;
+using Vega.Contracts.Worlds;
+using Vega.PluginSdk;
 
 namespace Vega.Runtime.Tests.Core;
 
@@ -25,6 +29,35 @@ public sealed class ServerPluginHotReloadHostTests
         {
             Directory.Delete(directory, recursive: true);
         }
+    }
+
+    [Test]
+    public async Task PluginOwnedFakeProvidersAndVisibilityAreDetachedOnRealReload()
+    {
+        var scenes = new SceneRuntime();
+        var visibility = new SceneVisibilityRuntime();
+        VegaPluginRuntime.Configure(new VegaPluginRuntimeServices(WorldId.Primary, null, null, null, null, scenes, null, visibility));
+        try
+        {
+            string pluginPath = FindTestPlugin();
+            File.Copy(pluginPath, Path.Combine(directory, Path.GetFileName(pluginPath)));
+            using var host = new ServerPluginHotReloadHost(directory, new ServerPluginHotReloadOptions(true, 100, 5000),
+                new CommandDispatcher([]), new RecordingLogger());
+            host.Start();
+            var original = scenes.SnapshotScenes().Single().Id;
+            Assert.That(visibility.SnapshotLayers(), Has.Count.EqualTo(1));
+            var reload = await host.ReloadAsync("Vega.Test.HotPlugin");
+            Assert.That(reload.Succeeded, Is.True, reload.Message);
+            Assert.That(reload.RestartRequired, Is.False);
+            Assert.That(scenes.SnapshotScenes().Single().Id, Is.Not.EqualTo(original));
+            Assert.That(visibility.SnapshotLayers(), Has.Count.EqualTo(1));
+            var unload = await host.UnloadAsync("Vega.Test.HotPlugin");
+            Assert.That(unload.Succeeded, Is.True, unload.Message);
+            Assert.That(unload.RestartRequired, Is.False);
+            Assert.That(scenes.SnapshotScenes(), Is.Empty);
+            Assert.That(visibility.SnapshotLayers(), Is.Empty);
+        }
+        finally { VegaPluginRuntime.Configure(VegaPluginRuntimeServices.Empty); }
     }
 
     [Test]
@@ -67,6 +100,58 @@ public sealed class ServerPluginHotReloadHostTests
             Assert.That(dispatcher.CanDispatch("hotprobe"), Is.False);
             Assert.That(host.SnapshotModules().Single().State, Is.EqualTo(ModuleLoadState.Disabled));
         });
+    }
+
+    [Test]
+    public async Task RepeatedFaultsQuarantineOnlyTheOffenderAndRetireItsCollectibleContext()
+    {
+        string pluginPath = FindTestPlugin();
+        File.Copy(pluginPath, Path.Combine(directory, Path.GetFileName(pluginPath)));
+        var dispatcher = new CommandDispatcher([new HealthyCommand()]);
+        using var host = new ServerPluginHotReloadHost(directory,
+            new ServerPluginHotReloadOptions(true, 100, 5000) { FaultThreshold = 2 }, dispatcher, new RecordingLogger());
+        host.Start();
+        for (int index = 0; index < 2; index++)
+        {
+            var result = await dispatcher.DispatchAsync(new CommandInvocation("hotfault", [], new Principal(), new Output()));
+            Assert.That(result.ErrorCode, Is.EqualTo("plugin.callback_failed"));
+        }
+        Assert.That((await dispatcher.DispatchAsync(new CommandInvocation("healthy", [], new Principal(), new Output()))).Status,
+            Is.EqualTo(CommandExecutionStatus.Success));
+        await WaitUntilAsync(() => host.SnapshotModules().Single().State == ModuleLoadState.Disabled);
+        var snapshot = host.SnapshotModules().Single();
+        Assert.Multiple(() =>
+        {
+            Assert.That(dispatcher.CanDispatch("hotfault"), Is.False);
+            Assert.That(dispatcher.CanDispatch("hotprobe"), Is.False);
+            Assert.That(dispatcher.CanDispatch("healthy"), Is.True);
+            Assert.That(snapshot.FaultCount, Is.EqualTo(2));
+            Assert.That(snapshot.LastFaultOperation, Does.Contain("hotfault"));
+            Assert.That(snapshot.LastFaultSummary, Does.Contain("Test-only"));
+            Assert.That(host.Read().IsRestartRequired, Is.False);
+        });
+    }
+
+    private sealed class HealthyCommand : ICommandHandler
+    {
+        public CommandDescriptor Descriptor { get; } = new("healthy", [], []);
+        public ValueTask<CommandExecutionResult> ExecuteAsync(CommandInvocation invocation, CancellationToken cancellationToken) =>
+            ValueTask.FromResult(CommandExecutionResult.Success);
+    }
+
+    private sealed class Principal : ICommandPrincipal
+    {
+        public string Name => "test";
+        public bool IsServer => true;
+        public bool HasPermission(string permission) => true;
+    }
+
+    private sealed class Output : ICommandOutput
+    {
+        public ValueTask InfoAsync(string message, CancellationToken cancellationToken = default) => ValueTask.CompletedTask;
+        public ValueTask SuccessAsync(string message, CancellationToken cancellationToken = default) => ValueTask.CompletedTask;
+        public ValueTask WarningAsync(string message, CancellationToken cancellationToken = default) => ValueTask.CompletedTask;
+        public ValueTask ErrorAsync(string message, CancellationToken cancellationToken = default) => ValueTask.CompletedTask;
     }
 
     [Test]

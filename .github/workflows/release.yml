@@ -106,6 +106,8 @@ jobs:
             'Vega.Modules.Administration.dll',
             'Vega.Modules.AutoWorldCleaner.dll',
             'Vega.Modules.Chests.dll',
+            'Vega.Modules.Navigation.dll',
+            'Vega.Modules.Restrictions.dll',
             'Vega.Modules.Mentions.dll',
             'Vega.Modules.Pvp.dll',
             'Vega.Modules.CustomItems.dll',

@@ -76,6 +76,17 @@ public sealed class AdministrationPrimitiveTests
     }
 
     [Test]
+    public async Task PlayerInspectionDoesNotCombineRetiredSessionWithReplacementInventory()
+    {
+        var alice = Player(1, "Alice") with { SessionId = PlayerSessionId.New() };
+        var replacement = Player(1, "Bob") with { SessionId = PlayerSessionId.New() };
+        var directory = new StubPlayers(alice);
+        var service = new PlayerInspectionService(directory, new StubInventory(alice.Id, () => directory.Current = replacement));
+        Assert.That(await service.CaptureAsync(alice), Is.Null);
+        Assert.That(await service.CaptureAsync(alice), Is.Null);
+    }
+
+    [Test]
     public async Task ChestPolicyCanRejectBeforeTransactionalBackendMutation()
     {
         var identity = new ChestIdentity(WorldId.Primary, 10, 20);
@@ -168,29 +179,33 @@ public sealed class AdministrationPrimitiveTests
 
     private sealed class StubPlayers(PlayerSnapshot player) : IPlayerDirectory
     {
-        public IReadOnlyList<PlayerSnapshot> SnapshotOnlinePlayers() => [player];
+        public PlayerSnapshot Current { get; set; } = player;
+        public IReadOnlyList<PlayerSnapshot> SnapshotOnlinePlayers() => [Current];
 
         public bool TryGet(PlayerId id, out PlayerSnapshot? found)
         {
-            found = id == player.Id ? player : null;
+            found = id == Current.Id ? Current : null;
             return found is not null;
         }
 
         public bool TryFindExact(string name, out PlayerSnapshot? found)
         {
-            found = string.Equals(name, player.Name, StringComparison.OrdinalIgnoreCase) ? player : null;
+            found = string.Equals(name, Current.Name, StringComparison.OrdinalIgnoreCase) ? Current : null;
             return found is not null;
         }
     }
 
-    private sealed class StubInventory(PlayerId playerId) : IPlayerInventoryService
+    private sealed class StubInventory(PlayerId playerId, Action? duringCapture = null) : IPlayerInventoryService
     {
         public ValueTask<PlayerInventorySnapshot?> CaptureAsync(
             PlayerId requested,
-            CancellationToken cancellationToken = default) =>
-            ValueTask.FromResult<PlayerInventorySnapshot?>(requested == playerId
+            CancellationToken cancellationToken = default)
+        {
+            duringCapture?.Invoke();
+            return ValueTask.FromResult<PlayerInventorySnapshot?>(requested == playerId
                 ? new PlayerInventorySnapshot(requested, "Alice", 1, [], DateTimeOffset.UtcNow)
                 : null);
+        }
 
         public ValueTask<InventoryMutationResult> ReplaceSlotAsync(
             PlayerId playerId,

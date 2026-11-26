@@ -2,6 +2,7 @@ using NUnit.Framework;
 using Vega.Contracts.Authorization;
 using Vega.Contracts.Commands;
 using Vega.Contracts.Players;
+using Vega.Contracts.Worlds;
 using Vega.Core.Commands.Administration;
 
 namespace Vega.Runtime.Tests.Core;
@@ -130,6 +131,19 @@ public sealed class KickCommandTests
         Assert.That(operations.KickedPlayer, Is.EqualTo(target.Id));
     }
 
+    [Test]
+    public async Task KickPassesExactWorldAndSessionSnapshotRatherThanReusableSlot()
+    {
+        WorldId world = new("arena");
+        var target = Player(4, "Target") with { WorldId = world, SessionId = PlayerSessionId.New() };
+        var other = target with { WorldId = WorldId.Primary, SessionId = PlayerSessionId.New() };
+        var operations = new FakeOperations();
+        var command = new KickCommand(new FakeDirectory([other, target]), operations, new FakeAuthorization());
+        CommandExecutionResult result = await command.ExecuteAsync(Invocation(["tsi:4"]) with { WorldId = world }, default);
+        Assert.That(result.Status, Is.EqualTo(CommandExecutionStatus.Success));
+        Assert.That(operations.KickedSnapshot, Is.EqualTo(target));
+    }
+
     private static CommandInvocation Invocation(IReadOnlyList<string> arguments, bool isServer = false) =>
         new("kick", arguments, new FakePrincipal(isServer), new FakeOutput());
 
@@ -168,6 +182,13 @@ public sealed class KickCommandTests
     {
         public PlayerId? KickedPlayer { get; private set; }
         public string? KickReason { get; private set; }
+        public PlayerSnapshot? KickedSnapshot { get; private set; }
+
+        public ValueTask<PlayerOperationResult> KickAsync(PlayerSnapshot player, string reason, CancellationToken cancellationToken = default)
+        {
+            KickedSnapshot = player;
+            return KickAsync(player.Id, reason, cancellationToken);
+        }
 
         public ValueTask<PlayerOperationResult> KickAsync(
             PlayerId id,

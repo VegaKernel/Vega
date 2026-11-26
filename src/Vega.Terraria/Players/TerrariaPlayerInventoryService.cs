@@ -4,28 +4,37 @@ using Vega.Contracts.Threading;
 
 namespace Vega.Terraria.Players;
 
-public sealed class TerrariaPlayerInventoryService(IGameThreadDispatcher dispatcher) : IPlayerInventoryService
+public sealed class TerrariaPlayerInventoryService(IGameThreadDispatcher dispatcher, TerrariaPlayerBoundary players) : IPlayerInventoryService
 {
     private readonly long[] revisions = new long[global::Terraria.Main.maxPlayers];
     private readonly long[] fingerprints = new long[global::Terraria.Main.maxPlayers];
     private readonly bool[] initialized = new bool[global::Terraria.Main.maxPlayers];
+    private readonly PlayerSessionId?[] generations = new PlayerSessionId?[global::Terraria.Main.maxPlayers];
 
     public ValueTask<PlayerInventorySnapshot?> CaptureAsync(
         PlayerId playerId,
-        CancellationToken cancellationToken = default) =>
+        CancellationToken cancellationToken = default) => players.TryGet(playerId, out var player) && player is not null
+        ? CaptureAsync(player, cancellationToken) : ValueTask.FromResult<PlayerInventorySnapshot?>(null);
+
+    public ValueTask<PlayerInventorySnapshot?> CaptureAsync(PlayerSnapshot player, CancellationToken cancellationToken = default) =>
         DispatchAsync(
             "inventory.capture",
-            () => Capture(playerId),
+            () => Capture(player),
             cancellationToken);
 
     public ValueTask<InventoryMutationResult> ReplaceSlotAsync(
         PlayerId playerId,
         long expectedRevision,
         InventorySlotReplacement replacement,
+        CancellationToken cancellationToken = default) => players.TryGet(playerId, out var player) && player is not null
+        ? ReplaceSlotAsync(player, expectedRevision, replacement, cancellationToken)
+        : ValueTask.FromResult(new InventoryMutationResult(InventoryMutationStatus.PlayerNotFound, ErrorCode: "player.not_found"));
+
+    public ValueTask<InventoryMutationResult> ReplaceSlotAsync(PlayerSnapshot player, long expectedRevision, InventorySlotReplacement replacement,
         CancellationToken cancellationToken = default) =>
         DispatchAsync(
             "inventory.replace-slot",
-            () => ReplaceSlot(playerId, expectedRevision, replacement),
+            () => ReplaceSlot(player, expectedRevision, replacement),
             cancellationToken,
             new InventoryMutationResult(
                 InventoryMutationStatus.DispatcherUnavailable,
@@ -34,24 +43,24 @@ public sealed class TerrariaPlayerInventoryService(IGameThreadDispatcher dispatc
                 InventoryMutationStatus.Cancelled,
                 ErrorCode: "inventory.cancelled"));
 
-    private PlayerInventorySnapshot? Capture(PlayerId playerId)
+    private PlayerInventorySnapshot? Capture(PlayerSnapshot expected)
     {
         dispatcher.AssertGameThread();
-        if (!TryGetPlayer(playerId, out global::Terraria.Player? player) || player is null)
+        if (!players.TryGetSessionPlayer(expected, out var player))
         {
             return null;
         }
 
-        return CreateSnapshot(playerId, player, RefreshRevision(playerId, player));
+        return CreateSnapshot(expected, player, RefreshRevision(expected, player));
     }
 
     private InventoryMutationResult ReplaceSlot(
-        PlayerId playerId,
+        PlayerSnapshot expected,
         long expectedRevision,
         InventorySlotReplacement replacement)
     {
         dispatcher.AssertGameThread();
-        if (!TryGetPlayer(playerId, out global::Terraria.Player? player) || player is null)
+        if (!players.TryGetSessionPlayer(expected, out var player))
         {
             return new InventoryMutationResult(
                 InventoryMutationStatus.PlayerNotFound,
@@ -60,54 +69,53 @@ public sealed class TerrariaPlayerInventoryService(IGameThreadDispatcher dispatc
 
         if ((uint)replacement.Slot >= (uint)player.inventory.Length ||
             replacement.ItemType < 0 || replacement.ItemType >= ItemID.Count ||
-            replacement.Stack < 0)
+            replacement.Stack < 0 || replacement.Prefix >= PrefixID.Count)
         {
             return new InventoryMutationResult(
                 InventoryMutationStatus.InvalidItem,
                 ErrorCode: "inventory.invalid_item");
         }
 
-        long currentRevision = RefreshRevision(playerId, player);
+        long currentRevision = RefreshRevision(expected, player);
         if (currentRevision != expectedRevision)
         {
             return new InventoryMutationResult(
                 InventoryMutationStatus.RevisionConflict,
-                CreateSnapshot(playerId, player, currentRevision),
+                CreateSnapshot(expected, player, currentRevision),
                 "inventory.revision_conflict");
         }
 
-        global::Terraria.Item item = player.inventory[replacement.Slot];
+        var item = new global::Terraria.Item();
         item.SetDefaults(replacement.ItemType);
-        item.stack = replacement.ItemType == 0
-            ? 0
-            : Math.Clamp(replacement.Stack, 1, Math.Max(1, item.maxStack));
-        if (replacement.Prefix != 0)
+        if (replacement.ItemType == 0 ? replacement.Stack != 0 || replacement.Prefix != 0 :
+            replacement.Stack < 1 || replacement.Stack > item.maxStack || replacement.Prefix != 0 && !item.Prefix(replacement.Prefix))
         {
-            item.Prefix(replacement.Prefix);
+            return new InventoryMutationResult(InventoryMutationStatus.InvalidItem, ErrorCode: "inventory.invalid_stack_or_prefix");
         }
-
+        item.stack = replacement.Stack;
         item.favorited = replacement.Favorited;
-        fingerprints[playerId.Slot] = Fingerprint(player);
-        long revision = ++revisions[playerId.Slot];
+        player.inventory[replacement.Slot] = item;
+        fingerprints[expected.Id.Slot] = Fingerprint(player);
+        long revision = ++revisions[expected.Id.Slot];
         global::Terraria.NetMessage.SendData(
             5,
             -1,
             -1,
             null,
-            playerId.Slot,
+            expected.Id.Slot,
             replacement.Slot,
             item.prefix);
         return new InventoryMutationResult(
             InventoryMutationStatus.Applied,
-            CreateSnapshot(playerId, player, revision));
+            CreateSnapshot(expected, player, revision));
     }
 
     private PlayerInventorySnapshot CreateSnapshot(
-        PlayerId playerId,
+        PlayerSnapshot expected,
         global::Terraria.Player player,
         long revision) =>
         new(
-            playerId,
+            expected.Id,
             player.name,
             revision,
             Array.AsReadOnly(player.inventory
@@ -119,21 +127,23 @@ public sealed class TerrariaPlayerInventoryService(IGameThreadDispatcher dispatc
                     item.favorited,
                     item.Name))
                 .ToArray()),
-            DateTimeOffset.UtcNow);
+            DateTimeOffset.UtcNow) { SessionId = expected.SessionId, WorldId = expected.WorldId };
 
-    private long RefreshRevision(PlayerId playerId, global::Terraria.Player player)
+    private long RefreshRevision(PlayerSnapshot expected, global::Terraria.Player player)
     {
         long fingerprint = Fingerprint(player);
-        int slot = playerId.Slot;
+        int slot = expected.Id.Slot;
         if (!initialized[slot])
         {
             initialized[slot] = true;
             fingerprints[slot] = fingerprint;
+            generations[slot] = expected.SessionId;
             revisions[slot] = 1;
         }
-        else if (fingerprints[slot] != fingerprint)
+        else if (generations[slot] != expected.SessionId || fingerprints[slot] != fingerprint)
         {
             fingerprints[slot] = fingerprint;
+            generations[slot] = expected.SessionId;
             revisions[slot]++;
         }
 
@@ -152,21 +162,6 @@ public sealed class TerrariaPlayerInventoryService(IGameThreadDispatcher dispatc
         }
 
         return hash.ToHashCode();
-    }
-
-    private static bool TryGetPlayer(
-        PlayerId playerId,
-        out global::Terraria.Player? player)
-    {
-        if ((uint)playerId.Slot < (uint)global::Terraria.Main.player.Length &&
-            global::Terraria.Main.player[playerId.Slot] is { active: true } active)
-        {
-            player = active;
-            return true;
-        }
-
-        player = null;
-        return false;
     }
 
     private ValueTask<T> DispatchAsync<T>(
@@ -194,11 +189,15 @@ public sealed class TerrariaPlayerInventoryService(IGameThreadDispatcher dispatc
         var completion = new TaskCompletionSource<T>(TaskCreationOptions.RunContinuationsAsynchronously);
         if (!dispatcher.TryPost(
                 operation,
-                () => completion.TrySetResult(cancellationToken.IsCancellationRequested ? cancelled! : action())))
+                () =>
+                {
+                    try { completion.TrySetResult(cancellationToken.IsCancellationRequested ? cancelled! : action()); }
+                    catch (Exception ex) { completion.TrySetException(ex); }
+                }))
         {
             return ValueTask.FromResult(unavailable!);
         }
 
-        return new ValueTask<T>(completion.Task);
+        return new ValueTask<T>(completion.Task.WaitAsync(cancellationToken));
     }
 }

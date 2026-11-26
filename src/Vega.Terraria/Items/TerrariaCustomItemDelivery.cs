@@ -14,6 +14,8 @@ public sealed class TerrariaCustomItemDelivery(IGameThreadDispatcher dispatcher)
 		CancellationToken cancellationToken = default)
 	{
 		ArgumentNullException.ThrowIfNull(item);
+		if (item.Override.Width is not null || item.Override.Height is not null)
+			return ValueTask.FromResult(PlayerOperationResult.Failed("custom_item.dimensions_unsupported"));
 		if (cancellationToken.IsCancellationRequested)
 			return ValueTask.FromResult(PlayerOperationResult.Cancelled());
 		if (!dispatcher.IsGameThreadKnown)
@@ -54,8 +56,6 @@ public sealed class TerrariaCustomItemDelivery(IGameThreadDispatcher dispatcher)
 			global::Terraria.WorldItem worldItem = global::Terraria.Main.item[itemIndex];
 			worldItem.inner.SetDefaults(definition.ItemType);
 			ApplyOverride(worldItem.inner, definition.Override);
-			if (definition.Override.Width is short width) worldItem.width = width;
-			if (definition.Override.Height is short height) worldItem.height = height;
 			worldItem.position = player.position;
 
 			foreach (TerrariaPacket packet in CustomItemPacketFactory.Create(

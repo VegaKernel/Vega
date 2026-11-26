@@ -9,4 +9,7 @@ public interface IPlayerMessenger
         PlayerId id,
         string message,
         CancellationToken cancellationToken = default);
+
+    ValueTask<PlayerOperationResult> SendMessageAsync(PlayerSnapshot player, string message, CancellationToken cancellationToken = default) =>
+        SendMessageAsync(player.Id, message, cancellationToken);
 }

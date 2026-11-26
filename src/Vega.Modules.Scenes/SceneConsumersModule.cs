@@ -14,13 +14,15 @@ public sealed class SceneConsumersModule : IVegaModule
     public SceneConsumersModule(
         ISceneRuntime scenes,
         ISceneVisibilityRuntime visibility,
-        IPlayerSessionLifecycle? sessions = null)
+        IPlayerSessionLifecycle? sessions = null,
+        WorldId? worldId = null)
     {
         this.sessions = sessions;
-        WorldEdit = new WorldEditPreviewService(scenes);
-        RegionVision = new RegionVisionService(scenes);
-        LobbyVisuals = new LobbyVisualService(scenes);
-        Clustering = new FakeProviderClusteringService(visibility);
+        WorldEdit = new WorldEditPreviewService(scenes, worldId);
+        RegionVision = new RegionVisionService(scenes, worldId);
+        LobbyVisuals = new LobbyVisualService(scenes, worldId);
+        Clustering = new FakeProviderClusteringService(visibility, worldId);
+        FakeProviders = new FakeProviderService(scenes, worldId);
         LobbyComposition = new LobbySceneCompositionService(LobbyVisuals, Clustering);
     }
 
@@ -37,6 +39,7 @@ public sealed class SceneConsumersModule : IVegaModule
     public LobbyVisualService LobbyVisuals { get; }
 
     public FakeProviderClusteringService Clustering { get; }
+    public FakeProviderService FakeProviders { get; }
 
     public LobbySceneCompositionService LobbyComposition { get; }
 
@@ -45,6 +48,7 @@ public sealed class SceneConsumersModule : IVegaModule
         if (!started && sessions is not null)
         {
             sessions.Closed += OnSessionClosed;
+            if (sessions is IPlayerSessionClosing closing) closing.Closing += OnSessionClosing;
             started = true;
         }
     }
@@ -54,10 +58,12 @@ public sealed class SceneConsumersModule : IVegaModule
         if (started && sessions is not null)
         {
             sessions.Closed -= OnSessionClosed;
+            if (sessions is IPlayerSessionClosing closing) closing.Closing -= OnSessionClosing;
             started = false;
         }
 
         LobbyComposition.Dispose();
+        FakeProviders.Dispose();
         Clustering.Dispose();
         LobbyVisuals.Dispose();
         RegionVision.Dispose();
@@ -69,10 +75,13 @@ public sealed class SceneConsumersModule : IVegaModule
         WorldEdit.Clear(closed.PlayerId);
         RegionVision.Clear(closed.PlayerId);
         LobbyComposition.RemoveObserver(closed.PlayerId);
+        FakeProviders.RemoveObserver(closed.PlayerId);
     }
+
+    private void OnSessionClosing(PlayerSessionClosed closed) => FakeProviders.RemoveObserver(closed.PlayerId);
 }
 
-public sealed class FakeProviderClusteringService(ISceneVisibilityRuntime visibility) : IDisposable
+public sealed class FakeProviderClusteringService(ISceneVisibilityRuntime visibility, WorldId? worldId = null) : IDisposable
 {
     private readonly Dictionary<string, IVisibilityLayerLease> layers = new(StringComparer.OrdinalIgnoreCase);
 
@@ -86,7 +95,7 @@ public sealed class FakeProviderClusteringService(ISceneVisibilityRuntime visibi
     {
         Remove(name);
         IVisibilityLayerLease layer = visibility.CreateLayer(
-            WorldId.Primary,
+            worldId ?? WorldId.Primary,
             name,
             $"FakeProviderClustering:{name}",
             observers);
@@ -132,7 +141,7 @@ public sealed class FakeProviderClusteringService(ISceneVisibilityRuntime visibi
     }
 }
 
-public sealed class WorldEditPreviewService(ISceneRuntime scenes) : IDisposable
+public sealed class WorldEditPreviewService(ISceneRuntime scenes, WorldId? worldId = null) : IDisposable
 {
     private readonly Dictionary<PlayerId, Preview> previews = [];
 
@@ -145,7 +154,7 @@ public sealed class WorldEditPreviewService(ISceneRuntime scenes) : IDisposable
     {
         Clear(observer);
         ISceneLease scene = scenes.CreateScene(
-            WorldId.Primary,
+            worldId ?? WorldId.Primary,
             $"worldedit:{sessionName}",
             $"WorldEdit:{observer.Slot}:{sessionName}");
         SceneObserverScope scope = SceneObserverScope.Personal([observer]);
@@ -241,7 +250,7 @@ public sealed class WorldEditPreviewService(ISceneRuntime scenes) : IDisposable
     private sealed record Preview(ISceneLease Scene, OverlayId Clipboard, OverlayId? Mask);
 }
 
-public sealed class RegionVisionService(ISceneRuntime scenes) : IDisposable
+public sealed class RegionVisionService(ISceneRuntime scenes, WorldId? worldId = null) : IDisposable
 {
     private readonly Dictionary<PlayerId, ISceneLease> borders = [];
 
@@ -249,7 +258,7 @@ public sealed class RegionVisionService(ISceneRuntime scenes) : IDisposable
     {
         Clear(observer);
         ISceneLease scene = scenes.CreateScene(
-            WorldId.Primary,
+            worldId ?? WorldId.Primary,
             $"region:{regionName}",
             $"Region-Vision:{observer.Slot}:{regionName}");
         scene.AddOverlay(new SceneOverlayDefinition(
@@ -303,7 +312,7 @@ public sealed class RegionVisionService(ISceneRuntime scenes) : IDisposable
     }
 }
 
-public sealed class LobbyVisualService(ISceneRuntime scenes) : IDisposable
+public sealed class LobbyVisualService(ISceneRuntime scenes, WorldId? worldId = null) : IDisposable
 {
     private readonly Dictionary<string, Visual> visuals = new(StringComparer.OrdinalIgnoreCase);
 
@@ -315,7 +324,7 @@ public sealed class LobbyVisualService(ISceneRuntime scenes) : IDisposable
         int order = 300)
     {
         Remove(name);
-        ISceneLease scene = scenes.CreateScene(WorldId.Primary, $"lobby:{name}", $"LobbyVisuals:{name}");
+        ISceneLease scene = scenes.CreateScene(worldId ?? WorldId.Primary, $"lobby:{name}", $"LobbyVisuals:{name}");
         OverlayId overlay = scene.AddOverlay(new SceneOverlayDefinition(
             default,
             name,

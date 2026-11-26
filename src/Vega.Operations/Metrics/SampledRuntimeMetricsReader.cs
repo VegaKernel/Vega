@@ -23,7 +23,7 @@ public sealed class SampledRuntimeMetricsReader(IHostMetricsReader hostMetrics) 
             GC.CollectionCount(2),
             availableWorkers,
             maximumWorkers,
-            DateTimeOffset.UtcNow);
+            DateTimeOffset.UtcNow) { TotalGcPauseMilliseconds = GC.GetTotalPauseDuration().TotalMilliseconds };
     }
 }
 

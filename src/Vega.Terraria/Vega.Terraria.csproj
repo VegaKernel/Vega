@@ -10,14 +10,15 @@
 
   <ItemGroup>
     <ProjectReference Include="..\Vega.Contracts\Vega.Contracts.csproj" />
-    <PackageReference Include="TerrariaRuntime" Version="1.1.0" />
-    <PackageReference Include="Multiplicity" Version="2.6.2" />
+    <PackageReference Include="TerrariaRuntime" Version="1.1.5" />
+    <PackageReference Include="Multiplicity" Version="4.0.1" />
   </ItemGroup>
 
   <ItemGroup>
     <InternalsVisibleTo Include="Vega.Runtime.Tests" />
     <InternalsVisibleTo Include="Vega.WorldImage.Benchmarks" />
     <InternalsVisibleTo Include="Vega.PacketPipeline.Benchmarks" />
+    <InternalsVisibleTo Include="Vega.NativeTcp.Benchmarks" />
   </ItemGroup>
 
 </Project>

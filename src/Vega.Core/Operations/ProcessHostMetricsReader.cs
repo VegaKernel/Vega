@@ -14,6 +14,6 @@ public sealed class ProcessHostMetricsReader : IHostMetricsReader
             process.TotalProcessorTime,
             Environment.OSVersion.ToString(),
             Environment.ProcessorCount,
-            Environment.MachineName);
+            Environment.MachineName) { PrivateMemoryBytes = process.PrivateMemorySize64 };
     }
 }

@@ -29,6 +29,9 @@ public sealed record ModuleOperationsSnapshot(
     string? Failure = null)
 {
     public bool IsHotReloadable { get; init; }
+    public long FaultCount { get; init; }
+    public string? LastFaultOperation { get; init; }
+    public string? LastFaultSummary { get; init; }
 }
 
 public interface IModuleOperationsCatalog

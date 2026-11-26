@@ -1,5 +1,6 @@
 using System.Net;
 using System.Text.Json;
+using Vega.Contracts.Networking;
 using Vega.Contracts.Sandboxes;
 using Vega.Contracts.Worlds;
 
@@ -8,7 +9,7 @@ namespace Vega.Sandboxes;
 /// <summary>
 /// Shared, short-lived rendezvous used when Dimensions switches a client between Vega processes.
 /// Dimensions' manual-switch packet only carries host and port, so admission is correlated by the
-/// trusted forwarded client address and canonical client UUID instead of being exposed to the client.
+/// trusted forwarded client address and exact opaque client UUID instead of being exposed to the client.
 /// </summary>
 public sealed class SandboxTransferAdmissionService : ISandboxTransferAdmissionService
 {
@@ -42,7 +43,7 @@ public sealed class SandboxTransferAdmissionService : ISandboxTransferAdmissionS
         }
 
         if (!TryNormalizeEndpoint(effectiveEndpoint, out string endpoint) ||
-            !Guid.TryParseExact(clientUuid, "D", out Guid uuid))
+            !ClientUuidToken.IsValid(clientUuid))
         {
             return Reject("sandbox.transfer.identity_invalid", "Transfer identity is incomplete or invalid.");
         }
@@ -54,7 +55,7 @@ public sealed class SandboxTransferAdmissionService : ISandboxTransferAdmissionS
             state.Admissions.Add(new PersistedAdmission(
                 ticket,
                 endpoint,
-                uuid.ToString("D"),
+                clientUuid,
                 now));
             return new SandboxTransferAdmissionResult(true);
         });
@@ -67,7 +68,7 @@ public sealed class SandboxTransferAdmissionService : ISandboxTransferAdmissionS
         DateTimeOffset now)
     {
         if (!TryNormalizeEndpoint(effectiveEndpoint, out string endpoint) ||
-            !Guid.TryParseExact(clientUuid, "D", out Guid uuid))
+            !ClientUuidToken.IsValid(clientUuid))
         {
             return Reject("sandbox.transfer.identity_invalid", "Transfer identity is incomplete or invalid.");
         }
@@ -79,7 +80,7 @@ public sealed class SandboxTransferAdmissionService : ISandboxTransferAdmissionS
             int index = state.Admissions.FindIndex(candidate =>
                 candidate.Ticket.TargetWorldId == receivingWorldId &&
                 string.Equals(candidate.EffectiveEndpoint, endpoint, StringComparison.OrdinalIgnoreCase) &&
-                string.Equals(candidate.ClientUuid, uuid.ToString("D"), StringComparison.OrdinalIgnoreCase));
+                string.Equals(candidate.ClientUuid, clientUuid, StringComparison.Ordinal));
             if (index < 0)
             {
                 return Reject("sandbox.transfer.admission_required", "No matching sandbox transfer admission exists.");

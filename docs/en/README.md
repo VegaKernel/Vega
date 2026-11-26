@@ -8,7 +8,7 @@
   · <a href="docs/decisions/">ADRs</a>
 </p>
 
-Vega is an independent Terraria server runtime and framework targeting .NET 11 Preview 7. It hosts Terraria through TerrariaRuntime, separates game integration from server behavior, and exposes typed contracts for commands, events, players, packets, modules, operations, and cluster scenarios.
+Vega is an independent server framework for Terraria 1.4.6.1 targeting .NET 11. It hosts the patched official dedicated server through TerrariaRuntime 1.1.5, separates game integration from server behavior, and exposes typed contracts for commands, events, players, packets, modules, operations, and cluster scenarios.
 
 Vega is not a TShock fork and does not provide binary or source compatibility for TShock/TSAPI plugins. Historical implementations are used only as evidence for production behavior, requirements, and regression scenarios.
 
@@ -48,9 +48,11 @@ flowchart TB
 
 - native `Vega.Server` hosting without TSAPI or TShockAPI;
 - strict `Vega.Contracts` / `Vega.Core` / `Vega.Terraria` / `Vega.Runtime` boundaries;
-- typed events, commands, and a `TZ.Multiplicity` packet pipeline;
+- typed events, commands, and a `Multiplicity 4.0.1` packet pipeline (native protocol 329);
 - immutable player snapshots and game-thread-dispatched operations;
 - built-in PvP and Custom Items modules;
+- built-in [FakeProvider SDK](../plugin-sdk.md#plugin-facing-fakeprovider) via `context.World.FakeProvider`, named global/personal tile layers, `fake`/`pfake` commands and entity visibility;
+- optional [paged native tile storage](../paged-native-tiles.md) preserving native `ITile` semantics;
 - Terminal UI, plain-console, and headless modes;
 - structured logs plus runtime, GC, network, TPS, and readiness telemetry;
 - optional typed cluster contracts with a reference transport;
@@ -59,7 +61,7 @@ flowchart TB
 
 ## Requirements
 
-- .NET SDK 11.0.100-preview.7.26381.103, pinned by `src/global.json`;
+- .NET SDK 11.0.100, pinned by `src/global.json`;
 - NuGet access for the initial restore;
 - a compatible Terraria/TerrariaRuntime server runtime environment.
 
@@ -113,7 +115,7 @@ Supported modes are `auto`, `tui`, `plain`, and `headless`. Enable the world-ima
 
 ## Status
 
-The roadmap records completed capabilities and the .NET 11 Preview 7 development migration; production promotion remains gated by compatibility, deployment, and soak validation. Dimensions forwarding, sandbox backends, scheduled backups and soft restart are implemented but risky operational modes stay disabled or conservatively bounded by default. Authoritative SSC, legacy whitelist/warps and TShock REST compatibility are explicit non-goals for Vega 1.0.
+The roadmap records completed capabilities and the move to the patched official Terraria 1.4.6.1 server; production promotion remains gated by compatibility, deployment, and soak validation. Dimensions forwarding, sandbox backends, scheduled backups, soft restart, basic whitelist and warps are implemented. Authoritative SSC and full TShock behavior parity remain open. Binary compatibility with TShock is not a goal.
 
 ## License
 

@@ -12,6 +12,8 @@ public sealed class NativePlayerPacketSecurityHooksTests
     [TestCase((int)TerrariaConnectionState.AwaitingHello, PacketTypes.PlayerHp, false)]
     [TestCase((int)TerrariaConnectionState.FullyConnected - 1, PacketTypes.PlayerMana, false)]
     [TestCase((int)TerrariaConnectionState.FullyConnected, PacketTypes.PlayerHp, true)]
+    [TestCase((int)TerrariaConnectionState.FullyConnected, PacketTypes.PlayerSlot, true)]
+    [TestCase((int)TerrariaConnectionState.FullyConnected, PacketTypes.SyncLoadout, true)]
     [TestCase((int)TerrariaConnectionState.FullyConnected, PacketTypes.ItemDrop, true)]
     [TestCase((int)TerrariaConnectionState.FullyConnected, PacketTypes.SyncItemsWithShimmerDeprecated, true)]
     [TestCase((int)TerrariaConnectionState.FullyConnected, PacketTypes.SyncItemPosition, true)]
@@ -41,6 +43,14 @@ public sealed class NativePlayerPacketSecurityHooksTests
                 (byte)packetType),
             Is.EqualTo(expected));
     }
+
+    [TestCase(TerrariaConnectionState.AwaitingHello, PacketTypes.PlayerSlot, false)]
+    [TestCase(TerrariaConnectionState.ProtocolAccepted, PacketTypes.PlayerSlot, true)]
+    [TestCase(TerrariaConnectionState.SendingWorld, PacketTypes.SyncLoadout, true)]
+    [TestCase(TerrariaConnectionState.FullyConnected, PacketTypes.PlayerSlot, false)]
+    [TestCase(TerrariaConnectionState.ProtocolAccepted, PacketTypes.ItemDrop, false)]
+    public void InitialInventoryUsesOnlyItsStructuralPolicy(TerrariaConnectionState state, PacketTypes type, bool expected) =>
+        Assert.That(NativePlayerPacketSecurityHooks.ShouldApplyPreWorldInventory(state, (byte)type), Is.EqualTo(expected));
 
     [TestCase((int)TerrariaConnectionState.PasswordChallenge, PacketDecisionKind.Reject, true)]
     [TestCase((int)TerrariaConnectionState.ProtocolAccepted, PacketDecisionKind.Reject, true)]

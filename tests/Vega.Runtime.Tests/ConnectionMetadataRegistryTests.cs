@@ -5,12 +5,81 @@ using Vega.Contracts.Networking;
 using Vega.Contracts.Sandboxes;
 using Vega.Contracts.Worlds;
 using Vega.Terraria.Networking;
+using Vega.Terraria.Hooking;
 
 namespace Vega.Runtime.Tests;
 
 [TestFixture]
 public sealed class ConnectionMetadataRegistryTests
 {
+    [Test]
+    public void PacketCodecProtocolMatchesPinnedNativeRuntime() =>
+        Assert.That(ConnectRequest.CurrentProtocol, Is.EqualTo(global::Terraria.Main.curRelease));
+
+    [Test]
+    public void NativePlatformMetadataUsesCurrentTypedSchema()
+    {
+        var registry = new TerrariaConnectionMetadataRegistry();
+        var payload = new PlayerPlatformInfo { PlayerSlot = 3, Platform = PlayerPlatform.Nintendo,
+            PlatformUserId = "user", PlatformName = "name", IsHost = true }.ToPayloadArray();
+        Assert.That(registry.ObserveInbound((byte)PacketTypes.PlayerPlatformInfo, payload, 3,
+            TerrariaConnectionState.SendingWorld).Kind, Is.EqualTo(PacketDecisionKind.Allow));
+        Assert.That(registry.Snapshot(3, null, TerrariaConnectionState.FullyConnected).Platform.Kind,
+            Is.EqualTo(ClientPlatformKind.Switch));
+        Assert.That(registry.ObserveInbound((byte)PacketTypes.PlayerPlatformInfo, [3, 5], 3,
+            TerrariaConnectionState.SendingWorld).Kind, Is.EqualTo(PacketDecisionKind.Reject));
+    }
+    [Test]
+    public void NativeSocketLifecycleClearsOnlyTheMatchingConnectionGeneration()
+    {
+        var registry = new TerrariaConnectionMetadataRegistry();
+        using var hooks = new NativeConnectionLifecycleHooks(registry);
+        var first = new global::Terraria.Net.Sockets.TcpSocket();
+        var second = new global::Terraria.Net.Sockets.TcpSocket();
+        hooks.OnActivated(3, first);
+        registry.ObserveInbound((byte)PacketTypes.ClientUUID, EncodeString("first"), 3, TerrariaConnectionState.ProtocolAccepted);
+        hooks.OnActivated(3, second);
+        Assert.That(registry.Snapshot(3, null, TerrariaConnectionState.ProtocolAccepted).ClientUuid, Is.Null);
+        registry.ObserveInbound((byte)PacketTypes.ClientUUID, EncodeString("second"), 3, TerrariaConnectionState.ProtocolAccepted);
+        hooks.OnClosed(3, first);
+        Assert.That(registry.Snapshot(3, null, TerrariaConnectionState.ProtocolAccepted).ClientUuid, Is.EqualTo("second"));
+        hooks.OnClosed(3, second);
+        Assert.That(registry.Snapshot(3, null, TerrariaConnectionState.ProtocolAccepted).ClientUuid, Is.Null);
+    }
+
+    [Test]
+    public void StableMetadataReusesImmutableSnapshotAndChangesNeverMutatePublishedRecord()
+    {
+        var registry = new TerrariaConnectionMetadataRegistry();
+        registry.ObserveInbound((byte)PacketTypes.ClientUUID, EncodeString("first"), 3, TerrariaConnectionState.ProtocolAccepted);
+        var initial = registry.Snapshot(3, "192.0.2.10:7777", TerrariaConnectionState.ProtocolAccepted);
+        Assert.That(registry.Snapshot(3, "192.0.2.10:7777", TerrariaConnectionState.ProtocolAccepted), Is.SameAs(initial));
+        var connected = registry.Snapshot(3, "192.0.2.10:7777", TerrariaConnectionState.FullyConnected);
+        Assert.That(connected, Is.Not.SameAs(initial));
+        Assert.That(initial.LoginPhase, Is.EqualTo(ConnectionLoginPhase.ProtocolAccepted));
+        Assert.That(registry.Snapshot(3, "192.0.2.10:7777", TerrariaConnectionState.FullyConnected), Is.SameAs(connected));
+        registry.Remove(3);
+        Assert.That(registry.Snapshot(3, "192.0.2.10:7777", TerrariaConnectionState.FullyConnected).ClientUuid, Is.Null);
+        Assert.That(connected.ClientUuid, Is.EqualTo("first"));
+    }
+
+    [Test]
+    public void OrdinaryGameplayDoesNotAllocateNewMetadataDecisions()
+    {
+        var registry = new TerrariaConnectionMetadataRegistry();
+        var decision = registry.ObserveInbound((byte)PacketTypes.PlayerUpdate, ReadOnlySpan<byte>.Empty, 3,
+            TerrariaConnectionState.FullyConnected);
+        Assert.That(decision, Is.SameAs(PacketProcessingDecision.Allow));
+    }
+
+    [Test]
+    public void WorldDataAdmissionRequiresBackendTransferIdentityButNotPrimaryIdentity()
+    {
+        var registry = new TerrariaConnectionMetadataRegistry();
+        Assert.That(registry.ValidateWorldAdmission(1).Kind, Is.EqualTo(PacketDecisionKind.Allow));
+        registry.ConfigureSandboxAdmission(null, new WorldId("sandbox"), required: true);
+        Assert.That(registry.ValidateWorldAdmission(1).Reason, Is.EqualTo("sandbox.transfer.admission_required"));
+    }
     [Test]
     public void MissingPlatformRemainsUnknownAndDirectEndpointsStaySeparate()
     {
@@ -38,7 +107,7 @@ public sealed class ConnectionMetadataRegistryTests
 
         PacketProcessingDecision decision = registry.ObserveInbound(
             (byte)PacketTypes.PlayerPlatformInfo,
-            new byte[] { 4, 233 },
+            new PlayerPlatformInfo { PlayerSlot = 4, Platform = PlayerPlatform.Steam, PlatformUserId = "test" }.ToPayloadArray(),
             3,
             TerrariaConnectionState.SendingWorld);
 
@@ -51,11 +120,12 @@ public sealed class ConnectionMetadataRegistryTests
         });
     }
 
-    [TestCase(0, ClientPlatformKind.Mobile)]
+    [TestCase(0, ClientPlatformKind.Unknown)]
     [TestCase(2, ClientPlatformKind.Xbox)]
     [TestCase(3, ClientPlatformKind.PlayStation)]
     [TestCase(5, ClientPlatformKind.Switch)]
-    [TestCase(233, ClientPlatformKind.Pc)]
+    [TestCase(6, ClientPlatformKind.Pc)]
+    [TestCase(7, ClientPlatformKind.GameCenter)]
     [TestCase(99, ClientPlatformKind.Unrecognized)]
     public void PlatformPacketProjectsReportedValue(byte value, ClientPlatformKind expected)
     {
@@ -63,7 +133,7 @@ public sealed class ConnectionMetadataRegistryTests
 
         PacketProcessingDecision decision = registry.ObserveInbound(
             (byte)PacketTypes.PlayerPlatformInfo,
-            new byte[] { 3, value },
+            new PlayerPlatformInfo { PlayerSlot = 3, Platform = (PlayerPlatform)value, PlatformUserId = "test", PlatformName = "test-name" }.ToPayloadArray(),
             3,
             TerrariaConnectionState.SendingWorld);
         ClientPlatformInfo platform = registry

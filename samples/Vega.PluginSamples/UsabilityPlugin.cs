@@ -29,6 +29,7 @@ public sealed class UsabilityPlugin : VegaPlugin
         plugin.Commands.Register(new WelcomeCommand(plugin));
         plugin.Commands.Register(new PlayerActionCommand(plugin));
         plugin.Commands.Register(new WorldCopyCommand(plugin));
+        plugin.Commands.Register(new FakePreviewCommand(plugin));
         plugin.Commands.Register(new ChestRefillCommand(plugin));
         plugin.Players.OnJoined(OnJoined);
         plugin.Players.OnLeft(_ => SaveState());

@@ -8,6 +8,6 @@
 
   <ItemGroup>
     <ProjectReference Include="..\..\src\Vega.Contracts\Vega.Contracts.csproj" />
-    <PackageReference Include="Multiplicity" Version="2.6.2" />
+    <PackageReference Include="Multiplicity" Version="4.0.1" />
   </ItemGroup>
 </Project>

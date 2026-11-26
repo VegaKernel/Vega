@@ -414,14 +414,14 @@ public sealed class UserInfoCommand(
         CancellationToken cancellationToken)
     {
         if (invocation.Arguments.Count != 1 ||
-            !players.TryFindExact(invocation.Arguments[0], out PlayerSnapshot? target) || target is null)
+            !players.TryFindExact(invocation.Arguments[0], out PlayerSnapshot? target) || target is null || target.WorldId != invocation.WorldId)
         {
             return Failure("command.userinfo.usage", "Usage: userinfo <online-player>");
         }
 
         bool sensitive = invocation.Principal.HasPermission("vega.players.sensitive");
         PlayerInspectionSnapshot? snapshot = await inspection.CaptureAsync(
-            target.Id,
+            target,
             sensitive ? PlayerInspectionExposure.Sensitive : PlayerInspectionExposure.Redacted,
             cancellationToken).ConfigureAwait(false);
         if (snapshot is null)
@@ -459,7 +459,7 @@ public sealed class InventoryCommand(
     {
         if (invocation.Arguments.Count == 1)
         {
-            return await InspectAsync(invocation.Arguments[0], cancellationToken).ConfigureAwait(false);
+            return await InspectAsync(invocation.Arguments[0], invocation.WorldId, cancellationToken).ConfigureAwait(false);
         }
 
         if (invocation.Arguments.Count is < 6 or > 7 ||
@@ -474,14 +474,14 @@ public sealed class InventoryCommand(
             return Usage();
         }
 
-        if (!players.TryFindExact(invocation.Arguments[0], out PlayerSnapshot? target) || target is null)
+        if (!players.TryFindExact(invocation.Arguments[0], out PlayerSnapshot? target) || target is null || target.WorldId != invocation.WorldId)
         {
             return Failure("player.not_found", "Player not found.");
         }
 
         byte prefix = invocation.Arguments.Count == 7 ? byte.Parse(invocation.Arguments[6]) : (byte)0;
         InventoryMutationResult result = await inventories.ReplaceSlotAsync(
-            target.Id,
+            target,
             revision,
             new InventorySlotReplacement(slot, itemType, stack, prefix),
             cancellationToken).ConfigureAwait(false);
@@ -494,15 +494,16 @@ public sealed class InventoryCommand(
 
     private async ValueTask<CommandExecutionResult> InspectAsync(
         string name,
+        Vega.Contracts.Worlds.WorldId worldId,
         CancellationToken cancellationToken)
     {
-        if (!players.TryFindExact(name, out PlayerSnapshot? target) || target is null)
+        if (!players.TryFindExact(name, out PlayerSnapshot? target) || target is null || target.WorldId != worldId)
         {
             return Failure("player.not_found", "Player not found.");
         }
 
         PlayerInventorySnapshot? snapshot = await inventories
-            .CaptureAsync(target.Id, cancellationToken)
+            .CaptureAsync(target, cancellationToken)
             .ConfigureAwait(false);
         if (snapshot is null)
         {

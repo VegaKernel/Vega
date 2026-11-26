@@ -17,7 +17,13 @@ public sealed class PlayerAccountSessionService : IPlayerAccountSessionService, 
     private readonly IBanService? bans;
     private readonly IRoleLeaseService? roleLeases;
     private readonly Dictionary<PlayerId, AccountSnapshot> authenticated = [];
+    private readonly Dictionary<PlayerId, Guid> authenticationIds = [];
+    private readonly Dictionary<PlayerId, SessionStamp> sessionStamps = [];
     private bool disposed;
+
+    public event Action<PlayerAccountBinding>? BindingClosing;
+    public event Action<PlayerAccountBinding>? BindingEstablished;
+    public event Action<PlayerAccountBinding>? BindingEnded;
 
     public PlayerAccountSessionService(
         IAccountService accounts,
@@ -36,6 +42,7 @@ public sealed class PlayerAccountSessionService : IPlayerAccountSessionService, 
         this.bans = bans;
         this.roleLeases = roleLeases;
         lifecycle.Closed += OnClosed;
+        lifecycle.Opened += OnOpened;
     }
 
     public bool TryGetAccount(PlayerId playerId, out AccountSnapshot? account)
@@ -47,33 +54,89 @@ public sealed class PlayerAccountSessionService : IPlayerAccountSessionService, 
         }
     }
 
+    public bool TryGetBinding(PlayerSnapshot player, out PlayerAccountBinding binding)
+    {
+        lock (sync)
+        {
+            binding = default;
+            if (disposed || player.SessionId is not PlayerSessionId sessionId ||
+                sessionStamps.GetValueOrDefault(player.Id)?.Id != sessionId ||
+                !authenticated.TryGetValue(player.Id, out var account) ||
+                !authenticationIds.TryGetValue(player.Id, out var authenticationId)) return false;
+            binding = new(player.Id, sessionId, account.Id, authenticationId);
+            return true;
+        }
+    }
+
+    public bool TryRunWithBinding<T>(PlayerAccountBinding binding, Func<T> operation, out T result)
+    {
+        lock (sync)
+        {
+            result = default!;
+            if (disposed || sessionStamps.GetValueOrDefault(binding.PlayerId)?.Id != binding.SessionId ||
+                !authenticated.TryGetValue(binding.PlayerId, out var account) || account.Id != binding.AccountId ||
+                authenticationIds.GetValueOrDefault(binding.PlayerId) != binding.AuthenticationId) return false;
+            result = operation();
+            return true;
+        }
+    }
+
     public async ValueTask<bool> EstablishTrustedTransferAsync(
         PlayerId playerId,
         string accountId,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default) =>
+        (await EstablishTrustedTransferCoreAsync(playerId, null, accountId, cancellationToken).ConfigureAwait(false)).Succeeded;
+
+    public async ValueTask<bool> EstablishTrustedTransferAsync(PlayerSnapshot player, string accountId, CancellationToken cancellationToken = default) =>
+        (await EstablishTrustedTransferCoreAsync(player.Id, player.SessionId, accountId, cancellationToken).ConfigureAwait(false)).Succeeded;
+
+    public async ValueTask<PlayerAccountBinding?> EstablishTrustedTransferBindingAsync(PlayerSnapshot player, string accountId, CancellationToken cancellationToken = default)
+    {
+        if (player.SessionId is not { } sessionId) return null;
+        return (await EstablishTrustedTransferCoreAsync(player.Id, sessionId, accountId, cancellationToken).ConfigureAwait(false)).Binding;
+    }
+
+    private async ValueTask<PlayerAccountSessionResult> EstablishTrustedTransferCoreAsync(PlayerId playerId, PlayerSessionId? expected, string accountId, CancellationToken cancellationToken)
     {
         if (!int.TryParse(accountId, out int numericId) || numericId <= 0)
         {
-            return false;
+            return PlayerAccountSessionResult.Failure("account.invalid-transfer-identity");
         }
 
-        if (TryGetAccount(playerId, out AccountSnapshot? current) && current is not null)
+        SessionStamp stamp;
+        long authenticationEpoch;
+        lock (sync)
         {
-            return current.Id.Value == numericId;
+            ObjectDisposedException.ThrowIf(disposed, this);
+            if (!sessionStamps.TryGetValue(playerId, out var active) || active.Id is not { } sessionId ||
+                expected is { } expectedId && expectedId != sessionId)
+                return PlayerAccountSessionResult.Failure("account.session-changed");
+            stamp = active;
+            if (stamp.TrustedTransferConsumed) return PlayerAccountSessionResult.Failure("account.transfer-consumed");
+            stamp.TrustedTransferConsumed = true;
+            authenticationEpoch = stamp.AuthenticationEpoch;
+
+            if (authenticated.TryGetValue(playerId, out var current))
+            {
+                return current.Id.Value == numericId && authenticationIds.TryGetValue(playerId, out Guid authenticationId)
+                    ? PlayerAccountSessionResult.Success(current) with { Binding = new(playerId, sessionId, current.Id, authenticationId) }
+                    : PlayerAccountSessionResult.Failure("account.already-authenticated");
+            }
         }
 
         AccountSnapshot? account = accounts.SnapshotAccounts()
             .FirstOrDefault(candidate => candidate.Id.Value == numericId);
         if (account is null)
         {
-            return false;
+            return PlayerAccountSessionResult.Failure("account.not-found");
         }
 
-        PlayerAccountSessionResult established = await EstablishAsync(
+        return await EstablishAsync(
             playerId,
             account,
-            cancellationToken).ConfigureAwait(false);
-        return established.Succeeded;
+            stamp,
+            cancellationToken,
+            expectedAuthenticationEpoch: authenticationEpoch).ConfigureAwait(false);
     }
 
     public async ValueTask<bool> SetCultureAsync(
@@ -99,7 +162,7 @@ public sealed class PlayerAccountSessionService : IPlayerAccountSessionService, 
 
         lock (sync)
         {
-            if (!disposed && authenticated.ContainsKey(playerId))
+            if (!disposed && ReferenceEquals(authenticated.GetValueOrDefault(playerId), account))
             {
                 authenticated[playerId] = changed.After;
             }
@@ -112,8 +175,10 @@ public sealed class PlayerAccountSessionService : IPlayerAccountSessionService, 
         PlayerId playerId,
         string accountName,
         string password,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default,
+        PlayerSessionId? expectedSession = null)
     {
+        if (!TryCaptureSession(playerId, expectedSession, out var stamp)) return PlayerAccountSessionResult.Failure("account.session-changed");
         if (!IsValidAccountName(accountName))
         {
             return PlayerAccountSessionResult.Failure("account.invalid-name");
@@ -140,15 +205,17 @@ public sealed class PlayerAccountSessionService : IPlayerAccountSessionService, 
             return PlayerAccountSessionResult.Failure(created.Code);
         }
 
-        return await EstablishAsync(playerId, created.After, cancellationToken).ConfigureAwait(false);
+        return await EstablishAsync(playerId, created.After, stamp, cancellationToken).ConfigureAwait(false);
     }
 
     public async ValueTask<PlayerAccountSessionResult> LoginAsync(
         PlayerId playerId,
         string accountName,
         string password,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default,
+        PlayerSessionId? expectedSession = null)
     {
+        if (!TryCaptureSession(playerId, expectedSession, out var stamp)) return PlayerAccountSessionResult.Failure("account.session-changed");
         if (!IsValidAccountName(accountName))
         {
             return PlayerAccountSessionResult.Failure("account.invalid-credentials");
@@ -179,23 +246,40 @@ public sealed class PlayerAccountSessionService : IPlayerAccountSessionService, 
             .ConfigureAwait(false);
         return account is null
             ? PlayerAccountSessionResult.Failure("account.invalid-credentials")
-            : await EstablishAsync(playerId, account, cancellationToken).ConfigureAwait(false);
+            : await EstablishAsync(playerId, account, stamp, cancellationToken).ConfigureAwait(false);
     }
 
-    public PlayerAccountSessionResult Logout(PlayerId playerId)
+    public PlayerAccountSessionResult Logout(PlayerId playerId, PlayerSessionId? expectedSession = null)
     {
         AccountSnapshot? account;
+        PlayerAccountBinding? endedBinding = null;
         lock (sync)
         {
             ObjectDisposedException.ThrowIf(disposed, this);
-            if (!authenticated.Remove(playerId, out account))
+            if (expectedSession is not null && sessionStamps.GetValueOrDefault(playerId)?.Id != expectedSession)
+                return PlayerAccountSessionResult.Failure("account.session-changed");
+            if (!authenticated.TryGetValue(playerId, out account))
             {
                 return PlayerAccountSessionResult.Failure("account.not-authenticated");
             }
+            if (sessionStamps.GetValueOrDefault(playerId) is { } stamp)
+            {
+                stamp.TrustedTransferConsumed = true;
+                stamp.AuthenticationEpoch++;
+            }
+            if (sessionStamps.GetValueOrDefault(playerId)?.Id is { } sessionId &&
+                authenticationIds.TryGetValue(playerId, out var authenticationId))
+            {
+                var binding = new PlayerAccountBinding(playerId, sessionId, account.Id, authenticationId);
+                endedBinding = binding;
+                NotifyBinding(BindingClosing, binding, "closing");
+            }
+            authenticated.Remove(playerId);
+            authenticationIds.Remove(playerId);
+            playerAuthorization.Replace(playerId, []);
+            cultures.ResetSession(CultureSubject(playerId));
         }
-
-        playerAuthorization.Replace(playerId, []);
-        cultures.ResetSession(CultureSubject(playerId));
+        if (endedBinding is { } ended) NotifyBinding(BindingEnded, ended, "ended");
         return PlayerAccountSessionResult.Success(account);
     }
 
@@ -203,8 +287,10 @@ public sealed class PlayerAccountSessionService : IPlayerAccountSessionService, 
         PlayerId playerId,
         string currentPassword,
         string newPassword,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default,
+        PlayerSessionId? expectedSession = null)
     {
+        if (!TryCaptureSession(playerId, expectedSession, out _)) return PlayerAccountSessionResult.Failure("account.session-changed");
         if (!IsValidPassword(newPassword))
         {
             return PlayerAccountSessionResult.Failure("account.invalid-password");
@@ -234,7 +320,7 @@ public sealed class PlayerAccountSessionService : IPlayerAccountSessionService, 
 
         lock (sync)
         {
-            if (!disposed && authenticated.ContainsKey(playerId))
+            if (!disposed && ReferenceEquals(authenticated.GetValueOrDefault(playerId), account))
             {
                 authenticated[playerId] = changed.After;
             }
@@ -255,8 +341,10 @@ public sealed class PlayerAccountSessionService : IPlayerAccountSessionService, 
 
             disposed = true;
             lifecycle.Closed -= OnClosed;
+            lifecycle.Opened -= OnOpened;
             players = authenticated.Keys.ToArray();
             authenticated.Clear();
+            authenticationIds.Clear();
         }
 
         foreach (PlayerId playerId in players)
@@ -269,7 +357,9 @@ public sealed class PlayerAccountSessionService : IPlayerAccountSessionService, 
     private async ValueTask<PlayerAccountSessionResult> EstablishAsync(
         PlayerId playerId,
         AccountSnapshot account,
-        CancellationToken cancellationToken)
+        SessionStamp? stamp,
+        CancellationToken cancellationToken,
+        long? expectedAuthenticationEpoch = null)
     {
         if (bans is not null && await bans.FindActiveBanAsync(
                 new BanIdentity(account.Name, account.Name, null, null),
@@ -285,9 +375,15 @@ public sealed class PlayerAccountSessionService : IPlayerAccountSessionService, 
             account.Name,
             cancellationToken).ConfigureAwait(false);
         AccountSnapshot current = seen.Succeeded && seen.After is not null ? seen.After : account;
+        PlayerAccountBinding? establishedBinding = null;
         lock (sync)
         {
             ObjectDisposedException.ThrowIf(disposed, this);
+            if (!ReferenceEquals(sessionStamps.GetValueOrDefault(playerId), stamp))
+                return PlayerAccountSessionResult.Failure("account.session-changed");
+            if (expectedAuthenticationEpoch is long expected && stamp?.AuthenticationEpoch != expected)
+                return PlayerAccountSessionResult.Failure("account.authentication-changed");
+            if (authenticated.ContainsKey(playerId)) return PlayerAccountSessionResult.Failure("account.already-authenticated");
             if (authenticated.Any(pair =>
                     pair.Key != playerId &&
                     pair.Value.Name.Equals(current.Name, StringComparison.OrdinalIgnoreCase)))
@@ -296,21 +392,36 @@ public sealed class PlayerAccountSessionService : IPlayerAccountSessionService, 
             }
 
             authenticated[playerId] = current;
+            if (stamp is not null) stamp.AuthenticationEpoch++;
+            Guid authenticationId = Guid.NewGuid();
+            authenticationIds[playerId] = authenticationId;
+            if (stamp?.Id is { } sessionId) establishedBinding = new(playerId, sessionId, current.Id, authenticationId);
+            playerAuthorization.ReplaceAccountGroup(
+                playerId,
+                current.GroupName,
+                authorization,
+                current.Id,
+                roleLeases);
+            cultures.ResetSession(CultureSubject(playerId));
+            if (current.Culture is not null)
+                cultures.TrySetSession(CultureSubject(playerId), current.Culture, out _);
         }
 
-        playerAuthorization.ReplaceAccountGroup(
-            playerId,
-            current.GroupName,
-            authorization,
-            current.Id,
-            roleLeases);
-        cultures.ResetSession(CultureSubject(playerId));
-        if (current.Culture is not null)
+        // Notifications run after releasing the account lock. A queued consumer
+        // must revalidate the binding because logout may already have won the race.
+        if (establishedBinding is { } binding) NotifyBinding(BindingEstablished, binding, "established");
+
+        return PlayerAccountSessionResult.Success(current) with { Binding = establishedBinding };
+    }
+
+    private static void NotifyBinding(Action<PlayerAccountBinding>? handlers, PlayerAccountBinding binding, string phase)
+    {
+        if (handlers is null) return;
+        foreach (Action<PlayerAccountBinding> handler in handlers.GetInvocationList())
         {
-            cultures.TrySetSession(CultureSubject(playerId), current.Culture, out _);
+            try { handler(binding); }
+            catch (Exception ex) { System.Diagnostics.Trace.TraceWarning("Account {0} callback failed: {1}", phase, ex.Message); }
         }
-
-        return PlayerAccountSessionResult.Success(current);
     }
 
     private void OnClosed(PlayerSessionClosed closed)
@@ -319,12 +430,44 @@ public sealed class PlayerAccountSessionService : IPlayerAccountSessionService, 
         {
             if (!disposed)
             {
+                if (sessionStamps.GetValueOrDefault(closed.PlayerId)?.Id is { } id && id != closed.SessionId) return;
+                sessionStamps[closed.PlayerId] = new SessionStamp(null);
                 authenticated.Remove(closed.PlayerId);
+                authenticationIds.Remove(closed.PlayerId);
+                playerAuthorization.Replace(closed.PlayerId, []);
+                cultures.RemoveSession(CultureSubject(closed.PlayerId));
             }
         }
+    }
 
-        playerAuthorization.Replace(closed.PlayerId, []);
-        cultures.RemoveSession(CultureSubject(closed.PlayerId));
+    private void OnOpened(PlayerSessionOpened opened)
+    {
+        lock (sync)
+        {
+            if (disposed) return;
+            sessionStamps[opened.PlayerId] = new SessionStamp(opened.SessionId);
+            authenticated.Remove(opened.PlayerId);
+            authenticationIds.Remove(opened.PlayerId);
+            playerAuthorization.Replace(opened.PlayerId, []);
+            cultures.RemoveSession(CultureSubject(opened.PlayerId));
+        }
+    }
+
+    private bool TryCaptureSession(PlayerId playerId, PlayerSessionId? expected, out SessionStamp? stamp)
+    {
+        lock (sync)
+        {
+            ObjectDisposedException.ThrowIf(disposed, this);
+            stamp = sessionStamps.GetValueOrDefault(playerId);
+            return expected is null || stamp?.Id == expected;
+        }
+    }
+
+    private sealed class SessionStamp(PlayerSessionId? id)
+    {
+        public PlayerSessionId? Id { get; } = id;
+        public bool TrustedTransferConsumed { get; set; }
+        public long AuthenticationEpoch { get; set; }
     }
 
     private static string CultureSubject(PlayerId playerId) => $"player:{playerId.Slot}";
@@ -338,6 +481,7 @@ public sealed class PlayerAccountSessionService : IPlayerAccountSessionService, 
 
 public sealed record PlayerAccountSessionResult(bool Succeeded, string Code, AccountSnapshot? Account = null)
 {
+    internal PlayerAccountBinding? Binding { get; init; }
     public static PlayerAccountSessionResult Success(AccountSnapshot account) =>
         new(true, "account.authenticated", account);
 

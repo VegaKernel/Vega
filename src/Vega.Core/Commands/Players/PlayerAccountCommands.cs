@@ -23,7 +23,7 @@ public sealed class RegisterAccountCommand(PlayerAccountSessionService sessions)
         string accountName = invocation.Arguments.Count == 2 ? invocation.Arguments[0] : player.PlayerName;
         string password = invocation.Arguments[^1];
         PlayerAccountSessionResult result = await sessions.RegisterAsync(
-            player.PlayerId, accountName, password, cancellationToken).ConfigureAwait(false);
+            player.PlayerId, accountName, password, cancellationToken, player.SessionId).ConfigureAwait(false);
         return PlayerAccountCommandResult.Authentication(result, "Account {0} registered and authenticated.");
     }
 }
@@ -47,7 +47,7 @@ public sealed class LoginAccountCommand(PlayerAccountSessionService sessions) : 
         string accountName = invocation.Arguments.Count == 2 ? invocation.Arguments[0] : player.PlayerName;
         string password = invocation.Arguments[^1];
         PlayerAccountSessionResult result = await sessions.LoginAsync(
-            player.PlayerId, accountName, password, cancellationToken).ConfigureAwait(false);
+            player.PlayerId, accountName, password, cancellationToken, player.SessionId).ConfigureAwait(false);
         return PlayerAccountCommandResult.Authentication(result, "Authenticated as {0}.");
     }
 }
@@ -67,7 +67,7 @@ public sealed class LogoutAccountCommand(PlayerAccountSessionService sessions) :
             return ValueTask.FromResult(PlayerAccountCommandResult.Usage("logout"));
         }
 
-        PlayerAccountSessionResult result = sessions.Logout(player.PlayerId);
+        PlayerAccountSessionResult result = sessions.Logout(player.PlayerId, player.SessionId);
         return ValueTask.FromResult(result.Succeeded
             ? CommandExecutionResult.WithMessages(
                 MessageDescriptor.Success("command.logout.success")
@@ -95,7 +95,8 @@ public sealed class PasswordAccountCommand(PlayerAccountSessionService sessions)
             player.PlayerId,
             invocation.Arguments[0],
             invocation.Arguments[1],
-            cancellationToken).ConfigureAwait(false);
+            cancellationToken,
+            player.SessionId).ConfigureAwait(false);
         return result.Succeeded
             ? CommandExecutionResult.WithMessages(
                 MessageDescriptor.Success("command.password.success")

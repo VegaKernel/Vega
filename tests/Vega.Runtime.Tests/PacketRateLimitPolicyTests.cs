@@ -50,6 +50,25 @@ public sealed class PacketRateLimitPolicyTests
     }
 
     [Test]
+    public void ClockRollbackRestartsOnlyTheMatchingWindow()
+    {
+        var sessions = new FakeSessions();
+        using var policy = new PacketRateLimitPolicy(sessions);
+        DateTimeOffset timestamp = DateTimeOffset.UtcNow;
+        Process(policy, PacketTypes.ChestGetContents, 5, timestamp);
+        Process(policy, PacketTypes.ChestGetContents, 5, timestamp);
+        Process(policy, PacketTypes.ChestGetContents, 6, timestamp);
+        Process(policy, PacketTypes.ChestGetContents, 6, timestamp);
+
+        Assert.That(Process(policy, PacketTypes.ChestGetContents, 5, timestamp.AddTicks(-1)).Kind,
+            Is.EqualTo(PacketDecisionKind.Allow));
+        Assert.That(Process(policy, PacketTypes.ChestGetContents, 5, timestamp).Kind,
+            Is.EqualTo(PacketDecisionKind.Allow));
+        Assert.That(Process(policy, PacketTypes.ChestGetContents, 6, timestamp).Kind,
+            Is.EqualTo(PacketDecisionKind.Reject));
+    }
+
+    [Test]
     public void PacketWithoutMeasuredLimitIsNotThrottled()
     {
         var sessions = new FakeSessions();

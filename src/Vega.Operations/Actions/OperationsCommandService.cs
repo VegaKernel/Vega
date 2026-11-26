@@ -2,13 +2,15 @@ using Vega.Contracts.Commands;
 using Vega.Contracts.Messaging;
 using Vega.Contracts.Operations;
 using Vega.Contracts.Localization;
+using Vega.Contracts.Worlds;
 
 namespace Vega.Operations.Actions;
 
 public sealed class OperationsCommandService(
     ICommandDispatcher dispatcher,
     ILocalizationService localization,
-    IPlayerCultureService cultures) : IOperationsCommandService
+    IPlayerCultureService cultures,
+    WorldId? worldId = null) : IOperationsCommandService
 {
     public async ValueTask<OperationsActionResult> ExecuteAsync(
         string commandText,
@@ -28,7 +30,7 @@ public sealed class OperationsCommandService(
             command.Arguments,
             OperationsPrincipal.Instance,
             output,
-            command.Silent);
+            command.Silent) { WorldId = worldId ?? WorldId.Primary };
 
         CommandExecutionResult result = await dispatcher
             .DispatchAsync(invocation, cancellationToken)

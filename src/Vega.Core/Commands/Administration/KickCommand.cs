@@ -2,6 +2,7 @@ using Vega.Contracts.Authorization;
 using Vega.Contracts.Commands;
 using Vega.Contracts.Messaging;
 using Vega.Contracts.Players;
+using Vega.Contracts.Worlds;
 
 namespace Vega.Core.Commands.Administration;
 
@@ -30,7 +31,7 @@ public sealed class KickCommand(
                 "Usage: kick <player> [reason].");
         }
 
-        IReadOnlyList<PlayerSnapshot> matches = FindPlayers(invocation.Arguments[0]);
+        IReadOnlyList<PlayerSnapshot> matches = FindPlayers(invocation.Arguments[0], invocation.WorldId);
         if (matches.Count == 0)
         {
             return Failure(
@@ -62,7 +63,7 @@ public sealed class KickCommand(
             : "Misbehaviour.";
 
         PlayerOperationResult operation = await playerOperations
-            .KickAsync(target.Id, $"Kicked: {reason}", cancellationToken)
+            .KickAsync(target, $"Kicked: {reason}", cancellationToken)
             .ConfigureAwait(false);
 
         if (!operation.IsSuccess)
@@ -78,7 +79,7 @@ public sealed class KickCommand(
                 .WithDefaultText("Kicked {0} for '{1}'."));
     }
 
-    private IReadOnlyList<PlayerSnapshot> FindPlayers(string rawSearch)
+    private IReadOnlyList<PlayerSnapshot> FindPlayers(string rawSearch, WorldId worldId)
     {
         string search = rawSearch.Trim();
         if (search.Length == 0)
@@ -97,7 +98,7 @@ public sealed class KickCommand(
             }
         }
 
-        IReadOnlyList<PlayerSnapshot> online = players.SnapshotOnlinePlayers();
+        IReadOnlyList<PlayerSnapshot> online = players.SnapshotOnlinePlayers().Where(player => player.WorldId == worldId).ToArray();
         var matches = new List<PlayerSnapshot>();
 
         if (int.TryParse(search, out int slot))

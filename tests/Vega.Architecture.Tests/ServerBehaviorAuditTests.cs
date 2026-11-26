@@ -20,7 +20,8 @@ public sealed class ServerBehaviorAuditTests
         {
             Assert.That(text, Does.Contain(TerraZRevision));
             Assert.That(text, Does.Contain(TerrariaSha256));
-            Assert.That(text, Does.Contain("Protocol baseline: `326`"));
+            Assert.That(text, Does.Contain("Historical protocol baseline: `326`"));
+            Assert.That(text, Does.Contain("current native baseline Terraria 1.4.6.1 / protocol 329"));
             Assert.That(text, Does.Contain("95 built-in `Command` registrations"));
         });
 

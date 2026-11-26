@@ -265,7 +265,7 @@ Move server-wide invariants into Core/runtime, not the historical plugin impleme
 - [x] Expose transport-neutral structured security signals for external firewall automation; shell, nftables and provider-specific enforcement remain outside Core.
 - [x] Keep Dimensions disabled until ADR 0011 trust configuration and admission ordering are implemented and tested end to end.
 
-Protocol 325 reports `PlayerPlatformInfo` as packet 164 with a sender slot and platform byte. Vega records the reported value without the legacy PC fallback, accepts `ClientUUID` only once in the protocol-accepted phase, and rejects forged slots or phase changes before vanilla dispatch. Direct connections still retain separate transport/effective endpoint fields so a future trusted-forwarding adapter cannot overwrite provenance. Operations snapshots are redacted by default; the local administrative TUI requests sensitive connection fields explicitly. Rejections also enter a bounded structured signal stream whose endpoint fields require the same explicit sensitive exposure.
+Protocol 329 (`Terraria 1.4.6.1`) reports native `PlayerPlatformInfo` packet 164 with sender slot, platform, platform user ID, optional Nintendo name, and host flag. Vega projects the typed platform value (Steam → PC, None → Unknown); user ID/name/host flag are not trusted authentication fields. Vega records the reported value without the legacy PC fallback, accepts `ClientUUID` only once in the protocol-accepted phase, and rejects forged slots or phase changes before vanilla dispatch. Direct connections still retain separate transport/effective endpoint fields so a future trusted-forwarding adapter cannot overwrite provenance. Operations snapshots are redacted by default; the local administrative TUI requests sensitive connection fields explicitly. Rejections also enter a bounded structured signal stream whose endpoint fields require the same explicit sensitive exposure.
 
 The rate-limit slice intentionally carries only the observed TerraZ limits for expensive or state-transition packets already owned by Vega: chest open, chest placement, spectate, player death, liquid mutation and mass wiring. Counters are per connection and packet, use a one-second window, reset on disconnect and report ordinary rejection rather than declaring a client a cheater. The broad historical every-packet table is not copied into Core.
 
@@ -602,7 +602,7 @@ network/worker threads = pure preparation of owned packet intents
 game thread             = current-state authority, plugin gameplay hooks and mutation
 ```
 
-The first Phase 22 slice is recorded in `docs/packet-pipeline.md`. Every Terraria packet type now has a conservative internal profile; the current security families are only partially offloadable and remain synchronous. The reproducible `Vega.PacketPipeline.Benchmarks` harness measures the `PlayerUpdate` zero-copy view plus ownership-policy path and emits a Linux context-switch counter in CI. The first local Windows baseline exposed 232 bytes allocated per packet, so production worker queues and coalescing remain intentionally unimplemented until that cost and the ordered-intent variants are measured.
+The first Phase 22 slice is recorded in `docs/packet-pipeline.md`. Every Terraria packet type now has a conservative internal profile; the current security families are only partially offloadable and remain synchronous. The reproducible `Vega.PacketPipeline.Benchmarks` harness measures the `PlayerUpdate` zero-copy view plus ownership-policy path and emits a Linux context-switch counter in CI. The historical baseline exposed 232 bytes allocated per packet. Current protocol 329 / Multiplicity 4.0.1 measurement is 0.032 B/packet (harness amortization), 335–349 ns for ordinary PlayerUpdate. Worker lanes and coalescing remain deferred until actual joined-client profiles identify isolated CPU-heavy work that benefits from them; they are not prerequisites for the synchronous path.
 
 ## Phase 23 — selective NativeAOT and runtime process specialization
 
@@ -724,7 +724,7 @@ Recover server behavior that the capability-level migration audit did not enumer
 ### Pinned evidence and durable ledger
 
 - [x] Pin the current TerraZ reference to `TerraZ-Team/TShock` `general-devel@81175b934497f9ef0ee5b5200334e4260b0cc06c`; its current registries contain 71 `GetDataHandlers` packet entries and 95 built-in `Command` registrations.
-- [x] Pin the inspected Terraria 1.4.5.8 Windows server executable (`26,028,032` bytes, SHA-256 `D87E3FAF08637F6BE8882C63E7F11FB7E792B0230006309618473ECE0F863E1E`) and protocol `326` as the current binary baseline.
+- [x] Pin the inspected Terraria 1.4.5.8 Windows server executable (`26,028,032` bytes, SHA-256 `D87E3FAF08637F6BE8882C63E7F11FB7E792B0230006309618473ECE0F863E1E`) and protocol `326` as the historical binary baseline.
 - [x] Record the user-verified decompiled Terraria 1.4.5.7 source at [`JonataOliveiraa/Terraria1.4.5`](https://github.com/JonataOliveiraa/Terraria1.4.5) `main@0459d7b61e35f15354a40fb9d1422d84e9bb4f2c` as the readable comparison baseline. Resolve any 1.4.5.7/1.4.5.8 difference against the pinned 1.4.5.8 binary and captured protocol behavior.
 - [x] Create and maintain `docs/server-behavior-audit.md`. Every row must record source revision, file/type/method or packet/command registration, branch/invariant, Vega decision, owner, implementation status and executable evidence. Do not delete or collapse unresolved rows into broad capability labels.
 - [ ] Distinguish vanilla protocol/world behavior, TShock hardening/operator behavior, TerraZ-specific deltas and optional gameplay policy. A TShock choice is not automatically a server invariant.
@@ -733,7 +733,7 @@ Recover server behavior that the capability-level migration audit did not enumer
 ### Client connection and UUID regression
 
 - [ ] Document the exact vanilla client/server state machine for both password and passwordless joins: `ConnectRequest (1)`, slot assignment/password challenge, player info and inventory burst, `ClientUUID (68)`, platform/host-token variants, world request/data, section request/transfer, spawn, `FinishedConnectingToServer (129)`, disconnect, reconnect and slot reuse.
-- [ ] Verify TerrariaRuntime `MessageBuffer.GetData` hook timing and the meaning/bounds of `start`, `length` and `readOffset` against the actual 1.4.5.8 IL before changing admission policy.
+- [ ] Verify TerrariaRuntime `MessageBuffer.GetData` hook timing and the meaning/bounds of `start`, `length` and `readOffset` against the current 1.4.6.1 IL before further changes to admission policy (1.4.5.8 is historical).
 - [x] Fix the known UUID compatibility defect: vanilla loads `ClientUUID` from configuration and transports it as an opaque string, while current Vega requires exactly a canonical 36-character GUID and a 37-byte payload. Accept a non-empty, bounded, completely consumed protocol token compatible with vanilla/TerraZ behavior; preserve exact stable comparison semantics and never treat this client-controlled value as cryptographic authentication.
 - [x] Replace GUID-only tests with serialized packet regressions for a fresh vanilla GUID, a persisted non-GUID legitimate token, empty/whitespace input, UTF-8 and length boundaries, truncated/trailing payloads, duplicate/late packets, disconnect cleanup and reconnect slot reuse.
 - [ ] Capture a real vanilla-client packet transcript and replay it through Vega for password/no-password, new/existing client configuration, SSC/non-SSC and supported platform variants. Assert state transitions, outbound responses and disconnect reasons, not merely individual packet acceptance.
@@ -743,7 +743,8 @@ Current evidence for the UUID defect is concrete: Terraria 1.4.5.8 initializes a
 
 ### Packet-handler semantic ledger
 
-- [ ] Enumerate all 71 packet registrations in the pinned TerraZ `GetDataHandlers` table and every client-to-server packet/branch in the pinned vanilla protocol, including protocol 326 additions and packets TShock does not intercept.
+- [x] Enumerate all 71 historical TerraZ `GetDataHandlers` registrations in server-behavior-audit.md.
+- [ ] Enumerate current protocol 329 client-to-server branches, including packets TShock does not intercept.
 - [ ] For each handler branch, record connection-state prerequisite, sender-slot/entity ownership, field/range/finite-value checks, permission/configuration gates, rate/spam limits, world-state reads, mutation, correction/resend, relay suppression, kick/disable behavior and fail-open/fail-closed semantics.
 - [ ] Compare each behavior against the current Vega ingress path and Terraria's native handling. Choose `Keep`, `Replace`, `Module`, `Native passthrough` or `Drop`; do not count a coarse packet-family or Phase 22 execution-placement classification as semantic coverage.
 - [ ] Add serialized regressions for every accepted/replaced security invariant and an explicit rationale for every drop. Include malformed, boundary, wrong-phase, duplicate, stale-session and hostile-burst cases plus the authoritative outbound correction/relay behavior.
@@ -752,8 +753,9 @@ Current evidence for the UUID defect is concrete: Terraria 1.4.5.8 initializes a
 
 ### Commands and operator behavior
 
-- [ ] Enumerate all 95 built-in TerraZ command registrations with canonical names, aliases, permissions, console availability, parsing/selectors, side effects, audit behavior and configuration/database dependencies.
-- [ ] Assign each command `Vega built-in`, `Terraria native passthrough`, `Optional module` or `Drop`. Verify native dedicated-server commands against 1.4.5.8 rather than assuming that a command name exists, and record operator impact for every omission.
+- [x] Enumerate all 95 built-in TerraZ command registrations with canonical names, aliases, permissions, console availability, parsing/selectors, side effects, audit behavior and configuration/database dependencies.
+- [x] Assign a registry-level decision to each command and record operator impact for explicit omissions (server-command-audit.md).
+- [ ] Finish current-version native command and branch verification against 1.4.6.1.
 - [ ] Review each retained/replaced command method branch for target ambiguity, delegated authority, offline-account behavior, confirmation, save/game-thread affinity, failure response and audit logging. Port semantics through Vega services, never through TShock class shapes.
 - [ ] Add end-to-end command tests for player and console callers, aliases, permissions, selectors, persistence, game-thread mutation and localized success/failure output. Make intentionally absent commands visible in the migration/operator guide rather than silently missing.
 - [ ] Audit the current TerraZ REST registrations separately from chat/console commands. Only introduce remote administration routes when Vega has an owned authentication, authorization, rate-limit, audit and lifecycle model; otherwise record an explicit drop.
@@ -768,7 +770,7 @@ Current evidence for the UUID defect is concrete: Terraria 1.4.5.8 initializes a
 ### Exit criteria
 
 - [ ] Every pinned vanilla inbound connection/packet branch and every TerraZ packet/command registration has a resolved ledger row with executable evidence or an explicit, reviewed drop rationale.
-- [ ] A stock legitimate 1.4.5.8 client completes passwordless and password joins without Vega-only handshake rejection, while malformed and unauthorized variants fail with stable reasons and no stale session state.
+- [ ] A stock legitimate 1.4.6.1 client completes passwordless and password joins without Vega-only handshake rejection, while malformed and unauthorized variants fail with stable reasons and no stale session state.
 - [ ] Operator documentation describes the actual Vega command/administration surface and every intentional TShock difference.
 - [ ] No TShock/TSAPI compatibility assembly, namespace or class shape re-enters the production graph as a consequence of the audit.
 
@@ -787,26 +789,26 @@ Contain ordinary same-process plugin failures at the Vega-owned PluginSdk bounda
 
 ### Callback boundary
 
-- [ ] Route dynamically registered plugin commands through one per-plugin execution guard; thrown commands return a stable failure result and never escape the dispatcher.
-- [ ] Route player join/leave and every future PluginSdk event callback through the same guard so one plugin cannot abort shared event delivery or Terraria snapshot refresh.
-- [ ] Route `Tasks.Post`, periodic actions and async-result apply callbacks through the guard while preserving normal lifetime cancellation semantics.
-- [ ] Log the complete exception object with plugin identity, callback/operation and a monotonic fault count instead of relying on outer generic catches.
-- [ ] Add throwing-plugin regressions proving command, lifecycle and scheduled callback failures are contained and attributed.
+- [x] Route dynamically registered plugin commands through one per-plugin execution guard; thrown commands return a stable failure result and never escape the dispatcher.
+- [x] Route current player join/leave PluginSdk events through the same guard; future callback surfaces must use it.
+- [x] Route `Tasks.Post`, periodic actions and async-result apply callbacks through the guard while preserving normal lifetime cancellation semantics.
+- [x] Log the complete exception object with plugin identity, callback/operation and a monotonic fault count instead of relying on outer generic catches.
+- [x] Add throwing-plugin regressions proving command, lifecycle and posted callback failures are contained and attributed (`PluginSdkContextTests.PluginCallbackFaultsAreContainedAndAttributed`).
 
 ### Circuit breaker and retirement
 
-- [ ] Add a bounded rolling failure window and configurable breaker threshold with conservative defaults.
-- [ ] Transition repeatedly failing plugins through degraded/faulted state, suppress new callbacks and retire only the offender.
-- [ ] Cancel lifetime work, unregister hooks/commands, call stop/dispose and verify collectible `AssemblyLoadContext` reclamation; expose `RestartRequired` if cleanup cannot be proven.
-- [ ] Keep a healthy neighboring plugin operational while a faulty plugin is being disabled.
-- [ ] Surface fault count, last callback and last failure summary in module Operations/TUI state.
+- [x] Add a bounded rolling failure window and configurable breaker threshold (default five faults within 60 seconds).
+- [x] Transition repeatedly failing dynamic plugins to quarantined/degraded, suppress new guarded callbacks, drain and retire the matching activation only.
+- [x] Explicit hot reload/unload and automatic fault retirement cancel lifetime work, unregister hooks/commands, call stop/dispose and verify collectible `AssemblyLoadContext` reclamation; expose `RestartRequired` on incomplete cleanup or deadline-expired pre-drain.
+- [x] Keep unrelated guarded callbacks and dispatcher handlers operational while a faulty plugin is disabled (guard and real collectible-plugin regressions).
+- [x] Surface fault count, last callback and last failure summary in module Operations/TUI state.
 
 ### Coverage and architecture gates
 
-- [ ] Audit chat, packet, world, NPC, chest, tile, projectile, configuration and diagnostics callback surfaces for raw plugin delegate invocation.
-- [ ] Add an architecture test that rejects new unguarded ordinary-plugin callback registrations outside the approved scope/guard boundary.
+- [x] Inventory current ordinary SDK delegate surfaces, including direct synchronous storage callbacks and externally invoked configuration diagnostics, and guard retained command/player/task/configuration callbacks. Review advanced/raw/native surfaces separately; they are not ordinary PluginSdk promises.
+- [x] Add a current SDK delegate-surface inventory and guard-wiring architecture regression (`PluginCallbackBoundaryTests`); changes require an explicit audit.
 - [ ] Fault-injection soak: repeated plugin exceptions plus hot reload, reconnects and scheduled work must not leak handlers, tasks, threads or collectible load contexts.
-- [ ] Document the boundary: `AssemblyLoadContext` is lifecycle isolation, not a hostile-code security sandbox; fatal CLR/native/process failures still require an external supervisor and last-known-good persistence.
+- [x] Document the boundary: `AssemblyLoadContext` is lifecycle isolation, not a hostile-code security sandbox; fatal CLR/native/process failures still require an external supervisor and last-known-good persistence.
 
 Plugin-fault invariant:
 
@@ -814,6 +816,59 @@ Plugin-fault invariant:
 ordinary plugin exception = isolate + diagnose + possibly retire that plugin
 authoritative state corruption = fail closed; never catch-and-continue blindly
 ```
+
+## Phase 27 — patched vanilla host consolidation (Terraria 1.4.6.1)
+
+The production direction is the official dedicated server patched by `TerrariaRuntime`, not the independent `TerraRuntime` simulation. Keep the vanilla runtime in control of gameplay, world generation and `.wld` IO. Vega owns policy, administration and optimized infrastructure through hooks. Phase 25's pinned 1.4.5.8 audit remains historical evidence; the new protocol baseline needs independent verification against 1.4.6.1 before claiming equivalent behavior.
+
+- [x] Build the local 1.4.6.1 patcher and consume the 1.1.1 package in Vega on stable .NET 11.
+- [x] Separate transport admission/frame budgets from diagnostics and keep native packet application on its original thread.
+- [x] Prevent cooperative game-thread work from repeatedly running in one tick; preserve bounded queue capacity.
+- [x] Add the World Administration time/wind command slice via contracts and explicit runtime registration.
+- [x] Add the Navigation module (`spawn`, `home`, `tp`, `tphere`, `tppos`, `pos`, `tpallow`, `tpnpc`, `warp`) with session-bound game-thread movement, persistent file-UUID warps, explicit other-player permissions and reconnect cleanup. Wildcard teleport remains a separate branch.
+- [x] Add pre-world IP allowlist, admin item/health/buff commands, broadcast, world info/events, bounded NPC spawn and world cleanup. Add packet content restrictions as an independent module; real-client parity is still open.
+- [x] Adopt native socket activation/close and stopping hooks. Scope chest, scene, cleaning and plugin data to the actual backend world; isolate working/save directories and fix native console shutdown encoding.
+- [x] Bind account authentication, navigation and backend transfer/SSC character operations to player-session identity. Capture final sandbox character state before native slot reset; fall back to the last checkpoint if pre-reset capture is unavailable.
+- [x] Exercise primary and secondary patched Terraria 1.4.6.1 processes together: `sandbox create/start/stop`, independent runtime directory, native readiness and graceful save/exit. The smoke test has no connected game client and does not establish SSC or packet parity.
+- [x] Add private/party/action chat (`whisper`, `reply`, `wallow`, `party`, `me`) through the existing chat pipeline and mute moderation; bind recipient delivery to the original session and world.
+- [x] Add world-local persistent `antibuild` and `protectspawn` policies ahead of region access checks; use the live world spawn and separate bypass permissions.
+- [x] Replace variable-packet receive-buffer copying with bounded memory views in the ingress/chat/chest hooks; measure with a realistic backing-buffer benchmark.
+- [x] Add native world mode, spawn rate/max spawn settings, spawn and dungeon coordinates, seasonal overrides and angler completion commands. Extend world events via native event start/stop methods, with vanilla invasion admission conditions.
+- [x] Add world-scoped native online character death statistics, version and bounded MOTD/rules text commands.
+- [x] Add native `spawnboss`, `butcher`, `renamenpc`; bind spawn commands to the caller's session. Administrative butcher preserves bosses and their segments unless explicitly selected and permitted, and does not attribute combat to a player.
+- [x] Add opt-in ordinary authenticated-character persistence foundation with deterministic server-created starters, separate primary store, account binding generations and pre-logout/pre-reset checkpoint capture. Native full SSC authority and transfer integration remain separate work.
+- [x] TerrariaRuntime 1.1.2 exposes `ServerConnectionClosing` and `ServerPlayerEnteringWorld`; Vega subscribes to these precise native lifecycle boundaries. Published tag `v1.1.2`; Windows/Linux/macOS CI and NuGet publish succeeded, package indexed.
+- [x] Document the native transport ownership/completion design and a queue microbenchmark in `native-transport-design.md`; keep vanilla transport enabled until compatibility and complete adapter tests pass.
+- [x] Add runtime server password management without echoing credentials and a separately authorized no-world-save shutdown.
+- [x] Add native client requests for `kill`, `slap`, `respawn`; validate target session and permission, do not report the client-confirmed outcome before acknowledgment. Add native `hardmode start confirm` with status query; never rerun or reverse the world transformation.
+- [x] Implement and integrate a tested native outbound FIFO and accepted-socket adapter with connection and process-world bounds, pooled ownership, receive close completion and generation-checked native callbacks. Select it explicitly with `useOrderedTcp`; vanilla remains default.
+- [x] Bind inventory inspection/mutation to the original player session and include session generation in revisions; stop numeric transfer SSC writes on authentication-tenure change.
+- [x] Add read-only `accountinfo`/`ai`, bounded account-lease `tempgroup`, world-scoped online list and local tile `sync` to the target session.
+- [x] Add bounded recent log queries (`displaylogs`) and a world-local native symbolic ID reference export (`dump-reference-data`); persistent player log streaming is not yet implemented.
+- [x] Add native boss encounter history, liquid settling, evil flag and conservative native growth, cosmetic effects and native godmode. Conditional rocket support requires native SSC.
+- [x] Add revision-checked explicit SSC checkpoints/import, world-local policy reload, console bootstrap alternative and authenticated read-only loopback operations REST.
+- [x] Assign a decision to every historical command registry row (92 implemented slices/alternatives, one implementation conditional on opt-in native SSC, two explicit omissions); do not equate registry coverage with full behavioral parity.
+- [x] Classify all 71 historical packet handlers against the actual 1.4.6.1 policy wiring (46 implemented slices, 25 native baselines, no unresolved registry-level decisions), retaining each full parity gate.
+- [x] Share whitelist and bans across primary and running sandbox processes. Whitelist reads the latest atomically replaced deployment store at admission; active bans are checked every two seconds for online sessions using one shared DB snapshot per world, with original session/account identity validation.
+- [x] Scope inbound scene policies and backend Operations commands/snapshots to their owned world; bind moderation disconnects to the original session and effective endpoint.
+- [x] Add optional primary-world login/readiness gating for direct gameplay actions, retaining vanilla handshake/chat/movement/synchronization. Use TerrariaRuntime 1.1.3's native `ServerPlayerBeforeWorldData` hook for opt-in SSC import capture; no native SSC flag by default.
+- [x] Publish TerrariaRuntime `v1.1.3`; Windows/Linux/macOS CI and NuGet publish succeeded; public package indexed.
+- [x] Measure actual official TShock 6.2.1 vs Vega world-save workload and same-version vanilla TCP vs experimental Ordered TCP loopback (including batch A/B); results and limitations in `performance-2026-11-26.md`. Keep default transport vanilla and batching disabled until real-client compatibility and performance are established.
+- [x] Add initial/joined inventory and loadout sanity policies, opt-in native SSC flag, pending-character gating, exact-authentication restoration and logout reset (TerrariaRuntime 1.1.5).
+- [x] Add joined character metadata, zone, animation, buff, quest counter and emoji structural policy slices; retain native gameplay semantics and stock-client qualification.
+- [x] Implement offline current-schema TShock SQLite account/group mapping, SSC, regions, warps and active ban migration; implement legacy Vega primary SSC merge with backups. Verify source preservation and restart on synthetic fixtures (see migration.md).
+- [x] Expose authenticated local runtime/GC and scheduler queue metrics and capture readiness-checked live measurements through scripts/Measure-LiveVegaServer.ps1.
+- [x] Compare the native/Ordered TCP loopback transport at 200/255 peers, diagnose the old completion-count ceiling and qualify an opt-in 8192 ceiling under the unchanged 2 ms cooperative deadline. Retain vanilla default until stock-client/sustained-world qualification.
+- [x] Support CIDR and exact-IP rules in the shared deployment allowlist, the TShock direct-add command form, and atomic offline text whitelist import.
+- [ ] Validate the remaining current-version packet, world, lifecycle and command hooks against real vanilla clients and the pinned 1.4.6.1 server.
+- [ ] Validate the implemented opt-in socket adapter's native client joins, ordered completion latency, slow-client isolation, kick reason and shutdown at production player caps before changing the default TCP listener.
+- [ ] Adapt authoritative ingress and fixed-worker scheduling only for measured isolated computation. Keep mutable player/world state and synchronous gameplay policies on the vanilla game thread; bind completion to session generation.
+- [ ] Expand TShock-style administration and protection as cohesive modules (identity/admission, gameplay protection, navigation, world administration, persistence). Qualify the opt-in primary-world SSC with stock clients, finish migration and remaining whitelist/warp semantics; keep the command and packet ledgers explicit about incomplete branches.
+- [ ] Profile identical worlds and clients before and after any transport or scheduling replacement; track throughput, allocations, p95/p99 tick latency and real-client compatibility separately.
+
+## Current roadmap review
+
+See [26 November 2026 assessment](roadmap-review-2026-11-26.md) for current priorities, deferred work and migration/qualification gates. Historical phase checkboxes do not themselves establish production readiness.
 
 ## Architectural guardrails
 

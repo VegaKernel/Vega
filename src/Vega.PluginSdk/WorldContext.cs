@@ -15,6 +15,7 @@ public interface IPluginWorld
     IPluginWorldChests Chests { get; }
     IPluginWorldNpcs Npcs { get; }
     IPluginWorldScenes Scenes { get; }
+    IPluginFakeProvider FakeProvider => throw new NotSupportedException("FakeProvider is unavailable in this host.");
 }
 
 public interface IPluginWorldEnvironment
@@ -101,7 +102,8 @@ internal sealed record VegaPluginRuntimeServices(
     IChestService? Chests,
     IWorldNpcService? Npcs,
     ISceneRuntime? Scenes,
-    IPlayerInventoryService? Inventory)
+    IPlayerInventoryService? Inventory,
+    ISceneVisibilityRuntime? Visibility = null)
 {
     public static VegaPluginRuntimeServices Empty { get; } = new(
         WorldId.Primary,
@@ -113,7 +115,7 @@ internal sealed record VegaPluginRuntimeServices(
         null);
 }
 
-internal static class VegaPluginRuntime
+internal static partial class VegaPluginRuntime
 {
     private static readonly ConditionalWeakTable<IVegaPluginContext, PluginWorld> Worlds = new();
     private static VegaPluginRuntimeServices services = VegaPluginRuntimeServices.Empty;
@@ -152,6 +154,7 @@ internal static class VegaPluginRuntime
         public IPluginWorldChests Chests { get; } = new PluginChests(context);
         public IPluginWorldNpcs Npcs { get; } = new PluginNpcs(context);
         public IPluginWorldScenes Scenes { get; } = new PluginScenes(context);
+        public IPluginFakeProvider FakeProvider { get; } = new PluginFakeProvider(context);
     }
 
     private sealed class PluginEnvironment(IVegaPluginContext context) : IPluginWorldEnvironment
@@ -351,7 +354,8 @@ internal static class VegaPluginRuntime
             ISceneLease lease = current.Scenes.CreateScene(current.WorldId, name, Actor(context));
             if (context is IHotModuleContext owner)
             {
-                return owner.Track(lease);
+                try { return owner.Track(lease); }
+                catch { lease.Dispose(); throw; }
             }
 
             lease.Dispose();

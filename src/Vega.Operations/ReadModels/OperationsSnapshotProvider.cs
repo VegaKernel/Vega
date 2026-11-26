@@ -35,7 +35,8 @@ public sealed class OperationsSnapshotProvider(
     IMuteService? mutes = null,
     ISceneRuntime? scenes = null,
     ISceneVisibilityRuntime? visibility = null,
-    IDeploymentBackupService? backups = null) : IOperationsSnapshotProvider
+    IDeploymentBackupService? backups = null,
+    WorldId? localWorldId = null) : IOperationsSnapshotProvider
 {
     public OperationsSnapshot Capture(
         OperationsLogFilter? logFilter = null,
@@ -66,16 +67,18 @@ public sealed class OperationsSnapshotProvider(
             worldCleanupStatus,
             backupStatus);
         RuntimeLifecycleStage stage = lifecycle.CurrentStage;
+        WorldId ownWorld = localWorldId ?? WorldId.Primary;
+        bool isPrimary = ownWorld == WorldId.Primary;
         WorldContextSnapshot[] contexts = worldContexts?.SnapshotContexts().ToArray() ??
         [
             new WorldContextSnapshot(
-                WorldId.Primary,
-                state.WorldName ?? "Primary world",
-                WorldContextKind.Primary,
+                ownWorld,
+                state.WorldName ?? (isPrimary ? "Primary world" : ownWorld.Value),
+                isPrimary ? WorldContextKind.Primary : WorldContextKind.Sandbox,
                 state.IsWorldReady ? WorldContextSimulationState.Running : WorldContextSimulationState.Stopped,
-                Array.AsReadOnly(playerSnapshots.Select(static player => player.Id).ToArray()),
+                Array.AsReadOnly(playerSnapshots.Where(player => player.WorldId == ownWorld).Select(static player => player.Id).ToArray()),
                 0,
-                "primary",
+                isPrimary ? "primary" : "sandbox",
                 TimeSpan.Zero)
         ];
         RegionSnapshot[] regionSnapshots = contexts
@@ -118,7 +121,7 @@ public sealed class OperationsSnapshotProvider(
             stage,
             state.WorldName,
             state.IsWorldReady,
-            stage >= RuntimeLifecycleStage.NetworkReady,
+            stage >= RuntimeLifecycleStage.NetworkReady && stage < RuntimeLifecycleStage.Stopping,
             playerSnapshots.Length,
             state.MaximumPlayers,
             state.ListenerPort,

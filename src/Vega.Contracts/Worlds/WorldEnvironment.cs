@@ -15,7 +15,20 @@ public sealed record WorldEnvironmentSnapshot(
     float RainIntensity,
     float WindSpeed,
     bool Hardmode,
-    DateTimeOffset CapturedAt);
+    DateTimeOffset CapturedAt)
+{
+    /// <summary>Persistent identity embedded in the loaded world file; distinct from the runtime context.</summary>
+    public Guid? FileIdentity { get; init; }
+    public string? Name { get; init; }
+    public int? Seed { get; init; }
+    public int? GameMode { get; init; }
+    public WorldTilePosition? Dungeon { get; init; }
+    public int? DefaultSpawnRate { get; init; }
+    public int? DefaultMaxSpawns { get; init; }
+    public bool ForceHalloween { get; init; }
+    public bool ForceChristmas { get; init; }
+    public IReadOnlyList<NativeWorldEvent> NativeEvents { get; init; } = [];
+}
 
 public sealed record WorldEnvironmentPatch(
     bool? IsDaytime = null,
@@ -25,7 +38,20 @@ public sealed record WorldEnvironmentPatch(
     bool? Eclipse = null,
     bool? Raining = null,
     float? RainIntensity = null,
-    float? WindSpeed = null);
+    float? WindSpeed = null,
+    WorldTilePosition? Spawn = null,
+    WorldTilePosition? Dungeon = null,
+    int? DefaultSpawnRate = null,
+    int? DefaultMaxSpawns = null,
+    int? GameMode = null,
+    bool? ForceHalloween = null,
+    bool? ForceChristmas = null,
+    bool ClearAnglerCompletion = false,
+    NativeWorldEventChange? NativeEvent = null,
+    bool StartHardmode = false);
+
+public enum NativeWorldEvent { SlimeRain, Sandstorm, PumpkinMoon, FrostMoon, GoblinArmy, SnowLegion, PirateInvasion, MartianMadness }
+public sealed record NativeWorldEventChange(NativeWorldEvent Event, bool Enabled);
 
 public sealed record WorldEnvironmentMutationRequest(
     WorldId WorldId,

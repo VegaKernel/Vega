@@ -7,8 +7,10 @@ namespace Vega.Terraria.Worlds;
 
 public sealed class TerrariaWorldClockSynchronizer(
     IWorldClockController clock,
-    IOperationsLogger logger) : IDisposable
+    IOperationsLogger logger,
+    WorldId? worldId = null) : IDisposable
 {
+    private readonly WorldId currentWorld = worldId ?? WorldId.Primary;
     private bool attached;
     private bool observedWorld;
 
@@ -37,7 +39,7 @@ public sealed class TerrariaWorldClockSynchronizer(
             attached = false;
         }
 
-        clock.Reset(WorldId.Primary);
+        clock.Reset(currentWorld);
     }
 
     private void OnGameUpdate(
@@ -58,7 +60,7 @@ public sealed class TerrariaWorldClockSynchronizer(
         {
             if (observedWorld)
             {
-                clock.Reset(WorldId.Primary);
+                clock.Reset(currentWorld);
                 observedWorld = false;
             }
             return;
@@ -69,7 +71,7 @@ public sealed class TerrariaWorldClockSynchronizer(
         var observed = new WorldClockValue(
             global::Terraria.Main.dayTime,
             Math.Clamp(global::Terraria.Main.time, 0, phaseLimit));
-        WorldClockDecision decision = clock.Observe(WorldId.Primary, observed);
+        WorldClockDecision decision = clock.Observe(currentWorld, observed);
         if (decision.Action != WorldClockAction.Correct)
         {
             return;

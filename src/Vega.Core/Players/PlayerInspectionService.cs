@@ -6,20 +6,24 @@ public sealed class PlayerInspectionService(
     IPlayerDirectory players,
     IPlayerInventoryService inventories) : IPlayerInspectionService
 {
-    public async ValueTask<PlayerInspectionSnapshot?> CaptureAsync(
+    public ValueTask<PlayerInspectionSnapshot?> CaptureAsync(
         PlayerId playerId,
         PlayerInspectionExposure exposure = PlayerInspectionExposure.Redacted,
+        CancellationToken cancellationToken = default) => players.TryGet(playerId, out var player) && player is not null
+        ? CaptureAsync(player, exposure, cancellationToken) : ValueTask.FromResult<PlayerInspectionSnapshot?>(null);
+
+    public async ValueTask<PlayerInspectionSnapshot?> CaptureAsync(PlayerSnapshot player, PlayerInspectionExposure exposure = PlayerInspectionExposure.Redacted,
         CancellationToken cancellationToken = default)
     {
-        if (!players.TryGet(playerId, out PlayerSnapshot? player) || player is null)
+        if (!IsCurrent(player))
         {
             return null;
         }
 
         PlayerInventorySnapshot? inventory = await inventories
-            .CaptureAsync(playerId, cancellationToken)
+            .CaptureAsync(player, cancellationToken)
             .ConfigureAwait(false);
-        if (inventory is null)
+        if (inventory is null || !IsCurrent(player) || inventory.SessionId.HasValue && (inventory.SessionId != player.SessionId || inventory.WorldId != player.WorldId))
         {
             return null;
         }
@@ -30,4 +34,7 @@ public sealed class PlayerInspectionService(
                 : PlayerSnapshotPrivacy.RedactSensitive(player),
             inventory);
     }
+
+    private bool IsCurrent(PlayerSnapshot player) => players.TryGet(player.Id, out var current) && current is not null &&
+        current.SessionId == player.SessionId && current.WorldId == player.WorldId;
 }

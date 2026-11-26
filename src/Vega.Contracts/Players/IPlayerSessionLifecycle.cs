@@ -18,3 +18,15 @@ public interface IPlayerSessionLifecycle
 
 	event Action<PlayerSessionClosed>? Closed;
 }
+
+/// <summary>Optional authoritative pre-reset notification while the old character still exists.</summary>
+public interface IPlayerSessionClosing
+{
+    event Action<PlayerSessionClosed>? Closing;
+}
+
+/// <summary>Optional native first-world-entry boundary, before gameplay and character restoration.</summary>
+public interface IPlayerSessionEnteredWorld
+{
+    event Action<PlayerSnapshot>? EnteredWorld;
+}

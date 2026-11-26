@@ -31,6 +31,8 @@
 		<ProjectReference Include="..\Vega.Modules.Chests\Vega.Modules.Chests.csproj" />
 		<ProjectReference Include="..\Vega.Modules.CustomItems\Vega.Modules.CustomItems.csproj" />
 		<ProjectReference Include="..\Vega.Modules.Mentions\Vega.Modules.Mentions.csproj" />
+		<ProjectReference Include="..\Vega.Modules.Navigation\Vega.Modules.Navigation.csproj" />
+		<ProjectReference Include="..\Vega.Modules.Restrictions\Vega.Modules.Restrictions.csproj" />
 		<ProjectReference Include="..\Vega.Modules.Pvp\Vega.Modules.Pvp.csproj" />
 		<ProjectReference Include="..\Vega.Modules.Scenes\Vega.Modules.Scenes.csproj" />
 		<ProjectReference Include="..\Vega.Modules.Wipe\Vega.Modules.Wipe.csproj" />
@@ -43,6 +45,10 @@
 	</ItemGroup>
 
 	<ItemGroup>
+		<Content Include="..\..\config\network.json" Link="config\network.json">
+			<CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+			<CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
+		</Content>
 		<Content Include="..\..\config\tui.json" Link="config\tui.json">
 			<CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
 			<CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
@@ -76,6 +82,10 @@
 			<CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
 		</Content>
 		<Content Include="..\..\config\sandboxes.json" Link="config\sandboxes.json">
+			<CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+			<CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
+		</Content>
+		<Content Include="..\..\config\primary-character-persistence.json" Link="config\primary-character-persistence.json">
 			<CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
 			<CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
 		</Content>

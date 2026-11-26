@@ -25,6 +25,8 @@
     <ProjectReference Include="..\..\src\Vega.Modules.Chests\Vega.Modules.Chests.csproj" PrivateAssets="all" />
     <ProjectReference Include="..\..\src\Vega.Operations\Vega.Operations.csproj" PrivateAssets="all" />
     <ProjectReference Include="..\..\src\Vega.Modules.Mentions\Vega.Modules.Mentions.csproj" PrivateAssets="all" />
+    <ProjectReference Include="..\..\src\Vega.Modules.Navigation\Vega.Modules.Navigation.csproj" PrivateAssets="all" />
+    <ProjectReference Include="..\..\src\Vega.Modules.Restrictions\Vega.Modules.Restrictions.csproj" PrivateAssets="all" />
     <ProjectReference Include="..\..\src\Vega.Modules.Pvp\Vega.Modules.Pvp.csproj" PrivateAssets="all" />
     <ProjectReference Include="..\..\src\Vega.Modules.CustomItems\Vega.Modules.CustomItems.csproj" PrivateAssets="all" />
     <ProjectReference Include="..\..\src\Vega.Modules.Scenes\Vega.Modules.Scenes.csproj" PrivateAssets="all" />
@@ -36,10 +38,10 @@
   <ItemGroup>
     <PackageReference Include="MaxMind.GeoIP2" Version="6.1.0" />
     <PackageReference Include="Microsoft.Data.Sqlite" Version="11.0.0" />
-    <PackageReference Include="Multiplicity" Version="2.6.2" />
+    <PackageReference Include="Multiplicity" Version="4.0.1" />
     <PackageReference Include="MySqlConnector" Version="2.6.2" />
     <PackageReference Include="Npgsql" Version="10.0.3" />
-    <PackageReference Include="TerrariaRuntime" Version="1.1.0" />
+    <PackageReference Include="TerrariaRuntime" Version="1.1.5" />
     <PackageReference Include="Terminal.Gui" Version="2.4.17" />
     <PackageReference Include="Terminal.Gui.Editor" Version="2.5.7" />
   </ItemGroup>

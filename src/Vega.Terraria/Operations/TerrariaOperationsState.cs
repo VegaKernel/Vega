@@ -75,23 +75,31 @@ public sealed class TerrariaOperationsState : IServerRuntimeStateReader, IDispos
         {
             TickRateStatisticsSnapshot tickRate = tickRateMonitor.RecordTick();
 
-            Volatile.Write(ref snapshot, new ServerRuntimeStateSnapshot(
+            PublishIfChanged(
                 string.IsNullOrWhiteSpace(global::Terraria.Main.worldName)
                     ? null
                     : global::Terraria.Main.worldName,
                 global::Terraria.Main.maxNetPlayers,
                 global::Terraria.Netplay.ListenPort,
                 !global::Terraria.Main.gameMenu,
-                tickRate.Current,
-                DateTimeOffset.UtcNow)
-            {
-                TickRate = tickRate
-            });
+                tickRate);
         }
         catch (Exception ex)
         {
             // Telemetry is never allowed to tear down Terraria's update loop.
             Console.Error.WriteLine($"Vega operations sampling failed: {ex}");
         }
+    }
+
+    internal void PublishIfChanged(string? worldName, int maxPlayers, int port, bool worldReady, TickRateStatisticsSnapshot tickRate)
+    {
+        // The monitor publishes a fresh statistics record at its one-second sample boundary.
+        // Preserve immediate readiness/endpoint changes without producing 60 identical records/sec.
+        var previous = Read();
+        if (ReferenceEquals(previous.TickRate, tickRate) && previous.WorldName == worldName &&
+            previous.MaximumPlayers == maxPlayers && previous.ListenerPort == port && previous.IsWorldReady == worldReady) return;
+
+        Volatile.Write(ref snapshot, new ServerRuntimeStateSnapshot(worldName, maxPlayers, port, worldReady,
+            tickRate.Current, DateTimeOffset.UtcNow) { TickRate = tickRate });
     }
 }

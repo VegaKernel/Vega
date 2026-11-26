@@ -1,0 +1,6 @@
+{
+  "pendingConnectionLimit": 128,
+  "framesPerSlotPerPass": 32,
+  "useOrderedTcp": false,
+  "orderedCallbacksPerPass": 8192
+}

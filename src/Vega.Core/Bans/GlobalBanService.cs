@@ -2,6 +2,7 @@ using System.Net;
 using System.Net.Sockets;
 using Vega.Contracts.Bans;
 using Vega.Contracts.Cluster.Events;
+using Vega.Contracts.Networking;
 
 namespace Vega.Core.Bans;
 
@@ -12,6 +13,11 @@ public sealed class GlobalBanService(
     private readonly TimeProvider time = timeProvider ?? TimeProvider.System;
 
     public bool TryNormalizeSubject(
+        GlobalBanSubject subject,
+        out GlobalBanSubject? normalized,
+        out string? error) => TryNormalizeSubjectCore(subject, out normalized, out error);
+
+    private static bool TryNormalizeSubjectCore(
         GlobalBanSubject subject,
         out GlobalBanSubject? normalized,
         out string? error)
@@ -33,13 +39,13 @@ public sealed class GlobalBanService(
                 normalized = subject with { Value = value };
                 return true;
             case GlobalBanSubjectKind.Uuid:
-                if (!Guid.TryParse(value, out Guid uuid))
+                if (!TryNormalizeUuid(subject.Value, out string? uuid))
                 {
-                    error = "The UUID ban subject is not a valid UUID.";
+                    error = "The UUID ban subject must be a non-empty Terraria client token of at most 128 characters.";
                     return false;
                 }
 
-                normalized = subject with { Value = uuid.ToString("D") };
+                normalized = subject with { Value = uuid! };
                 return true;
             case GlobalBanSubjectKind.IpAddress:
                 if (!IPAddress.TryParse(value, out IPAddress? address))
@@ -91,23 +97,35 @@ public sealed class GlobalBanService(
         ArgumentNullException.ThrowIfNull(identity);
         cancellationToken.ThrowIfCancellationRequested();
         DateTimeOffset now = time.GetUtcNow();
-        BanSnapshot? match = replica.SnapshotActive(now)
-            .Select(created => (Created: created, Specificity: MatchSpecificity(created.Subject, identity)))
-            .Where(static candidate => candidate.Specificity >= 0)
-            .OrderByDescending(static candidate => candidate.Specificity)
-            .ThenByDescending(static candidate => candidate.Created.Revision)
-            .ThenByDescending(static candidate => candidate.Created.CreatedAt)
-            .Select(static candidate => ToSnapshot(candidate.Created))
-            .FirstOrDefault();
-        return ValueTask.FromResult(match);
+        return ValueTask.FromResult(MatchActive(SnapshotActive(now), identity, now));
     }
 
     public IReadOnlyList<BanSnapshot> SnapshotActive(DateTimeOffset now) =>
         Array.AsReadOnly(replica.SnapshotActive(now).Select(ToSnapshot).ToArray());
 
-    private int MatchSpecificity(GlobalBanSubject rawSubject, BanIdentity identity)
+    /// <summary>Match an already-read active-ban snapshot without accessing persistence.</summary>
+    internal static BanSnapshot? MatchActive(IEnumerable<BanSnapshot> active, BanIdentity identity, DateTimeOffset now)
     {
-        if (!TryNormalizeSubject(rawSubject, out GlobalBanSubject? subject, out _))
+        BanSnapshot? best = null;
+        int bestSpecificity = -1;
+        foreach (BanSnapshot candidate in active)
+        {
+            if (candidate.ExpiresAt is { } expires && expires <= now) continue;
+            int specificity = MatchSpecificity(candidate.Subject, identity);
+            if (specificity < 0) continue;
+            if (best is null || specificity > bestSpecificity || specificity == bestSpecificity &&
+                (candidate.Revision > best.Revision || candidate.Revision == best.Revision && candidate.CreatedAt > best.CreatedAt))
+            {
+                best = candidate;
+                bestSpecificity = specificity;
+            }
+        }
+        return best;
+    }
+
+    private static int MatchSpecificity(GlobalBanSubject rawSubject, BanIdentity identity)
+    {
+        if (!TryNormalizeSubjectCore(rawSubject, out GlobalBanSubject? subject, out _))
         {
             return -1;
         }
@@ -116,7 +134,7 @@ public sealed class GlobalBanService(
         {
             GlobalBanSubjectKind.Account when EqualsIgnoreCase(subject.Value, identity.AccountName) => 600,
             GlobalBanSubjectKind.Uuid when TryNormalizeUuid(identity.Uuid, out string? uuid) &&
-                EqualsIgnoreCase(subject.Value, uuid) => 600,
+                string.Equals(subject.Value, uuid, StringComparison.Ordinal) => 600,
             GlobalBanSubjectKind.PlayerName when EqualsIgnoreCase(subject.Value, identity.PlayerName) => 500,
             GlobalBanSubjectKind.IpAddress when identity.IpAddress is not null &&
                 IPAddress.Parse(subject.Value).Equals(NormalizeAddress(identity.IpAddress)) => 400,
@@ -143,7 +161,9 @@ public sealed class GlobalBanService(
 
     private static bool TryNormalizeUuid(string? value, out string? normalized)
     {
-        normalized = Guid.TryParse(value, out Guid uuid) ? uuid.ToString("D") : null;
+        if (!ClientUuidToken.IsValid(value)) { normalized = null; return false; }
+        // Preserve compatibility with existing GUID bans, but keep opaque client tokens exact.
+        normalized = value!.Length == 36 && Guid.TryParseExact(value, "D", out Guid uuid) ? uuid.ToString("D") : value;
         return normalized is not null;
     }
 

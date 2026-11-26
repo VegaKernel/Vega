@@ -3,6 +3,7 @@ using NUnit.Framework;
 using Vega.Contracts.Accounts;
 using Vega.Contracts.Authorization;
 using Vega.Contracts.Commands;
+using Vega.Core.Commands;
 using Vega.Modules.Administration;
 using Vega.Persistence.Sqlite;
 
@@ -53,6 +54,26 @@ public sealed class AccountCommandTests
         });
     }
 
+    [Test]
+    public async Task CompatibilityCommandsReuseAccountInspectionAndRoleLeaseAuthority()
+    {
+        DateTimeOffset now = DateTimeOffset.Parse("2026-08-23T12:00:00Z");
+        SqliteVegaDatabase database = await SqliteVegaDatabase.OpenAsync(new SqliteVegaDatabaseOptions(Path.Combine(directory, "vega.db")));
+        await database.Authorization.CreateGroupAsync("moderator", "default", "Server");
+        var created = await database.Accounts.CreateAsync("Alice", "correct horse battery staple", "default", "Server");
+        var account = new AccountCommand(database.Accounts, database.Authorization, database.RoleLeases, new FixedTimeProvider(now));
+        var dispatcher = new CommandDispatcher([new AccountInfoCommand(account), new TempGroupCommand(account)]);
+        var info = new CommandInvocation("ai", ["Alice"], new InspectorPrincipal(), NullOutput.Instance);
+        Assert.That((await dispatcher.DispatchAsync(info)).Status, Is.EqualTo(CommandExecutionStatus.Success));
+        Assert.That((await dispatcher.DispatchAsync(info with { Name = "tempgroup", Arguments = ["Alice", "moderator", "1h"] })).Status,
+            Is.EqualTo(CommandExecutionStatus.Forbidden));
+        var grant = info with { Name = "tempgroup", Arguments = ["Alice", "moderator", "1h"], Principal = ServerPrincipal.Instance };
+        Assert.That((await dispatcher.DispatchAsync(grant)).Status, Is.EqualTo(CommandExecutionStatus.Success));
+        Assert.That(database.RoleLeases.FindActive(created.After!.Id, now)?.GroupName, Is.EqualTo("moderator"));
+        Assert.That((await dispatcher.DispatchAsync(grant with { Arguments = ["Alice", "clear"] })).Status, Is.EqualTo(CommandExecutionStatus.Success));
+        Assert.That(database.RoleLeases.FindActive(created.After.Id, now), Is.Null);
+    }
+
     private static ValueTask<CommandExecutionResult> ExecuteAsync(
         AccountCommand command,
         params string[] arguments) => command.ExecuteAsync(
@@ -70,6 +91,13 @@ public sealed class AccountCommandTests
         public string Name => "Server";
         public bool IsServer => true;
         public bool HasPermission(string permission) => true;
+    }
+
+    private sealed class InspectorPrincipal : ICommandPrincipal
+    {
+        public string Name => "Inspector";
+        public bool IsServer => false;
+        public bool HasPermission(string permission) => permission == "vega.accounts.inspect";
     }
 
     private sealed class NullOutput : ICommandOutput

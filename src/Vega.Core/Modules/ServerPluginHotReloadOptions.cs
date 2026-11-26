@@ -8,12 +8,19 @@ public sealed record ServerPluginHotReloadOptions(
     int DebounceMilliseconds,
     int UnloadTimeoutMilliseconds)
 {
+    public int FaultThreshold { get; init; } = 5;
+    public int FaultWindowSeconds { get; init; } = 60;
+
     public static ServerPluginHotReloadOptions Default { get; } = new(false, 750, 5000);
 
     public static ServerPluginHotReloadOptions Normalize(ServerPluginHotReloadOptions? candidate) => new(
         candidate?.Enabled ?? Default.Enabled,
         Math.Clamp(candidate?.DebounceMilliseconds ?? Default.DebounceMilliseconds, 100, 10000),
-        Math.Clamp(candidate?.UnloadTimeoutMilliseconds ?? Default.UnloadTimeoutMilliseconds, 500, 30000));
+        Math.Clamp(candidate?.UnloadTimeoutMilliseconds ?? Default.UnloadTimeoutMilliseconds, 500, 30000))
+    {
+        FaultThreshold = Math.Clamp(candidate?.FaultThreshold ?? Default.FaultThreshold, 1, 100),
+        FaultWindowSeconds = Math.Clamp(candidate?.FaultWindowSeconds ?? Default.FaultWindowSeconds, 1, 3600)
+    };
 }
 
 public static class ServerPluginHotReloadOptionsStore

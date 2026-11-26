@@ -150,3 +150,32 @@ Generic cancellable gameplay hooks не имитируются декорати�
 Типичные TShock-паттерны переводятся по поведению: `Initialize` → `Configure`, ручные add/remove команд → `Commands.Register`, player hooks → `Players.OnJoined`, `TSPlayer` → immutable snapshot + узкая операция, inventory → `Players.Inventory`, world/NPC/chests → `World`, timer/dispose → `Tasks.Every`, config → `Configuration.Use<T>`, произвольные данные → `Storage`, lifecycle управляемых миров → `Sandboxes`.
 
 Исходная и бинарная совместимость с TShock не обещается.
+
+## FakeProvider для плагинов
+
+Обычный плагин получает инструмент напрямую через `context.World.FakeProvider`, не через команды, reflection или ссылку на `Vega.Modules.Scenes`/TShock. Инструмент работает в текущем мире процесса; имена провайдеров разных плагинов не конфликтуют. Владение определяется lease и выполняется host автоматически на unload/hot reload.
+
+Пример персонального превью копирования региона, без изменения `.wld`:
+
+```csharp
+using Vega.Contracts.Scenes;
+using Vega.PluginSdk;
+
+// context — IVegaPluginContext, player — актуальный PlayerSnapshot.
+var captured = await context.World.Tiles.CaptureAsync(new SceneBounds(100, 200, 16, 16));
+if (captured is not null && player.SessionId is not null)
+{
+    IPluginTileProvider preview = context.World.FakeProvider.CreatePersonal(
+        "clipboard", new SceneBounds(150, 200, 16, 16), captured.Tiles,
+        [SceneSessionObserver.From(player)], layer: 100);
+    preview.Move(5, 0);
+    preview.SetTop(); // среди провайдеров с тем же layer
+    // Храните preview в состоянии плагина, вызовите Dispose() когда превью не нужно.
+    // Host сам освободит его при выгрузке/перезагрузке плагина.
+}
+```
+
+Глобальные панели создаются `CreateGlobal(name, bounds, tiles, layer)`. `SceneTileArea.Fill(width,height,tile)` создаёт неизменяемую заливку без лишней копии исходного массива. `Replace(bounds, tiles)` меняет размер/содержимое с сохранением ID; также доступны `SetEnabled`, `SetLayer`, `SetTop`, `SetObservers`, `Draw`, `Dispose`. Для одного и того же имени можно создавать разные независимые leases; храните соответствующий handle. Персональный scope принимает точные `SceneSessionObserver` (`From(PlayerSnapshot)` или `From(PlayerSessionOpened)`), пустой набор никому не виден; предыдущая сессия не восстанавливается при перемещении слоя и повторном использовании слота.
+
+`CreateVisibilityLayer(name, observers)` создаёт принадлежащий плагину слой видимости. `AssignPlayer`/`RemovePlayer` требуют точную сессию; `AssignNpc`/`AssignProjectile`, `RemoveNpc`/`RemoveProjectile` работают с нативными слотами — плагин должен снять назначение при despawn, до повторного использования ID. Это фильтрация поддерживаемых пакетов и интеракций, не независимая физика и не автоматический spawn/despawn/resync клиента. `FillOutsideWithAir`, фейковые сундуки и tile entities пока не предоставляются этим SDK. `World.Scenes.Create` остаётся совместимым низкоуровневым API; для новых персональных провайдеров предпочтительна сессионная привязка FakeProvider.
+Рабочий пример команды `samplepreview` находится в `samples/Vega.PluginSamples/FakePreviewCommand.cs`: снимок ванильной области, персональное превью, перемещение и очистка.

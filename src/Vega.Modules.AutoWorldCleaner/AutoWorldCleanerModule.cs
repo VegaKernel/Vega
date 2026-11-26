@@ -36,6 +36,7 @@ public sealed class AutoWorldCleanerModule : IVegaModule, IWorldCleanupStatusRea
     private readonly IPlayerDirectory players;
     private readonly IOperationsLogger logger;
     private readonly TimeProvider timeProvider;
+    private readonly WorldId currentWorld;
     private readonly SemaphoreSlim runGate = new(1, 1);
     private CancellationTokenSource? shutdown;
     private Task? worker;
@@ -50,7 +51,8 @@ public sealed class AutoWorldCleanerModule : IVegaModule, IWorldCleanupStatusRea
         IGameThreadDispatcher dispatcher,
         IPlayerDirectory players,
         IOperationsLogger logger,
-        TimeProvider? timeProvider = null)
+        TimeProvider? timeProvider = null,
+        WorldId? worldId = null)
     {
         this.options = AutoWorldCleanerOptions.Normalize(options);
         this.entities = entities ?? throw new ArgumentNullException(nameof(entities));
@@ -59,6 +61,7 @@ public sealed class AutoWorldCleanerModule : IVegaModule, IWorldCleanupStatusRea
         this.players = players ?? throw new ArgumentNullException(nameof(players));
         this.logger = logger ?? throw new ArgumentNullException(nameof(logger));
         this.timeProvider = timeProvider ?? TimeProvider.System;
+        currentWorld = worldId ?? WorldId.Primary;
         status = this.options.Enabled
             ? WorldCleanupStatusSnapshot.Disabled with { Enabled = true, State = WorldCleanupRunState.Idle }
             : WorldCleanupStatusSnapshot.Disabled;
@@ -136,7 +139,7 @@ public sealed class AutoWorldCleanerModule : IVegaModule, IWorldCleanupStatusRea
         {
             while (await timer.WaitForNextTickAsync(cancellationToken).ConfigureAwait(false))
             {
-                await RunNowAsync(WorldId.Primary, "scheduled", cancellationToken).ConfigureAwait(false);
+                await RunNowAsync(currentWorld, "scheduled", cancellationToken).ConfigureAwait(false);
             }
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
@@ -149,6 +152,8 @@ public sealed class AutoWorldCleanerModule : IVegaModule, IWorldCleanupStatusRea
         string trigger,
         CancellationToken cancellationToken)
     {
+        if (worldId != currentWorld)
+            return new AutoWorldCleanerRunResult(AutoWorldCleanerRunStatus.Failed, ErrorCode: "auto_world_cleaner.wrong_world");
         if (!started || !options.Enabled)
         {
             return new AutoWorldCleanerRunResult(AutoWorldCleanerRunStatus.Disabled);
@@ -159,7 +164,7 @@ public sealed class AutoWorldCleanerModule : IVegaModule, IWorldCleanupStatusRea
             return new AutoWorldCleanerRunResult(AutoWorldCleanerRunStatus.Cancelled);
         }
 
-        if (lifecycle.CurrentStage < RuntimeLifecycleStage.WorldReady)
+        if (lifecycle.CurrentStage < RuntimeLifecycleStage.WorldReady || lifecycle.CurrentStage >= RuntimeLifecycleStage.Stopping)
         {
             UpdateCompletedStatus(WorldCleanupRunState.Skipped, 0, 0, "world-not-ready");
             return new AutoWorldCleanerRunResult(AutoWorldCleanerRunStatus.SkippedNotReady);
@@ -199,42 +204,53 @@ public sealed class AutoWorldCleanerModule : IVegaModule, IWorldCleanupStatusRea
         }
     }
 
-    private ValueTask<AutoWorldCleanerRunResult> DispatchAsync(
+    private async ValueTask<AutoWorldCleanerRunResult> DispatchAsync(
         WorldId worldId,
         CancellationToken cancellationToken)
     {
         if (cancellationToken.IsCancellationRequested)
         {
-            return ValueTask.FromResult(new AutoWorldCleanerRunResult(AutoWorldCleanerRunStatus.Cancelled));
+            return new AutoWorldCleanerRunResult(AutoWorldCleanerRunStatus.Cancelled);
         }
 
         if (!dispatcher.IsGameThreadKnown)
         {
-            return ValueTask.FromResult(new AutoWorldCleanerRunResult(
+            return new AutoWorldCleanerRunResult(
                 AutoWorldCleanerRunStatus.Failed,
-                ErrorCode: "auto_world_cleaner.dispatcher_unavailable"));
+                ErrorCode: "auto_world_cleaner.dispatcher_unavailable");
         }
 
         if (dispatcher.IsGameThread)
         {
-            return ValueTask.FromResult(ExecuteOnGameThread(worldId, cancellationToken));
+            return ExecuteOnGameThread(worldId, cancellationToken);
         }
 
         var completion = new TaskCompletionSource<AutoWorldCleanerRunResult>(
             TaskCreationOptions.RunContinuationsAsynchronously);
+        // Cancellation may retire work still in the queue when the native update loop stops.
+        // Once execution has begun, wait for the real result rather than reporting a mutating
+        // operation as canceled and releasing the run gate while it is still running.
+        int dispatchState = 0; // pending, running (1), canceled before start (2)
+        using CancellationTokenRegistration cancellation = cancellationToken.Register(() =>
+        {
+            if (Interlocked.CompareExchange(ref dispatchState, 2, 0) == 0)
+                completion.TrySetResult(new AutoWorldCleanerRunResult(AutoWorldCleanerRunStatus.Cancelled));
+        });
         if (!dispatcher.TryPost(
                 "auto-world-cleaner.run",
-                () => completion.TrySetResult(
-                    cancellationToken.IsCancellationRequested
-                        ? new AutoWorldCleanerRunResult(AutoWorldCleanerRunStatus.Cancelled)
-                        : ExecuteOnGameThread(worldId, cancellationToken))))
+                () =>
+                {
+                    if (Interlocked.CompareExchange(ref dispatchState, 1, 0) != 0) return;
+                    try { completion.TrySetResult(ExecuteOnGameThread(worldId, cancellationToken)); }
+                    catch (Exception ex) { completion.TrySetException(ex); }
+                }))
         {
-            return ValueTask.FromResult(new AutoWorldCleanerRunResult(
+            return new AutoWorldCleanerRunResult(
                 AutoWorldCleanerRunStatus.Failed,
-                ErrorCode: "auto_world_cleaner.dispatch_queue_full"));
+                ErrorCode: "auto_world_cleaner.dispatch_queue_full");
         }
 
-        return new ValueTask<AutoWorldCleanerRunResult>(completion.Task);
+        return await completion.Task.ConfigureAwait(false);
     }
 
     private AutoWorldCleanerRunResult ExecuteOnGameThread(

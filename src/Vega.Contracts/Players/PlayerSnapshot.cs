@@ -29,6 +29,9 @@ public sealed record PlayerSnapshot(
 
     public ConnectionMetadataSnapshot? Connection { get; init; }
 
+    public int DeathsPve { get; init; }
+    public int DeathsPvp { get; init; }
+
     /// <summary>
     /// World context currently owning the player. The legacy single-world runtime is always primary.
     /// </summary>

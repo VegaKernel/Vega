@@ -21,8 +21,8 @@ public static class CustomItemPacketFactory
 			new UpdateItemDrop
 			{
 				ItemIndex = itemIndex,
-				PositionX = positionX - (item.Width ?? 0) / 2f,
-				PositionY = positionY - (item.Height ?? 0) / 2f,
+				PositionX = positionX,
+				PositionY = positionY,
 				Stack = item.Stack ?? 1,
 				Prefix = item.Prefix ?? 0,
 				ItemNetId = definition.ItemType
@@ -52,8 +52,6 @@ public static class CustomItemPacketFactory
 		if (item.UseTime is not null) flags1 |= TweakItemFlags1.UseTime;
 		if (item.ShootProjectileType is not null) flags1 |= TweakItemFlags1.Shoot;
 		if (item.ShootSpeed is not null) flags1 |= TweakItemFlags1.ShootSpeed;
-		if (item.Width is not null) flags2 |= TweakItemFlags2.Width;
-		if (item.Height is not null) flags2 |= TweakItemFlags2.Height;
 		if (item.Scale is not null) flags2 |= TweakItemFlags2.Scale;
 		if (item.AmmoType is not null) flags2 |= TweakItemFlags2.Ammo;
 		if (item.UseAmmoType is not null) flags2 |= TweakItemFlags2.UseAmmo;
@@ -72,8 +70,6 @@ public static class CustomItemPacketFactory
 			Shoot = item.ShootProjectileType ?? 0,
 			ShootSpeed = item.ShootSpeed ?? 0,
 			Flags2 = flags2,
-			Width = item.Width ?? 0,
-			Height = item.Height ?? 0,
 			Scale = item.Scale ?? 0,
 			Ammo = item.AmmoType ?? 0,
 			UseAmmo = item.UseAmmoType ?? 0,
@@ -87,6 +83,8 @@ public static class CustomItemPacketFactory
 
 	private static void Validate(CustomItemDefinition definition)
 	{
+		if (definition.Override.Width is not null || definition.Override.Height is not null)
+			throw new NotSupportedException("Terraria protocol 329 does not transmit custom item width or height.");
 		if (string.IsNullOrWhiteSpace(definition.Name))
 			throw new ArgumentException("A custom item name is required.", nameof(definition));
 		if (definition.ItemType <= 0)

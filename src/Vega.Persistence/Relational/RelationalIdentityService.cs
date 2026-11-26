@@ -233,9 +233,22 @@ internal sealed class RelationalIdentityService(
         await using DbConnection connection = await openAsync(cancellationToken).ConfigureAwait(false);
         await using DbCommand command = connection.CreateCommand();
         command.CommandText = "SELECT password_hash FROM vega_accounts WHERE name = @name;";
-        command.AddParameter("@name", NormalizeName(name, nameof(name)));
+        string normalized = NormalizeName(name, nameof(name));
+        command.AddParameter("@name", normalized);
         object? value = await command.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false);
-        return value is string hash && VerifyPassword(password, hash);
+        if (value is not string hash) return false;
+        if (!LegacyPasswordHash.IsSupported(hash)) return VerifyPassword(password, hash);
+        if (!LegacyPasswordHash.Verify(password, hash)) return false;
+
+        // Same logical credential: replace only the original verified encoding, never a concurrent reset.
+        await using DbCommand upgrade = connection.CreateCommand();
+        upgrade.CommandText = "UPDATE vega_accounts SET password_hash = @upgraded WHERE name = @name AND password_hash = @original;";
+        upgrade.AddParameter("@upgraded", HashPassword(password));
+        upgrade.AddParameter("@name", normalized);
+        upgrade.AddParameter("@original", hash);
+        if (await upgrade.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false) == 1) return true;
+        // Another login may have upgraded the same credential, or an operator may have reset it.
+        return await command.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false) is string current && VerifyPassword(password, current);
     }
 
     public IReadOnlyList<GroupSnapshot> SnapshotGroups()

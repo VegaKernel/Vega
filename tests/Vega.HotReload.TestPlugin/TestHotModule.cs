@@ -1,5 +1,6 @@
 using Vega.Contracts.Commands;
 using Vega.Contracts.Modules;
+using Vega.Contracts.Scenes;
 using Vega.PluginSdk;
 
 namespace Vega.HotReload.TestPlugin;
@@ -14,6 +15,13 @@ public sealed class TestHotModule : VegaPlugin
     protected override void Configure(IVegaPluginContext plugin)
     {
         plugin.Commands.Register(new ProbeCommand());
+        plugin.Commands.Register(new FaultProbeCommand());
+        if (plugin.World.FakeProvider.IsAvailable)
+        {
+            plugin.World.FakeProvider.CreateGlobal("reload-probe", new SceneBounds(10, 10, 2, 2),
+                SceneTileArea.Fill(2, 2, SceneTile.Air));
+            plugin.World.FakeProvider.CreateVisibilityLayer("reload-visibility", []).AssignNpc(7);
+        }
     }
 
     private sealed class ProbeCommand : ICommandHandler
@@ -24,5 +32,12 @@ public sealed class TestHotModule : VegaPlugin
             CommandInvocation invocation,
             CancellationToken cancellationToken) =>
             ValueTask.FromResult(CommandExecutionResult.Success);
+    }
+
+    private sealed class FaultProbeCommand : ICommandHandler
+    {
+        public CommandDescriptor Descriptor { get; } = new("hotfault", [], []);
+        public ValueTask<CommandExecutionResult> ExecuteAsync(CommandInvocation invocation, CancellationToken cancellationToken) =>
+            throw new InvalidOperationException("Test-only plugin callback fault.");
     }
 }

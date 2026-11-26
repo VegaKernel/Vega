@@ -1,5 +1,6 @@
 using System.Diagnostics;
 using System.Diagnostics.CodeAnalysis;
+using System.Text;
 using Vega.Contracts.Operations;
 using Vega.Contracts.Sandboxes;
 using Vega.Contracts.Worlds;
@@ -468,11 +469,15 @@ public sealed class SandboxControlService : ISandboxControlService
         string statusPath)
     {
         bool managedDll = string.Equals(Path.GetExtension(executablePath), ".dll", StringComparison.OrdinalIgnoreCase);
+        string worldRuntime = Path.Combine(instancesRoot, descriptor.WorldId.Value, "runtime");
+        string saveDirectory = Path.Combine(worldRuntime, "saves");
+        Directory.CreateDirectory(saveDirectory);
         var start = new ProcessStartInfo(managedDll ? "dotnet" : executablePath)
         {
-            WorkingDirectory = baseDirectory,
+            WorkingDirectory = worldRuntime,
             UseShellExecute = false,
             RedirectStandardInput = true,
+            StandardInputEncoding = OperatingSystem.IsWindows() ? new UnicodeEncoding(false, false) : new UTF8Encoding(false),
             RedirectStandardOutput = true,
             RedirectStandardError = true,
             CreateNoWindow = true
@@ -487,6 +492,10 @@ public sealed class SandboxControlService : ISandboxControlService
         start.ArgumentList.Add("--vega-ui=headless");
         start.ArgumentList.Add("-world");
         start.ArgumentList.Add(worldPath);
+        start.ArgumentList.Add("-savedirectory");
+        start.ArgumentList.Add(saveDirectory);
+        start.ArgumentList.Add("-ip");
+        start.ArgumentList.Add(options.BackendBindAddress);
         start.ArgumentList.Add("-port");
         start.ArgumentList.Add(descriptor.ListenerPort.ToString());
         start.ArgumentList.Add("-maxplayers");

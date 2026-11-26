@@ -24,12 +24,11 @@ public static class MultiplicityPacketProcessing
         ArgumentNullException.ThrowIfNull(buffer);
         ArgumentNullException.ThrowIfNull(processor);
 
-        if (!PacketViewParser.TryParsePayloadBounded(
-                rawPacketId,
-                buffer,
-                offset,
-                availableLength,
-                out var packet))
+        // The memory overload keeps variable-length parsing on the existing buffer
+        // instead of materializing a copy of the entire remaining receive buffer.
+        // Give it only the packet window while preserving the bounded parser's
+        // contract of accepting a valid payload prefix.
+        if (!TryParseInboundPayload(rawPacketId, buffer, offset, availableLength, out var packet))
         {
             return new PacketProcessingDecision(PacketDecisionKind.Reject, "packet.invalid_payload");
         }
@@ -43,5 +42,12 @@ public static class MultiplicityPacketProcessing
             cancellationToken);
 
         return processor.Process(in context);
+    }
+
+    internal static bool TryParseInboundPayload(byte rawPacketId, byte[] buffer, int offset, int availableLength, out PacketView packet)
+    {
+        packet = default;
+        return offset >= 0 && availableLength >= 0 && offset <= buffer.Length && availableLength <= buffer.Length - offset &&
+            PacketViewParser.TryParsePayload(rawPacketId, buffer.AsMemory(offset, availableLength), out packet, out _);
     }
 }

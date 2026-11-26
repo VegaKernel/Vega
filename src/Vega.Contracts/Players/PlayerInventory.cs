@@ -1,3 +1,5 @@
+using Vega.Contracts.Worlds;
+
 namespace Vega.Contracts.Players;
 
 public readonly record struct InventoryItemSnapshot(
@@ -13,7 +15,11 @@ public sealed record PlayerInventorySnapshot(
     string PlayerName,
     long Revision,
     IReadOnlyList<InventoryItemSnapshot> Items,
-    DateTimeOffset CapturedAt);
+    DateTimeOffset CapturedAt)
+{
+    public PlayerSessionId? SessionId { get; init; }
+    public WorldId WorldId { get; init; } = WorldId.Primary;
+}
 
 public readonly record struct InventorySlotReplacement(
     int Slot,
@@ -47,11 +53,17 @@ public interface IPlayerInventoryService
         PlayerId playerId,
         CancellationToken cancellationToken = default);
 
+    ValueTask<PlayerInventorySnapshot?> CaptureAsync(PlayerSnapshot player, CancellationToken cancellationToken = default) =>
+        CaptureAsync(player.Id, cancellationToken);
+
     ValueTask<InventoryMutationResult> ReplaceSlotAsync(
         PlayerId playerId,
         long expectedRevision,
         InventorySlotReplacement replacement,
         CancellationToken cancellationToken = default);
+
+    ValueTask<InventoryMutationResult> ReplaceSlotAsync(PlayerSnapshot player, long expectedRevision, InventorySlotReplacement replacement,
+        CancellationToken cancellationToken = default) => ReplaceSlotAsync(player.Id, expectedRevision, replacement, cancellationToken);
 }
 
 public enum PlayerInspectionExposure
@@ -70,4 +82,7 @@ public interface IPlayerInspectionService
         PlayerId playerId,
         PlayerInspectionExposure exposure = PlayerInspectionExposure.Redacted,
         CancellationToken cancellationToken = default);
+
+    ValueTask<PlayerInspectionSnapshot?> CaptureAsync(PlayerSnapshot player, PlayerInspectionExposure exposure = PlayerInspectionExposure.Redacted,
+        CancellationToken cancellationToken = default) => CaptureAsync(player.Id, exposure, cancellationToken);
 }

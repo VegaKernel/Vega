@@ -1,5 +1,7 @@
 {
   "enabled": false,
   "debounceMilliseconds": 750,
-  "unloadTimeoutMilliseconds": 5000
+  "unloadTimeoutMilliseconds": 5000,
+  "faultThreshold": 5,
+  "faultWindowSeconds": 60
 }

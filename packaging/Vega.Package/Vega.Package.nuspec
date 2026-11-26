@@ -14,12 +14,13 @@
     <description>Vega native Terraria server contracts, runtime libraries, and bundled modules.</description>
     <dependencies>
       <group targetFramework="net11.0">
+        <dependency id="BCrypt.Net-Next" version="4.0.3" exclude="Build,Analyzers" />
         <dependency id="MaxMind.GeoIP2" version="6.1.0" exclude="Build,Analyzers" />
         <dependency id="Microsoft.Data.Sqlite" version="11.0.0" exclude="Build,Analyzers" />
-        <dependency id="Multiplicity" version="2.6.2" exclude="Build,Analyzers" />
+        <dependency id="Multiplicity" version="4.0.1" exclude="Build,Analyzers" />
         <dependency id="MySqlConnector" version="2.6.2" exclude="Build,Analyzers" />
         <dependency id="Npgsql" version="10.0.3" exclude="Build,Analyzers" />
-        <dependency id="TerrariaRuntime" version="1.1.0" exclude="Build,Analyzers" />
+        <dependency id="TerrariaRuntime" version="1.1.5" exclude="Build,Analyzers" />
         <dependency id="Terminal.Gui" version="2.4.17" exclude="Build,Analyzers" />
         <dependency id="Terminal.Gui.Editor" version="2.5.7" exclude="Build,Analyzers" />
       </group>
@@ -40,6 +41,8 @@
     <file src="src\Vega.Modules.Chests\bin\$configuration$\$tfm$\Vega.Modules.Chests.dll" target="lib\$tfm$" />
     <file src="src\Vega.Operations\bin\$configuration$\$tfm$\Vega.Operations.dll" target="lib\$tfm$" />
     <file src="src\Vega.Modules.Mentions\bin\$configuration$\$tfm$\Vega.Modules.Mentions.dll" target="lib\$tfm$" />
+    <file src="src\Vega.Modules.Navigation\bin\$configuration$\$tfm$\Vega.Modules.Navigation.dll" target="lib\$tfm$" />
+    <file src="src\Vega.Modules.Restrictions\bin\$configuration$\$tfm$\Vega.Modules.Restrictions.dll" target="lib\$tfm$" />
     <file src="src\Vega.Modules.Pvp\bin\$configuration$\$tfm$\Vega.Modules.Pvp.dll" target="lib\$tfm$" />
     <file src="src\Vega.Modules.CustomItems\bin\$configuration$\$tfm$\Vega.Modules.CustomItems.dll" target="lib\$tfm$" />
     <file src="src\Vega.Modules.Scenes\bin\$configuration$\$tfm$\Vega.Modules.Scenes.dll" target="lib\$tfm$" />
@@ -58,6 +61,8 @@
     <file src="src\Vega.Modules.Chests\bin\$configuration$\$tfm$\Vega.Modules.Chests.pdb" target="lib\$tfm$" />
     <file src="src\Vega.Operations\bin\$configuration$\$tfm$\Vega.Operations.pdb" target="lib\$tfm$" />
     <file src="src\Vega.Modules.Mentions\bin\$configuration$\$tfm$\Vega.Modules.Mentions.pdb" target="lib\$tfm$" />
+    <file src="src\Vega.Modules.Navigation\bin\$configuration$\$tfm$\Vega.Modules.Navigation.pdb" target="lib\$tfm$" />
+    <file src="src\Vega.Modules.Restrictions\bin\$configuration$\$tfm$\Vega.Modules.Restrictions.pdb" target="lib\$tfm$" />
     <file src="src\Vega.Modules.Pvp\bin\$configuration$\$tfm$\Vega.Modules.Pvp.pdb" target="lib\$tfm$" />
     <file src="src\Vega.Modules.CustomItems\bin\$configuration$\$tfm$\Vega.Modules.CustomItems.pdb" target="lib\$tfm$" />
     <file src="src\Vega.Modules.Scenes\bin\$configuration$\$tfm$\Vega.Modules.Scenes.pdb" target="lib\$tfm$" />

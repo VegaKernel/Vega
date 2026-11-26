@@ -89,7 +89,7 @@ public sealed class WorldMutationSanityPolicyTests
 
     [Test]
     public void QuickStackInventorySlotOutsideInventoryIsViolation() => AssertReason(
-        new ForceItemIntoNearestChest { InventorySlot = 10 },
+        new ForceItemIntoNearestChest { InventorySlots = [1, 10], SmartStack = true },
         PacketTypes.ForceItemIntoNearestChest,
         "packet.inventory.slot_out_of_range");
 

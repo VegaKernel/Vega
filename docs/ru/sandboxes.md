@@ -29,13 +29,18 @@ capacity, public/permission/allow-list access, idle TTL, SSC policy, набор 
 базовые permissions используют общую БД, а регионы и policy модулей остаются
 world-scoped.
 
-SSC policy полностью подключена. `Inherit` использует общий primary-scope аккаунта,
+Режимы SSC при transfer подключены явно. `Inherit` использует общий primary-scope аккаунта,
 `CopyOnEnter` создаёт world-local копию и не перезаписывает primary baseline при возврате,
 `Isolated` хранит отдельный character по `WorldId`, а `Disabled` оставляет character
 клиенту. Межпроцессное хранилище использует file lock, revisions и transfer leases;
 Terraria-адаптер сохраняет и восстанавливает inventory, экипировку, банки, loadout'ы,
 life/mana, spawn, внешний вид и постоянные character-флаги. Revision conflict закрывается
-fail-closed без перезаписи более нового состояния.
+fail-closed без перезаписи более нового состояния. Периодическое сохранение и transfer
+привязаны к исходной игровой сессии. Финальный capture берётся до нативного сброса слота;
+если это невозможно, сохраняется последний checkpoint. Полноценная SSC-авторитетность
+при обычном входе в основной мир и проверка живым клиентом пока не завершены.
+
+Отдельный экспериментальный режим `config/primary-character-persistence.json` (`enabled: false` по умолчанию) восстанавливает и сохраняет персонажа обычной авторизованной сессии в `data/primary-characters.json`. Первое состояние создаётся сервером из базового набора, без импорта клиентского инвентаря. Хранилище отделено от прежних transfer snapshots. Это основа persistence, а не полноценный SSC: сервер пока не запрещает gameplay до восстановления, не устанавливает нативный SSC flag и не связывает новое хранилище с переходом между мирами. Для production SSC режим пока не включать.
 
 ## Lifecycle и команды
 
@@ -82,6 +87,10 @@ Operations/TUI показывает lifecycle, endpoint, PID, players, timestamp
 working set, размер instance, restart count, revision template и TTL. stdout/stderr
 backend попадает в bounded-логи родителя, а отдельный JSONL хранится в
 `logs/sandboxes/<WorldId>/`.
+
+Каждый backend запускается в собственном `data/sandboxes/instances/<WorldId>/runtime/` с отдельным каталогом `saves/`. Изменяемые конфиги и данные плагинов, шаблоны сундуков, warp и ограничения находятся в `runtime/data/` соответствующего мира. Исполняемые файлы и общие настройки остаются общими; база аккаунтов/банов и состояние transfer control plane разделяются намеренно. Нативные хуки открытия/закрытия сокета отвечают за время жизни метаданных соединения, а hook остановки мира снимает readiness. Кодировка управляющей консоли задана явно для штатной остановки Windows/Linux backend. TCP listener sandbox по умолчанию привязан к `127.0.0.1` (`backendBindAddress`); другой адрес можно указать при отдельном развёртывании доверенного proxy.
+
+Whitelist и баны общие для всей инсталляции, включая уже запущенные backend. Один whitelist находится в корневом `data/whitelist.json` вместе с `data/whitelist.json.lock`, а не в `runtime/data` песочницы. Межпроцессные изменения сериализуются, новые входы читают последнюю записанную политику. Само изменение whitelist не отключает уже вошедших игроков. Баны используют общую БД и периодическую проверку существующих игровых сессий. Регионы, строительные ограничения, warps, контентные запреты и состояние плагинов остаются локальными для мира.
 
 Регрессионный запуск:
 `dotnet run --project benchmarks/Vega.Sandbox.Benchmarks -c Release -- 32 4`. На x64,

@@ -4,6 +4,7 @@ using Vega.Contracts.Cluster.Events;
 using Vega.Contracts.Commands;
 using Vega.Contracts.Messaging;
 using Vega.Contracts.Players;
+using Vega.Contracts.Worlds;
 
 namespace Vega.Core.Commands.Administration;
 
@@ -62,7 +63,7 @@ public sealed class BanCommand(
             }, cancellationToken).ConfigureAwait(false);
         }
 
-        IReadOnlyList<PlayerSnapshot> matches = FindPlayers(invocation.Arguments[0]);
+        IReadOnlyList<PlayerSnapshot> matches = FindPlayers(invocation.Arguments[0], invocation.WorldId);
         if (matches.Count == 0)
         {
             return Failure("command.ban.player-not-found", "Player not found. Unable to ban the player.");
@@ -85,7 +86,7 @@ public sealed class BanCommand(
         {
             new(GlobalBanSubjectKind.PlayerName, target.Name)
         };
-        if (TryGetIpAddress(target.RemoteEndpoint, out string? ipAddress) && ipAddress is not null)
+        if (TryGetIpAddress(target.Connection?.EffectiveEndpoint ?? target.RemoteEndpoint, out string? ipAddress) && ipAddress is not null)
         {
             subjects.Add(new GlobalBanSubject(GlobalBanSubjectKind.IpAddress, ipAddress));
         }
@@ -109,7 +110,7 @@ public sealed class BanCommand(
         }
 
         PlayerOperationResult kick = await playerOperations
-            .KickAsync(target.Id, $"Banned: {reason}", cancellationToken)
+            .KickAsync(target, $"Banned: {reason}", cancellationToken)
             .ConfigureAwait(false);
         if (!kick.IsSuccess)
         {
@@ -324,22 +325,23 @@ public sealed class BanCommand(
     private static string FormatExpiry(DateTimeOffset? expiresAt) =>
         expiresAt?.ToString("u", global::System.Globalization.CultureInfo.InvariantCulture) ?? "never";
 
-    private IReadOnlyList<PlayerSnapshot> FindPlayers(string rawSearch)
+    private IReadOnlyList<PlayerSnapshot> FindPlayers(string rawSearch, WorldId worldId)
     {
         string search = rawSearch.Trim();
+        var online = players.SnapshotOnlinePlayers().Where(player => player.WorldId == worldId).ToArray();
         if (search.StartsWith("tsi:", StringComparison.OrdinalIgnoreCase))
         {
             return int.TryParse(search[4..], out int slot)
-                ? players.SnapshotOnlinePlayers().Where(player => player.Id.Slot == slot).ToArray()
+                ? online.Where(player => player.Id.Slot == slot).ToArray()
                 : Array.Empty<PlayerSnapshot>();
         }
 
-        PlayerSnapshot[] exact = players.SnapshotOnlinePlayers()
+        PlayerSnapshot[] exact = online
             .Where(player => string.Equals(player.Name, search, StringComparison.OrdinalIgnoreCase))
             .ToArray();
         return exact.Length > 0
             ? exact
-            : players.SnapshotOnlinePlayers()
+            : online
                 .Where(player => player.Name.StartsWith(search, StringComparison.OrdinalIgnoreCase))
                 .ToArray();
     }

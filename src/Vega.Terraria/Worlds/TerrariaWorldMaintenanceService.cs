@@ -70,6 +70,7 @@ public sealed class TerrariaWorldMaintenanceService : IDisposable
 
     public async ValueTask SaveAsync(CancellationToken cancellationToken = default)
     {
+        cancellationToken.ThrowIfCancellationRequested();
         Task save;
         if (gameThread.IsGameThread)
         {
@@ -80,7 +81,10 @@ public sealed class TerrariaWorldMaintenanceService : IDisposable
             var scheduled = new TaskCompletionSource<Task>(
                 TaskCreationOptions.RunContinuationsAsynchronously);
             if (!gameThread.TryPost("manual-world-save", () =>
-                scheduled.TrySetResult(QueueSave("Manual"))))
+            {
+                if (cancellationToken.IsCancellationRequested) scheduled.TrySetCanceled(cancellationToken);
+                else scheduled.TrySetResult(QueueSave("Manual"));
+            }))
             {
                 throw new InvalidOperationException("The Terraria game-thread queue is full.");
             }

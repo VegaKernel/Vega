@@ -23,7 +23,7 @@ Outbound tile squares are composed per recipient. Native section delivery is fol
 by bounded overlay redraws. Entity packets use the same visibility layer for targeted
 and broadcast delivery, and incoming NPC/projectile interactions with hidden entities
 are rejected through typed Multiplicity views. The redraw queue is bounded to 256
-regions and packets to 64x64 tile chunks. Adapter failures, dirty regions, owners,
+regions and packets to at most 46x46 tiles (worst-case encoded size fits the signed packet length). Adapter failures, dirty regions, owners,
 conflicts and visibility layers are visible in Operations/TUI.
 
 ## Performance baseline
@@ -49,3 +49,61 @@ immutable snapshots and never performs per-tick cross-process or full-world work
 Single-process multi-world virtualization remains deliberately outside this API. Phase
 17 gives each live world a process; a future in-process experiment must prove isolation
 of Terraria globals before it can change that decision.
+
+## Built-in FakeProvider facade
+
+`Vega.Modules.Scenes.FakeProviderService` provides named, world-local global and
+personal tile providers using the same scene leases and visibility rules. This is a
+native Vega port, **not** a binary reference to the legacy `TZ.TShockAPI` plugin.
+Provider names are unique within the owning world (case-insensitive). The module owns
+leases and clears personal observers on native session closing/disconnect, including
+slot reuse; disposing the module restores canonical tiles. The commands are available
+when the Scenes module is enabled and require `vega.scenes.manage`:
+
+```text
+fake create <name> <x> <y> <width> <height> [air|stone]
+pfake create <name> <online-player> <x> <y> <width> <height> [air|stone]
+fake|pfake list [page]
+fake|pfake info <name>
+fake|pfake move <name> <dx> <dy>
+fake|pfake layer <name> <layer>
+fake|pfake enable|disable|remove <name>
+```
+
+The command fill defaults to air; width/height are bounded to 255 for operator creation.
+The module API additionally accepts immutable `SceneTileArea` data, updates/replaces
+contents and bounds (`ReplaceTiles`), changes observers and layer, and removes providers.
+Plugins can continue to create their own scoped providers with `context.World.Scenes`
+(scene leases are tied to plugin ownership). These are **visual, observer-scoped layers**;
+server-side world interaction on phantom tiles is still denied. They are not extra
+physics worlds, fake chest/tile-entity storage, nor binary compatibility with the
+legacy FakeProvider API. Independent simulation remains process-isolated.
+
+The tile resolver now lazily publishes a world-keyed immutable, priority-sorted
+projection after mutations. Steady-state tile resolution does not acquire the scene
+mutation lock and stops on the first applicable layer. Observer sets are frozen when
+stored. This avoids FakeProvider's full dimensions-sized provider index and global
+lock in the common read path, while batched updates only rebuild on the next read.
+
+The native tile-square renderer uses a request-local, one-chunk cache. Each recipient's
+tiles and frame-importance decisions are independently resolved; only an exact match
+with the preceding composition reuses its encoded packet. This is intentionally not
+a cache keyed by a "global" scope, since concurrent personal-layer changes can change
+what a particular player observes. The same per-recipient chunk order is maintained.
+The renderer rechecks the socket reference after resolving, never shares scratch
+buffers with network I/O, and passes immutable exact-length packets to native TCP
+and Ordered TCP. Other socket implementations receive private copies. Composition
+and serialization scratch rentals are returned after each chunk.
+
+A local .NET 11 Release A/B composed and encoded 24 repeated 64x64 regions using the
+previously built scene runtime, the original encoder, and the new cache. Payloads were
+byte-compared against the original encoder for every observer. At 32 recipients with
+identical global composition, encoding/composition took 6.91–6.92 ms per region before
+and 4.03–4.06 ms afterward, with measured managed allocations falling from 2,889,472 to
+24,784 bytes per region. With a distinct personal tile for each of 32 recipients,
+allocations fell to 791,104 bytes; time was 11.89–11.90 ms versus 12.71–14.67 ms before.
+One-recipient time was similar (about 1.3 ms) with fewer allocations. Eight-recipient
+global time was unstable across first and last runs, so no timing improvement is
+claimed for that workload. Raw output: `../artifacts/performance-2026-11-26/scene-render-results.txt`.
+These are composition/packet-encoding timings, not live-client network or gameplay TPS.
+For at least eight overlays, a bounded sparse 64x64 chunk index narrows the candidates, with the priority-ordered list as fallback when coverage is oversized. The final A/B on 64 overlays measured 1406–1432 → 294–322 ns/lookup, 624–634 → 350–372 ns/tile for a 64x64 composition. Large observer-set mutation is slower; see [performance report](performance-2026-11-26.md).

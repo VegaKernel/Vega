@@ -54,6 +54,7 @@ public sealed class GlobalBanServiceTests
     [TestCase(GlobalBanSubjectKind.Account, "Alice", "alice")]
     [TestCase(GlobalBanSubjectKind.PlayerName, "Alice", "ALICE")]
     [TestCase(GlobalBanSubjectKind.Uuid, "755A3C87-6F2B-4EC9-AED4-B8EEAF855C81", "755a3c87-6f2b-4ec9-aed4-b8eeaf855c81")]
+    [TestCase(GlobalBanSubjectKind.Uuid, "persisted-client-token", "persisted-client-token")]
     public async Task MatchesTypedTextIdentity(GlobalBanSubjectKind kind, string subject, string identity)
     {
         var replica = new InMemoryGlobalBanReplica();
@@ -86,7 +87,7 @@ public sealed class GlobalBanServiceTests
 
     [TestCase(GlobalBanSubjectKind.IpAddress, "999.1.1.1")]
     [TestCase(GlobalBanSubjectKind.Network, "192.0.2.1/99")]
-    [TestCase(GlobalBanSubjectKind.Uuid, "not-a-uuid")]
+    [TestCase(GlobalBanSubjectKind.Uuid, "   ")]
     public void RejectsMalformedTypedSubjects(GlobalBanSubjectKind kind, string value)
     {
         var service = CreateService(new InMemoryGlobalBanReplica());
@@ -95,6 +96,18 @@ public sealed class GlobalBanServiceTests
             service.TryNormalizeSubject(new GlobalBanSubject(kind, value), out _, out string? error),
             Is.False);
         Assert.That(error, Is.Not.Empty);
+    }
+
+    [Test]
+    public async Task OpaqueUuidBanPreservesCaseAndWhitespaceAndBounds()
+    {
+        var service = CreateService(new InMemoryGlobalBanReplica());
+        var created = Ban(GlobalBanSubjectKind.Uuid, " Client-token ");
+        await service.CreateAsync(created);
+        Assert.That((await service.FindActiveBanAsync(new BanIdentity(null, null, " Client-token ", null)))?.Id, Is.EqualTo(created.BanId));
+        Assert.That(await service.FindActiveBanAsync(new BanIdentity(null, null, " client-token ", null)), Is.Null);
+        Assert.That(await service.FindActiveBanAsync(new BanIdentity(null, null, "Client-token", null)), Is.Null);
+        Assert.That(service.TryNormalizeSubject(new(GlobalBanSubjectKind.Uuid, new string('x', 129)), out _, out _), Is.False);
     }
 
     private static GlobalBanService CreateService(IGlobalBanReplica replica) =>

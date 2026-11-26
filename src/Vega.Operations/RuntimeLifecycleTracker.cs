@@ -43,7 +43,8 @@ public sealed class RuntimeLifecycleTracker : IRuntimeLifecycleController
                 return;
             }
 
-            if ((int)nextStage != (int)currentStage + 1)
+            if ((int)nextStage != (int)currentStage + 1 &&
+                !(nextStage == RuntimeLifecycleStage.Stopping && currentStage >= RuntimeLifecycleStage.WorldLoading))
             {
                 throw new InvalidOperationException(
                     $"Invalid Vega lifecycle transition {currentStage} -> {nextStage}.");

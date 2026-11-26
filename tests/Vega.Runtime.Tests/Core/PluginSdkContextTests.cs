@@ -122,21 +122,138 @@ public sealed class PluginSdkContextTests
             new CommandInvocation("sdkboom", [], Principal.Instance, Output.Instance),
             CancellationToken.None);
 
+        var faults = logger.Entries.Where(entry => entry.Source == "plugin:Vega.Test.FaultyPlugin").ToArray();
+
         Assert.Multiple(() =>
         {
             Assert.That(command.Status, Is.EqualTo(CommandExecutionStatus.Failed));
             Assert.That(command.ErrorCode, Is.EqualTo("plugin.callback_failed"));
-            Assert.That(logger.Entries, Has.Count.EqualTo(4));
-            Assert.That(logger.Entries.All(entry => entry.Source == "plugin:Vega.Test.FaultyPlugin"), Is.True);
-            Assert.That(logger.Entries.All(entry => entry.Level == OperationsLogLevel.Error), Is.True);
-            Assert.That(logger.Entries.All(entry => entry.Exception is InvalidOperationException), Is.True);
-            Assert.That(logger.Entries.Any(entry => entry.Text.Contains("players.joined", StringComparison.Ordinal)), Is.True);
-            Assert.That(logger.Entries.Any(entry => entry.Text.Contains("players.left", StringComparison.Ordinal)), Is.True);
-            Assert.That(logger.Entries.Any(entry => entry.Text.Contains("task:throw-post", StringComparison.Ordinal)), Is.True);
-            Assert.That(logger.Entries.Any(entry => entry.Text.Contains("command:sdkboom", StringComparison.Ordinal)), Is.True);
+            Assert.That(faults, Has.Length.EqualTo(4));
+            Assert.That(faults.All(entry => entry.Level == OperationsLogLevel.Error), Is.True);
+            Assert.That(faults.All(entry => entry.Exception is InvalidOperationException), Is.True);
+            Assert.That(faults.Any(entry => entry.Text.Contains("players.joined", StringComparison.Ordinal)), Is.True);
+            Assert.That(faults.Any(entry => entry.Text.Contains("players.left", StringComparison.Ordinal)), Is.True);
+            Assert.That(faults.Any(entry => entry.Text.Contains("task:throw-post", StringComparison.Ordinal)), Is.True);
+            Assert.That(faults.Any(entry => entry.Text.Contains("command:sdkboom", StringComparison.Ordinal)), Is.True);
         });
 
         await scope.DisposeAsync();
+    }
+
+    [Test]
+    public async Task BreakerUsesRollingWindowAndWaitsForAlreadyRunningCallbacks()
+    {
+        var logger = new RecordingLogger();
+        var clock = new ManualFaultClock();
+        int trips = 0;
+        var guard = new PluginExecutionGuard(logger, "faulting", 2, TimeSpan.FromSeconds(1), () => trips++, clock);
+        var healthy = new PluginExecutionGuard(logger, "healthy");
+        Assert.That(guard.TryInvoke("first", () => throw new InvalidOperationException("test one")), Is.False);
+        clock.Advance(TimeSpan.FromSeconds(2));
+        Assert.That(guard.TryInvoke("second", () => throw new InvalidOperationException("test two")), Is.False);
+        Assert.That(guard.IsQuarantined, Is.False);
+        using var entered = new ManualResetEventSlim();
+        using var release = new ManualResetEventSlim();
+        Task active = Task.Run(() => guard.TryInvoke("in-flight", () => { entered.Set(); release.Wait(); }));
+        try
+        {
+            Assert.That(entered.Wait(TimeSpan.FromSeconds(5)), Is.True);
+            Assert.That(guard.TryInvoke("third", () => throw new InvalidOperationException("test three")), Is.False);
+            Assert.That(guard.IsQuarantined, Is.True);
+            Assert.That(trips, Is.EqualTo(1));
+            bool called = false;
+            Assert.That(guard.TryInvoke("suppressed", () => called = true), Is.False);
+            Assert.That(called, Is.False);
+            Assert.That(healthy.TryInvoke("ordinary", () => called = true), Is.True);
+            Assert.That(called, Is.True);
+            using var deadline = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+            Task drain = guard.WaitForIdleAsync(deadline.Token);
+            Assert.That(drain.IsCompleted, Is.False);
+            release.Set();
+            await drain;
+        }
+        finally { release.Set(); await active; }
+    }
+
+    private sealed class ManualFaultClock : TimeProvider
+    {
+        private long timestamp;
+        public override long TimestampFrequency => TimeSpan.TicksPerSecond;
+        public override long GetTimestamp() => timestamp;
+        public void Advance(TimeSpan duration) => timestamp += duration.Ticks;
+    }
+
+    [Test]
+    public async Task ManagedConfigurationDiagnosticsCountPluginFaultsButNotOrdinaryValidationFailures()
+    {
+        string root = Path.Combine(Path.GetTempPath(), "vega-config-guard-" + Guid.NewGuid().ToString("N"));
+        string plugin = "Vega.Test.ConfigGuard." + Guid.NewGuid().ToString("N");
+        var scope = new HotModuleRegistrationScope(new RecordingCommandRegistry(), new RecordingLogger(), plugin, root,
+            pluginConfigurationRoot: root, faultThreshold: 2);
+        try
+        {
+            var config = scope.Configuration.Use("settings.json", () => 1,
+                value => value == 2 ? throw new InvalidOperationException("Test-only validator fault") : value < 1 ? "Invalid value" : null);
+            Assert.That(VegaManagedConfigurationDiagnostics.Replace(plugin, "settings.json", "0").Succeeded, Is.False);
+            Assert.That(scope.Faults.Count, Is.Zero);
+            Assert.That(VegaManagedConfigurationDiagnostics.Replace(plugin, "settings.json", "2").Succeeded, Is.False);
+            Assert.That(scope.Faults.Count, Is.EqualTo(1));
+            Assert.That(VegaManagedConfigurationDiagnostics.Replace(plugin, "settings.json", "3").Succeeded, Is.True);
+            Assert.That(config.Current, Is.EqualTo(3));
+            Assert.That(VegaManagedConfigurationDiagnostics.Replace(plugin, "settings.json", "2").Succeeded, Is.False);
+            Assert.That(scope.Faults.Quarantined, Is.True);
+            Assert.That(VegaManagedConfigurationDiagnostics.Replace(plugin, "settings.json", "4").Succeeded, Is.False);
+            Assert.That(config.Current, Is.EqualTo(3));
+        }
+        finally { await scope.DisposeAsync(); if (Directory.Exists(root)) Directory.Delete(root, recursive: true); }
+    }
+
+    [Test]
+    public async Task CompletedPluginIoIsNotRetainedAndUnloadStillWaitsForActiveWork()
+    {
+        string dataDirectory = Path.Combine(Path.GetTempPath(), "vega-plugin-task-tests", Guid.NewGuid().ToString("N"));
+        var scope = new HotModuleRegistrationScope(new RecordingCommandRegistry(), new RecordingLogger(),
+            "Vega.Test.TaskLifetime", dataDirectory, gameThread: new ImmediateDispatcher());
+        var io = new TaskCompletionSource<int>(TaskCreationOptions.RunContinuationsAsynchronously);
+        int applied = 0;
+
+        for (int index = 0; index < 2000; index++)
+            scope.Tasks.RunIo("completed", _ => ValueTask.FromResult(1), _ => applied++);
+        Assert.That(applied, Is.EqualTo(2000));
+        Assert.That(scope.TrackedTaskCount, Is.Zero);
+
+        scope.Tasks.RunIo("async-completed", _ => new ValueTask<int>(io.Task), _ => Interlocked.Increment(ref applied));
+        Assert.That(scope.TrackedTaskCount, Is.EqualTo(1));
+        io.SetResult(1);
+        await WaitUntilAsync(() =>
+        {
+            scope.Tasks.RunIo("prune", _ => ValueTask.FromResult(0), _ => { });
+            return scope.TrackedTaskCount == 0;
+        });
+        Assert.That(applied, Is.EqualTo(2001));
+
+        var active = new TaskCompletionSource<int>(TaskCreationOptions.RunContinuationsAsynchronously);
+        scope.Tasks.RunIo("active", _ => new ValueTask<int>(active.Task), _ => Interlocked.Increment(ref applied));
+        Task unload = scope.DisposeAsync().AsTask();
+        Assert.That(unload.IsCompleted, Is.False);
+        active.SetResult(1);
+        await unload.WaitAsync(TimeSpan.FromSeconds(5));
+        Assert.That(applied, Is.EqualTo(2001));
+    }
+
+    [Test]
+    public void CompletedFaultedTaskRemainsVisibleToUnload()
+    {
+        string dataDirectory = Path.Combine(Path.GetTempPath(), "vega-plugin-task-fault-tests", Guid.NewGuid().ToString("N"));
+        var scope = new HotModuleRegistrationScope(new RecordingCommandRegistry(), new FaultingIoLogger(),
+            "Vega.Test.TaskFault", dataDirectory, gameThread: new ImmediateDispatcher());
+        // Plugin operation exceptions are normally logged inside the task. A logging fault is
+        // an example of the remaining task fault that existing unload aggregation must retain.
+        scope.Tasks.RunIo("fault", _ => ValueTask.FromException<int>(new InvalidOperationException("io")), _ => { });
+        scope.Tasks.RunIo("completed", _ => ValueTask.FromResult(1), _ => { });
+        Assert.That(scope.TrackedTaskCount, Is.EqualTo(1));
+        var failure = Assert.ThrowsAsync<AggregateException>(async () => await scope.DisposeAsync());
+        Assert.That(failure!.InnerExceptions, Has.Some.TypeOf<IOException>());
     }
 
     private static async Task WaitUntilAsync(Func<bool> condition)
@@ -295,6 +412,16 @@ public sealed class PluginSdkContextTests
             string? correlationId = null)
         {
             entries.Add(new LogEntry(level, source, text, exception));
+        }
+    }
+
+    private sealed class FaultingIoLogger : IOperationsLogger
+    {
+        public void Log(OperationsLogLevel level, string source, string text,
+            Exception? exception = null, string? correlationId = null)
+        {
+            if (text.Contains("Plugin callback 'io:fault' failed", StringComparison.Ordinal))
+                throw new IOException("Logging fault");
         }
     }
 

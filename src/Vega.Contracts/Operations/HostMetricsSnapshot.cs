@@ -6,7 +6,10 @@ public sealed record HostMetricsSnapshot(
     TimeSpan TotalProcessorTime,
     string OperatingSystem,
     int ProcessorCount,
-    string MachineName);
+    string MachineName)
+{
+    public long PrivateMemoryBytes { get; init; }
+}
 
 public interface IHostMetricsReader
 {

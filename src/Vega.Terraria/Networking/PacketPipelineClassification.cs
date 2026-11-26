@@ -17,7 +17,8 @@ internal enum PacketFamily
     Projectile,
     WorldInteraction,
     Chest,
-    TileEntity
+    TileEntity,
+    CharacterInventory
 }
 
 internal readonly record struct PacketPipelineProfile(
@@ -37,7 +38,14 @@ internal static class PacketPipelineClassification
     {
         PacketFamily family = packetType switch
         {
+            PacketTypes.PlayerSlot or PacketTypes.SyncLoadout => PacketFamily.CharacterInventory,
             PacketTypes.PlayerUpdate or
+            PacketTypes.PlayerInfo or
+            PacketTypes.PlayerAnimation or
+            PacketTypes.Zones or
+            PacketTypes.Emoji or
+            PacketTypes.PlayerBuff or
+            PacketTypes.NumberOfAnglerQuestsCompleted or
             PacketTypes.PlayerHp or
             PacketTypes.PlayerMana or
             PacketTypes.PlayerTeam or

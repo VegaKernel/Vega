@@ -8,7 +8,8 @@ namespace Vega.Terraria.Hooking;
 
 internal sealed class NativeSceneVisibilityHooks(
     ISceneVisibilityRuntime visibility,
-    IPlayerDirectory players) : IDisposable
+    IPlayerDirectory players,
+    WorldId worldId) : IDisposable
 {
     [ThreadStatic]
     private static bool forwarding;
@@ -48,7 +49,7 @@ internal sealed class NativeSceneVisibilityHooks(
         var entity = new SceneEntity(kind, args.Number);
         if (args.RemoteClient >= 0)
         {
-            if (!visibility.CanObserve(WorldId.Primary, new PlayerId(args.RemoteClient), entity))
+            if (!visibility.CanObserve(worldId, new PlayerId(args.RemoteClient), entity))
             {
                 args.Result = HookResult.Cancel;
             }
@@ -57,11 +58,12 @@ internal sealed class NativeSceneVisibilityHooks(
         }
 
         PlayerId[] recipients = players.SnapshotOnlinePlayers()
+            .Where(player => player.WorldId == worldId)
             .Select(static player => player.Id)
             .Where(player => player.Slot != args.IgnoreClient)
             .ToArray();
         PlayerId[] allowed = recipients
-            .Where(player => visibility.CanObserve(WorldId.Primary, player, entity))
+            .Where(player => visibility.CanObserve(worldId, player, entity))
             .ToArray();
         if (allowed.Length == recipients.Length)
         {

@@ -24,6 +24,7 @@ internal sealed class HotModuleRegistrationScope : IHotModuleContext, IVegaPlugi
     private readonly IOperationsLogger logger;
     private readonly string logSource;
     private readonly PluginExecutionGuard executionGuard;
+    private Exception? earlyCancellationFailure;
     private bool disposed;
 
     public HotModuleRegistrationScope(
@@ -38,19 +39,21 @@ internal sealed class HotModuleRegistrationScope : IHotModuleContext, IVegaPlugi
         IGameThreadDispatcher? gameThread = null,
         ISandboxDirectory? sandboxDirectory = null,
         ISandboxControlService? sandboxControl = null,
-        IVegaDebugContext? debug = null)
+        IVegaDebugContext? debug = null,
+        string? pluginConfigurationRoot = null,
+        Guid? activationId = null, int faultThreshold = 5, TimeSpan? faultWindow = null,
+        Action? onQuarantine = null)
     {
         ArgumentNullException.ThrowIfNull(commands);
         this.logger = logger ?? throw new ArgumentNullException(nameof(logger));
         ArgumentException.ThrowIfNullOrWhiteSpace(pluginName);
         ArgumentException.ThrowIfNullOrWhiteSpace(dataDirectory);
         logSource = $"plugin:{pluginName}";
-        executionGuard = new PluginExecutionGuard(logger, pluginName);
+        ActivationId = activationId ?? Guid.NewGuid();
+        executionGuard = new PluginExecutionGuard(logger, pluginName, faultThreshold, faultWindow, onQuarantine);
 
         string configurationDirectory = Path.Combine(
-            AppContext.BaseDirectory,
-            "config",
-            "plugins",
+            pluginConfigurationRoot ?? Path.Combine(AppContext.BaseDirectory, "config", "plugins"),
             SafeDirectoryName(pluginName));
 
         VegaDebugProcess.EnsureConfigured(logger);
@@ -85,6 +88,20 @@ internal sealed class HotModuleRegistrationScope : IHotModuleContext, IVegaPlugi
     public IPluginLog Log { get; }
     public IPluginSandboxes Sandboxes { get; }
     public IVegaDebugContext Debug { get; }
+    internal Guid ActivationId { get; }
+    internal PluginExecutionGuard.FaultSnapshot Faults => executionGuard.Snapshot();
+    internal async Task DrainForRetirementAsync(CancellationToken token)
+    {
+        // Quarantine already prevents new callbacks. Cancel owned I/O before waiting for it,
+        // without letting a stuck callback or task monopolize the host's mutation lane.
+        try { await lifetime.CancelAsync().WaitAsync(token).ConfigureAwait(false); }
+        catch (Exception ex) when (!token.IsCancellationRequested) { earlyCancellationFailure = ex; }
+        await executionGuard.WaitForIdleAsync(token).ConfigureAwait(false);
+        Task[] running;
+        lock (sync) running = tasks.ToArray();
+        try { await Task.WhenAll(running).WaitAsync(token).ConfigureAwait(false); }
+        catch (Exception) when (!token.IsCancellationRequested) { /* Dispose observes tracked failures. */ }
+    }
 
     public IDisposable RegisterCommand(ICommandHandler handler)
     {
@@ -121,17 +138,22 @@ internal sealed class HotModuleRegistrationScope : IHotModuleContext, IVegaPlugi
             }
 
             disposed = true;
-            lifetime.Cancel();
             owned = registrations.ToArray();
             running = tasks.ToArray();
             registrations.Clear();
             tasks.Clear();
         }
 
-        List<Exception>? failures = null;
+        List<Exception>? failures = earlyCancellationFailure is { } prior ? [prior] : null;
+        try { lifetime.Cancel(); }
+        catch (Exception ex) { (failures ??= []).Add(ex); }
         try
         {
             await Task.WhenAll(running).ConfigureAwait(false);
+        }
+        catch (OperationCanceledException) when (lifetime.IsCancellationRequested)
+        {
+            // Cancellation while stopping a plugin must not skip its owned scene/command cleanup.
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
@@ -162,8 +184,17 @@ internal sealed class HotModuleRegistrationScope : IHotModuleContext, IVegaPlugi
         lock (sync)
         {
             ObjectDisposedException.ThrowIf(disposed, this);
-            tasks.Add(task);
+            // Completed successful operations have no remaining unload work. Retain active,
+            // canceled and faulted operations for the existing shutdown/exception behavior.
+            tasks.RemoveAll(static tracked => tracked.IsCompletedSuccessfully);
+            if (!task.IsCompletedSuccessfully)
+                tasks.Add(task);
         }
+    }
+
+    internal int TrackedTaskCount
+    {
+        get { lock (sync) return tasks.Count; }
     }
 
     private sealed class PluginCommands(HotModuleRegistrationScope owner, ICommandRegistry commands) : IPluginCommands
@@ -181,7 +212,7 @@ internal sealed class HotModuleRegistrationScope : IHotModuleContext, IVegaPlugi
             HotModuleRegistrationScope owner,
             ICommandHandler inner) : ICommandHandler
         {
-            public CommandDescriptor Descriptor => inner.Descriptor;
+            public CommandDescriptor Descriptor { get; } = inner.Descriptor;
 
             public ValueTask<CommandExecutionResult> ExecuteAsync(
                 CommandInvocation invocation,
@@ -309,6 +340,7 @@ internal sealed class HotModuleRegistrationScope : IHotModuleContext, IVegaPlugi
         public bool Post(string name, Action action)
         {
             Validate(name, action);
+            if (owner.executionGuard.IsQuarantined) return false;
             return gameThread?.TryPost(name, () =>
             {
                 if (!owner.lifetime.IsCancellationRequested)
@@ -326,7 +358,7 @@ internal sealed class HotModuleRegistrationScope : IHotModuleContext, IVegaPlugi
                 throw new ArgumentOutOfRangeException(nameof(interval), "The interval must be positive.");
             }
 
-            owner.TrackTask(RepeatAsync(name, interval, action));
+            if (!owner.executionGuard.IsQuarantined) owner.TrackTask(RepeatAsync(name, interval, action));
         }
 
         public void RunIo<T>(string name, Func<CancellationToken, ValueTask<T>> operation, Action<T> apply)
@@ -334,7 +366,7 @@ internal sealed class HotModuleRegistrationScope : IHotModuleContext, IVegaPlugi
             ArgumentException.ThrowIfNullOrWhiteSpace(name);
             ArgumentNullException.ThrowIfNull(operation);
             ArgumentNullException.ThrowIfNull(apply);
-            owner.TrackTask(RunIoCoreAsync(name, operation, apply));
+            if (!owner.executionGuard.IsQuarantined) owner.TrackTask(RunIoCoreAsync(name, operation, apply));
         }
 
         private async Task RepeatAsync(string name, TimeSpan interval, Action action)
@@ -380,8 +412,7 @@ internal sealed class HotModuleRegistrationScope : IHotModuleContext, IVegaPlugi
             }
             catch (Exception ex)
             {
-                owner.logger.Log(OperationsLogLevel.Error, owner.logSource,
-                    $"Async plugin operation '{name}' failed.", ex);
+                owner.executionGuard.Record($"io:{name}", ex);
             }
         }
 
@@ -425,12 +456,28 @@ internal sealed class HotModuleRegistrationScope : IHotModuleContext, IVegaPlugi
                     pluginName,
                     logicalName,
                     path,
-                    config.ReadJson,
-                    config.ValidateJson,
-                    config.ReplaceJson,
-                    config.ReloadUntyped));
+                    () => InvokeDiagnostic($"config:{logicalName}:read", config.ReadJson),
+                    json => InvokeDiagnostic($"config:{logicalName}:validate", () => config.ValidateJson(json)),
+                    json => InvokeDiagnostic($"config:{logicalName}:replace", () => { config.ReplaceJson(json); return true; }),
+                    () => InvokeDiagnostic($"config:{logicalName}:reload", () => { config.ReloadUntyped(); return true; })));
                 return config;
             }
+        }
+
+        private TResult InvokeDiagnostic<TResult>(string operation, Func<TResult> callback)
+        {
+            TResult result = default!;
+            Exception? expected = null;
+            bool succeeded = owner.executionGuard.TryInvoke(operation, () =>
+            {
+                try { result = callback(); }
+                // Invalid operator input or storage failure is not a plugin callback fault.
+                catch (Exception ex) when (ex is IOException or JsonException or InvalidDataException or NotSupportedException)
+                { expected = ex; }
+            });
+            if (!succeeded) throw new InvalidDataException("Plugin configuration callback failed or is quarantined.");
+            if (expected is not null) System.Runtime.ExceptionServices.ExceptionDispatchInfo.Capture(expected).Throw();
+            return result;
         }
 
         private string Resolve(string fileName)

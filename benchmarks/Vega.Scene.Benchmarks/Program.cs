@@ -26,20 +26,26 @@ for (var index = 0; index < overlayCount; index++)
 }
 
 var observer = new PlayerId(1);
-Measure("warmup", 1, () => runtime.TryResolveTile(WorldId.Primary, observer, 16, 16, out _, out _));
-Measurement lookup = Measure("overlay_lookup_64", lookupCount, () =>
+int lookupIndex = 0;
+void Lookup()
 {
-    int value = Environment.TickCount;
+    int value = lookupIndex++;
     int x = value & 255;
     int y = value >> 8 & 255;
-    runtime.TryResolveTile(WorldId.Primary, observer, x, y, out _, out _);
-});
+    if (!runtime.TryResolveTile(WorldId.Primary, observer, x, y, out SceneTile resolved, out _) || resolved != tile)
+        throw new InvalidOperationException("Overlay lookup mismatch.");
+}
+Measure("warmup", 10_000, Lookup);
+lookupIndex = 0;
+Measurement lookup = Measure("overlay_lookup_64", lookupCount, Lookup);
+int sectionIndex = 0;
 Measurement section = Measure("compose_64x64", 64 * 64, () =>
 {
-    int value = Environment.TickCount;
+    int value = sectionIndex++;
     int x = value & 63;
     int y = value >> 6 & 63;
-    runtime.TryResolveTile(WorldId.Primary, observer, x, y, out _, out _);
+    if (!runtime.TryResolveTile(WorldId.Primary, observer, x, y, out SceneTile resolved, out _) || resolved != tile)
+        throw new InvalidOperationException("Section lookup mismatch.");
 });
 
 var visibility = new SceneVisibilityRuntime();

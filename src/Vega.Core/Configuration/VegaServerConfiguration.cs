@@ -10,7 +10,8 @@ public sealed record VegaServerConfiguration(
     string? Password,
     string? DefaultCulture,
     string? UiMode,
-    bool? WorldImageEnabled);
+    bool? WorldImageEnabled,
+    bool? PagedTileStorageEnabled = null);
 
 public sealed record EffectiveConfigurationValue(string DisplayValue, string Source);
 
@@ -70,6 +71,7 @@ public static class VegaServerConfigurationStore
         ApplyCulture(arguments, values, file.DefaultCulture, environment);
         ApplyString(arguments, values, "ui", "--vega-ui", "VEGA_UI", file.UiMode, environment, equalsSyntax: true);
         ApplyBoolean(arguments, values, "worldImage", "--vega-world-image", "VEGA_WORLD_IMAGE", file.WorldImageEnabled, environment);
+        ApplyBoolean(arguments, values, "pagedTileStorage", "--vega-paged-tiles", "VEGA_PAGED_TILES", file.PagedTileStorageEnabled, environment);
 
         return new EffectiveVegaServerConfiguration(
             Array.AsReadOnly(arguments.ToArray()),

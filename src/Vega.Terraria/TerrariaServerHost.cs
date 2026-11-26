@@ -54,7 +54,13 @@ public static class TerrariaServerHost
         ISceneVisibilityRuntime visibility,
         ISceneRenderSink sceneRenderer,
         ILocalizationService localization,
-        IPlayerCultureService cultures)
+        IPlayerCultureService cultures,
+        ServerNetworkOptions? networkOptions = null,
+        IConnectionAdmissionPolicy? admission = null,
+        Func<Vega.Contracts.Players.PlayerSnapshot, bool>? primaryGameplayReadiness = null,
+        TerrariaSandboxSscCharacterAdapter? earlyJoinCharacters = null,
+        IPacketProcessor<PacketView>? joinInventoryPolicy = null,
+        bool authoritativeCharacters = false)
     {
         ArgumentNullException.ThrowIfNull(args);
         ArgumentNullException.ThrowIfNull(lifecycle);
@@ -105,13 +111,26 @@ public static class TerrariaServerHost
         AppDomain.CurrentDomain.UnhandledException += ReportUnhandled;
         using var nativeLifecycleHooks = new NativeLifecycleHooks(lifecycle);
         using var networkMetricsHooks = new NativeNetworkMetricsHooks(networkMetrics);
+        using var networkBudgetHooks = new NativeNetworkBudgetHooks(networkOptions ?? new());
+        using var orderedTransport = networkOptions?.UseOrderedTcp == true
+            ? new NativeTcpTransportHost(new NativeTcpTransportOptions
+            { MaxCallbacksPerPass = ServerNetworkOptions.Normalize(networkOptions).OrderedCallbacksPerPass }) : null;
+        using var connectionLifecycleHooks = new NativeConnectionLifecycleHooks(connectionMetadata);
         using var worldDecisionHooks = new NativeWorldDecisionHooks(hardmodeStarting);
+        Func<Vega.Contracts.Players.PlayerSnapshot, bool>? validatedReadiness = primaryGameplayReadiness is null ? null : player =>
+            gameThreadDispatcher.IsGameThread && NativeGameplayReadinessHooks.IsFullyConnected(player.Id.Slot) &&
+            playerBoundary.TryGetSessionPlayer(player, out _) && primaryGameplayReadiness(player);
+        if (authoritativeCharacters && (validatedReadiness is null || earlyJoinCharacters is null))
+            throw new InvalidOperationException("Authoritative character mode requires native character lifecycle and readiness.");
+        using var gameplayReadinessHooks = validatedReadiness is null ? null : new NativeGameplayReadinessHooks(playerBoundary, validatedReadiness, logger, authoritativeCharacters);
         using var playerPacketSecurityHooks = new NativePlayerPacketSecurityHooks(
             playerOwnershipSecurity,
             connectionMetadata,
             logger,
             networkMetrics,
-            securitySignals);
+            securitySignals,
+            admission,
+            joinInventoryPolicy);
         using var consoleCommandHooks = new NativeConsoleCommandHooks(
             commandDispatcher,
             localization,
@@ -127,35 +146,102 @@ public static class TerrariaServerHost
             cultures,
             playerBoundary,
             accountSessions,
-            chat);
+            chat,
+            validatedReadiness);
         using var chestPolicyHooks = new NativeChestPolicyHooks(
             playerBoundary,
             chestPolicy,
             gameThreadDispatcher,
-            logger);
+            logger,
+            runtimeWorldId);
         using var sceneNetworkHooks = new NativeSceneNetworkHooks(
             scenes,
             sceneRenderer,
-            playerBoundary);
+            playerBoundary,
+            runtimeWorldId);
         using var sceneVisibilityHooks = new NativeSceneVisibilityHooks(
             visibility,
-            playerBoundary);
-        using var worldClockSynchronizer = new TerrariaWorldClockSynchronizer(worldClock, logger);
+            playerBoundary,
+            runtimeWorldId);
+        using var worldClockSynchronizer = new TerrariaWorldClockSynchronizer(worldClock, logger, runtimeWorldId);
+
+        void OnBeforeWorldData(int slot, global::Terraria.Net.Sockets.ISocket socket)
+        {
+            earlyJoinCharacters!.ObserveCharacterReceived(slot, socket);
+            if (authoritativeCharacters && !earlyJoinCharacters.PrepareAuthoritativeJoin(slot, socket))
+                TerminatePendingCharacter(slot, socket);
+        }
+
+        void OnEnteringWorld(int slot, global::Terraria.Net.Sockets.ISocket socket)
+        {
+            try
+            {
+                if (!earlyJoinCharacters!.SynchronizePendingJoin(slot, socket)) TerminatePendingCharacter(slot, socket);
+            }
+            catch (Exception ex)
+            {
+                logger.Log(OperationsLogLevel.Error, "ssc", "Could not synchronize pending server character.", ex);
+                TerminatePendingCharacter(slot, socket);
+            }
+        }
+
+        void TerminatePendingCharacter(int slot, global::Terraria.Net.Sockets.ISocket socket)
+        {
+            if ((uint)slot >= (uint)global::Terraria.Netplay.Clients.Length ||
+                global::Terraria.Netplay.Clients[slot] is not { } client || !ReferenceEquals(client.Socket, socket)) return;
+            logger.Log(OperationsLogLevel.Warning, "ssc", "Pending server character initialization failed; connection is closing.");
+            client.RequestTermination("Server character initialization failed.");
+        }
+
+        void OnBindingEnded(PlayerAccountBinding binding)
+        {
+            void Reset()
+            {
+                if (!playerBoundary.TryGet(binding.PlayerId, out var player) || player?.SessionId != binding.SessionId ||
+                    accountSessions.TryGetBinding(player, out _) || !playerBoundary.TryGetSessionPlayer(player, out _)) return;
+                if (!earlyJoinCharacters!.ResetPendingCharacter(player))
+                    logger.Log(OperationsLogLevel.Warning, "ssc", "Could not clear the pending character after logout; gameplay remains gated.");
+            }
+            if (gameThreadDispatcher.IsGameThread) Reset();
+            else if (!gameThreadDispatcher.TryPost("ssc.logout.reset", Reset))
+                logger.Log(OperationsLogLevel.Warning, "ssc", "Character reset could not enter the game-thread queue; gameplay remains gated.");
+        }
 
         try
         {
             PrepareSavePath(args);
             InitialiseTerrariaInternals();
+            global::Terraria.Main.ServerSideCharacter = authoritativeCharacters;
+            if (authoritativeCharacters) logger.Log(OperationsLogLevel.Information, "ssc", "Native server-side character mode enabled.");
 
             nativeLifecycleHooks.Attach();
             gameThreadDispatcher.Attach();
             playerBoundary.Attach();
             operationsState.Attach();
             networkMetricsHooks.Attach();
+            networkBudgetHooks.Attach();
+            connectionLifecycleHooks.Attach();
+            if (earlyJoinCharacters is not null)
+            {
+                TerrariaRuntime.Hooks.Netplay.ServerPlayerBeforeWorldData += OnBeforeWorldData;
+                TerrariaRuntime.Hooks.Netplay.ServerConnectionClosing += earlyJoinCharacters.ForgetCharacterReceived;
+                TerrariaRuntime.Hooks.Netplay.ServerConnectionClosed += earlyJoinCharacters.ForgetCharacterReceived;
+            }
+            if (authoritativeCharacters)
+            {
+                TerrariaRuntime.Hooks.Netplay.ServerPlayerEnteringWorld += OnEnteringWorld;
+                accountSessions.BindingEnded += OnBindingEnded;
+            }
+            if (orderedTransport is not null)
+            {
+                orderedTransport.Attach();
+                logger.Log(OperationsLogLevel.Information, "network", "Experimental ordered TCP transport selected; native packet processing remains unchanged.");
+            }
             worldImages.Attach();
             worldMaintenance.Attach();
             worldClockSynchronizer.Attach();
             worldDecisionHooks.Attach();
+            gameplayReadinessHooks?.Attach();
             playerPacketSecurityHooks.Attach();
             consoleCommandHooks.Attach();
             playerCommandHooks.Attach();
@@ -185,6 +271,24 @@ public static class TerrariaServerHost
         }
         finally
         {
+            if (earlyJoinCharacters is not null)
+            {
+                TerrariaRuntime.Hooks.Netplay.ServerPlayerBeforeWorldData -= OnBeforeWorldData;
+                TerrariaRuntime.Hooks.Netplay.ServerConnectionClosing -= earlyJoinCharacters.ForgetCharacterReceived;
+                TerrariaRuntime.Hooks.Netplay.ServerConnectionClosed -= earlyJoinCharacters.ForgetCharacterReceived;
+            }
+            if (authoritativeCharacters)
+            {
+                TerrariaRuntime.Hooks.Netplay.ServerPlayerEnteringWorld -= OnEnteringWorld;
+                accountSessions.BindingEnded -= OnBindingEnded;
+            }
+            if (orderedTransport is not null)
+            {
+                using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(2));
+                try { orderedTransport.StopAsync(timeout.Token).GetAwaiter().GetResult(); }
+                catch (OperationCanceledException) { logger.Log(OperationsLogLevel.Warning, "network", "Ordered TCP transport shutdown exceeded its deadline."); }
+                catch (Exception ex) { logger.Log(OperationsLogLevel.Warning, "network", "Ordered TCP transport shutdown reported an error.", ex); }
+            }
             lifecycle.Transitioned -= Report;
             AppDomain.CurrentDomain.UnhandledException -= ReportUnhandled;
         }
@@ -232,7 +336,8 @@ public static class TerrariaServerHost
         }
     }
 
-    private static void PrepareSavePath(string[] args)
+    // Must run before composition creates services that read Terraria.Main static fields.
+    public static void PrepareSavePath(string[] args)
     {
         global::Terraria.Program.LaunchParameters = global::Terraria.Utils.ParseArguements(args);
         global::Terraria.Program.SavePath = global::Terraria.Program.LaunchParameters.ContainsKey("-savedirectory")

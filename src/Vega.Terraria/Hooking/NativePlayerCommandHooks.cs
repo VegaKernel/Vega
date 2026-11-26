@@ -10,6 +10,7 @@ using Vega.Contracts.Players;
 using Vega.Contracts.Operations;
 using Vega.Contracts.Moderation;
 using Vega.Contracts.Worlds;
+using Vega.Terraria.Networking;
 
 namespace Vega.Terraria.Hooking;
 
@@ -29,6 +30,7 @@ internal sealed class NativePlayerCommandHooks : IDisposable
     private readonly IPlayerSessionLifecycle sessions;
     private readonly IPlayerAccountSessionService accountSessions;
     private readonly IChatPipeline chat;
+    private readonly Func<PlayerSnapshot, bool>? gameplayReadiness;
     private bool attached;
 
     public NativePlayerCommandHooks(
@@ -41,7 +43,8 @@ internal sealed class NativePlayerCommandHooks : IDisposable
         IPlayerCultureService cultures,
         IPlayerSessionLifecycle sessions,
         IPlayerAccountSessionService accountSessions,
-        IChatPipeline chat)
+        IChatPipeline chat,
+        Func<PlayerSnapshot, bool>? gameplayReadiness = null)
     {
         this.dispatcher = dispatcher ?? throw new ArgumentNullException(nameof(dispatcher));
         this.authorization = authorization ?? throw new ArgumentNullException(nameof(authorization));
@@ -53,6 +56,7 @@ internal sealed class NativePlayerCommandHooks : IDisposable
         this.sessions = sessions ?? throw new ArgumentNullException(nameof(sessions));
         this.accountSessions = accountSessions ?? throw new ArgumentNullException(nameof(accountSessions));
         this.chat = chat ?? throw new ArgumentNullException(nameof(chat));
+        this.gameplayReadiness = gameplayReadiness;
     }
 
     public void Attach()
@@ -106,19 +110,20 @@ internal sealed class NativePlayerCommandHooks : IDisposable
             // This synchronous TerrariaRuntime hook only claims commands already owned by Vega.
             // Execution and game-thread message delivery continue asynchronously without blocking packet processing.
             args.Result = HookResult.Cancel;
-            _ = ExecuteAsync(playerId, player.Name, player.WorldId, command);
+            _ = ExecuteAsync(player, command);
             return;
         }
 
+        var audience = players.SnapshotOnlinePlayers().Where(recipient => recipient.WorldId == player.WorldId).ToArray();
         ChatPipelineResult chatResult = chat.Process(new ChatMessageContext(
             player.WorldId,
             player,
             messageText,
-            players.SnapshotOnlinePlayers()));
+            audience));
         if (!chatResult.Allowed)
         {
             args.Result = HookResult.Cancel;
-            _ = messenger.SendMessageAsync(playerId, chatResult.RejectionReason ?? "Chat message rejected.");
+            _ = messenger.SendMessageAsync(player, chatResult.RejectionReason ?? "Chat message rejected.");
             logger.Log(
                 OperationsLogLevel.Information,
                 "moderation",
@@ -130,7 +135,7 @@ internal sealed class NativePlayerCommandHooks : IDisposable
         if (chatResult.RequiresCustomDelivery)
         {
             args.Result = HookResult.Cancel;
-            _ = DeliverChatAsync(chatResult.Deliveries);
+            _ = DeliverChatAsync(chatResult.Deliveries, audience);
         }
 
         logger.Log(
@@ -146,7 +151,7 @@ internal sealed class NativePlayerCommandHooks : IDisposable
     {
         commandText = string.Empty;
 
-        if (!PacketViewParser.TryParsePayloadBounded(
+        if (!MultiplicityPacketProcessing.TryParseInboundPayload(
                 args.PacketId,
                 args.Instance.readBuffer,
                 args.ReadOffset,
@@ -181,23 +186,28 @@ internal sealed class NativePlayerCommandHooks : IDisposable
     }
 
     private async Task ExecuteAsync(
-        PlayerId playerId,
-        string playerName,
-        WorldId worldId,
+        PlayerSnapshot player,
         ParsedCommandText command)
     {
+        PlayerId playerId = player.Id;
         try
         {
-            var output = new PlayerCommandOutput(messenger, playerId);
+            if (!players.TryGet(playerId, out var current) || current is null || current.SessionId != player.SessionId || current.WorldId != player.WorldId) return;
+            var output = new PlayerCommandOutput(messenger, player);
+            if (gameplayReadiness is not null && !IsAllowedBeforeReadiness(command.Name) && !gameplayReadiness(current))
+            {
+                await output.WarningAsync("Please authenticate and wait for your character to be ready before using gameplay commands.").ConfigureAwait(false);
+                return;
+            }
             accountSessions.TryGetAccount(playerId, out AccountSnapshot? account);
             var invocation = new CommandInvocation(
                 command.Name,
                 command.Arguments,
-                new PlayerCommandPrincipal(playerName, playerId, authorization, account),
+                new PlayerCommandPrincipal(player, players, authorization, account),
                 output,
                 command.Silent)
             {
-                WorldId = worldId
+                WorldId = player.WorldId
             };
 
             CommandExecutionResult result = await dispatcher
@@ -249,13 +259,15 @@ internal sealed class NativePlayerCommandHooks : IDisposable
         }
     }
 
-    private async Task DeliverChatAsync(IReadOnlyList<ChatDelivery> deliveries)
+    private async Task DeliverChatAsync(IReadOnlyList<ChatDelivery> deliveries, IReadOnlyList<PlayerSnapshot> audience)
     {
+        var recipients = audience.ToDictionary(player => player.Id);
         foreach (ChatDelivery delivery in deliveries)
         {
             try
             {
-                _ = await messenger.SendMessageAsync(delivery.RecipientId, delivery.Content)
+                if (!recipients.TryGetValue(delivery.RecipientId, out var recipient)) continue;
+                _ = await messenger.SendMessageAsync(recipient, delivery.Content)
                     .ConfigureAwait(false);
             }
             catch (Exception ex)
@@ -270,22 +282,35 @@ internal sealed class NativePlayerCommandHooks : IDisposable
 
     private static string CultureSubject(PlayerId playerId) => $"player:{playerId.Slot}";
 
+    private static readonly HashSet<string> CommandsBeforeReadiness = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "login", "auth", "register", "logout", "password", "passwd", "lang", "language", "help", "commands", "aliases",
+        "playing", "who", "online", "version", "rules", "motd", "whisper", "w", "tell", "pm", "dm", "reply", "r", "wallow", "wa", "party", "p", "me"
+    };
+
+    internal static bool IsAllowedBeforeReadiness(string command) => CommandsBeforeReadiness.Contains(command);
+
     private sealed class PlayerCommandPrincipal : IPlayerCommandPrincipal
     {
         private readonly IPlayerAuthorizationService authorization;
+        private readonly IPlayerDirectory players;
+        private readonly WorldId world;
 
         public PlayerCommandPrincipal(
-            string playerName,
-            PlayerId playerId,
+            PlayerSnapshot player,
+            IPlayerDirectory players,
             IPlayerAuthorizationService authorization,
             AccountSnapshot? account)
         {
-            PlayerName = playerName;
-            PlayerId = playerId;
+            PlayerName = player.Name;
+            PlayerId = player.Id;
+            SessionId = player.SessionId;
+            world = player.WorldId;
+            this.players = players;
             this.authorization = authorization;
-            Name = account?.Name ?? playerName;
+            Name = account?.Name ?? player.Name;
             AccountName = account?.Name;
-            CultureSubjectId = CultureSubject(playerId);
+            CultureSubjectId = CultureSubject(player.Id);
         }
 
         public string Name { get; }
@@ -296,17 +321,20 @@ internal sealed class NativePlayerCommandHooks : IDisposable
 
         public PlayerId PlayerId { get; }
 
+        public PlayerSessionId? SessionId { get; }
+
         public string PlayerName { get; }
 
         public string? AccountName { get; }
 
         public bool HasPermission(string permission) =>
+            players.TryGet(PlayerId, out var current) && current is not null && current.SessionId == SessionId && current.WorldId == world &&
             authorization.HasPermission(PlayerId, permission);
     }
 
     private sealed class PlayerCommandOutput(
         IPlayerMessenger messenger,
-        PlayerId playerId) : ICommandOutput
+        PlayerSnapshot player) : ICommandOutput
     {
         public ValueTask InfoAsync(
             string message,
@@ -333,7 +361,7 @@ internal sealed class NativePlayerCommandHooks : IDisposable
             CancellationToken cancellationToken)
         {
             _ = await messenger
-                .SendMessageAsync(playerId, message, cancellationToken)
+                .SendMessageAsync(player, message, cancellationToken)
                 .ConfigureAwait(false);
         }
     }

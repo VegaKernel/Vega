@@ -1,0 +1,37 @@
+# Roadmap review — 26 November 2026
+
+**Target:** independently replace TShock as an operator-facing server, retaining official Terraria 1.4.6.1 gameplay, protocol 329, and `.wld` semantics through TerrariaRuntime 1.1.5. The protocol library is Multiplicity 4.0.1. Neither TShock API compatibility nor a separate Terraria simulation is a prerequisite.
+
+## Current implementation checkpoint
+
+- Historical registry decisions: 46 packet policy slices and 25 native baselines (71 total); 92 command implementations/slices/alternatives, one command conditional on native SSC, two explicit omissions (`su`, `sudo`). Counts describe decisions and implemented slices, not complete branch equivalence. See [packet ledger](server-behavior-audit.md) and [command ledger](server-command-audit.md).
+- Native primary SSC is now available by explicit configuration, with a native world-data flag, captured import state before WorldData, blank pending state, exact authenticated restoration, ready-state gate, logout reset and shared sandbox store. Non-disabled sandbox SSC modes use the native flag. The initial and joined inventory/loadout sanity checks are part of production ingress. Native hooks already exist in the released patcher; no new patcher version is required for this slice.
+- Shared whitelist and bans apply to primary and running sandbox worlds. Their ordinary cross-world lifecycle has automated smoke coverage; remaining operator-equivalence details are still ledger work.
+- The native game thread remains the authority for mutable gameplay; isolated worlds already have individual processes. The optional ordered TCP adapter and paged tiles are experiments, not default replacements. FakeProvider-backed scenes and plugin lifecycle are implemented, including native tile capture.
+- Current-schema offline migration and protected REST measurements are implemented; the 200/255-peer loopback transport workload is verified separately from actual joined players. The Ordered completion count ceiling was raised to 8192 under the unchanged cooperative time budget after A/B confirmed the previous count ceiling caused overload. Shared SSC read persistence has a measured allocation/latency improvement. Repeated-fault quarantine and automatic retirement for dynamic plugins use the existing collectible unload boundary.
+
+## Remaining work, ordered by actual release relevance
+
+| Priority | Phase | Work and acceptance criteria |
+| --- | --- | --- |
+| P0 | 25 / 27 | Complete ordinary stock-client password/passwordless joins, account login, first/restored character, explicit logout, reconnect, inventory/loadout/health restore, and direct sandbox transfer across SSC modes. Verify session isolation and client-visible synchronization; test both primary authority on and off. |
+| P0 | 25 / 27 | Finish semantic packet and command branch review against current native 1.4.6.1. Prioritize normal gameplay outcomes, persistent restrictions, regions, containers, item operations, lifecycle cleanup, and correction/resynchronization. Native passthrough is valid where it satisfies the required behavior. |
+| P0 for existing servers | 19 / 27 | Legacy Vega primary SSC migration and current pinned TShock SQLite account/BCrypt, 350-slot SSC, active ban, region, warp and text/CIDR whitelist imports are implemented and tested (see [migration guide](migration.md)). Groups use explicit mappings to reviewed existing Vega roles. Remaining: older layouts/source schemas, automated permission mapping if demanded, external providers, complete real deployment migration and live qualification. |
+| P0 | 18 / 27 | Qualify clean deployment with representative existing worlds, Windows/Linux, real clients and sustained load. Measure p50/p95/p99 ticks, GC pauses, private memory, throughput and queue age at 32/100/200–255 players. Existing loopback and save benchmarks are not a substitute. |
+| P1 | 9 / 16 / 19 / 24 / 25 | Finish remaining operator REST actions and live whitelist/warp semantics (shared IP/CIDR policy and text import are implemented); document permissions and intentional TShock differences. Finish SDK versioning, plugin examples and FakeProvider feature gaps (e.g. fake container/entity semantics where required by plugins). |
+| P1 | 26 | Current SDK command/join/leave/task guard, rolling breaker, fault retirement and telemetry are implemented; audit every future extension callback surface and qualify non-cooperative shutdown/fault soak with independently loaded plugins. |
+| P1, evidence-dependent | 11 / 22 / 27 | Profile actual native gameplay, packet handling and scene fanout before adding worker lanes. Compare vanilla versus ordered TCP and paged tiles on identical workloads; preserve same-session ordering and native mutation authority. Use per-world concurrency and bounded isolated pure work; choose a replacement default only after client/latency/throughput qualification. |
+| P2 | 23 | NativeAOT for a future fixed-function operational tool only if measurement justifies it. CoreCLR retains hot-loaded plugins. No server rewrite or standalone worker executable merely to check a roadmap box. |
+| Deferred research | 11 / 17 | Memory-mapped/chunked storage or single-process multiple mutable vanilla worlds. Per-world processes provide the isolation required today; paged tiles continue as a measured optional alternative, not a proven general speedup. |
+
+## Stale assumptions to remove
+
+- Protocol 326 / Terraria 1.4.5.8 is historical comparison evidence, not the current production protocol. Preserve the pinned ledger, and independently qualify 329.
+- The original 232 B/packet parser baseline is superseded by the 4.0.1 measurement (~0.032 B/ordinary PlayerUpdate, including harness allocations). A fixed pool for every packet is no longer justified by that old allocation figure. Measure heavy work and tail latency rather than queueing the cheap path by default.
+- Inventory/loadout are no longer unassigned ledger decisions. Full joined-client semantics are still open.
+- Native SSC is no longer an entirely unimplemented feature or a permanently disabled mode. Its real-client qualification and data migration are still mandatory for a production SSC migration.
+- Closed implementation phases should not be reopened simply because production qualification remains pending. Conversely, closed implementation tasks do not establish full compatibility.
+
+## Recommendation
+
+Treat the current code as an advanced deployment candidate for a fresh/test world. Do not advertise a drop-in production replacement for an existing TShock installation until the relevant P0 gates pass. Compare on the same protocol/runtime/world and equivalent policy settings, and record operator-visible differences rather than reimplementing TShock internals by default. See [performance measurements](performance-2026-11-26.md).

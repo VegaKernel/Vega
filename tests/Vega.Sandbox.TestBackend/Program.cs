@@ -4,6 +4,9 @@ using Vega.Contracts.Runtime;
 using Vega.Sandboxes;
 
 SandboxBackendLaunchOptions launch = SandboxBackendLaunchOptions.Parse(args);
+Console.InputEncoding = OperatingSystem.IsWindows() ? System.Text.Encoding.Unicode : System.Text.Encoding.UTF8;
+File.WriteAllText(Path.Combine(Environment.CurrentDirectory, "backend-working-directory.txt"), Environment.CurrentDirectory);
+File.WriteAllLines(Path.Combine(Environment.CurrentDirectory, "backend-arguments.txt"), launch.ServerArguments);
 using var reporter = new SandboxBackendReporter(
     launch,
     new ReadyLifecycle(),
@@ -17,7 +20,11 @@ if (launch.WorldId.Value.StartsWith("crash", StringComparison.OrdinalIgnoreCase)
 
 while (await Console.In.ReadLineAsync() is { } line)
 {
-    if (line.StartsWith("shutdown", StringComparison.OrdinalIgnoreCase)) break;
+    if (line.StartsWith("shutdown", StringComparison.OrdinalIgnoreCase))
+    {
+        File.WriteAllText(Path.Combine(Environment.CurrentDirectory, "backend-graceful-stop.txt"), line);
+        break;
+    }
 }
 
 internal sealed class ReadyLifecycle : IRuntimeLifecycle

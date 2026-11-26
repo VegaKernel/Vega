@@ -8,6 +8,8 @@ public static class TerrariaPacketSecurityLimits
     public static int ItemTypeCount => global::Terraria.ID.ItemID.Count;
 
     public static int PrefixCount => global::Terraria.ID.PrefixID.Count;
+    public static int BuffTypeCount => global::Terraria.ID.BuffID.Count;
+    public static int BuffSlotCount => global::Terraria.Main.player[0]?.buffType?.Length ?? 0;
 
     public static int ProjectileTypeCount => global::Terraria.ID.ProjectileID.Count;
 
@@ -27,4 +29,10 @@ public static class TerrariaPacketSecurityLimits
 
     public static int InventorySlotCount =>
         global::Terraria.Main.player.Length == 0 ? 0 : global::Terraria.Main.player[0]?.inventory.Length ?? 0;
+
+    public static int QuickStackSlotCount => global::Terraria.ID.PlayerItemSlotID.Count;
+
+    public static int CharacterSlotCount => global::Terraria.ID.PlayerItemSlotID.Count;
+    public static int LoadoutCount => global::Terraria.Main.player.Length == 0 ? 0 : global::Terraria.Main.player[0]?.Loadouts.Length ?? 0;
+    public static int MaximumItemStack => global::Terraria.Item.CommonMaxStack;
 }

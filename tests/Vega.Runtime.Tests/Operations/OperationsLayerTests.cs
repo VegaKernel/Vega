@@ -106,7 +106,8 @@ public sealed class OperationsCommandServiceTests
         var service = new OperationsCommandService(
             new CommandDispatcher([handler]),
             localization,
-            localization);
+            localization,
+            new WorldId("arena"));
 
         OperationsActionResult result = await service.ExecuteAsync("/operate now");
 
@@ -116,6 +117,7 @@ public sealed class OperationsCommandServiceTests
             Assert.That(result.Messages, Is.EqualTo(new[] { "operation now" }));
             Assert.That(handler.SawServerPrincipal, Is.True);
             Assert.That(handler.SawPermission, Is.True);
+            Assert.That(handler.World, Is.EqualTo(new WorldId("arena")));
         });
     }
 
@@ -129,6 +131,7 @@ public sealed class OperationsCommandServiceTests
         public bool SawServerPrincipal { get; private set; }
 
         public bool SawPermission { get; private set; }
+        public WorldId World { get; private set; }
 
         public ValueTask<CommandExecutionResult> ExecuteAsync(
             CommandInvocation invocation,
@@ -136,6 +139,7 @@ public sealed class OperationsCommandServiceTests
         {
             SawServerPrincipal = invocation.Principal.IsServer;
             SawPermission = invocation.Principal.HasPermission("vega.operations");
+            World = invocation.WorldId;
             return ValueTask.FromResult(CommandExecutionResult.WithMessages(
                 MessageDescriptor.Success("operation.done", invocation.Arguments[0])
                     .WithDefaultText("operation {0}")));
@@ -255,7 +259,8 @@ public sealed class OperationsReadModelTests
             new BoundedOperationsLogStore(5),
             new FixedRuntimeMetrics(),
             new FixedNetworkMetrics(),
-            worldCleanup: new FixedWorldCleanupStatus());
+            worldCleanup: new FixedWorldCleanupStatus(),
+            localWorldId: new WorldId("arena"));
 
         OperationsSnapshot snapshot = provider.Capture();
 
@@ -265,6 +270,8 @@ public sealed class OperationsReadModelTests
             Assert.That(snapshot.WorldCleanup.State, Is.EqualTo(WorldCleanupRunState.Failed));
             Assert.That(snapshot.WorldCleanup.Detail, Is.EqualTo("auto_world_cleaner.failed"));
             Assert.That(snapshot.Server.Warnings, Has.Some.Contains("AutoWorldCleaner failed"));
+            Assert.That(snapshot.WorldContexts.Single().Id, Is.EqualTo(new WorldId("arena")));
+            Assert.That(snapshot.WorldContexts.Single().Kind, Is.EqualTo(WorldContextKind.Sandbox));
         });
     }
 
@@ -460,6 +467,25 @@ public sealed class OperationsReadModelTests
 [TestFixture]
 public sealed class TickRateMonitorTests
 {
+    [Test]
+    public void UnchangedOperationsStateRetainsPublishedRecordUntilStatisticsOrReadinessChange()
+    {
+        using var state = new TerrariaOperationsState();
+        TickRateStatisticsSnapshot stats = TickRateStatisticsSnapshot.Empty;
+        state.PublishIfChanged("world", 16, 7777, false, stats);
+        var first = state.Read();
+        state.PublishIfChanged("world", 16, 7777, false, stats);
+        Assert.That(state.Read(), Is.SameAs(first));
+        state.PublishIfChanged("world", 16, 7777, true, stats);
+        var ready = state.Read();
+        Assert.That(ready.IsWorldReady, Is.True);
+        Assert.That(first.IsWorldReady, Is.False);
+        var next = stats with { Current = 60, SampleCount = 1 };
+        state.PublishIfChanged("world", 16, 7777, true, next);
+        Assert.That(state.Read().TicksPerSecond, Is.EqualTo(60));
+        Assert.That(state.Read(), Is.Not.SameAs(ready));
+    }
+
     [Test]
     public void MonitorPublishesBoundedOneMinuteAverageAndLifetimeExtremes()
     {
