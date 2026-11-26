@@ -46,6 +46,7 @@ internal sealed class NativeOutboundQueue
     private readonly bool edgeTriggeredWake;
     private readonly bool measureAge;
     private readonly bool singleCancellationWake;
+    private readonly bool skipEmptyCompletionGate;
     private QueueState state;
     private int outstanding;
     private long retainedBytes;
@@ -53,10 +54,13 @@ internal sealed class NativeOutboundQueue
     private long inFlightSince;
     private bool writerStarted;
     private bool writerWaiting;
+    // Published under gate with the queue; a concurrent publication after an empty read
+    // remains eligible for the next pump probe. Never read Queue<T>.Count outside gate.
+    private bool hasCompletions;
 
     public NativeOutboundQueue(int maxEntries, long maxRetainedBytes, int maxRequestBytes, ArrayPool<byte>? pool = null,
         NativeOutboundBudget? sharedBudget = null, int maxBatchRequests = 1, bool edgeTriggeredWake = true, bool measureAge = false,
-        bool singleCancellationWake = true)
+        bool singleCancellationWake = true, bool skipEmptyCompletionGate = true)
     {
         ArgumentOutOfRangeException.ThrowIfNegativeOrZero(maxEntries);
         ArgumentOutOfRangeException.ThrowIfNegativeOrZero(maxRetainedBytes);
@@ -72,6 +76,7 @@ internal sealed class NativeOutboundQueue
         this.edgeTriggeredWake = edgeTriggeredWake;
         this.measureAge = measureAge;
         this.singleCancellationWake = singleCancellationWake;
+        this.skipEmptyCompletionGate = skipEmptyCompletionGate;
         available = new(0, edgeTriggeredWake ? 1 : int.MaxValue);
     }
 
@@ -181,9 +186,15 @@ internal sealed class NativeOutboundQueue
 
     public bool TryReadCompletion(out NativeSendCompletion completion)
     {
+        if (skipEmptyCompletionGate && !Volatile.Read(ref hasCompletions))
+        {
+            completion = default;
+            return false;
+        }
         lock (gate)
         {
             if (!completions.TryDequeue(out completion)) return false;
+            if (skipEmptyCompletionGate && completions.Count == 0) Volatile.Write(ref hasCompletions, false);
             ReleaseEntries(1);
             return true;
         }
@@ -276,6 +287,7 @@ internal sealed class NativeOutboundQueue
                             long writtenAt = measureAge ? Stopwatch.GetTimestamp() : 0;
                             if (count == 1) completions.Enqueue(request.Completion with { WrittenAt = writtenAt });
                             else for (int i = 0; i < count; i++) completions.Enqueue(batch![i] with { WrittenAt = writtenAt });
+                            if (skipEmptyCompletionGate && !hasCompletions) Volatile.Write(ref hasCompletions, true);
                         }
                         else ReleaseEntries(count);
                         if (count > 1) Array.Clear(batch!, 0, count);
@@ -370,6 +382,7 @@ internal sealed class NativeOutboundQueue
         }
         ReleaseEntries(completions.Count);
         completions.Clear();
+        if (skipEmptyCompletionGate) Volatile.Write(ref hasCompletions, false);
     }
 
     private void ReturnBuffer(OwnedSend request) => ReturnBuffer(request.Buffer);

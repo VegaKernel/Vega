@@ -14,6 +14,16 @@ var process = Process.GetCurrentProcess();
 Console.WriteLine($"OS={System.Runtime.InteropServices.RuntimeInformation.OSDescription} cores={Environment.ProcessorCount} runtime={Environment.Version}");
 Console.WriteLine("TcpSocket constructors: " + string.Join("; ", typeof(TcpSocket).GetConstructors(BindingFlags.Instance|BindingFlags.Public|BindingFlags.NonPublic).Select(c=>c.ToString())));
 if (args.Contains("--probe")) return;
+if (args.Contains("--completion-gate"))
+{
+    // Full player count, ordinary sparse updates followed by all-peer updates. ABBA
+    // comparisons retain exactly the same payload, cadence and connection count.
+    foreach (int activePeers in new[]{8,255})
+        foreach (bool skipEmpty in new[]{false,true,true,false})
+            await Run(255, true, NativeOutboundQueue.BatchRequestLimit, perPeerPerTick: 8,
+                skipEmptyCompletionGate: skipEmpty, activeSendPeers: activePeers);
+    return;
+}
 if (args.Contains("--wait-cancellation"))
 {
     foreach (int peers in new[]{200,255})
@@ -106,19 +116,21 @@ foreach (int peers in new[]{1,8,32})
 
 async Task Run(int peers, bool ordered, int batch, bool edge = true, bool activePump = true, bool cancelPendingSocketSend = true,
     int perPeerPerTick = PerPeerPerTick, int maxCallbacks = NativeTcpTransportOptions.DefaultCallbacksPerPass, bool measureQueueAge = false,
-    int measurementTicks = Ticks, bool singleCancellationWake = true)
+    int measurementTicks = Ticks, bool singleCancellationWake = true, bool skipEmptyCompletionGate = true,
+    int? activeSendPeers = null)
 {
     if (args.Contains("--legacy-wait-cancellation")) singleCancellationWake = false;
     using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(Math.Max(peers >= 200 ? 60 : 25, measurementTicks / 60 + 30)));
     CancellationToken ct = timeout.Token;
     var socks = new ISocket[peers]; // host uses this only after setup
-    using var host = ordered ? new NativeTcpTransportHost(new NativeTcpTransportOptions { MaxBatchRequests = batch, EdgeTriggeredWake = edge, CancelPendingSocketSend = cancelPendingSocketSend, MaxCallbacksPerPass = maxCallbacks, MeasureQueueAge = measureQueueAge, SingleCancellationWake = singleCancellationWake }, currentSocket: slot => slot < socks.Length ? socks[slot] : null, activeSlotSnapshot: activePump) : null;
+    using var host = ordered ? new NativeTcpTransportHost(new NativeTcpTransportOptions { MaxBatchRequests = batch, EdgeTriggeredWake = edge, CancelPendingSocketSend = cancelPendingSocketSend, MaxCallbacksPerPass = maxCallbacks, MeasureQueueAge = measureQueueAge, SingleCancellationWake = singleCancellationWake, SkipEmptyCompletionGate = skipEmptyCompletionGate }, currentSocket: slot => slot < socks.Length ? socks[slot] : null, activeSlotSnapshot: activePump) : null;
     using var listener = new TcpListener(IPAddress.Loopback,0);
     listener.Start();
     var clients = new TcpClient[peers];
     var payload = new byte[peers][];
-    int totalRequests = checked(peers*measurementTicks*perPeerPerTick);
-    int warmupRequests = peers*WarmupTicks*perPeerPerTick;
+    int sendPeers = activeSendPeers ?? peers;
+    int totalRequests = checked(sendPeers*measurementTicks*perPeerPerTick);
+    int warmupRequests = sendPeers*WarmupTicks*perPeerPerTick;
     var completions = new long[totalRequests+warmupRequests];
     var enqueues = new long[completions.Length];
     var states = Enumerable.Range(0, completions.Length).Select(i=>(object)i).ToArray();
@@ -147,7 +159,7 @@ async Task Run(int peers, bool ordered, int batch, bool edge = true, bool active
             }
             payload[i] = Enumerable.Repeat((byte)(i+1),sizes.Max()).ToArray();
         }
-        var readers=clients.Select((client,peer)=>ReadPeer(client,(byte)(peer+1),peerBytes,ct)).ToArray();
+        var readers=clients.Take(sendPeers).Select((client,peer)=>ReadPeer(client,(byte)(peer+1),peerBytes,ct)).ToArray();
         int index=0;
         long cadence=Stopwatch.Frequency/60;
         long start=Stopwatch.GetTimestamp();
@@ -155,6 +167,7 @@ async Task Run(int peers, bool ordered, int batch, bool edge = true, bool active
         long peakBytes=0;
         double peakSendAge=0, peakCompletionAge=0;
         var pumpTime = new long[measurementTicks];
+        var drainTime = new long[measurementTicks];
         var producerTime = new long[measurementTicks];
         Task delayUntil(long target) => DelayUntil(target,ct);
         void sample()
@@ -184,7 +197,7 @@ async Task Run(int peers, bool ordered, int batch, bool edge = true, bool active
             for(int k=0;k<perPeerPerTick;k++)
             {
                 int size=sizes[k%sizes.Length];
-                for(int i=0;i<peers;i++)
+                for(int i=0;i<sendPeers;i++)
                 {
                     enqueues[index]=Stopwatch.GetTimestamp();
                     socks[i].AsyncSend(payload[i],0,size,callback,states[index++]);
@@ -197,7 +210,14 @@ async Task Run(int peers, bool ordered, int batch, bool edge = true, bool active
             if(t>=WarmupTicks) producerTime[t-WarmupTicks]=pt;
             await delayUntil(deadline);
             long before=Stopwatch.GetTimestamp();
-            if(ordered) { sample(); host!.DrainCompletions(); sample(); }
+            if(ordered)
+            {
+                sample();
+                long drainStart = Stopwatch.GetTimestamp();
+                host!.DrainCompletions();
+                if(t>=WarmupTicks) drainTime[t-WarmupTicks] = Stopwatch.GetTimestamp()-drainStart;
+                sample();
+            }
             if(t>=WarmupTicks) pumpTime[t-WarmupTicks]=Stopwatch.GetTimestamp()-before;
             ct.ThrowIfCancellationRequested();
         }
@@ -222,8 +242,8 @@ async Task Run(int peers, bool ordered, int batch, bool edge = true, bool active
         long alloc=GC.GetTotalAllocatedBytes(true)-alloc0; double cpu=(process.TotalProcessorTime-cpu0).TotalSeconds;
         var latency=new long[totalRequests];
         for(int i=0;i<totalRequests;i++) latency[i]=completions[i+warmupRequests]-enqueues[i+warmupRequests];
-        double mb=(long)peers*measurementTicks*bytesPerTick/1_048_576d;
-        Console.WriteLine($"mode={(ordered?"ordered":"vanilla")} batch={batch} wake={(edge?"edge":"counted")} pump={(activePump?"active":"all")} sendCancellation={(cancelPendingSocketSend?"token":"dispose")} peers={peers} sends_per_peer_per_tick={perPeerPerTick} callback_cap={maxCallbacks} requests={totalRequests} MiB={mb:F2} wall_s={wall:F3} req/s={totalRequests/wall:F0} MiB/s={mb/wall:F2} cpu_s={cpu:F3} alloc_MB={alloc/1e6:F2} bytes/request={(double)alloc/totalRequests:F1} GC={GC.CollectionCount(0)-gc0}/{GC.CollectionCount(1)-gc1}/{GC.CollectionCount(2)-gc2} cb_ms={Percentiles(latency)} producer_ms={Percentiles(producerTime)} pump_ms={Percentiles(pumpTime)} samples_peak_entries={peakEntries} samples_peak_retained={peakBytes} samples_peak_inflight={peakInflight} samples_peak_completions={peakCompletions} wait_cancellation={(singleCancellationWake?"single":"per-wait")} queue_age={(measureQueueAge?"on":"off")} samples_peak_send_age_ms={peakSendAge:F3} samples_peak_completion_age_ms={peakCompletionAge:F3} callbacks={callbackCount-warmupRequests} validated_bytes={mb:F2}MiB");
+        double mb=(long)sendPeers*measurementTicks*bytesPerTick/1_048_576d;
+        Console.WriteLine($"mode={(ordered?"ordered":"vanilla")} batch={batch} wake={(edge?"edge":"counted")} pump={(activePump?"active":"all")} sendCancellation={(cancelPendingSocketSend?"token":"dispose")} peers={peers} send_peers={sendPeers} sends_per_peer_per_tick={perPeerPerTick} callback_cap={maxCallbacks} requests={totalRequests} MiB={mb:F2} wall_s={wall:F3} req/s={totalRequests/wall:F0} MiB/s={mb/wall:F2} cpu_s={cpu:F3} alloc_MB={alloc/1e6:F2} bytes/request={(double)alloc/totalRequests:F1} GC={GC.CollectionCount(0)-gc0}/{GC.CollectionCount(1)-gc1}/{GC.CollectionCount(2)-gc2} cb_ms={Percentiles(latency)} producer_ms={Percentiles(producerTime)} pump_ms={Percentiles(pumpTime)} drain_ms={Percentiles(drainTime)} completion_gate={(skipEmptyCompletionGate?"skip-empty":"locked")} samples_peak_entries={peakEntries} samples_peak_retained={peakBytes} samples_peak_inflight={peakInflight} samples_peak_completions={peakCompletions} wait_cancellation={(singleCancellationWake?"single":"per-wait")} queue_age={(measureQueueAge?"on":"off")} samples_peak_send_age_ms={peakSendAge:F3} samples_peak_completion_age_ms={peakCompletionAge:F3} callbacks={callbackCount-warmupRequests} validated_bytes={mb:F2}MiB");
     }
     finally
     {

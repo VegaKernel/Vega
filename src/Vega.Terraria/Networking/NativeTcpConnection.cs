@@ -42,7 +42,7 @@ internal sealed class NativeTcpConnection : ISocket
         outbound = new(options.MaxOutstandingPerConnection, options.MaxRetainedBytesPerConnection,
             options.MaxSendBytes, sharedBudget: budget, maxBatchRequests: options.MaxBatchRequests,
             edgeTriggeredWake: options.EdgeTriggeredWake, measureAge: options.MeasureQueueAge,
-            singleCancellationWake: options.SingleCancellationWake);
+            singleCancellationWake: options.SingleCancellationWake, skipEmptyCompletionGate: options.SkipEmptyCompletionGate);
         // The queue always observes cancellation between writes. In the dispose-only experiment,
         // the owner interrupts an in-flight send via Close/Dispose rather than registering the
         // queue token with every OS operation. Overflow also closes this exact socket.

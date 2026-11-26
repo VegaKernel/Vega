@@ -72,6 +72,48 @@ public sealed class SceneRuntimeTests
     }
 
     [Test]
+    [NonParallelizable]
+    public void SmallRedrawIsDeliveredBeforeLargeRedrawFinishes()
+    {
+        const int slot = 1;
+        var previous = global::Terraria.Netplay.Clients[slot];
+        var previousTiles = global::Terraria.Main.tile;
+        int previousWidth = global::Terraria.Main.maxTilesX, previousHeight = global::Terraria.Main.maxTilesY;
+        var socket = new RecordingRenderSocket();
+        try
+        {
+            global::Terraria.Netplay.Clients[slot] = new global::Terraria.RemoteClient { Id = slot, State = 10 };
+            global::Terraria.Netplay.Clients[slot].Activate(socket);
+            Assert.That(global::Terraria.Netplay.Clients[slot].IsActive, Is.True);
+            global::Terraria.Main.maxTilesX = 200;
+            global::Terraria.Main.maxTilesY = 1;
+            var tiles = new global::TerrariaRuntime.DefaultCollection<global::Terraria.ITile>(200, 1);
+            for (int x = 0; x < 200; x++) tiles[x, 0] = new global::Terraria.Tile();
+            global::Terraria.Main.tile = tiles;
+            var dispatcher = new AdmissionDispatcher { Accept = true };
+            var player = new PlayerSnapshot(new PlayerId(slot), "viewer", false, 100, 100, 20, 20, new(0, 0), false, 0);
+            var runtime = new SceneRuntime();
+            using var scene = runtime.CreateScene(WorldId.Primary, "fairness", "test");
+            using var renderer = new TerrariaSceneRenderSink(dispatcher, new PlayerDirectory(player), new QuietLogger());
+            renderer.Attach(runtime, new TestSessions());
+            var request = new SceneRenderRequest(scene.Id, WorldId.Primary, new SceneBounds(0, 0, 184, 1), true,
+                SceneObserverScope.Global.Players);
+            Assert.That(renderer.TryInvalidate(request), Is.True);
+            Assert.That(renderer.TryInvalidate(request with { DirtyRegion = new SceneBounds(190, 0, 1, 1) }), Is.True);
+            for (int i = 0; i < 20 && !dispatcher.Step!(); i++) { }
+            Assert.That(socket.XCoordinates, Is.EqualTo(new[] { 0, 190, 46, 92, 138 }));
+            Assert.That(dispatcher.ScheduleAttempts, Is.EqualTo(1));
+        }
+        finally
+        {
+            global::Terraria.Netplay.Clients[slot] = previous;
+            global::Terraria.Main.tile = previousTiles;
+            global::Terraria.Main.maxTilesX = previousWidth;
+            global::Terraria.Main.maxTilesY = previousHeight;
+        }
+    }
+
+    [Test]
     public void PersonalAirMaskSuppressesGlobalTilesAndRefreshesOnlyChangedObservers()
     {
         var sink = new RecordingSink();
@@ -576,11 +618,27 @@ public sealed class SceneRuntimeTests
     {
         public bool Accept { get; set; }
         public int ScheduleAttempts { get; private set; }
+        public Func<bool>? Step { get; private set; }
         public bool IsGameThreadKnown => true;
         public bool IsGameThread => false;
-        public void AssertGameThread() => throw new InvalidOperationException();
+        public void AssertGameThread() { }
         public bool TryPost(string name, Action action) => throw new NotSupportedException();
-        public bool TrySchedule(string name, Func<bool> step) { ScheduleAttempts++; return Accept; }
+        public bool TrySchedule(string name, Func<bool> step) { ScheduleAttempts++; if (Accept) Step = step; return Accept; }
+    }
+
+    private sealed class RecordingRenderSocket : global::Terraria.Net.Sockets.ISocket
+    {
+        public List<int> XCoordinates { get; } = [];
+        public void Close() { }
+        public bool IsConnected() => true;
+        public bool IsDataAvailable() => false;
+        public global::Terraria.Net.RemoteAddress GetRemoteAddress() => throw new NotSupportedException();
+        public void Connect(global::Terraria.Net.RemoteAddress remoteAddress) => throw new NotSupportedException();
+        public bool StartListening(global::Terraria.Net.Sockets.SocketConnectionAccepted callback) => throw new NotSupportedException();
+        public void StopListening() => throw new NotSupportedException();
+        public void AsyncSend(byte[] data, int offset, int size, global::Terraria.Net.Sockets.SocketSendCallback callback, object? state = null)
+            => XCoordinates.Add(BitConverter.ToInt16(data, offset + 3));
+        public void AsyncReceive(byte[] data, int offset, int size, global::Terraria.Net.Sockets.SocketReceiveCallback callback, object? state = null) => throw new NotSupportedException();
     }
 
     private sealed class QuietLogger : IOperationsLogger

@@ -535,3 +535,42 @@ chest checkpoint (10,644,144 bytes). The earlier pre-chest baseline was
 regression-free result. The shared nullable metadata reference avoids adding
 another field to every ordinary overlay. Raw local outputs:
 `artifacts/performance-2026-11-26/vega-virtual-sign-scene-benchmark-*.json`.
+
+### P0/P1: completion polling, SSC capture, and redraw scheduling
+
+The Ordered TCP completion pump now skips connection gates when the published
+completion-ready hint is empty. Publishing and consuming completions still use the
+connection gate and existing order, credit and generation checks. The hint is
+only an early-out; a racing publication remains eligible for the next probe.
+Reproduce the Release ABBA loopback experiment with
+`dotnet run --project benchmarks/Vega.NativeTcp.Benchmarks -c Release -- --completion-gate`.
+255 connected peers, eight sends per active peer per tick; two samples per variant:
+
+| Metric | Locked empty probes | Skip empty probes |
+| --- | ---: | ---: |
+| 8 active peers, completion drain p95 | 0.129 / 0.121 ms | 0.094 / 0.095 ms |
+| 8 active peers, completion drain p99 | 0.157 / 0.143 ms | 0.097 / 0.102 ms |
+| 255 active peers, completion drain p95 | 0.545 / 0.527 ms | 0.593 / 0.483 ms |
+| 255 active peers, throughput | 156.56 / 158.65 MiB/s | 157.18 / 155.90 MiB/s |
+| 255 active peers, send-to-callback p95 | 28.771 / 28.663 ms | 28.602 / 28.758 ms |
+
+All bytes and callbacks were verified. Sparse drain p95/p99 improved about
+24%/34%; dense throughput and latency were effectively unchanged across these
+samples. The Ordered transport remains opt-in.
+
+SSC periodic capture now copies native character data on the game thread, then
+validates and serializes the detached snapshot on the existing asynchronous
+reconciliation path. Game-thread callers (including pre-reset capture) still
+complete synchronously. For 255 synthetic full-size snapshots (18,994-character
+JSON payload), the measured dispatcher callback time for encoding alone was
+77.094 ms before versus 0.651 ms after, with 13,049,880 versus zero managed
+bytes allocated inside the measured callback. Native copy, storage I/O and
+end-to-end checkpoint latency are excluded; this moves work rather than
+eliminating total process CPU or allocations. The regression measurement is in
+`TerrariaSscSnapshotTests`.
+
+Scene redraws rotate unfinished requests after each cooperative batch. A native
+renderer integration fixture with a recording socket confirms a one-tile update
+arrives second rather than after all four batches of a larger preceding redraw.
+The admission cap, cooperative budget and socket identity checks remain in force.
+These are synthetic/loopback measurements, not joined-player or WAN qualification.

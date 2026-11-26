@@ -369,6 +369,43 @@ public sealed class NativeOutboundQueueTests
         Assert.That(budget.Snapshot, Is.EqualTo((0, 0L)));
     }
 
+    [TestCase(false)]
+    [TestCase(true)]
+    public async Task EmptyCompletionProbePreservesFifoAndCreditAcrossIdleAndAbort(bool skipEmptyCompletionGate)
+    {
+        var budget = new NativeOutboundBudget(16, 4096);
+        var queue = new NativeOutboundQueue(16, 4096, 8, sharedBudget: budget, maxBatchRequests: 4,
+            skipEmptyCompletionGate: skipEmptyCompletionGate);
+        using var deadline = new CancellationTokenSource(Timeout);
+        var writer = queue.RunWriterAsync((bytes, _) => ValueTask.FromResult(bytes.Length));
+        try
+        {
+            int sequence = 0;
+            for (int round = 0; round < 8; round++)
+            {
+                Assert.That(queue.TryReadCompletion(out _), Is.False);
+                for (int i = 0; i < 4; i++)
+                    Assert.That(queue.TryEnqueue([1], 0, 1, 123), Is.EqualTo(NativeOutboundEnqueueResult.Accepted));
+                for (int i = 0; i < 4; i++)
+                {
+                    NativeSendCompletion completion;
+                    while (!queue.TryReadCompletion(out completion)) await Task.Delay(1, deadline.Token);
+                    Assert.That(completion.Sequence, Is.EqualTo(++sequence));
+                    Assert.That(completion.Generation, Is.EqualTo(123));
+                }
+                Assert.That(budget.Snapshot, Is.EqualTo((0, 0L)));
+            }
+
+            Assert.That(queue.TryEnqueue([1], 0, 1, 123), Is.EqualTo(NativeOutboundEnqueueResult.Accepted));
+            while (queue.Snapshot.PendingCompletions == 0) await Task.Delay(1, deadline.Token);
+            queue.Abort();
+            await writer.WaitAsync(deadline.Token);
+            Assert.That(queue.TryReadCompletion(out _), Is.False);
+            Assert.That(budget.Snapshot, Is.EqualTo((0, 0L)));
+        }
+        finally { queue.Abort(); }
+    }
+
     [TestCase(false, false)]
     [TestCase(false, true)]
     [TestCase(true, false)]

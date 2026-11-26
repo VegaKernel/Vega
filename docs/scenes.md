@@ -175,8 +175,10 @@ an absolute tick duration. Cache reuse is limited to a batch rather than all
 recipients, deliberately trading some repeated encoding for bounded work and fresh
 composition across ticks. Ordinary native tile squares outside applicable overlays
 are not intercepted; section refreshes redraw only their intersection with an enabled
-overlay, for recipients within its observer scope. Large overlapping redraws still
-share the bounded FIFO; real-client redraw latency under load remains to be measured.
+overlay, for recipients within its observer scope. Unfinished redraws return to the
+tail after each batch, allowing smaller updates to progress before a large refresh
+finishes. Each batch composes current state and retains its original socket identities.
+Real-client redraw latency under load remains to be measured.
 Small region probes use the sparse chunk index; broad rectangles use the immutable
 flat projection. The section hook enumerates enabled intersecting definitions from
 that projection without allocating diagnostic scene snapshots or calculating conflict

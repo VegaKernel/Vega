@@ -21,6 +21,8 @@ internal sealed record NativeTcpTransportOptions
     public bool EdgeTriggeredWake { get; init; } = true;
     /// <summary>One cancellation registration wakes an idle writer; the per-wait mode remains for A/B measurement.</summary>
     public bool SingleCancellationWake { get; init; } = true;
+    /// <summary>Avoid taking the outbound gate on empty completion probes; false is the A/B baseline.</summary>
+    public bool SkipEmptyCompletionGate { get; init; } = true;
     /// <summary>Experimental A/B: close already disposes the socket to interrupt pending I/O.</summary>
     public bool CancelPendingSocketSend { get; init; } = true;
 

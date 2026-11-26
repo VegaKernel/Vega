@@ -28,7 +28,7 @@ public sealed class TerrariaSandboxSscCharacterAdapter(IGameThreadDispatcher dis
         if (!dispatcher.IsGameThread || (uint)slot >= (uint)global::Terraria.Netplay.Clients.Length ||
             global::Terraria.Netplay.Clients[slot] is not { State: 2 } client || !ReferenceEquals(client.Socket, socket)) return;
         SandboxSscCharacterCaptureResult captured;
-        try { captured = Capture(new PlayerId(slot)); }
+        try { captured = EncodeCapture(CaptureSnapshot(new PlayerId(slot))); }
         catch (Exception) { captured = new(false, ErrorCode: "ssc.join_snapshot_unavailable"); }
         if (captured.Payload is { Length: > 131072 }) captured = new(false, ErrorCode: "ssc.join_snapshot_too_large");
         lock (earlyJoinSync)
@@ -69,18 +69,14 @@ public sealed class TerrariaSandboxSscCharacterAdapter(IGameThreadDispatcher dis
     public ValueTask<SandboxSscCharacterCaptureResult> CaptureAsync(
         PlayerId playerId,
         CancellationToken cancellationToken = default) =>
-        DispatchAsync(
+        CaptureDetachedAsync(
             "sandbox.ssc.capture",
-            () => Capture(playerId),
-            cancellationToken,
-            new SandboxSscCharacterCaptureResult(false, ErrorCode: "sandbox.ssc.dispatcher_unavailable"),
-            new SandboxSscCharacterCaptureResult(false, ErrorCode: "sandbox.ssc.cancelled"));
+            () => CaptureSnapshot(playerId),
+            cancellationToken);
 
     public ValueTask<SandboxSscCharacterCaptureResult> CaptureAsync(PlayerSnapshot player, CancellationToken cancellationToken = default) =>
-        DispatchAsync("sandbox.ssc.capture", () => players?.TryGetSessionPlayer(player, out _) == true
-            ? Capture(player.Id) : new SandboxSscCharacterCaptureResult(false, ErrorCode: "sandbox.ssc.session_changed"), cancellationToken,
-            new SandboxSscCharacterCaptureResult(false, ErrorCode: "sandbox.ssc.dispatcher_unavailable"),
-            new SandboxSscCharacterCaptureResult(false, ErrorCode: "sandbox.ssc.cancelled"));
+        CaptureDetachedAsync("sandbox.ssc.capture", () => players?.TryGetSessionPlayer(player, out _) == true
+            ? CaptureSnapshot(player.Id) : new CaptureSnapshotResult(null, "sandbox.ssc.session_changed"), cancellationToken);
 
     public ValueTask<SandboxSscCharacterCaptureResult> CaptureJoinAsync(PlayerSnapshot player, CancellationToken cancellationToken = default) =>
         DispatchAsync("ssc.join.capture", () =>
@@ -103,18 +99,14 @@ public sealed class TerrariaSandboxSscCharacterAdapter(IGameThreadDispatcher dis
 
     public ValueTask<SandboxSscCharacterCaptureResult> CreateInitialAsync(PlayerSnapshot player, IPlayerAccountSessionService accounts,
         PlayerAccountBinding binding, CancellationToken cancellationToken = default) =>
-        DispatchAsync("ssc.primary.initial", () => WithBinding(player, accounts, binding,
-            () => new SandboxSscCharacterCaptureResult(true, CreateStarterPayload(global::Terraria.Main.GameMode == 3)),
-            new SandboxSscCharacterCaptureResult(false, ErrorCode: "ssc.binding_changed")), cancellationToken,
-            new SandboxSscCharacterCaptureResult(false, ErrorCode: "sandbox.ssc.dispatcher_unavailable"),
-            new SandboxSscCharacterCaptureResult(false, ErrorCode: "sandbox.ssc.cancelled"));
+        CaptureDetachedAsync("ssc.primary.initial", () => WithBinding(player, accounts, binding,
+            () => new CaptureSnapshotResult(CreateStarterState(global::Terraria.Main.GameMode == 3, includeItems: true)),
+            new CaptureSnapshotResult(null, "ssc.binding_changed")), cancellationToken);
 
     public ValueTask<SandboxSscCharacterCaptureResult> CaptureAuthenticatedAsync(PlayerSnapshot player, IPlayerAccountSessionService accounts,
         PlayerAccountBinding binding, CancellationToken cancellationToken = default) =>
-        DispatchAsync("ssc.primary.capture", () => WithBinding(player, accounts, binding, () => Capture(player.Id),
-            new SandboxSscCharacterCaptureResult(false, ErrorCode: "ssc.binding_changed")), cancellationToken,
-            new SandboxSscCharacterCaptureResult(false, ErrorCode: "sandbox.ssc.dispatcher_unavailable"),
-            new SandboxSscCharacterCaptureResult(false, ErrorCode: "sandbox.ssc.cancelled"));
+        CaptureDetachedAsync("ssc.primary.capture", () => WithBinding(player, accounts, binding, () => CaptureSnapshot(player.Id),
+            new CaptureSnapshotResult(null, "ssc.binding_changed")), cancellationToken);
 
     public ValueTask<SandboxSscCharacterApplyResult> ApplyAuthenticatedAsync(PlayerSnapshot player, IPlayerAccountSessionService accounts,
         PlayerAccountBinding binding, string payload, CancellationToken cancellationToken = default) =>
@@ -165,12 +157,38 @@ public sealed class TerrariaSandboxSscCharacterAdapter(IGameThreadDispatcher dis
             new SandboxSscCharacterApplyResult(false, "sandbox.ssc.cancelled"));
     }
 
-    private SandboxSscCharacterCaptureResult Capture(PlayerId playerId)
+    // The existing SSC reconciliation worker awaits this operation one character at a time.
+    // Dispatch only the deep native-state copy; RunContinuationsAsynchronously and
+    // ConfigureAwait(false) keep JSON encoding off the Terraria thread for worker callers.
+    // A game-thread caller still completes synchronously: pre-reset disconnect snapshots
+    // must be captured and encoded before the native player slot/account binding is retired.
+    internal ValueTask<SandboxSscCharacterCaptureResult> CaptureDetachedAsync(
+        string operation, Func<CaptureSnapshotResult> capture, CancellationToken cancellationToken)
+    {
+        ValueTask<CaptureSnapshotResult> pending = DispatchAsync(operation, capture, cancellationToken,
+            new CaptureSnapshotResult(null, "sandbox.ssc.dispatcher_unavailable"),
+            new CaptureSnapshotResult(null, "sandbox.ssc.cancelled"));
+        return pending.IsCompletedSuccessfully
+            ? ValueTask.FromResult(EncodeCapture(pending.Result))
+            : EncodeWhenReadyAsync(pending);
+
+        static async ValueTask<SandboxSscCharacterCaptureResult> EncodeWhenReadyAsync(ValueTask<CaptureSnapshotResult> pending) =>
+            EncodeCapture(await pending.ConfigureAwait(false));
+    }
+
+    internal readonly record struct CaptureSnapshotResult(CharacterState? State, string? ErrorCode = null);
+
+    private static SandboxSscCharacterCaptureResult EncodeCapture(CaptureSnapshotResult capture) => capture.State is not { } state
+        ? new SandboxSscCharacterCaptureResult(false, ErrorCode: capture.ErrorCode)
+        : Validate(state) ? new SandboxSscCharacterCaptureResult(true, JsonSerializer.Serialize(state, JsonOptions))
+            : new SandboxSscCharacterCaptureResult(false, ErrorCode: "sandbox.ssc.capture_invalid");
+
+    private CaptureSnapshotResult CaptureSnapshot(PlayerId playerId)
     {
         dispatcher.AssertGameThread();
         if (!TryGetPlayer(playerId, out global::Terraria.Player? player) || player is null)
         {
-            return new SandboxSscCharacterCaptureResult(false, ErrorCode: "player.not_found");
+            return new CaptureSnapshotResult(null, "player.not_found");
         }
 
         var state = new CharacterState
@@ -231,8 +249,7 @@ public sealed class TerrariaSandboxSscCharacterAdapter(IGameThreadDispatcher dis
             })]
         };
 
-        return Validate(state) ? new SandboxSscCharacterCaptureResult(true, JsonSerializer.Serialize(state, JsonOptions))
-            : new SandboxSscCharacterCaptureResult(false, ErrorCode: "sandbox.ssc.capture_invalid");
+        return new CaptureSnapshotResult(state);
     }
 
     private SandboxSscCharacterApplyResult Apply(PlayerId playerId, CharacterState state, bool synchronize = true)

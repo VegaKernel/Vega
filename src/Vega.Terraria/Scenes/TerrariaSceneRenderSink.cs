@@ -1,4 +1,3 @@
-using System.Collections.Concurrent;
 using System.Diagnostics;
 using Terraria.Net.Sockets;
 using Vega.Contracts.Operations;
@@ -19,7 +18,7 @@ public sealed class TerrariaSceneRenderSink(
     private const int MaximumQueuedRegions = 256;
     // Worst-case 15 bytes per tile + 10-byte packet header must fit Int16 length.
     internal const int MaximumTileSquareSide = 46;
-    private readonly ConcurrentQueue<SceneRenderRequest> pending = new();
+    private readonly Queue<RenderJob> pending = new();
     private readonly object admission = new();
     private ISceneRuntime? scenes;
     private IPlayerSessionLifecycle? sessions;
@@ -27,9 +26,12 @@ public sealed class TerrariaSceneRenderSink(
     private bool drainPosted;
     internal const int MaximumRecipientsPerBatch = 4;
     internal const int MaximumBatchesPerStep = 4;
-    private SceneRenderRequest? activeRequest;
-    private IEnumerator<(SceneBounds Bounds, int Offset, int Count)>? activeBatches;
-    private (PlayerId Id, ISocket Socket)[] activeRecipients = [];
+    private sealed class RenderJob(SceneRenderRequest request)
+    {
+        public SceneRenderRequest Request { get; } = request;
+        public IEnumerator<(SceneBounds Bounds, int Offset, int Count)>? Batches;
+        public (PlayerId Id, ISocket Socket)[] Recipients = [];
+    }
 
     public void Attach(ISceneRuntime runtime, IPlayerSessionLifecycle lifecycle)
     {
@@ -55,15 +57,15 @@ public sealed class TerrariaSceneRenderSink(
                 scenes.ReportFailure(request.SceneId, "Scene belongs to another world.");
                 return false;
             }
-            if (Volatile.Read(ref queued) >= MaximumQueuedRegions)
+            if (queued >= MaximumQueuedRegions)
             {
                 scenes.ReportFailure(request.SceneId, "Dirty-region queue capacity was exceeded.");
                 logger.Log(OperationsLogLevel.Warning, "scenes", "Scene dirty-region queue is full; redraw rejected.");
                 return false;
             }
 
-            Interlocked.Increment(ref queued);
-            pending.Enqueue(request);
+            queued++;
+            pending.Enqueue(new RenderJob(request));
             if (drainPosted) return true;
             drainPosted = true;
             if (dispatcher.TrySchedule("scenes.render", DrainStep)) return true;
@@ -71,7 +73,7 @@ public sealed class TerrariaSceneRenderSink(
             // No drain owns the queue and no other producer can enter until this
             // lock exits. Roll back the sole reservation instead of stranding it.
             drainPosted = false;
-            if (pending.TryDequeue(out _)) Interlocked.Decrement(ref queued);
+            if (pending.TryDequeue(out _)) queued--;
             scenes.ReportFailure(request.SceneId, "Game-thread queue capacity was exceeded.");
             logger.Log(OperationsLogLevel.Warning, "scenes", "Scene redraw could not enter the game-thread queue.");
             return false;
@@ -88,7 +90,7 @@ public sealed class TerrariaSceneRenderSink(
         lock (admission)
         {
             scenes = null;
-            while (pending.TryDequeue(out _)) Interlocked.Decrement(ref queued);
+            while (pending.TryDequeue(out var job)) FinishRequest(job);
         }
 
         sessions = null;
@@ -132,54 +134,60 @@ public sealed class TerrariaSceneRenderSink(
         for (int step = 0; step < MaximumBatchesPerStep &&
              (step == 0 || Stopwatch.GetElapsedTime(started).TotalMilliseconds < 1); step++)
         {
-            if (scenes is null)
+            RenderJob? job;
+            lock (admission)
             {
-                FinishRequest();
-                break;
+                if (scenes is null || !pending.TryDequeue(out job)) break;
             }
-            if (activeRequest is null && !pending.TryDequeue(out activeRequest)) break;
+            bool requeue = false;
             try
             {
-                if (activeBatches is null) BeginRequest(activeRequest);
-                if (activeBatches!.MoveNext())
+                if (job.Batches is null) BeginRequest(job);
+                if (job.Batches!.MoveNext())
                 {
-                    var (bounds, offset, count) = activeBatches.Current;
-                    RenderBatch(bounds, offset, count);
+                    var (bounds, offset, count) = job.Batches.Current;
+                    RenderBatch(job.Recipients, bounds, offset, count);
+                    requeue = true;
                 }
                 else
                 {
-                    scenes?.ReportFailure(activeRequest.SceneId, null);
-                    FinishRequest();
+                    scenes?.ReportFailure(job.Request.SceneId, null);
                 }
             }
             catch (Exception ex)
             {
-                scenes?.ReportFailure(activeRequest!.SceneId, ex.Message);
+                scenes?.ReportFailure(job.Request.SceneId, ex.Message);
                 logger.Log(OperationsLogLevel.Error, "scenes", "Scene redraw failed.", ex);
-                FinishRequest();
+            }
+            finally
+            {
+                // Every batch resolves current tiles, not a historical frame. Rotate
+                // unfinished jobs so small updates don't wait for a full-world refresh.
+                lock (admission)
+                {
+                    if (requeue && scenes is not null) pending.Enqueue(job);
+                    else FinishRequest(job);
+                }
             }
         }
 
         lock (admission)
         {
-            if (scenes is not null && (activeRequest is not null || !pending.IsEmpty)) return false;
+            if (scenes is not null && pending.Count != 0) return false;
             drainPosted = false;
             return true;
         }
     }
 
-    private void FinishRequest()
+    private void FinishRequest(RenderJob job)
     {
-        activeBatches?.Dispose();
-        activeBatches = null;
-        activeRecipients = [];
-        if (activeRequest is null) return;
-        activeRequest = null;
-        Interlocked.Decrement(ref queued);
+        job.Batches?.Dispose();
+        queued--;
     }
 
-    private void BeginRequest(SceneRenderRequest request)
+    private void BeginRequest(RenderJob job)
     {
+        SceneRenderRequest request = job.Request;
         int worldWidth = Math.Max(0, global::Terraria.Main.maxTilesX);
         int worldHeight = Math.Max(0, global::Terraria.Main.maxTilesY);
         int startX = Math.Clamp(request.DirtyRegion.X, 0, worldWidth);
@@ -196,18 +204,19 @@ public sealed class TerrariaSceneRenderSink(
                 global::Terraria.Netplay.Clients[recipient.Slot] is { IsActive: true, Socket: { } socket })
                 connected.Add((recipient, socket));
         }
-        activeRecipients = connected.ToArray();
-        activeBatches = request.RefreshLoadedSections
-            ? EnumerateLoadedBatches(worldWidth, worldHeight).GetEnumerator()
+        job.Recipients = connected.ToArray();
+        job.Batches = request.RefreshLoadedSections
+            ? EnumerateLoadedBatches(job.Recipients, worldWidth, worldHeight).GetEnumerator()
             : EnumerateBatches(new SceneBounds(startX, startY, endX - startX, endY - startY),
-                activeRecipients.Length).GetEnumerator();
+                job.Recipients.Length).GetEnumerator();
     }
 
-    private IEnumerable<(SceneBounds Bounds, int Offset, int Count)> EnumerateLoadedBatches(int worldWidth, int worldHeight)
+    private static IEnumerable<(SceneBounds Bounds, int Offset, int Count)> EnumerateLoadedBatches(
+        (PlayerId Id, ISocket Socket)[] recipients, int worldWidth, int worldHeight)
     {
-        for (int i = 0; i < activeRecipients.Length; i++)
+        for (int i = 0; i < recipients.Length; i++)
         {
-            var (recipient, socket) = activeRecipients[i];
+            var (recipient, socket) = recipients[i];
             if (global::Terraria.Netplay.Clients[recipient.Slot] is not { IsActive: true } client ||
                 !ReferenceEquals(client.Socket, socket)) continue;
             foreach (SceneBounds section in EnumerateLoadedSections(client.TileSections,
@@ -249,13 +258,13 @@ public sealed class TerrariaSceneRenderSink(
         }
     }
 
-    private void RenderBatch(SceneBounds bounds, int offset, int count)
+    private void RenderBatch((PlayerId Id, ISocket Socket)[] recipients, SceneBounds bounds, int offset, int count)
     {
         using var cache = new SceneTileSquarePacketCache(bounds.X, bounds.Y, bounds.Width, bounds.Height);
         Func<PlayerId, int, int, SceneTile> resolve = ResolveTile;
         for (int i = offset; i < offset + count; i++)
         {
-            var (recipient, socket) = activeRecipients[i];
+            var (recipient, socket) = recipients[i];
             if (global::Terraria.Netplay.Clients[recipient.Slot] is not { IsActive: true } client ||
                 !ReferenceEquals(client.Socket, socket)) continue;
             byte[] packet = cache.Resolve(recipient, resolve, global::Terraria.Main.tileFrameImportant);
