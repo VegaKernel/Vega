@@ -1,19 +1,191 @@
 using NUnit.Framework;
+using TerraRuntime.Schematics;
 using Vega.Contracts.Commands;
 using Vega.Contracts.Modules;
 using Vega.Contracts.Operations;
 using Vega.Contracts.Players;
 using Vega.Contracts.Scenes;
+using Vega.Contracts.Threading;
 using Vega.Contracts.Worlds;
+using Vega.Core.Events;
 using Vega.Core.Modules;
 using Vega.Core.Scenes;
 using Vega.PluginSdk;
+using Vega.Modules.Scenes;
+using Vega.Terraria.Hooking;
 
 namespace Vega.Runtime.Tests.Core;
 
 [TestFixture]
 public sealed class PluginSdkWorldContextTests
 {
+    [Test]
+    [NonParallelizable]
+    public async Task NativeNpcNotificationsAreWorldScopedDetachedGuardedAndUnsubscribed()
+    {
+        var world = new WorldId("event-world");
+        var events = new WorldGameplayEventHub();
+        var dispatcher = new EventGameThread();
+        using var hooks = new NativeGameplayEventHooks(world, events, dispatcher, new NullLogger());
+        hooks.Attach();
+        var faulty = new HotModuleRegistrationScope(new NullCommandRegistry(), new NullLogger(), "Plugin.FaultyEvents",
+            Path.GetTempPath(), faultThreshold: 2, worldEvents: events);
+        var healthy = new HotModuleRegistrationScope(new NullCommandRegistry(), new NullLogger(), "Plugin.HealthyEvents",
+            Path.GetTempPath(), worldEvents: events);
+        try
+        {
+            int failures = 0;
+            var observed = new List<NpcEventSnapshot>();
+            faulty.WorldEvents.OnNpcKilled(_ => { failures++; throw new InvalidOperationException("plugin failure"); });
+            healthy.WorldEvents.OnNpcKilled(value => observed.Add(value.Npc));
+            var npc = new global::Terraria.NPC { whoAmI = 7, type = 22, generation = 4, life = 0, position = new(100, 200) };
+            global::TerrariaRuntime.Hooks.NPC.InvokeKilled(npc);
+            npc.position = new(300, 400);
+            global::TerrariaRuntime.Hooks.NPC.InvokeKilled(npc);
+            global::TerrariaRuntime.Hooks.NPC.InvokeKilled(npc);
+            Assert.That(failures, Is.EqualTo(2));
+            Assert.That(faulty.Faults.Quarantined, Is.True);
+            Assert.That(observed.Count, Is.EqualTo(3));
+            Assert.That(observed[0], Is.EqualTo(new NpcEventSnapshot(world, 7, 4, 22, new(100, 200), 0, false, false)));
+            var projectiles = new List<ProjectileEventSnapshot>();
+            healthy.WorldEvents.OnProjectileSynchronized(e => projectiles.Add(e.Projectile));
+            healthy.WorldEvents.OnProjectileRemoved(e => projectiles.Add(e.Projectile));
+            bool previousDedicated = global::Terraria.Main.dedServ;
+            try
+            {
+                global::Terraria.Main.dedServ = true;
+                var projectile = new global::Terraria.Projectile { whoAmI = 2, key = (global::Terraria.DataStructures.ProjectileKey)123, type = 7, owner = 3, position = new(14, 16) };
+                var buffer = new global::Terraria.MessageBuffer { whoAmI = 3 };
+                global::TerrariaRuntime.Hooks.MessageBuffer.NotifyServerProjectileSync(buffer, projectile);
+                projectile.position = new(20, 30);
+                global::TerrariaRuntime.Hooks.MessageBuffer.NotifyServerProjectileRemoval(buffer, projectile);
+                Assert.That(projectiles, Is.EqualTo(new[] { new ProjectileEventSnapshot(world, 2, 123, 7, 3, new(14, 16)),
+                    new ProjectileEventSnapshot(world, 2, 123, 7, 3, new(20, 30)) }));
+            }
+            finally { global::Terraria.Main.dedServ = previousDedicated; }
+            dispatcher.OnThread = false;
+            global::TerrariaRuntime.Hooks.NPC.InvokeKilled(npc);
+            Assert.That(observed.Count, Is.EqualTo(3));
+            await faulty.DisposeAsync();
+            await healthy.DisposeAsync();
+            Assert.That(events.HasSubscribers<NpcKilledEvent>(), Is.False);
+            Assert.That(events.HasSubscribers<ProjectileSynchronizedEvent>(), Is.False);
+            Assert.That(events.HasSubscribers<ProjectileRemovedEvent>(), Is.False);
+        }
+        finally { await faulty.DisposeAsync(); await healthy.DisposeAsync(); }
+    }
+
+    private sealed class EventGameThread : IGameThreadDispatcher
+    {
+        public bool OnThread { get; set; } = true;
+        public bool IsGameThreadKnown => true;
+        public bool IsGameThread => OnThread;
+        public void AssertGameThread() { }
+        private Action? pending;
+        public bool TryPost(string name, Action action) { pending = action; return true; }
+        public void RunPending() { OnThread = true; var action = pending; pending = null; action!(); OnThread = false; }
+        public bool TrySchedule(string name, Func<bool> step) => throw new NotSupportedException();
+    }
+
+    [Test]
+    [NonParallelizable]
+    public async Task NpcTransformPoliciesFailOpenOnPluginFaultAndRespectExplicitVeto()
+    {
+        var events = new WorldGameplayEventHub();
+        using var hooks = new NativeGameplayEventHooks(WorldId.Primary, events, new EventGameThread(), new NullLogger());
+        hooks.Attach();
+        var suspect = new HotModuleRegistrationScope(new NullCommandRegistry(), new NullLogger(), "Plugin.FaultyPolicy", Path.GetTempPath(), worldEvents: events);
+        var policy = new HotModuleRegistrationScope(new NullCommandRegistry(), new NullLogger(), "Plugin.TransformPolicy", Path.GetTempPath(), worldEvents: events);
+        try
+        {
+            suspect.WorldEvents.AllowNpcTransform(_ => throw new InvalidOperationException("policy fault"));
+            policy.WorldEvents.AllowNpcTransform(value => value.RequestedType != 23);
+            var npc = new global::Terraria.NPC { whoAmI = 1, type = 22, generation = 1 };
+            bool Invoke(int requested)
+            {
+                float a = 0, b = 0, c = 0, d = 0;
+                bool reposition = false;
+                return global::TerrariaRuntime.Hooks.NPC.InvokeTransforming(npc, ref requested, ref a, ref b, ref c, ref d, ref reposition);
+            }
+            Assert.That(Invoke(23), Is.False);
+            Assert.That(Invoke(24), Is.True);
+            Assert.That(suspect.Faults.Count, Is.EqualTo(2));
+            NpcLootCreatingEvent? loot = null;
+            policy.WorldEvents.AllowNpcLoot(value => { loot = value; return false; });
+            int cancelledSlot = global::TerrariaRuntime.Hooks.NPC.InvokeDropLoot(new global::Terraria.DataStructures.EntitySource_DebugCommand(),
+                10, 20, 4, 4, 8, 3, false, 0, default, null, default, npc);
+            Assert.That(cancelledSlot, Is.EqualTo(global::Terraria.Main.maxItems));
+            Assert.That(loot!.Value.ItemType, Is.EqualTo(8));
+            Assert.That(loot.Value.Stack, Is.EqualTo(3));
+            await policy.DisposeAsync();
+            Assert.That(Invoke(23), Is.True);
+            Assert.That(events.HasPolicies<NpcLootCreatingEvent>(), Is.False);
+            await suspect.DisposeAsync();
+            Assert.That(events.HasPolicies<NpcTransformingEvent>(), Is.False);
+        }
+        finally { await policy.DisposeAsync(); await suspect.DisposeAsync(); }
+    }
+
+    [Test]
+    public async Task PluginSchematicCaptureHasBoundedAdmissionAndReturnsDetachedCodecData()
+    {
+        var world = new WorldId("schematic-world");
+        var dispatcher = new EventGameThread { OnThread = false };
+        var source = new TestSchematicSource(dispatcher);
+        var service = new SchematicSnapshotService(world, source, dispatcher);
+        VegaPluginRuntime.Configure(new VegaPluginRuntimeServices(world, null, null, null, null, null, null, Schematics: service));
+        await using var scope = new HotModuleRegistrationScope(new NullCommandRegistry(), new NullLogger(), "Plugin.Schematic", Path.GetTempPath());
+        var api = ((IVegaPluginContext)scope).World.Schematics;
+        var pending = api.CaptureAsync(new SceneBounds(10, 20, 2, 2));
+        Assert.That(pending.IsCompleted, Is.False);
+        Assert.That((await api.CaptureAsync(new SceneBounds(10, 20, 2, 2))).Status, Is.EqualTo(WorldSchematicCaptureStatus.Busy));
+        Assert.That(source.Captures, Is.Zero);
+        dispatcher.RunPending();
+        var result = await pending;
+        Assert.That(result.Status, Is.EqualTo(WorldSchematicCaptureStatus.Captured));
+        Assert.That(SchematicBinary.Deserialize(result.Data.Span).Npcs.Single().NpcType, Is.EqualTo(22));
+        Assert.That(source.Captures, Is.EqualTo(1));
+        Assert.That((await service.CaptureAsync(WorldId.Primary, new SceneBounds(10, 20, 2, 2))).Status, Is.EqualTo(WorldSchematicCaptureStatus.Invalid));
+    }
+
+    private sealed class TestSchematicSource(IGameThreadDispatcher dispatcher) : ISchematicCaptureSource
+    {
+        public int Captures { get; private set; }
+        public SchematicDocument Capture(in SchematicBounds bounds)
+        {
+            Assert.That(dispatcher.IsGameThread, Is.True);
+            Captures++;
+            return new SchematicDocument { ContentVersion = 279, Width = bounds.Width, Height = bounds.Height,
+                Tiles = new SchematicTile[bounds.Width * bounds.Height], Npcs = [new(22, 16, 16)] };
+        }
+    }
+
+    [Test]
+    public async Task SchematicPlacementRefusesUnsupportedSectionsAndDoesNotDispatchThemToNativeWorld()
+    {
+        var world = new WorldId("arena");
+        var dispatcher = new EventGameThread();
+        int placed = 0;
+        var service = new SchematicSnapshotService(world, new TestSchematicSource(dispatcher), dispatcher,
+            (document, tiles, bounds) =>
+            {
+                placed++;
+                Assert.That(bounds, Is.EqualTo(new SceneBounds(50, 60, 2, 2)));
+                Assert.That(document.Npcs.Single().NpcType, Is.EqualTo(22));
+                return new(WorldSchematicPlacementStatus.Applied, document.Npcs.Length);
+            });
+        byte[] Encode(bool unsupported) => SchematicBinary.Serialize(new SchematicDocument
+        {
+            ContentVersion = 279, Width = 2, Height = 2, Tiles = new SchematicTile[4], Npcs = [new(22, 16, 16)],
+            Signs = unsupported ? [new(0, 0, "must not disappear")] : []
+        });
+        Assert.That((await service.PlaceAsync(WorldId.Primary, Encode(false), 50, 60)).Status, Is.EqualTo(WorldSchematicPlacementStatus.Unavailable));
+        Assert.That((await service.PlaceAsync(world, Encode(true), 50, 60)).Status, Is.EqualTo(WorldSchematicPlacementStatus.Invalid));
+        Assert.That(placed, Is.Zero);
+        Assert.That((await service.PlaceAsync(world, Encode(false), 50, 60)).Status, Is.EqualTo(WorldSchematicPlacementStatus.Applied));
+        Assert.That(placed, Is.EqualTo(1));
+    }
+
     [SetUp]
     public void ResetRuntime() => VegaPluginRuntime.Configure(VegaPluginRuntimeServices.Empty);
 

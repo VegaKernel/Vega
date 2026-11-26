@@ -391,6 +391,8 @@ int Start()
         var worldEntities = new TerrariaWorldEntityMaintenance(gameThreadDispatcher, runtimeWorldId);
         var worldTiles = new TerrariaWorldTileService(gameThreadDispatcher, runtimeWorldId);
         var worldNpcs = new TerrariaWorldNpcService(gameThreadDispatcher, runtimeWorldId, playerBoundary);
+        var worldSchematics = new SchematicSnapshotService(runtimeWorldId, new TerrariaSchematicCapture(gameThreadDispatcher), gameThreadDispatcher,
+            new TerrariaSchematicPlacement(gameThreadDispatcher, runtimeWorldId).Place);
         WorldBuildProtection buildProtection;
         try { buildProtection = new WorldBuildProtection(Path.Combine(runtimeDataRoot, "build-protection.json"), runtimeWorldId, playerAuthorization, worldEnvironment.GetSpawnPosition); }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or System.Text.Json.JsonException or InvalidDataException)
@@ -478,7 +480,7 @@ int Start()
             if (Enabled(sceneConsumers))
             {
                 moduleCommands.Add(new SceneCommand(sceneConsumers, scenes, playerBoundary));
-                moduleCommands.Add(new SchematicCommand(new TerrariaSchematicCapture(gameThreadDispatcher), gameThreadDispatcher));
+                moduleCommands.Add(new SchematicCommand(worldSchematics));
                 moduleCommands.Add(new FakeProviderCommand(sceneConsumers.FakeProviders, playerBoundary, gameThreadDispatcher, personal: false));
                 moduleCommands.Add(new FakeProviderCommand(sceneConsumers.FakeProviders, playerBoundary, gameThreadDispatcher, personal: true));
             }
@@ -739,7 +741,8 @@ int Start()
             worldNpcs,
             scenes,
             inventoryService,
-            visibility));
+            visibility, worldSchematics));
+        var worldEvents = new WorldGameplayEventHub();
         using var serverPlugins = new ServerPluginHotReloadHost(
             Path.Combine(AppContext.BaseDirectory, "ServerPlugins"),
             hotReloadOptions,
@@ -751,7 +754,8 @@ int Start()
             playerLifecycle: playerBoundary,
             gameThread: gameThreadDispatcher,
             pluginDataRoot: Path.Combine(runtimeDataRoot, "plugins"),
-            pluginConfigurationRoot: backendLaunch.IsBackend ? Path.Combine(runtimeDataRoot, "plugin-config") : null);
+            pluginConfigurationRoot: backendLaunch.IsBackend ? Path.Combine(runtimeDataRoot, "plugin-config") : null,
+            worldEvents: worldEvents);
         serverPlugins.Start();
         softRestart.SetProcessRestartGuard(() => serverPlugins.Read().IsRestartRequired
             ? "ServerPlugins contains a change or cleanup failure that requires a process restart."
@@ -878,7 +882,8 @@ int Start()
                     ? player => sandboxSscSessions.IsGameplayAllowed(player, primaryCharacterOptions.EffectiveRequireCharacterReady) : null,
             earlyJoinCharacters: authoritativeCharacters || !backendLaunch.IsBackend && primaryCharacterOptions.Enabled ? sandboxCharacterAdapter : null,
             joinInventoryPolicy: inventoryPolicy,
-            authoritativeCharacters: authoritativeCharacters);
+            authoritativeCharacters: authoritativeCharacters,
+            worldEvents: worldEvents);
     }
 }
 

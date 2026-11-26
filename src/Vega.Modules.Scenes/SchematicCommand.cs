@@ -20,15 +20,23 @@ internal static class SchematicOperations
     }
 }
 
-public sealed class SchematicCommand(ISchematicCaptureSource source, IGameThreadDispatcher dispatcher) : ICommandHandler
+public sealed class SchematicCommand(SchematicSnapshotService snapshots) : ICommandHandler
 {
     public CommandDescriptor Descriptor { get; } = new("schematic", [], ["vega.scenes.manage"],
-        Syntax: "schematic inspect <file> | schematic export <file> <x> <y> <width> <height>");
+        Syntax: "schematic inspect <file> | schematic export <file> <x> <y> <width> <height> | schematic place <file> <x> <y>");
 
     public async ValueTask<CommandExecutionResult> ExecuteAsync(CommandInvocation invocation, CancellationToken cancellationToken)
     {
         var args = invocation.Arguments;
         if (args.Count < 2 || SchematicOperations.ResolveFile(args[1]) is not { } path) return Failure(Descriptor.Syntax);
+        if (args[0].Equals("place", StringComparison.OrdinalIgnoreCase))
+        {
+            if (!invocation.Principal.IsServer) return Failure("Native placement is restricted to the isolated sandbox console.");
+            if (args.Count != 4 || !int.TryParse(args[2], out int placementX) || !int.TryParse(args[3], out int placementY)) return Failure(Descriptor.Syntax);
+            var result = await snapshots.PlaceFileAsync(path, placementX, placementY, cancellationToken).ConfigureAwait(false);
+            return result.Status == Vega.Contracts.Worlds.WorldSchematicPlacementStatus.Applied
+                ? Info($"Schematic placed with {result.NpcsPlaced} NPCs.") : Failure(result.Error ?? result.Status.ToString());
+        }
         bool inspect = args.Count == 2 && args[0].Equals("inspect", StringComparison.OrdinalIgnoreCase);
         SchematicBounds bounds = default;
         if (!inspect)
@@ -47,22 +55,9 @@ public sealed class SchematicCommand(ISchematicCaptureSource source, IGameThread
             {
                 bounds.Validate();
                 if (File.Exists(path)) return Failure("Schematic already exists; choose a new filename.");
-                if (!dispatcher.IsGameThreadKnown) return Failure("Game thread is unavailable.");
-                if (dispatcher.IsGameThread) document = source.Capture(bounds);
-                else
-                {
-                    var completion = new TaskCompletionSource<SchematicDocument>(TaskCreationOptions.RunContinuationsAsynchronously);
-                    if (!dispatcher.TryPost("schematic.capture", () =>
-                    {
-                        if (cancellationToken.IsCancellationRequested) completion.TrySetCanceled(cancellationToken);
-                        else
-                        {
-                            try { completion.TrySetResult(source.Capture(bounds)); }
-                            catch (Exception ex) { completion.TrySetException(ex); }
-                        }
-                    })) return Failure("Game thread is unavailable.");
-                    document = await completion.Task.ConfigureAwait(false);
-                }
+                if (await snapshots.CaptureDocumentAsync(bounds, cancellationToken).ConfigureAwait(false) is not { } captured)
+                    return Failure("Game thread is unavailable.");
+                document = captured;
                 await Task.Run(() =>
                 {
                     string staged = path + $".{Guid.NewGuid():N}.staging";

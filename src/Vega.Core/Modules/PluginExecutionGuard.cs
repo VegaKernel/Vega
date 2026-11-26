@@ -98,6 +98,18 @@ internal sealed class PluginExecutionGuard
         finally { Interlocked.Decrement(ref activeCalls); }
     }
 
+    public bool Allows<T>(string operation, Func<T, bool> callback, T argument)
+    {
+        if (!TryEnter()) return true;
+        try { return callback(argument); }
+        catch (Exception exception)
+        {
+            Record(operation, exception);
+            return true;
+        }
+        finally { Interlocked.Decrement(ref activeCalls); }
+    }
+
     public async ValueTask<CommandExecutionResult> InvokeCommandAsync(
         string operation,
         ICommandHandler handler,

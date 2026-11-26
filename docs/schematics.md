@@ -25,6 +25,7 @@ fake schematic arena-preview arena 300 400
 pfake schematic private-preview Alice arena 300 400
 fake remove arena-preview
 pfake remove private-preview
+schematic place arena 300 400
 ```
 
 Coordinates in the commands identify the top-left tile (not the optional
@@ -47,16 +48,35 @@ accidentally alter canonical tiles or spawn entities merely by previewing a file
 Vega has not yet implemented complete native world materialization from
 `.trschem`; the sandbox supervisor still launches native `.wld` instances.
 
+Native `schematic place` is now available from the console of an isolated sandbox
+with no connected clients. `plugin.World.Schematics.PlaceAsync` exposes the same
+operation with encoded data. This first materializer supports tiles and NPCs,
+including relative position, direction, name, home and life where supported by
+the current native NPC type. It rejects schema documents containing chest, sign,
+tile-entity or world-item sections rather than silently dropping records. Marker
+and metadata values remain informational in the original document. Placement
+requires an area without registered native objects or active entities, checks
+the native slot capacity and tile field limits, and uses the normal native NPC
+allocator. The primary world and occupied sandboxes reject placement. If native
+allocation fails, the previous represented tile state and newly owned NPC slots
+are rolled back; arbitrary native/plugin side effects are not transactional, so
+a failed placement is not a ready world template.
+
+The native Windows sandbox smoke placed a six-by-six schematic with one Guide,
+then exported the canonical region again and verified its 36-tile dimensions, a
+stone tile at the expected row, and the NPC's type, name, relative position
+(24,16), direction and 50 life. The native allocator was used; the smoke did
+not involve joined players. Fixture and raw files are in the local
+`artifacts/placement-native-smoke-*` and `artifacts/schematic-placement-fixture`
+directories. The managed regression separately injects an allocation failure
+and verifies tile restoration and owned NPC retirement.
+
 One file operation per world process is admitted at a time (import, export or
 inspect), bounding simultaneous detached document and codec buffers. Full game
 simulation and mutable native objects remain on the owning world thread.
 
 ## Next integration boundaries
 
-Native materialization of a complete schematic into a new isolated sandbox
-requires placement of tiles, native containers/signs, tile entities, NPCs and
-items, with version/geometry/occupancy checks and safe persistence. A normal
-PlayerBot must be a server-owned player under the native lifetime and world
-authority, not a second simulated player store, NPC substitute, or bypass of
-session admission. TerraRuntime's bot policy and navigation can be ported after
-that native actor boundary is implemented and verified.
+Remaining native materialization work includes native containers/signs, tile
+entities and items, automatic source-to-sandbox bootstrap and persistent world
+qualification. PlayerBots are deferred by the operator.

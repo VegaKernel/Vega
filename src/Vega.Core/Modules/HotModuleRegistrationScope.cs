@@ -42,7 +42,7 @@ internal sealed class HotModuleRegistrationScope : IHotModuleContext, IVegaPlugi
         IVegaDebugContext? debug = null,
         string? pluginConfigurationRoot = null,
         Guid? activationId = null, int faultThreshold = 5, TimeSpan? faultWindow = null,
-        Action? onQuarantine = null)
+        Action? onQuarantine = null, IWorldGameplayEvents? worldEvents = null)
     {
         ArgumentNullException.ThrowIfNull(commands);
         this.logger = logger ?? throw new ArgumentNullException(nameof(logger));
@@ -68,6 +68,7 @@ internal sealed class HotModuleRegistrationScope : IHotModuleContext, IVegaPlugi
 
         Commands = new PluginCommands(this, commands);
         Players = new PluginPlayers(this, playerDirectory, messenger, playerOperations, playerLifecycle);
+        WorldEvents = new PluginWorldEvents(this, worldEvents);
         Tasks = new PluginTasks(this, gameThread);
         Configuration = new PluginConfiguration(this, pluginName, configurationDirectory);
         Storage = new PluginStorage(dataDirectory);
@@ -82,6 +83,7 @@ internal sealed class HotModuleRegistrationScope : IHotModuleContext, IVegaPlugi
 
     public IPluginCommands Commands { get; }
     public IPluginPlayers Players { get; }
+    public IPluginWorldEvents WorldEvents { get; }
     public IPluginTasks Tasks { get; }
     public IPluginConfiguration Configuration { get; }
     public IPluginStorage Storage { get; }
@@ -362,6 +364,44 @@ internal sealed class HotModuleRegistrationScope : IHotModuleContext, IVegaPlugi
                 owner.executionGuard.TryInvoke("players.left", handler, closed);
             lifecycle.Closed += guarded;
             owner.Track(new CleanupRegistration(() => lifecycle.Closed -= guarded));
+        }
+    }
+
+    private sealed class PluginWorldEvents(HotModuleRegistrationScope owner, IWorldGameplayEvents? events) : IPluginWorldEvents
+    {
+        public void OnNpcCreating(Action<NpcCreatingEvent> handler) => Register("world.npc.creating", handler);
+        public void OnNpcKilled(Action<NpcKilledEvent> handler) => Register("world.npc.killed", handler);
+        public void OnNpcTransforming(Action<NpcTransformingEvent> handler) => Register("world.npc.transforming", handler);
+        public void OnNpcLootDropped(Action<NpcLootDroppedEvent> handler) => Register("world.npc.loot", handler);
+        public void OnProjectileSynchronized(Action<ProjectileSynchronizedEvent> handler) => Register("world.projectile.sync", handler);
+        public void OnProjectileRemoved(Action<ProjectileRemovedEvent> handler) => Register("world.projectile.removed", handler);
+        public void AllowNpcTransform(Func<NpcTransformingEvent, bool> allow) => RegisterPolicy("world.npc.transform.policy", allow);
+        public void AllowNpcLoot(Func<NpcLootCreatingEvent, bool> allow) => RegisterPolicy("world.npc.loot.policy", allow);
+
+        private void RegisterPolicy<T>(string operation, Func<T, bool> allow) where T : struct
+        {
+            ArgumentNullException.ThrowIfNull(allow);
+            if (events is null) throw new NotSupportedException("World gameplay events are unavailable in this host.");
+            lock (owner.sync)
+            {
+                ObjectDisposedException.ThrowIf(owner.disposed, owner);
+                owner.Track(events.SubscribePolicy<T>(value => owner.lifetime.IsCancellationRequested || owner.executionGuard.Allows(operation, allow, value)));
+            }
+        }
+
+        private void Register<T>(string operation, Action<T> handler) where T : struct
+        {
+            ArgumentNullException.ThrowIfNull(handler);
+            if (events is null) throw new NotSupportedException("World gameplay events are unavailable in this host.");
+            lock (owner.sync)
+            {
+                ObjectDisposedException.ThrowIf(owner.disposed, owner);
+                var registration = events.Subscribe<T>(value =>
+                {
+                    if (!owner.lifetime.IsCancellationRequested) owner.executionGuard.TryInvoke(operation, handler, value);
+                });
+                owner.Track(registration);
+            }
         }
     }
 

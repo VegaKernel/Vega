@@ -574,3 +574,15 @@ renderer integration fixture with a recording socket confirms a one-tile update
 arrives second rather than after all four batches of a larger preceding redraw.
 The admission cap, cooperative budget and socket identity checks remain in force.
 These are synthetic/loopback measurements, not joined-player or WAN qualification.
+
+### World-event SDK dispatch (27 November)
+
+The guarded, typed `WorldEvents` path is exercised by
+`benchmarks/Vega.PluginSdk.Benchmarks`: five million calls per path, one native
+event subscriber/policy and the same per-plugin guard used by runtime callbacks.
+The local Release run measured 13.62 ns for an empty subscriber probe,
+81.31 ns for probe plus guarded NPC-event delivery, and 54.46 ns for probe plus
+guarded allow-policy evaluation; each loop allocated zero managed bytes.
+Exact delivery and removal after disposal are asserted by the benchmark. These
+are hub costs, not native patch overhead or live-client TPS. Raw output:
+`artifacts/performance-2026-11-26/vega-world-events-benchmark.txt`.

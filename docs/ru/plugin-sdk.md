@@ -179,3 +179,28 @@ if (captured is not null && player.SessionId is not null)
 
 `CreateVisibilityLayer(name, observers)` создаёт принадлежащий плагину слой видимости. `AssignPlayer`/`RemovePlayer` требуют точную сессию; `AssignNpc`/`AssignProjectile`, `RemoveNpc`/`RemoveProjectile` работают с нативными слотами — плагин должен снять назначение при despawn, до повторного использования ID. Это фильтрация поддерживаемых пакетов и интеракций, не независимая физика и не автоматический spawn/despawn/resync клиента. `CreatePersonal(..., fillOutsideWithAir: true)` и `SetFillOutsideWithAir(true)` включают персональный воздушный фон: глобальные слои скрываются только для выбранных сессий, загруженные секции перерисовываются постепенно. Это визуальный эффект, не конфиденциальность канонических секций и не независимая физика. `SupportsVirtualChests` и `IPluginTileProvider.CreateVirtualChest(localX, localY, name, items)` предоставляют логические сундуки, привязанные к слою: неизменяемое содержимое, `TryReplace` с ревизией, `TryTakeOpenRequest` с точной сессией и автоматическое освобождение. Логические таблички используют `SupportsVirtualSigns`, `IPluginTileProvider.CreateVirtualSign(localX, localY, text)`, `TrySetText` с ревизией и `TryTakeReadRequest`. Сундуки и таблички имеют общую изоляцию слоя, мира и сессии. Для ответа на интеракцию используйте `plugin.Players.Message(playerSnapshot, text)` или `MessageAsync(playerSnapshot, text)`: хост проверяет точную сессию и не подменяет её числовым слотом. Нативный интерфейс инвентаря, перенос предметов, редактор табличек и tile entities ещё не реализованы. Пример — `samples/Vega.PluginSamples/VirtualChestPreviewCommand.cs`. `World.Scenes.Create` остаётся совместимым низкоуровневым API; для новых персональных провайдеров предпочтительна сессионная привязка FakeProvider.
 Рабочий пример команды `samplepreview` находится в `samples/Vega.PluginSamples/FakePreviewCommand.cs`: снимок ванильной области, персональное превью, перемещение и очистка.
+
+## Нативные игровые события и схемы
+
+```csharp
+context.WorldEvents.OnNpcKilled(e =>
+    context.Log.Write(OperationsLogLevel.Information,
+        $"NPC {e.Npc.Type} погиб в мире {e.Npc.WorldId}."));
+context.WorldEvents.AllowNpcTransform(e => e.RequestedType != blockedType);
+context.WorldEvents.AllowNpcLoot(e => e.Stack <= configuredStackLimit);
+```
+
+Доступны уведомления `OnNpcCreating`, `OnNpcKilled`, `OnNpcTransforming`,
+`OnNpcLootDropped`, `OnProjectileSynchronized` и `OnProjectileRemoved`.
+Они передают отделённые от Terraria данные текущего мира. Уведомление о
+создании NPC относится к запросу выделения слота, а события снарядов — к
+нативной входящей синхронизации, не ко всему жизненному циклу. Политики
+возвращают `false` для отмены операции. Исключения изолируются, подписки
+автоматически удаляются при выгрузке плагина. Обработчики выполняются на
+игровом потоке; последующие изменения мира лучше ставить через `Tasks.Post`.
+
+`context.World.Schematics.CaptureAsync(bounds, token)` возвращает закодированный
+`.trschem` с тайлами и данными объектов. Сериализация вынесена в фоновый поток.
+`PlaceAsync(data, x, y, token)` размещает поддерживаемые схемы с тайлами и NPC
+в изолированной песочнице без подключённых клиентов. Другие нативные объекты
+пока отклоняются, а не теряются при размещении. См. [схемы](../schematics.md).

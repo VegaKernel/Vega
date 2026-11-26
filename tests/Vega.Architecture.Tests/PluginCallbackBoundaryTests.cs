@@ -18,7 +18,10 @@ public sealed class PluginCallbackBoundaryTests
         Assert.That(callbackMethods, Is.EquivalentTo(new[]
         {
             "IPluginPlayers.OnJoined", "IPluginPlayers.OnLeft", "IPluginTasks.Post", "IPluginTasks.Every",
-            "IPluginTasks.RunIo", "IPluginConfiguration.Use", "IPluginStorage.LoadJson"
+            "IPluginTasks.RunIo", "IPluginConfiguration.Use", "IPluginStorage.LoadJson",
+            "IPluginWorldEvents.OnNpcCreating", "IPluginWorldEvents.OnNpcKilled", "IPluginWorldEvents.OnNpcTransforming",
+            "IPluginWorldEvents.OnNpcLootDropped", "IPluginWorldEvents.OnProjectileSynchronized", "IPluginWorldEvents.OnProjectileRemoved",
+            "IPluginWorldEvents.AllowNpcTransform", "IPluginWorldEvents.AllowNpcLoot"
         }), "A new ordinary SDK delegate surface requires a fault-boundary audit and regression.");
         // Storage defaults/validation run synchronously at the direct plugin call site and are
         // not retained as host callbacks. Managed configuration diagnostics are retained and guarded below.
@@ -36,6 +39,9 @@ public sealed class PluginCallbackBoundaryTests
             Assert.That(scope, Does.Contain("owner.executionGuard.TryInvoke($\"task:{name}\""));
             Assert.That(scope, Does.Contain("owner.executionGuard.Record($\"io:{name}\""));
             Assert.That(scope, Does.Contain("InvokeDiagnostic($\"config:{logicalName}:validate\""));
+            Assert.That(scope, Does.Contain("owner.executionGuard.TryInvoke(operation, handler, value)"));
+            Assert.That(scope, Does.Contain("owner.executionGuard.Allows(operation, allow, value)"));
+            Assert.That(scope, Does.Contain("owner.Track(events.SubscribePolicy<T>"));
         });
     }
 }

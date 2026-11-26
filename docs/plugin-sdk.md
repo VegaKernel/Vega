@@ -39,6 +39,7 @@ The fixed context exposes these discoverable facets:
 - `Commands` registers typed command handlers;
 - `Players` provides immutable online snapshots, lookup, messaging, kick/teleport operations, join/leave hooks and optimistic inventory access;
 - `World` exposes the active world through immutable environment, tile, chest and NPC snapshots plus plugin-owned scenes;
+- `WorldEvents` registers world-local gameplay notifications and narrowly scoped NPC transformation/loot policies;
 - `Tasks` posts to the game thread, schedules repeating game-thread work and runs async I/O with a game-thread apply callback;
 - `Configuration` owns typed, validated and reloadable operator settings under `config/plugins/<plugin-name>/`;
 - `Storage` stores arbitrary plugin-owned JSON beneath `data/plugins/<plugin-name>/`;
@@ -51,6 +52,51 @@ The host owns every command, event subscription, repeating task and async operat
 ## World capabilities
 
 `plugin.World` is the ordinary gameplay boundary. It never returns `Terraria.Main`, `Terraria.NPC`, `Terraria.Chest` or mutable tile references. Read operations return immutable snapshots; mutations are dispatched by the host to the authoritative game thread.
+
+### Native gameplay events
+
+```csharp
+plugin.WorldEvents.OnNpcKilled(e =>
+    plugin.Log.Write(OperationsLogLevel.Information,
+        $"NPC {e.Npc.Type} generation {e.Npc.Generation} died in {e.Npc.WorldId}."));
+plugin.WorldEvents.AllowNpcTransform(e => e.RequestedType != restrictedType);
+plugin.WorldEvents.AllowNpcLoot(e => e.Stack <= configuredStackLimit);
+```
+
+The other notifications are `OnNpcCreating` (native allocation request, not
+confirmation), `OnNpcTransforming` (approved prospective transformation),
+`OnNpcLootDropped` (actual allocated world item), `OnProjectileSynchronized`
+and `OnProjectileRemoved` (native ingress notifications, not a complete
+projectile lifetime census). All carry detached values and the current world
+identity. NPC native generation is distinct from the optimistic mutation
+revision in `NpcHandle`; capture a current handle through `World.Npcs` before
+requesting a later mutation.
+
+Notifications and decisions run synchronously at the native world-thread
+boundary, only when subscribed. Keep callbacks short and post follow-up
+mutations through `Tasks.Post` rather than re-entering an in-progress native
+operation. A policy returning `false` vetoes the requested operation; a faulting
+policy is isolated and does not veto. The existing per-plugin circuit breaker
+and automatic registration cleanup cover all eight new delegate surfaces.
+
+### Portable schematics
+
+```csharp
+var result = await plugin.World.Schematics.CaptureAsync(new SceneBounds(100, 200, 80, 60), cancellationToken);
+if (result.Status == WorldSchematicCaptureStatus.Captured)
+{
+    // result.Data is a detached .trschem document; use SchematicBinary from the bundled codec.
+    await File.WriteAllBytesAsync(Path.Combine(plugin.Storage.DataDirectory, "arena.trschem"),
+        result.Data.ToArray(), cancellationToken);
+}
+```
+
+Use a host-owned async task for long-lived background operations. The SDK shares
+the world process's bounded schematic lane with operator commands and returns
+`Busy` rather than admitting unlimited snapshots. `PlaceAsync` currently
+materializes tiles and NPCs in an idle, isolated sandbox only. It refuses other
+entity sections; keep the supplied encoded memory unchanged until completion.
+See [schematics](schematics.md) for exact placement constraints and support.
 
 ```csharp
 WorldEnvironmentSnapshot? state = await plugin.World.Environment.CaptureAsync();

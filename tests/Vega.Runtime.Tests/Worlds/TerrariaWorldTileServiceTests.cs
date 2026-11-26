@@ -14,6 +14,66 @@ public sealed class TerrariaWorldTileServiceTests
 {
     [Test]
     [NonParallelizable]
+    public void SandboxPlacementRestoresNpcFieldsAndRollsBackOwnedTilesOnAllocationFailure()
+    {
+        var oldGrid = global::Terraria.Main.tile;
+        int oldWidth = global::Terraria.Main.maxTilesX, oldHeight = global::Terraria.Main.maxTilesY;
+        bool oldMenu = global::Terraria.Main.gameMenu;
+        var previousNpc0 = global::Terraria.Main.npc[0];
+        var previousNpc1 = global::Terraria.Main.npc[1];
+        try
+        {
+            global::Terraria.Main.gameMenu = false;
+            global::Terraria.Main.maxTilesX = global::Terraria.Main.maxTilesY = 8;
+            var grid = CreateGrid(8, 8);
+            global::Terraria.Main.tile = grid;
+            global::Terraria.Main.npc[0] = new global::Terraria.NPC();
+            global::Terraria.Main.npc[1] = new global::Terraria.NPC();
+            var bounds = new SceneBounds(2, 2, 2, 2);
+            var original = TerrariaWorldTileService.CaptureArea(grid, bounds).Area;
+            var replacement = SceneTileArea.Fill(2, 2, new SceneTile(1, Flags: SceneTileFlags.Active));
+            var npc = new SchematicNpc(22, 8, 12, -1, 1, "Guide", false, 1, 1, 75);
+            SchematicDocument Document(params SchematicNpc[] npcs) => new() { ContentVersion = 279, Width = 2, Height = 2, Tiles = new SchematicTile[4], Npcs = npcs };
+            int Spawn(int x, int y, int type)
+            {
+                global::Terraria.Main.npc[0] = new global::Terraria.NPC { active = true, type = type, generation = 5, lifeMax = 100 };
+                return 0;
+            }
+            var primary = new TerrariaSchematicPlacement(new InlineGameThread(), WorldId.Primary) { SpawnNpc = Spawn };
+            Assert.That(primary.Place(Document(npc), replacement, bounds).Status, Is.EqualTo(WorldSchematicPlacementStatus.Unavailable));
+            int attempts = 0;
+            var failure = new TerrariaSchematicPlacement(new InlineGameThread(), new WorldId("arena"))
+            { SpawnNpc = (x, y, type) => attempts++ == 0 ? Spawn(x, y, type) : global::Terraria.Main.maxNPCs };
+            Assert.That(failure.Place(Document(npc, npc), replacement, bounds).Status, Is.EqualTo(WorldSchematicPlacementStatus.Failed));
+            Assert.That(global::Terraria.Main.npc[0].active, Is.False);
+            Assert.That(TerrariaWorldTileService.CaptureArea(grid, bounds).Area.Tiles, Is.EqualTo(original.Tiles));
+            var target = new TerrariaSchematicPlacement(new InlineGameThread(), new WorldId("arena")) { SpawnNpc = Spawn };
+            Assert.That(target.Place(Document(npc), SceneTileArea.Fill(2, 2, new SceneTile(21, Flags: SceneTileFlags.Active)), bounds).Status,
+                Is.EqualTo(WorldSchematicPlacementStatus.Invalid));
+            Assert.That(target.Place(Document(npc), replacement, bounds), Is.EqualTo(new WorldSchematicPlacementResult(WorldSchematicPlacementStatus.Applied, 1)));
+            var placed = global::Terraria.Main.npc[0];
+            Assert.That(placed.position.X, Is.EqualTo(40));
+            Assert.That(placed.position.Y, Is.EqualTo(44));
+            Assert.That(placed.GivenName, Is.EqualTo("Guide"));
+            Assert.That(placed.homeTileX, Is.EqualTo(3));
+            Assert.That(placed.homeTileY, Is.EqualTo(3));
+            Assert.That(placed.direction, Is.EqualTo(-1));
+            Assert.That(placed.life, Is.EqualTo(75));
+            Assert.That(TerrariaWorldTileService.CaptureArea(grid, bounds).Area.Tiles, Is.EqualTo(replacement.Tiles));
+        }
+        finally
+        {
+            global::Terraria.Main.npc[0] = previousNpc0;
+            global::Terraria.Main.npc[1] = previousNpc1;
+            global::Terraria.Main.tile = oldGrid;
+            global::Terraria.Main.maxTilesX = oldWidth;
+            global::Terraria.Main.maxTilesY = oldHeight;
+            global::Terraria.Main.gameMenu = oldMenu;
+        }
+    }
+
+    [Test]
+    [NonParallelizable]
     public void SchematicCaptureDetachesNativeRegionAndNpcMetadata()
     {
         var oldGrid = global::Terraria.Main.tile;

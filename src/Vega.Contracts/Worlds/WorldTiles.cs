@@ -2,6 +2,11 @@ using Vega.Contracts.Scenes;
 
 namespace Vega.Contracts.Worlds;
 
+public static class WorldTileOperationLimits
+{
+    public const int MaximumTiles = 1_048_576;
+}
+
 public sealed record WorldTileAreaSnapshot(
     WorldId WorldId,
     SceneBounds Bounds,

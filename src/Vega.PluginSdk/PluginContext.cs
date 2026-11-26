@@ -17,6 +17,9 @@ public interface IVegaPluginContext
     /// <summary>Curated immutable-snapshot access to the world hosted by this process.</summary>
     IPluginWorld World => VegaPluginRuntime.World(this);
 
+    /// <summary>Game-thread notifications. Subscriptions detach automatically on unload.</summary>
+    IPluginWorldEvents WorldEvents => throw new NotSupportedException("World gameplay events are unavailable in this host.");
+
     IPluginTasks Tasks { get; }
 
     /// <summary>Managed plugin configuration with typed load, validation, reload and atomic save.</summary>

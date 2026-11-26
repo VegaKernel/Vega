@@ -60,7 +60,8 @@ public static class TerrariaServerHost
         Func<Vega.Contracts.Players.PlayerSnapshot, bool>? primaryGameplayReadiness = null,
         TerrariaSandboxSscCharacterAdapter? earlyJoinCharacters = null,
         IPacketProcessor<PacketView>? joinInventoryPolicy = null,
-        bool authoritativeCharacters = false)
+        bool authoritativeCharacters = false,
+        IWorldGameplayEvents? worldEvents = null)
     {
         ArgumentNullException.ThrowIfNull(args);
         ArgumentNullException.ThrowIfNull(lifecycle);
@@ -110,6 +111,7 @@ public static class TerrariaServerHost
 
         AppDomain.CurrentDomain.UnhandledException += ReportUnhandled;
         using var nativeLifecycleHooks = new NativeLifecycleHooks(lifecycle);
+        using var gameplayEvents = worldEvents is null ? null : new NativeGameplayEventHooks(runtimeWorldId, worldEvents, gameThreadDispatcher, logger);
         using var networkMetricsHooks = new NativeNetworkMetricsHooks(networkMetrics);
         ServerNetworkOptions networkLimits = ServerNetworkOptions.Normalize(networkOptions ?? new());
         using var networkBudgetHooks = new NativeNetworkBudgetHooks(networkLimits);
@@ -234,6 +236,7 @@ public static class TerrariaServerHost
 
             nativeLifecycleHooks.Attach();
             gameThreadDispatcher.Attach();
+            gameplayEvents?.Attach();
             playerBoundary.Attach();
             operationsState.Attach();
             networkBudgetHooks.Attach();

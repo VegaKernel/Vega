@@ -35,6 +35,10 @@ public sealed class UsabilityPlugin : VegaPlugin
         plugin.Commands.Register(new ChestRefillCommand(plugin));
         plugin.Players.OnJoined(OnJoined);
         plugin.Players.OnLeft(_ => SaveState());
+        plugin.WorldEvents.OnNpcKilled(e =>
+        {
+            if (e.Npc.Boss) plugin.Log.Write(OperationsLogLevel.Information, $"Boss {e.Npc.Type} died in {e.Npc.WorldId}.");
+        });
         plugin.Tasks.Every("sample-heartbeat", TimeSpan.FromMinutes(1),
             () => plugin.Log.Write(OperationsLogLevel.Debug, $"Observed {state.JoinCount} joins."));
         plugin.Tasks.RunIo(

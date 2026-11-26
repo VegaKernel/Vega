@@ -9,6 +9,7 @@ using Vega.Contracts.Modules;
 using Vega.Contracts.Operations;
 using Vega.Contracts.Players;
 using Vega.Contracts.Threading;
+using Vega.Contracts.Worlds;
 using Vega.PluginSdk;
 
 namespace Vega.Core.Modules;
@@ -29,6 +30,7 @@ public sealed class ServerPluginHotReloadHost :
     private readonly IPlayerOperations? playerOperations;
     private readonly IPlayerSessionLifecycle? playerLifecycle;
     private readonly IGameThreadDispatcher? gameThread;
+    private readonly IWorldGameplayEvents? worldEvents;
     private readonly string pluginDataRoot;
     private readonly string? pluginConfigurationRoot;
     private readonly Dictionary<string, LoadedPlugin> loaded = new(StringComparer.OrdinalIgnoreCase);
@@ -57,7 +59,7 @@ public sealed class ServerPluginHotReloadHost :
         IPlayerSessionLifecycle? playerLifecycle = null,
         IGameThreadDispatcher? gameThread = null,
         string? pluginDataRoot = null,
-        string? pluginConfigurationRoot = null)
+        string? pluginConfigurationRoot = null, IWorldGameplayEvents? worldEvents = null)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(directory);
         this.directory = Path.GetFullPath(directory);
@@ -69,6 +71,7 @@ public sealed class ServerPluginHotReloadHost :
         this.playerOperations = playerOperations;
         this.playerLifecycle = playerLifecycle;
         this.gameThread = gameThread;
+        this.worldEvents = worldEvents;
         this.pluginDataRoot = Path.GetFullPath(pluginDataRoot ?? Path.Combine(this.directory, ".data"));
         this.pluginConfigurationRoot = pluginConfigurationRoot is null ? null : Path.GetFullPath(pluginConfigurationRoot);
     }
@@ -419,7 +422,7 @@ public sealed class ServerPluginHotReloadHost :
             pluginConfigurationRoot: pluginConfigurationRoot,
             activationId: activationId, faultThreshold: options.FaultThreshold,
             faultWindow: TimeSpan.FromSeconds(options.FaultWindowSeconds),
-            onQuarantine: () => QueueFaultRetirement(activationPath, activationId));
+            onQuarantine: () => QueueFaultRetirement(activationPath, activationId), worldEvents: worldEvents);
         long startedAt = Stopwatch.GetTimestamp();
         try
         {

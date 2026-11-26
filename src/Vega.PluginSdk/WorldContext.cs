@@ -15,6 +15,7 @@ public interface IPluginWorld
     IPluginWorldChests Chests { get; }
     IPluginWorldNpcs Npcs { get; }
     IPluginWorldScenes Scenes { get; }
+    IPluginWorldSchematics Schematics => throw new NotSupportedException("World schematic capture is unavailable in this host.");
     IPluginFakeProvider FakeProvider => throw new NotSupportedException("FakeProvider is unavailable in this host.");
 }
 
@@ -83,6 +84,14 @@ public interface IPluginWorldScenes
     ISceneLease Create(string name);
 }
 
+public interface IPluginWorldSchematics
+{
+    /// <summary>Captures current world data and encodes the portable schematic format outside the game thread.</summary>
+    ValueTask<WorldSchematicCaptureResult> CaptureAsync(SceneBounds bounds, CancellationToken cancellationToken = default);
+    /// <summary>Materializes supported records into an empty, isolated sandbox; unsupported documents are refused.</summary>
+    ValueTask<WorldSchematicPlacementResult> PlaceAsync(ReadOnlyMemory<byte> data, int x, int y, CancellationToken cancellationToken = default);
+}
+
 public interface IPluginPlayerInventory
 {
     ValueTask<PlayerInventorySnapshot?> CaptureAsync(
@@ -103,7 +112,8 @@ internal sealed record VegaPluginRuntimeServices(
     IWorldNpcService? Npcs,
     ISceneRuntime? Scenes,
     IPlayerInventoryService? Inventory,
-    ISceneVisibilityRuntime? Visibility = null)
+    ISceneVisibilityRuntime? Visibility = null,
+    IWorldSchematicService? Schematics = null)
 {
     public static VegaPluginRuntimeServices Empty { get; } = new(
         WorldId.Primary,
@@ -154,7 +164,24 @@ internal static partial class VegaPluginRuntime
         public IPluginWorldChests Chests { get; } = new PluginChests(context);
         public IPluginWorldNpcs Npcs { get; } = new PluginNpcs(context);
         public IPluginWorldScenes Scenes { get; } = new PluginScenes(context);
+        public IPluginWorldSchematics Schematics { get; } = new PluginSchematics();
         public IPluginFakeProvider FakeProvider { get; } = new PluginFakeProvider(context);
+    }
+
+    private sealed class PluginSchematics : IPluginWorldSchematics
+    {
+        public ValueTask<WorldSchematicCaptureResult> CaptureAsync(SceneBounds bounds, CancellationToken cancellationToken = default)
+        {
+            VegaPluginRuntimeServices current = Services;
+            return current.Schematics?.CaptureAsync(current.WorldId, bounds, cancellationToken) ??
+                ValueTask.FromResult(new WorldSchematicCaptureResult(WorldSchematicCaptureStatus.Unavailable));
+        }
+        public ValueTask<WorldSchematicPlacementResult> PlaceAsync(ReadOnlyMemory<byte> data, int x, int y, CancellationToken cancellationToken = default)
+        {
+            VegaPluginRuntimeServices current = Services;
+            return current.Schematics?.PlaceAsync(current.WorldId, data, x, y, cancellationToken) ??
+                ValueTask.FromResult(new WorldSchematicPlacementResult(WorldSchematicPlacementStatus.Unavailable));
+        }
     }
 
     private sealed class PluginEnvironment(IVegaPluginContext context) : IPluginWorldEnvironment

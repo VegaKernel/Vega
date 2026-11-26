@@ -4,6 +4,8 @@ using Vega.Contracts.Commands;
 using Vega.Contracts.Messaging;
 using Vega.Contracts.Operations;
 using Vega.Contracts.Players;
+using Vega.Contracts.Worlds;
+using Vega.Core.Events;
 using Vega.Core.Modules;
 using Vega.PluginSdk;
 
@@ -14,12 +16,13 @@ var directLifecycle = new RecordingLifecycle();
 var facadeLifecycle = new RecordingLifecycle();
 var handler = new NoOpCommand();
 var joinCount = 0;
+var worldEvents = new WorldGameplayEventHub();
 var scope = new HotModuleRegistrationScope(
     facadeRegistry,
     new NullLogger(),
     "Vega.Benchmarks.PluginSdk",
     Path.Combine(Path.GetTempPath(), "vega-plugin-sdk-benchmark"),
-    playerLifecycle: facadeLifecycle);
+    playerLifecycle: facadeLifecycle, worldEvents: worldEvents);
 IVegaPluginContext plugin = scope;
 using IDisposable directRegistration = directRegistry.Register(handler);
 plugin.Commands.Register(handler);
@@ -49,12 +52,23 @@ var facadeCommand = MeasureCommand(facadeCommandHandler);
 var opened = new PlayerSessionOpened(PlayerSessionId.New(), new PlayerId(1), "player", DateTimeOffset.UtcNow);
 var directHook = MeasureHook(directLifecycle);
 var facadeHook = MeasureHook(facadeLifecycle);
+var killed = new NpcKilledEvent(new(WorldId.Primary, 7, 1, 22, new(100, 100), 0, false, false));
+var worldEventProbe = Measure(() => { if (worldEvents.HasSubscribers<NpcKilledEvent>()) worldEvents.Publish(killed); });
+int npcCount = 0;
+plugin.WorldEvents.OnNpcKilled(_ => npcCount++);
+var worldEventDispatch = Measure(() => { if (worldEvents.HasSubscribers<NpcKilledEvent>()) worldEvents.Publish(killed); });
+plugin.WorldEvents.AllowNpcTransform(_ => true);
+var transform = new NpcTransformingEvent(killed.Npc, 23);
+var worldPolicyDispatch = Measure(() => { if (worldEvents.HasPolicies<NpcTransformingEvent>() && !worldEvents.Allows(transform)) throw new InvalidOperationException(); });
 
-if (joinCount != 2 * iterations || scope.Faults.Count != 0 ||
-    facadeCommand.AllocatedBytes > 4096 || facadeHook.AllocatedBytes > 4096)
+if (joinCount != 2 * iterations || npcCount != iterations || scope.Faults.Count != 0 ||
+    facadeCommand.AllocatedBytes > 4096 || facadeHook.AllocatedBytes > 4096 || worldEventProbe.AllocatedBytes > 4096 ||
+    worldEventDispatch.AllocatedBytes > 4096 || worldPolicyDispatch.AllocatedBytes > 4096)
     throw new InvalidOperationException("Guarded success paths dropped callbacks, recorded unexpected faults, or allocated per dispatch.");
 
 await scope.DisposeAsync();
+if (worldEvents.HasSubscribers<NpcKilledEvent>() || worldEvents.HasPolicies<NpcTransformingEvent>())
+    throw new InvalidOperationException("World callbacks were retained after plugin disposal.");
 directLifecycle.Opened -= joined;
 Console.WriteLine(JsonSerializer.Serialize(new
 {
@@ -62,6 +76,7 @@ Console.WriteLine(JsonSerializer.Serialize(new
     Iterations = iterations,
     Command = new { Direct = directCommand, Facade = facadeCommand },
     PlayerJoinHook = new { Direct = directHook, Facade = facadeHook },
+    WorldEvent = new { EmptyProbe = worldEventProbe, GuardedDispatch = worldEventDispatch, GuardedPolicy = worldPolicyDispatch },
     DispatchWrapperInserted = true,
     GuardedSuccessPathsVerified = true,
     ManualLifetimeCallsRequired = 0,

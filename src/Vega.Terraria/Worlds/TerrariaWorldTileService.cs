@@ -9,7 +9,7 @@ public sealed class TerrariaWorldTileService(
     IGameThreadDispatcher dispatcher,
     WorldId worldId) : IWorldTileService
 {
-    private const int MaxTilesPerOperation = 1_048_576;
+    private const int MaxTilesPerOperation = WorldTileOperationLimits.MaximumTiles;
     private const SceneTileFlags KnownFlags =
         SceneTileFlags.Active |
         SceneTileFlags.WireRed |
@@ -207,7 +207,7 @@ public sealed class TerrariaWorldTileService(
         return true;
     }
 
-    private static bool IsValid(SceneTile tile) =>
+    internal static bool IsValid(SceneTile tile) =>
         tile.TileType < global::Terraria.ID.TileID.Count &&
         tile.WallType < global::Terraria.ID.WallID.Count &&
         tile.TileColor <= global::Terraria.Main.numTileColors &&
@@ -246,7 +246,7 @@ public sealed class TerrariaWorldTileService(
             flags);
     }
 
-    private static void Apply(global::Terraria.ITile tile, SceneTile value)
+    internal static void Apply(global::Terraria.ITile tile, SceneTile value)
     {
         tile.active((value.Flags & SceneTileFlags.Active) != 0);
         tile.type = value.TileType;
