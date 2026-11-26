@@ -466,3 +466,22 @@ measurements, not client latency or overall gameplay TPS. The raw output is save
 `artifacts/performance-2026-11-26/vega-e2f95603-*` locally; reproduce with
 `Vega.NativeTcp.Benchmarks --production-peers`, `--queue-age`, `--sustained`, and
 `Vega.Scene.Benchmarks` in Release.
+
+### REST/deployment regression checkpoint
+
+After the scoped REST world read/time/weather changes, the same 255-peer
+30-second `--sustained-production` run again validated 3,672,000 requests and
+4762.57 MiB in both modes. Vanilla / Ordered respectively measured 157.57 /
+158.69 MiB/s, 205.89 / 150.41 process CPU-seconds, 18.98 / 4.10 ms producer p95,
+and 208.0 / 138.0 B/request. Ordered's sampled maximum send / completion ages
+were 5.27 / 31.59 ms. The repeated allocation result supports the lifetime-wake
+improvement; throughput was almost equal at this offered rate, so the earlier
+throughput advantage should not be generalized. Local raw output:
+`artifacts/rest-world-final-964acfa67b66436ba9e5362990333535/native-tcp-sustained-regression.txt`.
+
+The isolated native Windows package also passed REST world read and mutations,
+maintenance audit, native console commands, sandbox admission-policy isolation
+and graceful shutdown. A separate package-copy smoke enabled Ordered TCP,
+verified its native listener and normal local connect/close, and observed queue
+diagnostics. The deployment workflow now includes both transport modes on
+Windows/Linux; the local result does not establish joined-client compatibility.

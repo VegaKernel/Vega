@@ -2,6 +2,12 @@
 
 Current production-cap comparison on TerrariaRuntime 1.1.5: the original 2048 callback-count ceiling exhausted the shared completion reservation budget at 200/255 synthetic local peers with 32 offered sends each per tick. The opt-in transport now defaults to `orderedCallbacksPerPass: 8192` (normalized to 1–8192), with the same cooperative 2 ms time budget, FIFO, generation checks and per-world memory/entry limits. All four raised-cap ABBA runs completed and verified exact bytes and callbacks. At 255 peers throughput was 617–621 MiB/s versus 168–169 MiB/s for the vanilla baseline; this is an isolated loopback send workload, not a world TPS or live-client result. Higher allocations and game-thread-drained completion latency remain tradeoffs. Vanilla stays the default. See [performance measurements](performance-2026-11-26.md).
 
+The clean deployment workflow also exercises `Test-DeployableServer.ps1 -TestOrderedTransport`
+on Windows and Linux: an isolated package copy enables Ordered TCP and queue diagnostics,
+starts the native listener, accepts a normal local TCP connection, exercises world REST
+and console operations, and checks graceful process shutdown. This is not a joined-client
+protocol or gameplay qualification; the source package configuration is not modified.
+
 Status: implemented experimental adapter and local loopback evidence. Vega keeps vanilla TCP by default; `config/network.json` with `useOrderedTcp: true` selects the adapter at startup. `NativeOutboundQueue`, `NativeTcpConnection`, `NativeTcpListener`, `NativeOutboundBudget` and `NativeTcpTransportHost` own FIFO sends, per-world shared budget, accepted socket lifecycle, receive-close completion and native game-thread send completions. Existing TerrariaRuntime 1.1.2 hooks suffice; no new patch is required. This is not a replacement gameplay or packet engine. The vanilla-client join, kick reason, SSC and representative performance gates are still open.
 
 The ordered writer now drains already queued work without counting a semaphore operation for every request. A producer signals only an explicitly waiting writer, under the same queue lock; Complete shares that wake rule, abort cancels pending waits. The `--wake` ABBA benchmark retains the counted mode for measurement. Edge wake reduced allocations at 32 receivers in the first ABBA test, but the integrated repeat did not reproduce that allocation win. Both runs validated FIFO and byte/entry caps; the completion-pump cadence remains a separate optimization.

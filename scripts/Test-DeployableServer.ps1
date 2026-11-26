@@ -3,7 +3,8 @@ param(
     [string] $ServerRoot,
     [int] $TimeoutSeconds = 180,
     [string] $WorldFile,
-    [switch] $TestSandboxIsolation
+    [switch] $TestSandboxIsolation,
+    [switch] $TestOrderedTransport
 )
 
 $ErrorActionPreference = 'Stop'
@@ -73,6 +74,15 @@ try {
     foreach ($relative in @('data', 'logs', 'worlds')) {
         $generated = Join-Path $deploy $relative
         if ([IO.Directory]::Exists($generated)) { [IO.Directory]::Delete($generated, $true) }
+    }
+    if ($TestOrderedTransport) {
+        # Change only the disposable deployment copy, never the source package.
+        $networkPath = Join-Path $deploy 'config/network.json'
+        $network = Get-Content -LiteralPath $networkPath -Raw | ConvertFrom-Json
+        $network.useOrderedTcp = $true
+        $network.orderedQueueDiagnostics = $true
+        $network.orderedBatchRequests = 16
+        $network | ConvertTo-Json -Depth 8 | Set-Content -LiteralPath $networkPath -Encoding UTF8
     }
     $world = Join-Path $deploy 'worlds/smoke.wld'
     New-Item -ItemType Directory -Path (Split-Path -Parent $world) -Force | Out-Null
@@ -147,6 +157,14 @@ try {
     Wait-SmokeText $operationsLog 'action=weather status=204'
     Write-Output 'Native loopback REST world read, time/weather mutation and operation audit passed.'
 
+    if ($TestOrderedTransport) {
+        $tcpProbe = [Net.Sockets.TcpClient]::new()
+        try { $tcpProbe.Connect([Net.IPAddress]::Loopback, $primaryPort) }
+        finally { $tcpProbe.Dispose() }
+        Wait-SmokeText $operationsLog '"source"\s*:\s*"ordered-tcp".*oldest_send_ms='
+        Write-Output 'Native Ordered TCP listener, local connection lifecycle and queue diagnostics passed.'
+    }
+
     if ($TestSandboxIsolation) {
         Send-SmokeCommand 'antibuild on'
         $buildPolicy = Join-Path $deploy 'data/build-protection.json'
@@ -199,6 +217,9 @@ try {
     }
     if (-not $process.WaitForExit(30000) -or $process.ExitCode -ne 0) {
         throw 'Server did not shut down cleanly after the command smoke test.'
+    }
+    if ($TestOrderedTransport -and (Get-Content -LiteralPath $operationsLog -Raw) -match 'Ordered TCP transport shutdown (exceeded|reported)') {
+        throw 'Ordered TCP did not shut down cleanly.'
     }
     if ($standardOutput.Result -notmatch 'World time set to 12:00' -or
         $standardOutput.Result -notmatch 'Wind speed set to -20 mph' -or
