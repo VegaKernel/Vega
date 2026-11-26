@@ -317,8 +317,10 @@ public sealed class RuntimeDependencyTests
             Assert.That(workflow, Does.Not.Contain("foreach ($project in $projects)"));
             Assert.That(workflow, Does.Not.Contain("artifacts/nuget/*.snupkg"));
             Assert.That(Regex.Matches(workflow, "dotnet pack").Count, Is.EqualTo(1));
-            Assert.That(Regex.Matches(nuspec, @"\.dll"" target=""lib\\\$tfm\$""").Count, Is.EqualTo(20));
-            Assert.That(Regex.Matches(nuspec, @"\.pdb"" target=""lib\\\$tfm\$""").Count, Is.EqualTo(20));
+            Assert.That(Regex.Matches(nuspec, @"\.dll"" target=""lib\\\$tfm\$""").Count, Is.EqualTo(21));
+            Assert.That(Regex.Matches(nuspec, @"\.pdb"" target=""lib\\\$tfm\$""").Count, Is.EqualTo(21));
+            Assert.That(nuspec, Does.Contain("TerraRuntime.Schematics.dll"));
+            Assert.That(nuspec, Does.Contain("TerraRuntime.Schematics.pdb"));
             Assert.That(nuspec, Does.Contain("Vega.Contracts.dll"));
             Assert.That(nuspec, Does.Contain("Vega.Contracts.pdb"));
             Assert.That(nuspec, Does.Contain("Vega.PluginSdk.dll"));

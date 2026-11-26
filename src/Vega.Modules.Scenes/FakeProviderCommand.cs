@@ -1,3 +1,4 @@
+using TerraRuntime.Schematics;
 using Vega.Contracts.Commands;
 using Vega.Contracts.Messaging;
 using Vega.Contracts.Players;
@@ -10,24 +11,76 @@ public sealed class FakeProviderCommand(FakeProviderService providers, IPlayerDi
 {
     public CommandDescriptor Descriptor { get; } = new(personal ? "pfake" : "fake", [], ["vega.scenes.manage"],
         Syntax: personal
-            ? "pfake <list [page]|info <name>|create <name> <player> <x> <y> <w> <h> [air|stone]|move <name> <dx> <dy>|layer <name> <layer>|air <name> on|off|enable|disable|remove <name>>"
-            : "fake <list [page]|info <name>|create <name> <x> <y> <w> <h> [air|stone]|move <name> <dx> <dy>|layer <name> <layer>|enable|disable|remove <name>>");
+            ? "pfake <list [page]|info <name>|create <name> <player> <x> <y> <w> <h> [air|stone]|schematic <name> <player> <file> <x> <y>|move <name> <dx> <dy>|layer <name> <layer>|air <name> on|off|enable|disable|remove <name>>"
+            : "fake <list [page]|info <name>|create <name> <x> <y> <w> <h> [air|stone]|schematic <name> <file> <x> <y>|move <name> <dx> <dy>|layer <name> <layer>|enable|disable|remove <name>>");
 
     public ValueTask<CommandExecutionResult> ExecuteAsync(CommandInvocation invocation, CancellationToken cancellationToken)
     {
         if (cancellationToken.IsCancellationRequested) return ValueTask.FromCanceled<CommandExecutionResult>(cancellationToken);
-        if (dispatcher.IsGameThread) return ValueTask.FromResult(ExecuteSafely(invocation.Arguments));
+        if (invocation.Arguments.Count > 0 && invocation.Arguments[0].Equals("schematic", StringComparison.OrdinalIgnoreCase))
+            return ImportAsync(invocation.Arguments, cancellationToken);
+        return DispatchAsync(() => ExecuteSafely(invocation.Arguments), cancellationToken);
+    }
+
+    private ValueTask<CommandExecutionResult> DispatchAsync(Func<CommandExecutionResult> action, CancellationToken cancellationToken)
+    {
+        if (cancellationToken.IsCancellationRequested) return ValueTask.FromCanceled<CommandExecutionResult>(cancellationToken);
+        if (dispatcher.IsGameThread) return ValueTask.FromResult(action());
         var completion = new TaskCompletionSource<CommandExecutionResult>(TaskCreationOptions.RunContinuationsAsynchronously);
         if (!dispatcher.IsGameThreadKnown || !dispatcher.TryPost("fake-provider.command", () =>
         {
             if (cancellationToken.IsCancellationRequested) completion.TrySetCanceled(cancellationToken);
             else
             {
-                try { completion.TrySetResult(ExecuteSafely(invocation.Arguments)); }
+                try { completion.TrySetResult(action()); }
                 catch (Exception ex) { completion.TrySetException(ex); }
             }
         })) return ValueTask.FromResult(Failure("Game thread is unavailable."));
         return new ValueTask<CommandExecutionResult>(completion.Task);
+    }
+
+    private async ValueTask<CommandExecutionResult> ImportAsync(IReadOnlyList<string> args, CancellationToken cancellationToken)
+    {
+        int fileIndex = personal ? 3 : 2;
+        if (args.Count != fileIndex + 3 || !int.TryParse(args[fileIndex + 1], out int x) ||
+            !int.TryParse(args[fileIndex + 2], out int y) || x < 0 || y < 0) return Failure(Descriptor.Syntax);
+        if (SchematicOperations.ResolveFile(args[fileIndex]) is not { } path)
+            return Failure("Use a schematic filename (letters, digits, underscore or hyphen) from the schematics directory.");
+        if (!SchematicOperations.Gate.Wait(0)) return Failure("Another schematic operation is in progress.");
+        try
+        {
+            string stem = Path.GetFileNameWithoutExtension(path);
+            var prepared = await Task.Run(() =>
+            {
+                var document = SchematicFile.Load(path);
+                cancellationToken.ThrowIfCancellationRequested();
+                var definition = SchematicSceneProjection.Create(document, args[1], x, y, SceneObserverScope.Global);
+                return (Definition: definition, Summary: $"{document.Npcs.Length} NPCs, {document.WorldItems.Length} world items, {document.TileEntities.Length} tile entities remain in the source file and were not spawned.");
+            }, cancellationToken).ConfigureAwait(false);
+            return await DispatchAsync(() =>
+            {
+                try
+                {
+                    var definition = prepared.Definition;
+                    if (personal)
+                    {
+                        if (!players.TryFindExact(args[2], out var player) || player is not { SessionId: not null }) return Failure("Online player not found.");
+                        definition = definition with { Observers = SceneObserverScope.PersonalSessions([SceneSessionObserver.From(player)]) };
+                    }
+                    return providers.Create(definition) ? Info($"Schematic '{stem}' loaded as provider '{definition.Name}'. {prepared.Summary}")
+                        : Failure("Provider name already exists in this world.");
+                }
+                catch (ObjectDisposedException) { return Failure("FakeProvider module is restarting or unavailable."); }
+                catch (ArgumentException ex) { return Failure(ex.Message); }
+                catch (OverflowException) { return Failure("Provider bounds exceed the supported coordinate range."); }
+            }, cancellationToken).ConfigureAwait(false);
+        }
+        catch (IOException ex) { return Failure($"Schematic could not be loaded: {ex.Message}"); }
+        catch (SchematicFormatException ex) { return Failure($"Invalid schematic: {ex.Message}"); }
+        catch (UnauthorizedAccessException) { return Failure("Schematic file is inaccessible."); }
+        catch (ArgumentException ex) { return Failure(ex.Message); }
+        catch (OverflowException) { return Failure("Provider bounds exceed the supported coordinate range."); }
+        finally { SchematicOperations.Gate.Release(); }
     }
 
     private CommandExecutionResult ExecuteSafely(IReadOnlyList<string> args)

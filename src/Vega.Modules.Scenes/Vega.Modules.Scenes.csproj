@@ -9,5 +9,6 @@
   </PropertyGroup>
   <ItemGroup>
     <ProjectReference Include="..\Vega.Contracts\Vega.Contracts.csproj" />
+    <ProjectReference Include="..\TerraRuntime.Schematics\TerraRuntime.Schematics.csproj" />
   </ItemGroup>
 </Project>

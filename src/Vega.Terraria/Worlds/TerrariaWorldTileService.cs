@@ -181,7 +181,7 @@ public sealed class TerrariaWorldTileService(
                 after);
     }
 
-    private static bool ValidateBounds(SceneBounds bounds, out string? error)
+    internal static bool ValidateBounds(SceneBounds bounds, out string? error)
     {
         error = null;
         if (bounds.X < 0 || bounds.Y < 0 || bounds.Width <= 0 || bounds.Height <= 0)
@@ -217,7 +217,7 @@ public sealed class TerrariaWorldTileService(
         (tile.Flags & ~KnownFlags) == 0 &&
         (tile.Slope == 0 || (tile.Flags & SceneTileFlags.HalfBlock) == 0);
 
-    private static SceneTile Snapshot(global::Terraria.ITile tile)
+    internal static SceneTile Snapshot(global::Terraria.ITile tile)
     {
         SceneTileFlags flags = SceneTileFlags.None;
         if (tile.active()) flags |= SceneTileFlags.Active;

@@ -478,6 +478,7 @@ int Start()
             if (Enabled(sceneConsumers))
             {
                 moduleCommands.Add(new SceneCommand(sceneConsumers, scenes, playerBoundary));
+                moduleCommands.Add(new SchematicCommand(new TerrariaSchematicCapture(gameThreadDispatcher), gameThreadDispatcher));
                 moduleCommands.Add(new FakeProviderCommand(sceneConsumers.FakeProviders, playerBoundary, gameThreadDispatcher, personal: false));
                 moduleCommands.Add(new FakeProviderCommand(sceneConsumers.FakeProviders, playerBoundary, gameThreadDispatcher, personal: true));
             }

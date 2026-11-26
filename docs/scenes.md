@@ -200,3 +200,7 @@ global time was unstable across first and last runs, so no timing improvement is
 claimed for that workload. Raw output: `../artifacts/performance-2026-11-26/scene-render-results.txt`.
 These are composition/packet-encoding timings, not live-client network or gameplay TPS.
 For at least eight overlays, a bounded sparse 64x64 chunk index narrows the candidates, with the priority-ordered list as fallback when coverage is oversized. The final A/B on 64 overlays measured 1406–1432 → 294–322 ns/lookup, 624–634 → 350–372 ns/tile for a 64x64 composition. Large observer-set mutation is slower; see [performance report](performance-2026-11-26.md).
+
+The shared TerraRuntime `.trschem` codec now supports native region export and
+global or session-bound personal FakeProvider previews. See
+[schematics](schematics.md) for commands, object support and native materialization limits.

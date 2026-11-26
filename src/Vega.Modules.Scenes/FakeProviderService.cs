@@ -16,12 +16,20 @@ public sealed class FakeProviderService(ISceneRuntime scenes, WorldId? worldId =
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(name);
         name = name.Trim();
+        var scope = observers is null ? SceneObserverScope.Global : SceneObserverScope.Personal(observers);
+        return Create(new SceneOverlayDefinition(default, name, bounds, layer, scope, tiles));
+    }
+
+    internal bool Create(SceneOverlayDefinition definition)
+    {
+        ArgumentNullException.ThrowIfNull(definition);
+        ArgumentException.ThrowIfNullOrWhiteSpace(definition.Name);
+        string name = definition.Name.Trim();
+        definition = definition with { Id = default, Name = name };
         lock (sync)
         {
             ObjectDisposedException.ThrowIf(disposed, this);
             if (providers.ContainsKey(name)) return false;
-            var scope = observers is null ? SceneObserverScope.Global : SceneObserverScope.Personal(observers);
-            var definition = new SceneOverlayDefinition(default, name, bounds, layer, scope, tiles);
             ISceneLease scene = scenes.CreateScene(worldId ?? WorldId.Primary, $"fake:{name}", $"FakeProvider:{name}");
             try
             {

@@ -151,6 +151,9 @@ public sealed record TickRateStatisticsSnapshot(
     double TickDurationP95Milliseconds = 0,
     double TickDurationP99Milliseconds = 0)
 {
+    /// <summary>CPU utilization of the authoritative thread relative to one logical core; null until sampled.</summary>
+    public double? GameThreadCpuPercent { get; init; }
+
     public static TickRateStatisticsSnapshot Empty { get; } = new(
         0,
         0,

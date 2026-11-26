@@ -1,4 +1,5 @@
 using NUnit.Framework;
+using TerraRuntime.Schematics;
 using Multiplicity.Packets;
 using Multiplicity.Packets.Views;
 using Vega.Contracts.Commands;
@@ -336,6 +337,60 @@ public sealed class SceneRuntimeTests
         Assert.That((await Run("fake", true, "remove", "mine")).Status, Is.EqualTo(CommandExecutionStatus.Failed));
         Assert.That((await Run("pfake", true, "remove", "mine")).Status, Is.EqualTo(CommandExecutionStatus.Success));
         Assert.That(service.Snapshot(true), Is.Empty);
+    }
+
+    [Test]
+    public async Task SchematicImportsKeepFullSourceAndProjectTilesAndVirtualObjectsWithoutMutatingTheWorld()
+    {
+        var tiles = new SchematicTile[15];
+        tiles[1] = new(1, 2, 18, 36, SchematicTileFlags.Active | SchematicTileFlags.Actuator |
+            SchematicTileFlags.FullbrightWall | SchematicTileFlags.InvisibleBlock, 10, 2, 3, 5, SchematicLiquidKind.Honey);
+        tiles[5] = new(1, 0, 0, 0, SchematicTileFlags.Active | SchematicTileFlags.WireYellow, 0, 0, 0, 1, SchematicLiquidKind.Water);
+        var document = new SchematicDocument
+        {
+            ContentVersion = 279, Width = 5, Height = 3, OriginX = 3, OriginY = 1, Tiles = tiles,
+            Chests = [new(0, 0, "Chest", [new(8, 5)])], Signs = [new(3, 0, "Arena")],
+            Npcs = [new(22, 16, 16, -1, -1, "Guide", false, 1, 1, 100)],
+            WorldItems = [new(new(8, 2), 32, 16)], TileEntities = [new SchematicTrainingDummyTileEntity(2, 2)],
+            Markers = [new("spawn", SchematicMarkerKind.Point, 2, 1)], Metadata = [new("mode", "arena")]
+        };
+        string stem = "vega-test-" + Guid.NewGuid().ToString("N");
+        string path = Path.Combine("schematics", stem + SchematicFile.Extension);
+        try
+        {
+            SchematicFile.Save(path, document);
+            byte[] encoded = File.ReadAllBytes(path);
+            var roundtrip = SchematicFile.Load(path);
+            Assert.That(SchematicBinary.Serialize(roundtrip), Is.EqualTo(encoded));
+            Assert.That(() => SchematicBinary.Deserialize(encoded[..^1]), Throws.TypeOf<SchematicFormatException>());
+            Assert.That(roundtrip.Npcs, Is.EqualTo(document.Npcs));
+            Assert.That(roundtrip.WorldItems, Is.EqualTo(document.WorldItems));
+            Assert.That(roundtrip.TileEntities, Is.EqualTo(document.TileEntities));
+            var runtime = new SceneRuntime();
+            using var service = new FakeProviderService(runtime);
+            var player = new PlayerSnapshot(new PlayerId(3), "Alice", false, 100, 100, 20, 20, new(0, 0), false, 0)
+                { SessionId = PlayerSessionId.New() };
+            var dispatcher = new CommandDispatcher([
+                new FakeProviderCommand(service, new PlayerDirectory(player), new ImmediateGameThread(), false),
+                new FakeProviderCommand(service, new PlayerDirectory(player), new ImmediateGameThread(), true)]);
+            ValueTask<CommandExecutionResult> Run(string name, bool allowed, params string[] arguments) =>
+                dispatcher.DispatchAsync(new CommandInvocation(name, arguments, new Principal(allowed), new Output()));
+            Assert.That((await Run("fake", false, "schematic", "denied", stem, "10", "20")).Status, Is.EqualTo(CommandExecutionStatus.Forbidden));
+            Assert.That((await Run("fake", true, "schematic", "invalid", "../" + stem, "10", "20")).Status, Is.EqualTo(CommandExecutionStatus.Failed));
+            Assert.That((await Run("pfake", true, "schematic", "arena", "Alice", stem, "10", "20")).Status, Is.EqualTo(CommandExecutionStatus.Success));
+            Assert.That(service.TryGet("arena", true, out var definition), Is.True);
+            Assert.That(definition!.Bounds, Is.EqualTo(new SceneBounds(10, 20, 5, 3)));
+            Assert.That(definition.Observers.Sessions![player.Id], Is.EqualTo(player.SessionId));
+            Assert.That(definition.Tiles[1, 0], Is.EqualTo(new SceneTile(1, 2, 18, 36, 10, 2, 2, 3, 4,
+                SceneTileFlags.Active | SceneTileFlags.Actuator | SceneTileFlags.FullbrightWall | SceneTileFlags.InvisibleBlock)));
+            Assert.That(definition.Tiles[0, 1].Flags, Is.EqualTo(SceneTileFlags.Active | SceneTileFlags.WireYellow | SceneTileFlags.HalfBlock));
+            Assert.That(definition.VirtualChests.Single().Items.Single().Stack, Is.EqualTo(5));
+            Assert.That(definition.VirtualSigns.Single().Text, Is.EqualTo("Arena"));
+            Assert.That(File.ReadAllBytes(path), Is.EqualTo(encoded));
+            Assert.That((await Run("pfake", true, "remove", "arena")).Status, Is.EqualTo(CommandExecutionStatus.Success));
+            Assert.That(runtime.SnapshotScenes(), Is.Empty);
+        }
+        finally { if (File.Exists(path)) File.Delete(path); }
     }
 
     [Test]

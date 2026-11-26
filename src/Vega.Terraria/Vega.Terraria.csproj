@@ -6,10 +6,12 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
     <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
   </PropertyGroup>
 
   <ItemGroup>
     <ProjectReference Include="..\Vega.Contracts\Vega.Contracts.csproj" />
+    <ProjectReference Include="..\TerraRuntime.Schematics\TerraRuntime.Schematics.csproj" />
     <PackageReference Include="TerrariaRuntime" Version="1.1.5" />
     <PackageReference Include="Multiplicity" Version="4.0.1" />
   </ItemGroup>

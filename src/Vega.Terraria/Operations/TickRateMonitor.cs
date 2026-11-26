@@ -8,6 +8,7 @@ internal sealed class TickRateMonitor
     internal const int OneMinuteTickCapacity = 3_600;
     private readonly TimeProvider timeProvider;
     private readonly TimeSpan sampleInterval;
+    private readonly Func<long?> readThreadCpu;
     private readonly Queue<double> history = new(OneMinuteSampleCapacity);
     private readonly double[] tickDurations = new double[OneMinuteTickCapacity];
     private readonly double[] percentileScratch = new double[OneMinuteTickCapacity];
@@ -22,10 +23,13 @@ internal sealed class TickRateMonitor
     private DateTimeOffset? minimumAt;
     private DateTimeOffset? maximumAt;
     private TickRateStatisticsSnapshot snapshot = TickRateStatisticsSnapshot.Empty;
+    private long? previousThreadCpu;
+    private int previousThreadId;
 
-    public TickRateMonitor(TimeProvider? timeProvider = null, TimeSpan? sampleInterval = null)
+    public TickRateMonitor(TimeProvider? timeProvider = null, TimeSpan? sampleInterval = null, Func<long?>? readThreadCpu = null)
     {
         this.timeProvider = timeProvider ?? TimeProvider.System;
+        this.readThreadCpu = readThreadCpu ?? (() => ThreadCpuClock.TryGetTimestampNanoseconds(out long value) ? value : null);
         this.sampleInterval = sampleInterval ?? TimeSpan.FromSeconds(1);
         if (this.sampleInterval <= TimeSpan.Zero)
         {
@@ -80,7 +84,7 @@ internal sealed class TickRateMonitor
             history.Count,
             p50,
             p95,
-            p99);
+            p99) { GameThreadCpuPercent = SampleThreadCpu(elapsed) };
         return snapshot;
     }
 
@@ -98,7 +102,20 @@ internal sealed class TickRateMonitor
         minimumAt = null;
         maximumAt = null;
         snapshot = TickRateStatisticsSnapshot.Empty;
+        previousThreadCpu = null;
+        previousThreadId = 0;
         windowStartedAt = timeProvider.GetTimestamp();
+    }
+
+    private double? SampleThreadCpu(TimeSpan elapsed)
+    {
+        int threadId = Environment.CurrentManagedThreadId;
+        long? current = readThreadCpu();
+        double? result = current is long value && previousThreadCpu is long previous && threadId == previousThreadId && value >= previous
+            ? Math.Clamp((value - previous) / (elapsed.TotalSeconds * 10_000_000d), 0, 100) : null;
+        previousThreadCpu = current;
+        previousThreadId = threadId;
+        return result;
     }
 
     private void RecordTickDuration(long now)

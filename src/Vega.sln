@@ -75,6 +75,8 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Vega.Modules.Navigation", "
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Vega.Modules.Restrictions", "Vega.Modules.Restrictions\Vega.Modules.Restrictions.csproj", "{78F26AA1-E121-4C3A-867C-F33FE8D30327}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "TerraRuntime.Schematics", "TerraRuntime.Schematics\TerraRuntime.Schematics.csproj", "{75BB80E0-57E0-4A2A-B71F-C104F38C5353}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -469,6 +471,18 @@ Global
 		{78F26AA1-E121-4C3A-867C-F33FE8D30327}.Release|x64.Build.0 = Release|Any CPU
 		{78F26AA1-E121-4C3A-867C-F33FE8D30327}.Release|x86.ActiveCfg = Release|Any CPU
 		{78F26AA1-E121-4C3A-867C-F33FE8D30327}.Release|x86.Build.0 = Release|Any CPU
+		{75BB80E0-57E0-4A2A-B71F-C104F38C5353}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{75BB80E0-57E0-4A2A-B71F-C104F38C5353}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{75BB80E0-57E0-4A2A-B71F-C104F38C5353}.Debug|x64.ActiveCfg = Debug|Any CPU
+		{75BB80E0-57E0-4A2A-B71F-C104F38C5353}.Debug|x64.Build.0 = Debug|Any CPU
+		{75BB80E0-57E0-4A2A-B71F-C104F38C5353}.Debug|x86.ActiveCfg = Debug|Any CPU
+		{75BB80E0-57E0-4A2A-B71F-C104F38C5353}.Debug|x86.Build.0 = Debug|Any CPU
+		{75BB80E0-57E0-4A2A-B71F-C104F38C5353}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{75BB80E0-57E0-4A2A-B71F-C104F38C5353}.Release|Any CPU.Build.0 = Release|Any CPU
+		{75BB80E0-57E0-4A2A-B71F-C104F38C5353}.Release|x64.ActiveCfg = Release|Any CPU
+		{75BB80E0-57E0-4A2A-B71F-C104F38C5353}.Release|x64.Build.0 = Release|Any CPU
+		{75BB80E0-57E0-4A2A-B71F-C104F38C5353}.Release|x86.ActiveCfg = Release|Any CPU
+		{75BB80E0-57E0-4A2A-B71F-C104F38C5353}.Release|x86.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE

@@ -789,6 +789,9 @@ internal sealed class OperationsDashboardView : IDisposable
             .Append(server.TickRate.TickDurationP95Milliseconds.ToString("F1", CultureInfo.InvariantCulture)).Append('/')
             .Append(server.TickRate.TickDurationP99Milliseconds.ToString("F1", CultureInfo.InvariantCulture)).Append(" ms");
 
+        if (server.TickRate.GameThreadCpuPercent is double threadCpu)
+            text.AppendLine().Append("Game CPU ").Append(threadCpu.ToString("F1", CultureInfo.InvariantCulture)).Append('%');
+
         if (server.Warnings.Count > 0)
         {
             text.AppendLine().Append("! ").Append(string.Join(" | ", server.Warnings));

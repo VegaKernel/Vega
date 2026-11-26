@@ -17,6 +17,7 @@ $required = @(
     'libs/Vega.Contracts.dll',
     'libs/Vega.Core.dll',
     'libs/Vega.Persistence.dll',
+    'libs/TerraRuntime.Schematics.dll',
     'libs/Vega.Regions.dll',
     'ServerPlugins/Vega.Modules.Pvp.dll',
     'ServerPlugins/Vega.Modules.Navigation.dll',
@@ -71,7 +72,7 @@ function Send-SmokeCommand([string] $command) {
 try {
     New-Item -ItemType Directory -Path $deploy -Force | Out-Null
     Copy-Item -Path (Join-Path $source '*') -Destination $deploy -Recurse -Force
-    foreach ($relative in @('data', 'logs', 'worlds')) {
+    foreach ($relative in @('data', 'logs', 'worlds', 'schematics')) {
         $generated = Join-Path $deploy $relative
         if ([IO.Directory]::Exists($generated)) { [IO.Directory]::Delete($generated, $true) }
     }
@@ -157,6 +158,19 @@ try {
     Wait-SmokeText $operationsLog 'action=weather status=204'
     Write-Output 'Native loopback REST world read, time/weather mutation and operation audit passed.'
 
+    Send-SmokeCommand 'schematic export smoke-region 10 10 3 2'
+    $schematicPath = Join-Path $deploy 'schematics/smoke-region.trschem'
+    $schematicDeadline = [DateTime]::UtcNow.AddSeconds(20)
+    while (-not $process.HasExited -and -not (Test-Path -LiteralPath $schematicPath) -and [DateTime]::UtcNow -lt $schematicDeadline) {
+        Start-Sleep -Milliseconds 200
+    }
+    if (-not (Test-Path -LiteralPath $schematicPath) -or [BitConverter]::ToUInt32([IO.File]::ReadAllBytes($schematicPath), 0) -ne 0x43535254) {
+        throw 'Native schematic export did not create a TRSC document.'
+    }
+    Start-Sleep -Milliseconds 500
+    Send-SmokeCommand 'fake schematic smoke-preview smoke-region 20 20'
+    Write-Output 'Native schematic document exported.'
+
     if ($TestOrderedTransport) {
         $tcpProbe = [Net.Sockets.TcpClient]::new()
         try { $tcpProbe.Connect([Net.IPAddress]::Loopback, $primaryPort) }
@@ -182,7 +196,8 @@ try {
         Wait-SmokeText $operationsLog 'action=start arena.*outcome=Success'
         $instanceRuntime = Join-Path $deploy 'data/sandboxes/instances/arena/runtime'
         if (-not (Test-Path -LiteralPath (Join-Path $instanceRuntime 'saves')) -or
-            (Test-Path -LiteralPath (Join-Path $instanceRuntime 'data/build-protection.json'))) {
+            (Test-Path -LiteralPath (Join-Path $instanceRuntime 'data/build-protection.json')) -or
+            (Test-Path -LiteralPath (Join-Path $instanceRuntime 'schematics/smoke-region.trschem'))) {
             throw 'Sandbox save directory or mutable policy was not isolated from the primary world.'
         }
         # These are deployment-wide admission policies, not files scoped to a world worker.
@@ -225,7 +240,8 @@ try {
         $standardOutput.Result -notmatch 'Wind speed set to -20 mph' -or
         $standardOutput.Result -notmatch 'spawnrate: 300' -or $standardOutput.Result -notmatch 'maxspawns: 20' -or
         $standardOutput.Result -notmatch 'Halloween forced override: True' -or
-        $standardOutput.Result -notmatch 'World mode: expert' -or $standardOutput.Result -notmatch 'angler completion list has been cleared') {
+        $standardOutput.Result -notmatch 'World mode: expert' -or $standardOutput.Result -notmatch 'angler completion list has been cleared' -or
+        $standardOutput.Result -notmatch "Schematic 'smoke-region' loaded as provider 'smoke-preview'") {
         throw "Native console hook did not execute Vega world commands:`n$($standardOutput.Result)`n$($standardError.Result)"
     }
 }

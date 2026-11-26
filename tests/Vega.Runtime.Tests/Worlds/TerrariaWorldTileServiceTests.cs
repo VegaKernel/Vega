@@ -1,4 +1,5 @@
 using NUnit.Framework;
+using TerraRuntime.Schematics;
 using Vega.Contracts.Scenes;
 using Vega.Contracts.Threading;
 using Vega.Contracts.Worlds;
@@ -11,6 +12,45 @@ namespace Vega.Runtime.Tests.Worlds;
 [TestFixture]
 public sealed class TerrariaWorldTileServiceTests
 {
+    [Test]
+    [NonParallelizable]
+    public void SchematicCaptureDetachesNativeRegionAndNpcMetadata()
+    {
+        var oldGrid = global::Terraria.Main.tile;
+        int oldWidth = global::Terraria.Main.maxTilesX, oldHeight = global::Terraria.Main.maxTilesY;
+        var oldNpc = global::Terraria.Main.npc[0];
+        try
+        {
+            var grid = CreateGrid(5, 4);
+            global::Terraria.Main.tile = grid;
+            global::Terraria.Main.maxTilesX = 5;
+            global::Terraria.Main.maxTilesY = 4;
+            var npc = new global::Terraria.NPC
+            {
+                active = true, type = 22, position = new(32, 32), direction = -1, spriteDirection = 1,
+                GivenName = "Test Guide", homeless = false, homeTileX = 2, homeTileY = 2, life = 100
+            };
+            global::Terraria.Main.npc[0] = npc;
+            var capture = new TerrariaSchematicCapture(new InlineGameThread());
+            var document = capture.Capture(new SchematicBounds(1, 1, 3, 3));
+            var captured = document.Npcs.Single(n => n.Name == "Test Guide");
+            Assert.That(captured, Is.EqualTo(new SchematicNpc(22, 16, 16, -1, 1, "Test Guide", false, 1, 1, 100)));
+            Assert.That(document.Tiles[0].Type, Is.EqualTo(grid[1, 1].type));
+            npc.GivenName = "Changed";
+            grid[1, 1].type = 999;
+            var roundtrip = SchematicBinary.Deserialize(SchematicBinary.Serialize(document));
+            Assert.That(roundtrip.Npcs.Single(n => n.Name == "Test Guide"), Is.EqualTo(captured));
+            Assert.That(roundtrip.Tiles[0].Type, Is.Not.EqualTo(999));
+        }
+        finally
+        {
+            global::Terraria.Main.npc[0] = oldNpc;
+            global::Terraria.Main.tile = oldGrid;
+            global::Terraria.Main.maxTilesX = oldWidth;
+            global::Terraria.Main.maxTilesY = oldHeight;
+        }
+    }
+
     [Test]
     public void OwnedAreaFactoryAndPublicConstructorDoNotExposeMutableInput()
     {

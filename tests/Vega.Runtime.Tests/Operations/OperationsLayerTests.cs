@@ -468,6 +468,29 @@ public sealed class OperationsReadModelTests
 public sealed class TickRateMonitorTests
 {
     [Test]
+    public void GameThreadCpuUsesOnlyTheCurrentThreadAndResetsItsBaseline()
+    {
+        var time = new ManualTimeProvider();
+        long cpu = 100_000_000;
+        var monitor = new TickRateMonitor(time, readThreadCpu: () => cpu);
+        time.Advance(TimeSpan.FromSeconds(1));
+        Assert.That(monitor.RecordTick().GameThreadCpuPercent, Is.Null);
+        cpu += 250_000_000;
+        time.Advance(TimeSpan.FromSeconds(1));
+        Assert.That(monitor.RecordTick().GameThreadCpuPercent, Is.EqualTo(25d));
+        monitor.Reset();
+        time.Advance(TimeSpan.FromSeconds(1));
+        Assert.That(monitor.RecordTick().GameThreadCpuPercent, Is.Null);
+        if (OperatingSystem.IsWindows() || OperatingSystem.IsLinux())
+        {
+            Assert.That(ThreadCpuClock.TryGetTimestampNanoseconds(out long before), Is.True);
+            Thread.SpinWait(100_000);
+            Assert.That(ThreadCpuClock.TryGetTimestampNanoseconds(out long after), Is.True);
+            Assert.That(after, Is.GreaterThanOrEqualTo(before));
+        }
+    }
+
+    [Test]
     public void UnchangedOperationsStateRetainsPublishedRecordUntilStatisticsOrReadinessChange()
     {
         using var state = new TerrariaOperationsState();
