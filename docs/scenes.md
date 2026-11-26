@@ -67,6 +67,7 @@ fake|pfake list [page]
 fake|pfake info <name>
 fake|pfake move <name> <dx> <dy>
 fake|pfake layer <name> <layer>
+pfake air <name> on|off
 fake|pfake enable|disable|remove <name>
 ```
 
@@ -78,6 +79,20 @@ Plugins can continue to create their own scoped providers with `context.World.Sc
 server-side world interaction on phantom tiles is still denied. They are not extra
 physics worlds, fake chest/tile-entity storage, nor binary compatibility with the
 legacy FakeProvider API. Independent simulation remains process-isolated.
+
+Personal providers can enable `FillOutsideWithAir` with `pfake air <name> on`,
+`IPluginFakeProvider.CreatePersonal(..., fillOutsideWithAir: true)`, or
+`IPluginTileProvider.SetFillOutsideWithAir(true)`. With at least one enabled mask
+for a player, only their personal overlay layers are composed against air; global
+overlays and canonical tiles remain visible to other players and unchanged in world
+storage. Activation, removal, disable and observer changes repaint only that
+connection's already loaded native sections; newly transmitted sections are repainted
+after the native send. Moving an active provider retains rectangle-only redraws.
+This is an asynchronous visual background, not a confidentiality boundary: canonical
+section data is still transmitted and the native world remains the physics authority.
+With any personal air background active, broadcast tile-square updates may need
+per-recipient composition even outside provider rectangles. Loaded-section repaint
+latency and this broadcast workload still require measurement with real clients.
 
 The tile resolver now lazily publishes a world-keyed immutable, priority-sorted
 projection after mutations. Steady-state tile resolution does not acquire the scene

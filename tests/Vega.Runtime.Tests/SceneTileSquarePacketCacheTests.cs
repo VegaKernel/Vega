@@ -11,6 +11,18 @@ namespace Vega.Runtime.Tests;
 public sealed class SceneTileSquarePacketCacheTests
 {
     [Test]
+    public void LoadedSectionRefreshSkipsUnloadedTilesAndClipsWorldEdge()
+    {
+        var loaded = new bool[4, 4];
+        loaded[0, 1] = true;
+        loaded[2, 2] = true;
+        loaded[3, 3] = true; // beyond the world dimensions
+        var bounds = TerrariaSceneRenderSink.EnumerateLoadedSections(loaded, 200, 150, 410, 320).ToArray();
+        Assert.That(bounds, Is.EqualTo(new[] { new SceneBounds(0, 150, 200, 150), new SceneBounds(400, 300, 10, 20) }));
+        Assert.That(TerrariaSceneRenderSink.EnumerateLoadedSections(new bool[2, 2], 200, 150, 410, 320), Is.Empty);
+    }
+
+    [Test]
     public void CooperativeBatchesCoverEveryTileAndRecipientExactlyOnceInChunkOrder()
     {
         var region = new SceneBounds(7, 13, 93, 47);

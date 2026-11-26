@@ -73,6 +73,9 @@ public sealed class FakeProviderService(ISceneRuntime scenes, WorldId? worldId =
     public bool SetEnabled(string name, bool personal, bool enabled) =>
         Update(name, personal, definition => definition with { Enabled = enabled });
 
+    public bool SetFillOutsideWithAir(string name, bool enabled) =>
+        Update(name, true, definition => definition with { FillOutsideWithAir = enabled });
+
     public bool SetObservers(string name, IEnumerable<PlayerId> observers) =>
         Update(name, true, definition => definition with { Observers = SceneObserverScope.Personal(observers) });
 

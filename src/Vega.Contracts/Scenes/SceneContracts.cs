@@ -186,7 +186,11 @@ public sealed record SceneRenderRequest(
     WorldId WorldId,
     SceneBounds DirtyRegion,
     bool IsGlobal,
-    IReadOnlySet<PlayerId> Observers);
+    IReadOnlySet<PlayerId> Observers)
+{
+    /// <summary>Refresh only the native world sections already loaded by each recipient.</summary>
+    public bool RefreshLoadedSections { get; init; }
+}
 
 public interface ISceneRenderSink
 {
@@ -210,9 +214,14 @@ public interface ISceneRuntime
 {
     bool HasActiveOverlays { get; }
 
+    bool HasPersonalAirMask(WorldId worldId, PlayerId observer) =>
+        SnapshotScenes().Any(scene => scene.WorldId == worldId && scene.Overlays.Any(overlay =>
+            overlay.Enabled && overlay.FillOutsideWithAir && !overlay.Observers.IsGlobal &&
+            overlay.Observers.Contains(observer)));
+
     bool HasOverlayInRegion(WorldId worldId, SceneBounds region, PlayerId? observer = null) =>
         SnapshotScenes().Any(scene => scene.WorldId == worldId && scene.Overlays.Any(overlay =>
-            overlay.Enabled && overlay.Bounds.Intersects(region) &&
+            overlay.Enabled && (overlay.Bounds.Intersects(region) || overlay.FillOutsideWithAir) &&
             (observer is null || overlay.Observers.Contains(observer.Value))));
 
     ISceneLease CreateScene(WorldId worldId, string name, string owner);

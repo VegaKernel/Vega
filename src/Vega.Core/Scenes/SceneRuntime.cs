@@ -18,9 +18,14 @@ public sealed class SceneRuntime(ISceneRenderSink? sink = null) : ISceneRuntime
 
     public bool HasActiveOverlays => ReadLookup().Count != 0;
 
+    public bool HasPersonalAirMask(WorldId worldId, PlayerId observer) =>
+        ReadLookup().TryGetValue(worldId, out var world) && world.AirMasks?.ContainsKey(observer) == true;
+
     public bool HasOverlayInRegion(WorldId worldId, SceneBounds region, PlayerId? observer = null)
     {
         if (!ReadLookup().TryGetValue(worldId, out var world)) return false;
+        if (world.AirMasks is { Count: > 0 } masks &&
+            (observer is null || masks.ContainsKey(observer.Value))) return true;
         foreach (var overlay in world.All)
         {
             if (overlay.Bounds.Intersects(region) &&
@@ -122,18 +127,26 @@ public sealed class SceneRuntime(ISceneRenderSink? sink = null) : ISceneRuntime
     {
         if (ReadLookup().TryGetValue(worldId, out WorldLookup? world))
         {
+            OverlayId mask = default;
+            bool masked = world.AirMasks?.TryGetValue(observer, out mask) == true;
             SceneOverlayDefinition[] candidates = world.All;
             if (world.Chunks is not null && !world.Chunks.TryGetValue((tileX >> ChunkShift, tileY >> ChunkShift), out candidates!))
                 candidates = [];
             foreach (SceneOverlayDefinition candidate in candidates)
             {
                 SceneBounds bounds = candidate.Bounds;
-                if (bounds.Contains(tileX, tileY) && candidate.Observers.Contains(observer))
+                if ((!masked || !candidate.Observers.IsGlobal) && bounds.Contains(tileX, tileY) && candidate.Observers.Contains(observer))
                 {
                     tile = candidate.Tiles[tileX - bounds.X, tileY - bounds.Y];
                     overlayId = candidate.Id;
                     return true;
                 }
+            }
+            if (masked)
+            {
+                tile = SceneTile.Air;
+                overlayId = mask;
+                return true;
             }
         }
 
@@ -169,7 +182,14 @@ public sealed class SceneRuntime(ISceneRenderSink? sink = null) : ISceneRuntime
 
     private static WorldLookup BuildWorldLookup(SceneOverlayDefinition[] sorted)
     {
-        if (sorted.Length < 8) return new(sorted, null);
+        Dictionary<PlayerId, OverlayId>? masks = null;
+        foreach (var overlay in sorted)
+        {
+            if (!overlay.FillOutsideWithAir) continue;
+            foreach (PlayerId observer in overlay.Observers.Players)
+                (masks ??= []).TryAdd(observer, overlay.Id);
+        }
+        if (sorted.Length < 8) return new(sorted, null, masks);
 
         // Sparse 64x64 buckets, not a dimensions-sized tile map. Bound memory for
         // large/overlapping overlays; oversized sets retain the priority-sorted scan.
@@ -179,7 +199,7 @@ public sealed class SceneRuntime(ISceneRenderSink? sink = null) : ISceneRuntime
             var bounds = overlay.Bounds;
             entries += (long)(((bounds.Right - 1) >> ChunkShift) - (bounds.X >> ChunkShift) + 1) *
                 (((bounds.Bottom - 1) >> ChunkShift) - (bounds.Y >> ChunkShift) + 1);
-            if (entries > MaximumIndexedChunkEntries) return new(sorted, null);
+            if (entries > MaximumIndexedChunkEntries) return new(sorted, null, masks);
         }
 
         var chunks = new Dictionary<(int X, int Y), List<SceneOverlayDefinition>>();
@@ -194,10 +214,11 @@ public sealed class SceneRuntime(ISceneRenderSink? sink = null) : ISceneRuntime
                 bucket.Add(overlay);
             }
         }
-        return new(sorted, chunks.ToDictionary(static pair => pair.Key, static pair => pair.Value.ToArray()));
+        return new(sorted, chunks.ToDictionary(static pair => pair.Key, static pair => pair.Value.ToArray()), masks);
     }
 
-    private sealed record WorldLookup(SceneOverlayDefinition[] All, Dictionary<(int X, int Y), SceneOverlayDefinition[]>? Chunks);
+    private sealed record WorldLookup(SceneOverlayDefinition[] All, Dictionary<(int X, int Y), SceneOverlayDefinition[]>? Chunks,
+        Dictionary<PlayerId, OverlayId>? AirMasks);
 
     private OverlayId Add(SceneId sceneId, SceneOverlayDefinition definition)
     {
@@ -216,7 +237,7 @@ public sealed class SceneRuntime(ISceneRenderSink? sink = null) : ISceneRuntime
             scene.Overlays.Add(id, new OverlayState(stored, ++nextSequence));
             Volatile.Write(ref lookup, null);
             RecordDirty(scene, stored.Bounds);
-            request = RenderRequest(scene, stored.Bounds, stored.Observers);
+            request = RenderRequest(scene, stored.Bounds, stored.Observers, IsAirMask(stored));
             definition = stored;
         }
 
@@ -261,6 +282,18 @@ public sealed class SceneRuntime(ISceneRenderSink? sink = null) : ISceneRuntime
                     RenderRequest(scene, stored.Bounds, stored.Observers)
                 ];
             }
+            // Only membership changes require repainting the whole loaded background.
+            // Moving or animating an already enabled mask uses normal dirty rectangles.
+            IReadOnlySet<PlayerId> oldMasks = IsAirMask(current.Definition)
+                ? current.Definition.Observers.Players : SceneObserverScope.Global.Players;
+            IReadOnlySet<PlayerId> newMasks = IsAirMask(stored)
+                ? stored.Observers.Players : SceneObserverScope.Global.Players;
+            if (!oldMasks.SetEquals(newMasks))
+            {
+                var changed = oldMasks.Where(player => !newMasks.Contains(player))
+                    .Concat(newMasks.Where(player => !oldMasks.Contains(player)));
+                requests = [.. requests, RenderRequest(scene, stored.Bounds, SceneObserverScope.Personal(changed), true)];
+            }
         }
 
         foreach (SceneRenderRequest request in requests)
@@ -284,7 +317,7 @@ public sealed class SceneRuntime(ISceneRenderSink? sink = null) : ISceneRuntime
             Volatile.Write(ref lookup, null);
 
             RecordDirty(scene, removed.Definition.Bounds);
-            request = RenderRequest(scene, removed.Definition.Bounds, removed.Definition.Observers);
+            request = RenderRequest(scene, removed.Definition.Bounds, removed.Definition.Observers, IsAirMask(removed.Definition));
         }
 
         sink?.Invalidate(request);
@@ -322,7 +355,7 @@ public sealed class SceneRuntime(ISceneRenderSink? sink = null) : ISceneRuntime
             Volatile.Write(ref lookup, null);
 
             requests = scene.Overlays.Values
-                .Select(overlay => RenderRequest(scene, overlay.Definition.Bounds, overlay.Definition.Observers))
+                .Select(overlay => RenderRequest(scene, overlay.Definition.Bounds, overlay.Definition.Observers, IsAirMask(overlay.Definition)))
                 .ToArray();
         }
 
@@ -348,6 +381,8 @@ public sealed class SceneRuntime(ISceneRenderSink? sink = null) : ISceneRuntime
         }
         _ = definition.Bounds.Right;
         _ = definition.Bounds.Bottom;
+        if (definition.FillOutsideWithAir && definition.Observers.IsGlobal)
+            throw new ArgumentException("An air background is only available for personal overlays.", nameof(definition));
     }
 
     private SceneObserverScope FreezeScope(WorldId world, SceneObserverScope scope)
@@ -399,16 +434,19 @@ public sealed class SceneRuntime(ISceneRenderSink? sink = null) : ISceneRuntime
     private static bool ObserverScopesOverlap(SceneObserverScope first, SceneObserverScope second) =>
         first.IsGlobal || second.IsGlobal || first.Players.Overlaps(second.Players);
 
+    private static bool IsAirMask(SceneOverlayDefinition definition) => definition.Enabled && definition.FillOutsideWithAir;
+
     private static SceneRenderRequest RenderRequest(
         SceneState scene,
         SceneBounds bounds,
-        SceneObserverScope observers) =>
+        SceneObserverScope observers,
+        bool refreshLoadedSections = false) =>
         new(
             scene.Id,
             scene.WorldId,
             bounds,
             observers.IsGlobal,
-            observers.Players);
+            observers.Players) { RefreshLoadedSections = refreshLoadedSections };
 
     private static void RecordDirty(SceneState scene, SceneBounds bounds)
     {

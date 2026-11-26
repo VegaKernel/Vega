@@ -88,6 +88,13 @@ public sealed class TerrariaSceneRenderSink(
             return;
         }
 
+        if (scenes.HasPersonalAirMask(currentWorld, opened.PlayerId))
+        {
+            Invalidate(new SceneRenderRequest(default, currentWorld, default, false,
+                SceneObserverScope.Personal(opened.PlayerId).Players) { RefreshLoadedSections = true });
+            return;
+        }
+
         foreach (SceneSnapshot scene in scenes.SnapshotScenes().Where(scene => scene.WorldId == currentWorld))
         {
             foreach (SceneOverlayDefinition overlay in scene.Overlays.Where(overlay =>
@@ -192,8 +199,41 @@ public sealed class TerrariaSceneRenderSink(
                 connected.Add((recipient, socket));
         }
         activeRecipients = connected.ToArray();
-        activeBatches = EnumerateBatches(new SceneBounds(startX, startY, endX - startX, endY - startY),
-            activeRecipients.Length).GetEnumerator();
+        activeBatches = request.RefreshLoadedSections
+            ? EnumerateLoadedBatches(worldWidth, worldHeight).GetEnumerator()
+            : EnumerateBatches(new SceneBounds(startX, startY, endX - startX, endY - startY),
+                activeRecipients.Length).GetEnumerator();
+    }
+
+    private IEnumerable<(SceneBounds Bounds, int Offset, int Count)> EnumerateLoadedBatches(int worldWidth, int worldHeight)
+    {
+        for (int i = 0; i < activeRecipients.Length; i++)
+        {
+            var (recipient, socket) = activeRecipients[i];
+            if (global::Terraria.Netplay.Clients[recipient.Slot] is not { IsActive: true } client ||
+                !ReferenceEquals(client.Socket, socket)) continue;
+            foreach (SceneBounds section in EnumerateLoadedSections(client.TileSections,
+                         global::Terraria.Main.sectionWidth, global::Terraria.Main.sectionHeight, worldWidth, worldHeight))
+            {
+                if (!client.IsActive || !ReferenceEquals(client.Socket, socket)) break;
+                foreach (var batch in EnumerateBatches(section, 1))
+                    yield return (batch.Bounds, i, 1);
+            }
+        }
+    }
+
+    internal static IEnumerable<SceneBounds> EnumerateLoadedSections(bool[,]? sections, int sectionWidth, int sectionHeight,
+        int worldWidth, int worldHeight)
+    {
+        if (sections is null || sectionWidth <= 0 || sectionHeight <= 0) yield break;
+        for (int x = 0; x < sections.GetLength(0) && x * sectionWidth < worldWidth; x++)
+        for (int y = 0; y < sections.GetLength(1) && y * sectionHeight < worldHeight; y++)
+        {
+            if (!sections[x, y]) continue;
+            yield return new SceneBounds(x * sectionWidth, y * sectionHeight,
+                Math.Min(sectionWidth, worldWidth - x * sectionWidth),
+                Math.Min(sectionHeight, worldHeight - y * sectionHeight));
+        }
     }
 
     internal static IEnumerable<(SceneBounds Bounds, int Offset, int Count)> EnumerateBatches(

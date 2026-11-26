@@ -48,7 +48,11 @@ public sealed class PluginSdkWorldContextTests
             Assert.That(scenes.TryResolveTile(world, first.PlayerId, 10, 10, out tile, out _), Is.True);
             Assert.That(tile.TileType, Is.EqualTo(1));
             var personal = ownerA.CreatePersonal("private", new SceneBounds(20, 20, 2, 2), stone,
-                [SceneSessionObserver.From(first), SceneSessionObserver.From(second)], 10);
+                [SceneSessionObserver.From(first), SceneSessionObserver.From(second)], fillOutsideWithAir: true, layer: 10);
+            Assert.That(scenes.HasPersonalAirMask(world, first.PlayerId), Is.True);
+            personal.SetFillOutsideWithAir(false);
+            Assert.That(scenes.HasPersonalAirMask(world, first.PlayerId), Is.False);
+            personal.SetFillOutsideWithAir(true);
             personal.Move(1, 0);
             personal.Draw();
             Assert.That(scenes.TryResolveTile(world, first.PlayerId, 21, 20, out _, out _), Is.True);
@@ -64,6 +68,8 @@ public sealed class PluginSdkWorldContextTests
             scenes.CloseSession(world, oldClosed); visibility.CloseSession(world, oldClosed);
             var replacement = first with { SessionId = PlayerSessionId.New() };
             scenes.OpenSession(world, replacement); visibility.OpenSession(world, replacement);
+            Assert.That(scenes.HasPersonalAirMask(world, replacement.PlayerId), Is.False);
+            Assert.That(scenes.HasPersonalAirMask(world, second.PlayerId), Is.True);
             personal.Move(1, 0); // old requested session cannot be re-added by a later update
             Assert.That(scenes.TryResolveTile(world, replacement.PlayerId, 22, 20, out _, out _), Is.False);
             Assert.That(scenes.TryResolveTile(world, second.PlayerId, 22, 20, out _, out _), Is.True);
@@ -77,11 +83,13 @@ public sealed class PluginSdkWorldContextTests
             Assert.That(scenes.TryResolveTile(world, replacement.PlayerId, 22, 20, out _, out _), Is.True);
             personal.SetEnabled(false);
             Assert.That(scenes.TryResolveTile(world, replacement.PlayerId, 22, 20, out _, out _), Is.False);
+            Assert.That(scenes.HasPersonalAirMask(world, replacement.PlayerId), Is.False);
             personal.SetEnabled(true);
             for (int i = 0; i < 100; i++) ownerA.CreateGlobal("temporary", bounds, air).Dispose();
             Assert.That(scenes.SnapshotScenes(), Has.Count.EqualTo(3));
 
             await a.DisposeAsync();
+            Assert.That(scenes.HasPersonalAirMask(world, replacement.PlayerId), Is.False);
             Assert.That(scenes.SnapshotScenes().Single().Owner, Is.EqualTo("Plugin.B"));
             Assert.That(visibility.SnapshotLayers().Single().Owner, Is.EqualTo("Plugin.B"));
             Assert.That(visibility.CanObserve(world, first.PlayerId, new(SceneEntityKind.Npc, 7)), Is.False);

@@ -18,6 +18,55 @@ namespace Vega.Runtime.Tests.Core;
 public sealed class SceneRuntimeTests
 {
     [Test]
+    public void PersonalAirMaskSuppressesGlobalTilesAndRefreshesOnlyChangedObservers()
+    {
+        var sink = new RecordingSink();
+        var runtime = new SceneRuntime(sink);
+        var first = new PlayerId(1);
+        var second = new PlayerId(2);
+        using var scene = runtime.CreateScene(WorldId.Primary, "mask", "test");
+        scene.AddOverlay(Overlay("global", 8, SceneObserverScope.Global) with { Order = 100 });
+        for (int i = 0; i < 8; i++) // Exercise sparse lookup even when the mask falls outside every indexed bucket.
+            scene.AddOverlay(Overlay($"background{i}", 1, SceneObserverScope.Global) with { Bounds = new SceneBounds(64 * i, 128, 2, 2) });
+        var definition = Overlay("personal", 3, SceneObserverScope.Personal(first)) with { FillOutsideWithAir = true };
+        var id = scene.AddOverlay(definition);
+        Assert.That(sink.Invalidations.Last().RefreshLoadedSections, Is.True);
+        Assert.That(runtime.HasPersonalAirMask(WorldId.Primary, first), Is.True);
+        Assert.That(runtime.HasPersonalAirMask(WorldId.Primary, second), Is.False);
+        Assert.That(runtime.TryResolveTile(WorldId.Primary, first, 10, 10, out var tile, out _), Is.True);
+        Assert.That(tile.TileType, Is.EqualTo(3), "Personal layers are composed against air, not global overlays.");
+        Assert.That(runtime.TryResolveTile(WorldId.Primary, second, 10, 10, out tile, out _), Is.True);
+        Assert.That(tile.TileType, Is.EqualTo(8));
+        Assert.That(runtime.TryResolveTile(WorldId.Primary, first, 600, 700, out tile, out var source), Is.True);
+        Assert.That(tile, Is.EqualTo(SceneTile.Air));
+        Assert.That(source, Is.EqualTo(id));
+        Assert.That(runtime.TryResolveTile(WorldId.Primary, second, 600, 700, out _, out _), Is.False);
+        Assert.That(runtime.TryResolveTile(new WorldId("other"), first, 600, 700, out _, out _), Is.False);
+        Assert.That(runtime.HasOverlayInRegion(WorldId.Primary, new SceneBounds(600, 700, 5, 5), first), Is.True);
+        Assert.That(runtime.HasOverlayInRegion(WorldId.Primary, new SceneBounds(600, 700, 5, 5), second), Is.False);
+        sink.Invalidations.Clear();
+        definition = definition with { Bounds = new SceneBounds(40, 40, 2, 2) };
+        scene.UpdateOverlay(id, definition);
+        scene.Redraw(id);
+        Assert.That(sink.Invalidations.All(request => !request.RefreshLoadedSections), Is.True);
+        sink.Invalidations.Clear();
+        definition = definition with { Observers = SceneObserverScope.Personal(second) };
+        scene.UpdateOverlay(id, definition);
+        Assert.That(sink.Invalidations.Single(request => request.RefreshLoadedSections).Observers,
+            Is.EquivalentTo(new[] { first, second }));
+        Assert.That(runtime.HasPersonalAirMask(WorldId.Primary, first), Is.False);
+        Assert.That(runtime.HasPersonalAirMask(WorldId.Primary, second), Is.True);
+        scene.UpdateOverlay(id, definition with { Enabled = false });
+        Assert.That(sink.Invalidations.Last().RefreshLoadedSections, Is.True);
+        Assert.That(runtime.HasPersonalAirMask(WorldId.Primary, second), Is.False);
+        scene.UpdateOverlay(id, definition);
+        scene.RemoveOverlay(id);
+        Assert.That(sink.Invalidations.Last().RefreshLoadedSections, Is.True);
+        Assert.That(runtime.HasPersonalAirMask(WorldId.Primary, second), Is.False);
+        Assert.Throws<ArgumentException>(() => scene.AddOverlay(definition with { Observers = SceneObserverScope.Global }));
+    }
+
+    [Test]
     public void RegionIntersectionRespectsWorldObserverEnabledAndExclusiveEdges()
     {
         var runtime = new SceneRuntime();
@@ -182,6 +231,12 @@ public sealed class SceneRuntimeTests
         Assert.That(privateTile, Is.EqualTo(SceneTile.Air));
         Assert.That(runtime.TryResolveTile(WorldId.Primary, new PlayerId(4), 10, 10, out var publicTile, out _), Is.True);
         Assert.That(publicTile.TileType, Is.EqualTo(1));
+        Assert.That((await Run("pfake", false, "air", "mine", "on")).Status, Is.EqualTo(CommandExecutionStatus.Forbidden));
+        Assert.That((await Run("fake", true, "air", "global", "on")).Status, Is.EqualTo(CommandExecutionStatus.Failed));
+        Assert.That((await Run("pfake", true, "air", "mine", "on")).Status, Is.EqualTo(CommandExecutionStatus.Success));
+        Assert.That(runtime.HasPersonalAirMask(WorldId.Primary, player.Id), Is.True);
+        Assert.That((await Run("pfake", true, "air", "mine", "off")).Status, Is.EqualTo(CommandExecutionStatus.Success));
+        Assert.That(runtime.HasPersonalAirMask(WorldId.Primary, player.Id), Is.False);
         Assert.That((await Run("fake", true, "remove", "mine")).Status, Is.EqualTo(CommandExecutionStatus.Failed));
         Assert.That((await Run("pfake", true, "remove", "mine")).Status, Is.EqualTo(CommandExecutionStatus.Success));
         Assert.That(service.Snapshot(true), Is.Empty);

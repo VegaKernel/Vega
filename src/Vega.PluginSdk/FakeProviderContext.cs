@@ -11,6 +11,10 @@ public interface IPluginFakeProvider
     IPluginTileProvider CreateGlobal(string name, SceneBounds bounds, SceneTileArea tiles, int layer = 0);
     IPluginTileProvider CreatePersonal(string name, SceneBounds bounds, SceneTileArea tiles,
         IEnumerable<SceneSessionObserver> observers, int layer = 0);
+    IPluginTileProvider CreatePersonal(string name, SceneBounds bounds, SceneTileArea tiles,
+        IEnumerable<SceneSessionObserver> observers, bool fillOutsideWithAir, int layer = 0) =>
+        fillOutsideWithAir ? throw new NotSupportedException("Personal air backgrounds are unavailable.")
+            : CreatePersonal(name, bounds, tiles, observers, layer);
     IPluginVisibilityLayer CreateVisibilityLayer(string name, IEnumerable<SceneSessionObserver> observers);
 }
 
@@ -25,6 +29,7 @@ public interface IPluginTileProvider : IDisposable
     void SetLayer(int layer);
     void SetTop();
     void SetEnabled(bool enabled);
+    void SetFillOutsideWithAir(bool enabled) => throw new NotSupportedException("Personal air backgrounds are unavailable.");
     void SetObservers(IEnumerable<SceneSessionObserver> observers);
     void Draw();
 }
@@ -61,7 +66,12 @@ internal static partial class VegaPluginRuntime
             IEnumerable<SceneSessionObserver> observers, int layer = 0) =>
             Create(name, bounds, tiles, SceneObserverScope.PersonalSessions(observers), layer);
 
-        private IPluginTileProvider Create(string name, SceneBounds bounds, SceneTileArea tiles, SceneObserverScope scope, int layer)
+        public IPluginTileProvider CreatePersonal(string name, SceneBounds bounds, SceneTileArea tiles,
+            IEnumerable<SceneSessionObserver> observers, bool fillOutsideWithAir, int layer = 0) =>
+            Create(name, bounds, tiles, SceneObserverScope.PersonalSessions(observers), layer, fillOutsideWithAir);
+
+        private IPluginTileProvider Create(string name, SceneBounds bounds, SceneTileArea tiles, SceneObserverScope scope, int layer,
+            bool fillOutsideWithAir = false)
         {
             ArgumentException.ThrowIfNullOrWhiteSpace(name);
             ArgumentNullException.ThrowIfNull(tiles);
@@ -73,7 +83,8 @@ internal static partial class VegaPluginRuntime
                 ISceneLease lease = runtime.CreateScene(current.WorldId, name, Actor(context));
                 try
                 {
-                    var definition = new SceneOverlayDefinition(default, name, bounds, layer, scope, tiles);
+                    var definition = new SceneOverlayDefinition(default, name, bounds, layer, scope, tiles,
+                        FillOutsideWithAir: fillOutsideWithAir);
                     var id = lease.AddOverlay(definition);
                     var provider = new TileProvider(this, lease, definition with { Id = id });
                     active.Add(provider);
@@ -168,6 +179,7 @@ internal static partial class VegaPluginRuntime
             public void Replace(SceneBounds bounds, SceneTileArea tiles) => Update(current => current with { Bounds = bounds, Tiles = tiles });
             public void SetLayer(int layer) => Update(current => current with { Order = layer });
             public void SetEnabled(bool enabled) => Update(current => current with { Enabled = enabled });
+            public void SetFillOutsideWithAir(bool enabled) => Update(current => current with { FillOutsideWithAir = enabled });
             public void SetObservers(IEnumerable<SceneSessionObserver> observers)
             {
                 var scope = SceneObserverScope.PersonalSessions(observers);

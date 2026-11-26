@@ -10,7 +10,7 @@ public sealed class FakeProviderCommand(FakeProviderService providers, IPlayerDi
 {
     public CommandDescriptor Descriptor { get; } = new(personal ? "pfake" : "fake", [], ["vega.scenes.manage"],
         Syntax: personal
-            ? "pfake <list [page]|info <name>|create <name> <player> <x> <y> <w> <h> [air|stone]|move <name> <dx> <dy>|layer <name> <layer>|enable|disable|remove <name>>"
+            ? "pfake <list [page]|info <name>|create <name> <player> <x> <y> <w> <h> [air|stone]|move <name> <dx> <dy>|layer <name> <layer>|air <name> on|off|enable|disable|remove <name>>"
             : "fake <list [page]|info <name>|create <name> <x> <y> <w> <h> [air|stone]|move <name> <dx> <dy>|layer <name> <layer>|enable|disable|remove <name>>");
 
     public ValueTask<CommandExecutionResult> ExecuteAsync(CommandInvocation invocation, CancellationToken cancellationToken)
@@ -83,6 +83,8 @@ public sealed class FakeProviderCommand(FakeProviderService providers, IPlayerDi
             "layer" when args.Count == 3 && int.TryParse(args[2], out int order) => providers.SetLayer(name, personal, order),
             "enable" when args.Count == 2 => providers.SetEnabled(name, personal, true),
             "disable" when args.Count == 2 => providers.SetEnabled(name, personal, false),
+            "air" when personal && args.Count == 3 && args[2].Equals("on", StringComparison.OrdinalIgnoreCase) => providers.SetFillOutsideWithAir(name, true),
+            "air" when personal && args.Count == 3 && args[2].Equals("off", StringComparison.OrdinalIgnoreCase) => providers.SetFillOutsideWithAir(name, false),
             "remove" when args.Count == 2 => providers.Remove(name, personal),
             _ => null
         };
@@ -90,7 +92,7 @@ public sealed class FakeProviderCommand(FakeProviderService providers, IPlayerDi
     }
 
     private static string Describe(SceneOverlayDefinition definition) =>
-        $"{definition.Name}: ({definition.Bounds.X},{definition.Bounds.Y}) {definition.Bounds.Width}x{definition.Bounds.Height}, layer={definition.Order}, enabled={definition.Enabled}, observers={(definition.Observers.IsGlobal ? "global" : definition.Observers.Players.Count.ToString())}";
+        $"{definition.Name}: ({definition.Bounds.X},{definition.Bounds.Y}) {definition.Bounds.Width}x{definition.Bounds.Height}, layer={definition.Order}, enabled={definition.Enabled}, air={definition.FillOutsideWithAir}, observers={(definition.Observers.IsGlobal ? "global" : definition.Observers.Players.Count.ToString())}";
 
     private static CommandExecutionResult Info(string text) => CommandExecutionResult.WithMessages(MessageDescriptor.Info("command.fake.info").WithDefaultText(text));
     private static CommandExecutionResult Failure(string text) => CommandExecutionResult.Failed("command.fake.failed", MessageDescriptor.Error("command.fake.failed").WithDefaultText(text));
