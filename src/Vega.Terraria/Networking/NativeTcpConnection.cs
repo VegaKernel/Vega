@@ -41,7 +41,7 @@ internal sealed class NativeTcpConnection : ISocket
         this.readPool = readPool ?? ArrayPool<byte>.Shared;
         outbound = new(options.MaxOutstandingPerConnection, options.MaxRetainedBytesPerConnection,
             options.MaxSendBytes, sharedBudget: budget, maxBatchRequests: options.MaxBatchRequests,
-            edgeTriggeredWake: options.EdgeTriggeredWake);
+            edgeTriggeredWake: options.EdgeTriggeredWake, measureAge: options.MeasureQueueAge);
         // The queue always observes cancellation between writes. In the dispose-only experiment,
         // the owner interrupts an in-flight send via Close/Dispose rather than registering the
         // queue token with every OS operation. Overflow also closes this exact socket.
@@ -55,6 +55,7 @@ internal sealed class NativeTcpConnection : ISocket
     public bool IsClosed => Volatile.Read(ref closed) != 0;
     public Task<NativeOutboundWriterResult> Completion { get; }
     public NativeOutboundQueueSnapshot OutboundSnapshot => outbound.Snapshot;
+    public NativeOutboundQueueAge ReadQueueAge() => outbound.ReadAge();
 
     public bool IsConnected() => !IsClosed;
 

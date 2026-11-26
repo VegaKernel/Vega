@@ -119,10 +119,19 @@ public static class TerrariaServerHost
             ? new NativeTcpTransportHost(new NativeTcpTransportOptions
             {
                 MaxCallbacksPerPass = ServerNetworkOptions.Normalize(networkOptions).OrderedCallbacksPerPass,
+                MeasureQueueAge = networkOptions.OrderedQueueDiagnostics,
                 MaxBatchRequests = NativeOutboundQueue.BatchRequestLimit
             },
                 onSendRejected: (generation, reason) => logger.Log(OperationsLogLevel.Warning, "network",
                     $"Ordered TCP connection {generation} closed: outbound queue rejected a send ({reason}).")) : null;
+        using var queueDiagnostics = orderedTransport is not null && networkOptions?.OrderedQueueDiagnostics == true
+            ? new Timer(_ =>
+            {
+                var (slot, send, completion) = orderedTransport.ReadQueueAges();
+                var (entries, bytes) = orderedTransport.Retained;
+                logger.Log(OperationsLogLevel.Information, "ordered-tcp", FormattableString.Invariant(
+                    $"queue entries={entries} bytes={bytes} oldest_send_ms={send.TotalMilliseconds:F2} send_slot={slot} oldest_completion_ms={completion.TotalMilliseconds:F2}"));
+            }, null, TimeSpan.FromSeconds(1), TimeSpan.FromSeconds(1)) : null;
         using var connectionLifecycleHooks = new NativeConnectionLifecycleHooks(connectionMetadata);
         using var worldDecisionHooks = new NativeWorldDecisionHooks(hardmodeStarting);
         Func<Vega.Contracts.Players.PlayerSnapshot, bool>? validatedReadiness = primaryGameplayReadiness is null ? null : player =>

@@ -13,6 +13,7 @@ internal sealed record NativeTcpTransportOptions
     public int MaxSendBytes { get; init; } = 1024 * 1024;
     public int MaxReceiveBytes { get; init; } = 128 * 1024;
     public int MaxCallbacksPerPass { get; init; } = DefaultCallbacksPerPass;
+    public bool MeasureQueueAge { get; init; }
     public TimeSpan CallbackBudget { get; init; } = TimeSpan.FromMilliseconds(2);
     /// <summary>Experimental adjacent-send coalescing, disabled until measured.</summary>
     public int MaxBatchRequests { get; init; } = 1;

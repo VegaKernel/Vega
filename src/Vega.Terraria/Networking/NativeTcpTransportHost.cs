@@ -54,6 +54,21 @@ internal sealed class NativeTcpTransportHost : IDisposable
     public NativeTcpListener Listener => listener;
     public (int Entries, long Bytes) Retained => budget.Snapshot;
 
+    internal (int Slot, TimeSpan Send, TimeSpan Completion) ReadQueueAges()
+    {
+        int slowestSlot = -1;
+        TimeSpan send = TimeSpan.Zero, completion = TimeSpan.Zero;
+        for (int slot = 0; slot < slots.Length; slot++)
+        {
+            NativeTcpConnection? connection = Volatile.Read(ref slots[slot]);
+            if (connection is null || connection.IsClosed) continue;
+            var age = connection.ReadQueueAge();
+            if (age.Send > send) { send = age.Send; slowestSlot = slot; }
+            if (age.Completion > completion) completion = age.Completion;
+        }
+        return (slowestSlot, send, completion);
+    }
+
     public void Attach()
     {
         lock (gate)

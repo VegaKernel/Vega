@@ -1,4 +1,5 @@
 using System.Buffers;
+using System.Diagnostics;
 using Terraria.Net.Sockets;
 
 namespace Vega.Terraria.Networking;
@@ -9,10 +10,16 @@ internal enum NativeOutboundWriterStatus { Completed, Aborted, Cancelled, Faulte
 internal readonly record struct NativeOutboundWriterResult(NativeOutboundWriterStatus Status, long SentRequests, long WrittenBytes, Exception? Error = null);
 
 /// <summary>Only the native lifecycle-bound completion pump may invoke Callback, after checking Generation.</summary>
-internal readonly record struct NativeSendCompletion(long Sequence, long Generation, int Length, SocketSendCallback? Callback, object? State);
+internal readonly record struct NativeSendCompletion(long Sequence, long Generation, int Length, SocketSendCallback? Callback, object? State)
+{
+    public long EnqueuedAt { get; init; }
+    public long WrittenAt { get; init; }
+}
 
 internal readonly record struct NativeOutboundQueueSnapshot(int PendingRequests, int OutstandingRequests,
     long RetainedBytes, int PendingCompletions, bool IsAccepting, bool IsAborted);
+
+internal readonly record struct NativeOutboundQueueAge(TimeSpan Send, TimeSpan Completion);
 
 /// <summary>
 /// Candidate per-connection native transport queue. Counts owned buffer capacity, including the active write,
@@ -37,15 +44,17 @@ internal sealed class NativeOutboundQueue
     private readonly int maxRequestBytes;
     private readonly int maxBatchRequests;
     private readonly bool edgeTriggeredWake;
+    private readonly bool measureAge;
     private QueueState state;
     private int outstanding;
     private long retainedBytes;
     private long sequence;
+    private long inFlightSince;
     private bool writerStarted;
     private bool writerWaiting;
 
     public NativeOutboundQueue(int maxEntries, long maxRetainedBytes, int maxRequestBytes, ArrayPool<byte>? pool = null,
-        NativeOutboundBudget? sharedBudget = null, int maxBatchRequests = 1, bool edgeTriggeredWake = true)
+        NativeOutboundBudget? sharedBudget = null, int maxBatchRequests = 1, bool edgeTriggeredWake = true, bool measureAge = false)
     {
         ArgumentOutOfRangeException.ThrowIfNegativeOrZero(maxEntries);
         ArgumentOutOfRangeException.ThrowIfNegativeOrZero(maxRetainedBytes);
@@ -59,7 +68,21 @@ internal sealed class NativeOutboundQueue
         this.sharedBudget = sharedBudget;
         this.maxBatchRequests = maxBatchRequests;
         this.edgeTriggeredWake = edgeTriggeredWake;
+        this.measureAge = measureAge;
         available = new(0, edgeTriggeredWake ? 1 : int.MaxValue);
+    }
+
+    public NativeOutboundQueueAge ReadAge()
+    {
+        lock (gate)
+        {
+            long now = Stopwatch.GetTimestamp();
+            long oldestSend = inFlightSince != 0 ? inFlightSince :
+                pending.TryPeek(out OwnedSend request) ? request.Completion.EnqueuedAt : 0;
+            long oldestCompletion = completions.TryPeek(out NativeSendCompletion completion) ? completion.WrittenAt : 0;
+            return new(oldestSend == 0 ? TimeSpan.Zero : Stopwatch.GetElapsedTime(oldestSend, now),
+                oldestCompletion == 0 ? TimeSpan.Zero : Stopwatch.GetElapsedTime(oldestCompletion, now));
+        }
     }
 
     public NativeOutboundQueueSnapshot Snapshot
@@ -103,7 +126,8 @@ internal sealed class NativeOutboundQueue
                 else
                 {
                     bytes.CopyTo(owned);
-                    pending.Enqueue(new(owned, new(++sequence, generation, length, callback, callbackState)));
+                    pending.Enqueue(new(owned, new NativeSendCompletion(++sequence, generation, length, callback, callbackState)
+                    { EnqueuedAt = measureAge ? Stopwatch.GetTimestamp() : 0 }));
                     retainedBytes += owned.Length;
                     outstanding++;
                     WakeWriterLocked();
@@ -191,6 +215,7 @@ internal sealed class NativeOutboundQueue
                     else
                     {
                         buffer = request.Buffer;
+                        inFlightSince = request.Completion.EnqueuedAt;
                         length = request.Completion.Length;
                         if (batch is not null && TryCoalesceLocked(request, batch, out byte[]? merged, out int mergedLength, out int mergedCount))
                         {
@@ -233,10 +258,12 @@ internal sealed class NativeOutboundQueue
                     lock (gate)
                     {
                         ReturnBuffer(buffer);
+                        inFlightSince = 0;
                         if (succeeded && state != QueueState.Aborted && !token.IsCancellationRequested)
                         {
-                            if (count == 1) completions.Enqueue(request.Completion);
-                            else for (int i = 0; i < count; i++) completions.Enqueue(batch![i]);
+                            long writtenAt = measureAge ? Stopwatch.GetTimestamp() : 0;
+                            if (count == 1) completions.Enqueue(request.Completion with { WrittenAt = writtenAt });
+                            else for (int i = 0; i < count; i++) completions.Enqueue(batch![i] with { WrittenAt = writtenAt });
                         }
                         else ReleaseEntries(count);
                         if (count > 1) Array.Clear(batch!, 0, count);

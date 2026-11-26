@@ -8,6 +8,7 @@ public sealed record ServerNetworkOptions
     public int PendingConnectionLimit { get; init; } = 128;
     public int FramesPerSlotPerPass { get; init; } = 32;
     public bool UseOrderedTcp { get; init; }
+    public bool OrderedQueueDiagnostics { get; init; }
     public int DistantMovementUpdatesPerSecond { get; init; }
     public int OrderedCallbacksPerPass { get; init; } = NativeTcpTransportOptions.DefaultCallbacksPerPass;
 

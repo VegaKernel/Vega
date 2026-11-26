@@ -2,6 +2,7 @@
   "pendingConnectionLimit": 128,
   "framesPerSlotPerPass": 32,
   "useOrderedTcp": false,
+  "orderedQueueDiagnostics": false,
   "distantMovementUpdatesPerSecond": 0,
   "orderedCallbacksPerPass": 8192
 }
