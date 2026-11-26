@@ -18,6 +18,17 @@ public sealed class SceneRuntime(ISceneRenderSink? sink = null) : ISceneRuntime
 
     public bool HasActiveOverlays => ReadLookup().Count != 0;
 
+    public bool HasOverlayInRegion(WorldId worldId, SceneBounds region, PlayerId? observer = null)
+    {
+        if (!ReadLookup().TryGetValue(worldId, out var world)) return false;
+        foreach (var overlay in world.All)
+        {
+            if (overlay.Bounds.Intersects(region) &&
+                (observer is null || overlay.Observers.Contains(observer.Value))) return true;
+        }
+        return false;
+    }
+
     public void OpenSession(WorldId world, PlayerSessionOpened opened)
     {
         lock (sync)

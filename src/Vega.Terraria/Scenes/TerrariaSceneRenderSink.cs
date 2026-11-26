@@ -1,4 +1,6 @@
 using System.Collections.Concurrent;
+using System.Diagnostics;
+using Terraria.Net.Sockets;
 using Vega.Contracts.Operations;
 using Vega.Contracts.Players;
 using Vega.Contracts.Scenes;
@@ -22,6 +24,11 @@ public sealed class TerrariaSceneRenderSink(
     private IPlayerSessionLifecycle? sessions;
     private int queued;
     private int drainPosted;
+    internal const int MaximumRecipientsPerBatch = 4;
+    internal const int MaximumBatchesPerStep = 4;
+    private SceneRenderRequest? activeRequest;
+    private IEnumerator<(SceneBounds Bounds, int Offset, int Count)>? activeBatches;
+    private (PlayerId Id, ISocket Socket)[] activeRecipients = [];
 
     public void Attach(ISceneRuntime runtime, IPlayerSessionLifecycle lifecycle)
     {
@@ -37,6 +44,7 @@ public sealed class TerrariaSceneRenderSink(
 
     public void Invalidate(SceneRenderRequest request)
     {
+        if (scenes is null) return;
         if (request.WorldId != currentWorld)
         {
             scenes?.ReportFailure(request.SceneId, "Scene belongs to another world.");
@@ -64,12 +72,12 @@ public sealed class TerrariaSceneRenderSink(
             sessions.Opened -= OnSessionOpened;
         }
 
+        scenes = null;
         while (pending.TryDequeue(out _))
         {
+            Interlocked.Decrement(ref queued);
         }
 
-        queued = 0;
-        scenes = null;
         sessions = null;
     }
 
@@ -102,7 +110,7 @@ public sealed class TerrariaSceneRenderSink(
             return;
         }
 
-        if (!dispatcher.TryPost("scenes.render", Drain))
+        if (!dispatcher.TrySchedule("scenes.render", DrainStep))
         {
             Interlocked.Exchange(ref drainPosted, 0);
             logger.Log(
@@ -112,76 +120,111 @@ public sealed class TerrariaSceneRenderSink(
         }
     }
 
-    private void Drain()
+    private bool DrainStep()
     {
         dispatcher.AssertGameThread();
-        try
+        long started = Stopwatch.GetTimestamp();
+        // A batch is the smallest indivisible unit. The time budget is cooperative,
+        // not a hard real-time guarantee for tile composition or socket callbacks.
+        for (int step = 0; step < MaximumBatchesPerStep &&
+             (step == 0 || Stopwatch.GetElapsedTime(started).TotalMilliseconds < 1); step++)
         {
-            while (pending.TryDequeue(out SceneRenderRequest? request))
+            if (scenes is null)
             {
-                Interlocked.Decrement(ref queued);
-                try
+                FinishRequest();
+                break;
+            }
+            if (activeRequest is null && !pending.TryDequeue(out activeRequest)) break;
+            try
+            {
+                if (activeBatches is null) BeginRequest(activeRequest);
+                if (activeBatches!.MoveNext())
                 {
-                    Render(request);
-                    scenes?.ReportFailure(request.SceneId, null);
+                    var (bounds, offset, count) = activeBatches.Current;
+                    RenderBatch(bounds, offset, count);
                 }
-                catch (Exception ex)
+                else
                 {
-                    scenes?.ReportFailure(request.SceneId, ex.Message);
-                    logger.Log(OperationsLogLevel.Error, "scenes", "Scene redraw failed.", ex);
+                    scenes?.ReportFailure(activeRequest.SceneId, null);
+                    FinishRequest();
                 }
+            }
+            catch (Exception ex)
+            {
+                scenes?.ReportFailure(activeRequest!.SceneId, ex.Message);
+                logger.Log(OperationsLogLevel.Error, "scenes", "Scene redraw failed.", ex);
+                FinishRequest();
             }
         }
-        finally
+
+        if (scenes is not null && (activeRequest is not null || !pending.IsEmpty)) return false;
+        Interlocked.Exchange(ref drainPosted, 0);
+        if (scenes is not null && !pending.IsEmpty) PostDrain();
+        return true;
+    }
+
+    private void FinishRequest()
+    {
+        activeBatches?.Dispose();
+        activeBatches = null;
+        activeRecipients = [];
+        if (activeRequest is null) return;
+        activeRequest = null;
+        Interlocked.Decrement(ref queued);
+    }
+
+    private void BeginRequest(SceneRenderRequest request)
+    {
+        int worldWidth = Math.Max(0, global::Terraria.Main.maxTilesX);
+        int worldHeight = Math.Max(0, global::Terraria.Main.maxTilesY);
+        int startX = Math.Clamp(request.DirtyRegion.X, 0, worldWidth);
+        int startY = Math.Clamp(request.DirtyRegion.Y, 0, worldHeight);
+        int endX = Math.Clamp(request.DirtyRegion.Right, startX, worldWidth);
+        int endY = Math.Clamp(request.DirtyRegion.Bottom, startY, worldHeight);
+        var recipients = request.IsGlobal
+            ? players.SnapshotOnlinePlayers().Where(player => player.WorldId == currentWorld).Select(static player => player.Id)
+            : request.Observers;
+        var connected = new List<(PlayerId Id, ISocket Socket)>();
+        foreach (PlayerId recipient in recipients)
         {
-            Interlocked.Exchange(ref drainPosted, 0);
-            if (!pending.IsEmpty)
-            {
-                PostDrain();
-            }
+            if ((uint)recipient.Slot < (uint)global::Terraria.Netplay.Clients.Length &&
+                global::Terraria.Netplay.Clients[recipient.Slot] is { IsActive: true, Socket: { } socket })
+                connected.Add((recipient, socket));
+        }
+        activeRecipients = connected.ToArray();
+        activeBatches = EnumerateBatches(new SceneBounds(startX, startY, endX - startX, endY - startY),
+            activeRecipients.Length).GetEnumerator();
+    }
+
+    internal static IEnumerable<(SceneBounds Bounds, int Offset, int Count)> EnumerateBatches(
+        SceneBounds region, int recipients)
+    {
+        if (recipients <= 0) yield break;
+        for (int x = region.X; x < region.Right; x += MaximumTileSquareSide)
+        for (int y = region.Y; y < region.Bottom; y += MaximumTileSquareSide)
+        {
+            var bounds = new SceneBounds(x, y,
+                Math.Min(MaximumTileSquareSide, region.Right - x),
+                Math.Min(MaximumTileSquareSide, region.Bottom - y));
+            for (int offset = 0; offset < recipients; offset += MaximumRecipientsPerBatch)
+                yield return (bounds, offset, Math.Min(MaximumRecipientsPerBatch, recipients - offset));
         }
     }
 
-    private void Render(SceneRenderRequest request)
+    private void RenderBatch(SceneBounds bounds, int offset, int count)
     {
-        if (scenes is null || global::Terraria.Main.maxTilesX <= 0 || global::Terraria.Main.maxTilesY <= 0)
-        {
-            return;
-        }
-
-        int startX = Math.Clamp(request.DirtyRegion.X, 0, global::Terraria.Main.maxTilesX);
-        int startY = Math.Clamp(request.DirtyRegion.Y, 0, global::Terraria.Main.maxTilesY);
-        int endX = Math.Clamp(request.DirtyRegion.Right, startX, global::Terraria.Main.maxTilesX);
-        int endY = Math.Clamp(request.DirtyRegion.Bottom, startY, global::Terraria.Main.maxTilesY);
-        PlayerId[] recipients = (request.IsGlobal
-            ? players.SnapshotOnlinePlayers().Where(player => player.WorldId == currentWorld).Select(static player => player.Id)
-            : request.Observers).ToArray();
-        if (recipients.Length == 0) return;
+        using var cache = new SceneTileSquarePacketCache(bounds.X, bounds.Y, bounds.Width, bounds.Height);
         Func<PlayerId, int, int, SceneTile> resolve = ResolveTile;
-        // Each recipient still sees every chunk in the same order. Cache only the immediately
-        // preceding composition for this chunk, never a frame or a whole-region observer guess.
-        for (int x = startX; x < endX; x += MaximumTileSquareSide)
+        for (int i = offset; i < offset + count; i++)
         {
-            for (int y = startY; y < endY; y += MaximumTileSquareSide)
-            {
-                int width = Math.Min(MaximumTileSquareSide, endX - x);
-                int height = Math.Min(MaximumTileSquareSide, endY - y);
-                using var cache = new SceneTileSquarePacketCache(x, y, width, height);
-                foreach (PlayerId recipient in recipients)
-                {
-                    if ((uint)recipient.Slot >= (uint)global::Terraria.Netplay.Clients.Length ||
-                        global::Terraria.Netplay.Clients[recipient.Slot] is not { IsActive: true } client)
-                        continue;
-
-                    var socket = client.Socket;
-                    byte[] packet = cache.Resolve(recipient, resolve, global::Terraria.Main.tileFrameImportant);
-                    // Resolve first, then deliver only to that same native connection. A reentrant
-                    // slot replacement must not receive the preceding occupant's composition.
-                    if (!client.IsActive || !ReferenceEquals(client.Socket, socket)) continue;
-                    byte[] data = SceneTileSquarePacketCache.PrepareSendBuffer(socket, packet);
-                    socket.AsyncSend(data, 0, data.Length, client.ServerWriteCallBack);
-                }
-            }
+            var (recipient, socket) = activeRecipients[i];
+            if (global::Terraria.Netplay.Clients[recipient.Slot] is not { IsActive: true } client ||
+                !ReferenceEquals(client.Socket, socket)) continue;
+            byte[] packet = cache.Resolve(recipient, resolve, global::Terraria.Main.tileFrameImportant);
+            // The connection may be replaced during composition or between cooperative steps.
+            if (!client.IsActive || !ReferenceEquals(client.Socket, socket)) continue;
+            byte[] data = SceneTileSquarePacketCache.PrepareSendBuffer(socket, packet);
+            socket.AsyncSend(data, 0, data.Length, client.ServerWriteCallBack);
         }
     }
 

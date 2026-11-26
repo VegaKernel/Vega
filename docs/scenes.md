@@ -85,7 +85,7 @@ mutation lock and stops on the first applicable layer. Observer sets are frozen 
 stored. This avoids FakeProvider's full dimensions-sized provider index and global
 lock in the common read path, while batched updates only rebuild on the next read.
 
-The native tile-square renderer uses a request-local, one-chunk cache. Each recipient's
+The native tile-square renderer uses a batch-local, one-chunk cache. Each recipient's
 tiles and frame-importance decisions are independently resolved; only an exact match
 with the preceding composition reuses its encoded packet. This is intentionally not
 a cache keyed by a "global" scope, since concurrent personal-layer changes can change
@@ -93,7 +93,21 @@ what a particular player observes. The same per-recipient chunk order is maintai
 The renderer rechecks the socket reference after resolving, never shares scratch
 buffers with network I/O, and passes immutable exact-length packets to native TCP
 and Ordered TCP. Other socket implementations receive private copies. Composition
-and serialization scratch rentals are returned after each chunk.
+and serialization scratch rentals are returned after each batch.
+
+Large redraws now yield through the cooperative game-thread dispatcher: one batch
+covers up to 46x46 tiles for at most four recipients, and one dispatcher step handles
+at most four batches with a soft 1 ms elapsed-time budget. Only the next batch is
+enumerated; the queue's 256-region limit includes the active request. The renderer
+captures a recipient's native socket when starting the request and checks it again
+before and after composition, so a resumed request cannot target a replacement
+connection. This bounds work per dispatcher step, not end-to-end redraw latency or
+an absolute tick duration. Cache reuse is limited to a batch rather than all
+recipients, deliberately trading some repeated encoding for bounded work and fresh
+composition across ticks. Ordinary native tile squares outside applicable overlays
+are not intercepted; section refreshes redraw only their intersection with an enabled
+overlay, for recipients within its observer scope. Large overlapping redraws still
+share the bounded FIFO; real-client redraw latency under load remains to be measured.
 
 A local .NET 11 Release A/B composed and encoded 24 repeated 64x64 regions using the
 previously built scene runtime, the original encoder, and the new cache. Payloads were

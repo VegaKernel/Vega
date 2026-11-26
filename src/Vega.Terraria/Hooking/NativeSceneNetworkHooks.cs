@@ -50,6 +50,8 @@ internal sealed class NativeSceneNetworkHooks(
                 (int)args.Number2,
                 Math.Max(1, (int)args.Number3),
                 Math.Max(1, (int)args.Number4));
+            if (!scenes.HasOverlayInRegion(worldId, bounds,
+                    args.RemoteClient >= 0 ? new PlayerId(args.RemoteClient) : null)) return;
             renderer.Invalidate(Request(bounds, args.RemoteClient, args.IgnoreClient));
             args.Result = HookResult.Cancel;
             return;
@@ -62,12 +64,18 @@ internal sealed class NativeSceneNetworkHooks(
                 (int)args.Number2,
                 Math.Max(1, (int)args.Number3),
                 Math.Max(1, (int)args.Number4));
+            PlayerId? recipient = args.RemoteClient >= 0 ? new PlayerId(args.RemoteClient) : null;
+            if (!scenes.HasOverlayInRegion(worldId, section, recipient)) return;
             foreach (SceneOverlayDefinition overlay in scenes.SnapshotScenes()
                          .Where(scene => scene.WorldId == worldId)
                          .SelectMany(static scene => scene.Overlays)
-                         .Where(overlay => overlay.Enabled && overlay.Bounds.Intersects(section)))
+                         .Where(overlay => overlay.Enabled))
             {
-                renderer.Invalidate(Request(overlay.Bounds, args.RemoteClient, args.IgnoreClient));
+                if (!overlay.Bounds.TryIntersect(section, out var intersection)) continue;
+                var request = Request(intersection, args.RemoteClient, args.IgnoreClient);
+                if (!overlay.Observers.IsGlobal)
+                    request = request with { Observers = request.Observers.Where(overlay.Observers.Contains).ToHashSet() };
+                if (request.Observers.Count != 0) renderer.Invalidate(request);
             }
         }
     }

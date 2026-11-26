@@ -11,6 +11,34 @@ namespace Vega.Runtime.Tests;
 public sealed class SceneTileSquarePacketCacheTests
 {
     [Test]
+    public void CooperativeBatchesCoverEveryTileAndRecipientExactlyOnceInChunkOrder()
+    {
+        var region = new SceneBounds(7, 13, 93, 47);
+        const int recipients = 9;
+        var batches = TerrariaSceneRenderSink.EnumerateBatches(region, recipients).ToArray();
+        var count = new int[recipients, region.Width, region.Height];
+        foreach (var (bounds, offset, size) in batches)
+        {
+            Assert.That(size, Is.InRange(1, TerrariaSceneRenderSink.MaximumRecipientsPerBatch));
+            Assert.That(bounds.Width, Is.InRange(1, TerrariaSceneRenderSink.MaximumTileSquareSide));
+            Assert.That(bounds.Height, Is.InRange(1, TerrariaSceneRenderSink.MaximumTileSquareSide));
+            for (int recipient = offset; recipient < offset + size; recipient++)
+            for (int x = bounds.X; x < bounds.Right; x++)
+            for (int y = bounds.Y; y < bounds.Bottom; y++)
+                count[recipient, x - region.X, y - region.Y]++;
+        }
+        Assert.That(count.Cast<int>().All(static n => n == 1), Is.True);
+        Assert.That(batches.Select(static b => b.Bounds).Distinct().ToArray(), Is.EqualTo(new[]
+        {
+            new SceneBounds(7, 13, 46, 46), new SceneBounds(7, 59, 46, 1),
+            new SceneBounds(53, 13, 46, 46), new SceneBounds(53, 59, 46, 1),
+            new SceneBounds(99, 13, 1, 46), new SceneBounds(99, 59, 1, 1)
+        }));
+        Assert.That(TerrariaSceneRenderSink.EnumerateBatches(region, 0), Is.Empty);
+        Assert.That(TerrariaSceneRenderSink.EnumerateBatches(region with { Width = 0 }, recipients), Is.Empty);
+    }
+
+    [Test]
     public void MaximumRendererChunkFitsNativePacketEvenWithEveryOptionalTileField()
     {
         int side = TerrariaSceneRenderSink.MaximumTileSquareSide;

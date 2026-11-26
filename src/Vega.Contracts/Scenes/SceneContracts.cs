@@ -25,6 +25,19 @@ public readonly record struct SceneBounds(int X, int Y, int Width, int Height)
 
     public bool Intersects(SceneBounds other) =>
         X < other.Right && Right > other.X && Y < other.Bottom && Bottom > other.Y;
+
+    public bool TryIntersect(SceneBounds other, out SceneBounds intersection)
+    {
+        int x = Math.Max(X, other.X), y = Math.Max(Y, other.Y);
+        int right = Math.Min(Right, other.Right), bottom = Math.Min(Bottom, other.Bottom);
+        if (right <= x || bottom <= y)
+        {
+            intersection = default;
+            return false;
+        }
+        intersection = new(x, y, right - x, bottom - y);
+        return true;
+    }
 }
 
 [Flags]
@@ -196,6 +209,11 @@ public interface ISceneLease : IDisposable
 public interface ISceneRuntime
 {
     bool HasActiveOverlays { get; }
+
+    bool HasOverlayInRegion(WorldId worldId, SceneBounds region, PlayerId? observer = null) =>
+        SnapshotScenes().Any(scene => scene.WorldId == worldId && scene.Overlays.Any(overlay =>
+            overlay.Enabled && overlay.Bounds.Intersects(region) &&
+            (observer is null || overlay.Observers.Contains(observer.Value))));
 
     ISceneLease CreateScene(WorldId worldId, string name, string owner);
 

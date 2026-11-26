@@ -18,6 +18,28 @@ namespace Vega.Runtime.Tests.Core;
 public sealed class SceneRuntimeTests
 {
     [Test]
+    public void RegionIntersectionRespectsWorldObserverEnabledAndExclusiveEdges()
+    {
+        var runtime = new SceneRuntime();
+        var observer = new PlayerId(1);
+        using var scene = runtime.CreateScene(WorldId.Primary, "region", "test");
+        var definition = Overlay("personal", 1, SceneObserverScope.Personal(observer));
+        var id = scene.AddOverlay(definition);
+        var inside = new SceneBounds(11, 11, 10, 10);
+        Assert.That(definition.Bounds.TryIntersect(inside, out var clipped), Is.True);
+        Assert.That(clipped, Is.EqualTo(new SceneBounds(11, 11, 1, 1)));
+        var adjacent = new SceneBounds(12, 10, 6, 6);
+        Assert.That(definition.Bounds.TryIntersect(adjacent, out _), Is.False);
+        Assert.That(runtime.HasOverlayInRegion(WorldId.Primary, adjacent), Is.False);
+        Assert.That(runtime.HasOverlayInRegion(WorldId.Primary, inside), Is.True);
+        Assert.That(runtime.HasOverlayInRegion(WorldId.Primary, inside, observer), Is.True);
+        Assert.That(runtime.HasOverlayInRegion(WorldId.Primary, inside, new PlayerId(2)), Is.False);
+        Assert.That(runtime.HasOverlayInRegion(new WorldId("other"), inside), Is.False);
+        scene.UpdateOverlay(id, definition with { Enabled = false });
+        Assert.That(runtime.HasOverlayInRegion(WorldId.Primary, inside), Is.False);
+    }
+
+    [Test]
     public void UnchangedBoundsRedrawOnceWithImmutableUnionOfOldAndNewObservers()
     {
         var sink = new RecordingSink();
