@@ -45,6 +45,6 @@ internal sealed class NativeOutboundBudget
         }
     }
 
-    public void ReleaseBytes(int bytes) { lock (gate) retained -= bytes; }
+    public void ReleaseBytes(long bytes) { lock (gate) retained -= bytes; }
     public void ReleaseEntries(int count) { lock (gate) outstanding -= count; }
 }

@@ -112,9 +112,17 @@ public static class TerrariaServerHost
         using var nativeLifecycleHooks = new NativeLifecycleHooks(lifecycle);
         using var networkMetricsHooks = new NativeNetworkMetricsHooks(networkMetrics);
         using var networkBudgetHooks = new NativeNetworkBudgetHooks(networkOptions ?? new());
+        int distantMovementRate = ServerNetworkOptions.Normalize(networkOptions ?? new()).DistantMovementUpdatesPerSecond;
+        using var movementInterest = distantMovementRate > 0
+            ? new NativeMovementInterestHooks(distantMovementRate, () => gameThreadDispatcher.IsGameThread) : null;
         using var orderedTransport = networkOptions?.UseOrderedTcp == true
             ? new NativeTcpTransportHost(new NativeTcpTransportOptions
-            { MaxCallbacksPerPass = ServerNetworkOptions.Normalize(networkOptions).OrderedCallbacksPerPass }) : null;
+            {
+                MaxCallbacksPerPass = ServerNetworkOptions.Normalize(networkOptions).OrderedCallbacksPerPass,
+                MaxBatchRequests = NativeOutboundQueue.BatchRequestLimit
+            },
+                onSendRejected: (generation, reason) => logger.Log(OperationsLogLevel.Warning, "network",
+                    $"Ordered TCP connection {generation} closed: outbound queue rejected a send ({reason}).")) : null;
         using var connectionLifecycleHooks = new NativeConnectionLifecycleHooks(connectionMetadata);
         using var worldDecisionHooks = new NativeWorldDecisionHooks(hardmodeStarting);
         Func<Vega.Contracts.Players.PlayerSnapshot, bool>? validatedReadiness = primaryGameplayReadiness is null ? null : player =>
@@ -218,7 +226,6 @@ public static class TerrariaServerHost
             gameThreadDispatcher.Attach();
             playerBoundary.Attach();
             operationsState.Attach();
-            networkMetricsHooks.Attach();
             networkBudgetHooks.Attach();
             connectionLifecycleHooks.Attach();
             if (earlyJoinCharacters is not null)
@@ -248,6 +255,8 @@ public static class TerrariaServerHost
             chestPolicyHooks.Attach();
             sceneNetworkHooks.Attach();
             sceneVisibilityHooks.Attach();
+            movementInterest?.Attach();
+            networkMetricsHooks.Attach();
 
             lifecycle.Advance(RuntimeLifecycleStage.RuntimeReady);
 

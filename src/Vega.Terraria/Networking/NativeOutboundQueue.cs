@@ -281,6 +281,7 @@ internal sealed class NativeOutboundQueue
         // Charge the additional capacity before returning any original rental. Retain only the merged
         // bytes while the asynchronous write is in flight, but preserve every original completion credit.
         int offset = 0;
+        long returnedBytes = 0;
         OwnedSend current = first;
         for (int i = 0; i < count; i++)
         {
@@ -293,8 +294,11 @@ internal sealed class NativeOutboundQueue
             current.Buffer.AsSpan(0, current.Completion.Length).CopyTo(merged.AsSpan(offset));
             offset += current.Completion.Length;
             batch[i] = current.Completion;
-            ReturnBuffer(current);
+            pool.Return(current.Buffer);
+            returnedBytes += current.Buffer.Length;
         }
+        retainedBytes -= returnedBytes;
+        sharedBudget?.ReleaseBytes(returnedBytes);
         buffer = merged;
         return true;
     }

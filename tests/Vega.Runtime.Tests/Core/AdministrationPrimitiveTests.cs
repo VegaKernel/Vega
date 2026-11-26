@@ -43,6 +43,25 @@ public sealed class AdministrationPrimitiveTests
     }
 
     [Test]
+    public void ChatPipelineReusesUnchangedTextAcrossRecipients()
+    {
+        PlayerSnapshot sender = Player(1, "Alice");
+        PlayerSnapshot bob = Player(2, "Bob");
+        PlayerSnapshot carol = Player(3, "Carol");
+        var pipeline = new ChatPipeline(renderers: [new MentionRenderer()]);
+
+        ChatPipelineResult result = pipeline.Process(new ChatMessageContext(
+            WorldId.Primary, sender, "hello @Bob", [sender, bob, carol]));
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(result.Deliveries[0].Content, Is.EqualTo("Alice: hello @Bob"));
+            Assert.That(result.Deliveries[1].Content, Is.EqualTo("Alice: hello [MENTION @Bob]"));
+            Assert.That(result.Deliveries[2].Content, Is.SameAs(result.Deliveries[0].Content));
+        });
+    }
+
+    [Test]
     public async Task PlayerInspectionRedactsAllConnectionSecretsAtOneBoundary()
     {
         PlayerSnapshot player = Player(1, "Alice") with

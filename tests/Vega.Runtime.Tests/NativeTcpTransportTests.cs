@@ -94,6 +94,33 @@ public sealed class NativeTcpTransportTests
     }
 
     [Test]
+    public async Task ReceiveReadinessSignalsPeerFinAfterBufferedBytes()
+    {
+        await using var fixture = new Fixture();
+        var (peer, connection) = await fixture.ConnectAsync();
+        using (peer)
+        {
+            Assert.That(connection.IsDataAvailable(), Is.False);
+            await peer.GetStream().WriteAsync(new byte[] { 42 });
+            peer.Client.Shutdown(SocketShutdown.Send);
+            await UntilAsync(connection.IsDataAvailable);
+
+            byte[] destination = new byte[1];
+            var payload = new TaskCompletionSource<int>(TaskCreationOptions.RunContinuationsAsynchronously);
+            connection.AsyncReceive(destination, 0, 1, (_, count) => payload.TrySetResult(count));
+            Assert.That(await payload.Task.WaitAsync(Timeout), Is.EqualTo(1));
+            Assert.That(destination[0], Is.EqualTo(42));
+
+            await UntilAsync(connection.IsDataAvailable);
+            var eof = new TaskCompletionSource<int>(TaskCreationOptions.RunContinuationsAsynchronously);
+            connection.AsyncReceive(destination, 0, 1, (_, count) => eof.TrySetResult(count));
+            Assert.That(await eof.Task.WaitAsync(Timeout), Is.Zero);
+            await connection.Completion.WaitAsync(Timeout);
+            Assert.That(connection.IsConnected(), Is.False);
+        }
+    }
+
+    [Test]
     public async Task ReplacementSocketCannotReceiveAnOldGenerationCompletion()
     {
         await using var fixture = new Fixture();
@@ -154,6 +181,44 @@ public sealed class NativeTcpTransportTests
                 Assert.That(second.IsConnected(), Is.True);
                 Assert.That(secondCallbacks, Is.EqualTo(1));
                 Assert.That(fixture.Host.Retained, Is.EqualTo((0, 0L)));
+            });
+        }
+    }
+
+    [Test]
+    public async Task WorldThreadDrainsCompletedSendsDuringBurstBeforeWorldQueueFills()
+    {
+        await using var fixture = new Fixture(new NativeTcpTransportOptions
+        {
+            MaxOutstandingPerConnection = 16,
+            MaxOutstandingPerWorld = 16,
+            MaxCallbacksPerPass = 1,
+            CallbackBudget = TimeSpan.FromSeconds(1)
+        });
+        var (peer, connection) = await fixture.ConnectAsync();
+        using (peer)
+        {
+            fixture.Bind(1, connection);
+            int callbacks = 0;
+            int worldThread = 0;
+            int callbackThread = 0;
+            SocketSendCallback callback = _ =>
+            {
+                callbackThread = Environment.CurrentManagedThreadId;
+                callbacks++;
+            };
+            for (int index = 0; index < 16; index++) connection.AsyncSend([1], 0, 1, callback);
+            await UntilAsync(() => connection.OutboundSnapshot.PendingCompletions == 16);
+
+            worldThread = Environment.CurrentManagedThreadId;
+            Assert.That(fixture.Host.DrainCompletions(), Is.EqualTo(1));
+            for (int index = 0; index < 4; index++) connection.AsyncSend([2], 0, 1, callback);
+
+            Assert.Multiple(() =>
+            {
+                Assert.That(connection.IsClosed, Is.False);
+                Assert.That(callbacks, Is.EqualTo(5));
+                Assert.That(callbackThread, Is.EqualTo(worldThread));
             });
         }
     }

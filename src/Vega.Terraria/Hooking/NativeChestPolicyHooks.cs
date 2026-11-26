@@ -46,7 +46,7 @@ internal sealed class NativeChestPolicyHooks(
                 args.PacketId,
                 args.Instance.readBuffer,
                 args.ReadOffset,
-                args.Length,
+                args.GetPayloadLength(),
                 out PacketView packet))
         {
             return;

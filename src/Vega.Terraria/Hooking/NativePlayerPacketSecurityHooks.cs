@@ -74,7 +74,7 @@ internal sealed class NativePlayerPacketSecurityHooks : IDisposable
 
         int slot = args.Instance.whoAmI;
         TerrariaConnectionState connectionState = GetConnectionState(slot);
-        int payloadLength = args.Length - (args.ReadOffset - args.Start);
+        int payloadLength = args.GetPayloadLength();
         try
         {
             ConnectionMetadataObservation metadata = connectionMetadata.ObserveInboundDetailed(

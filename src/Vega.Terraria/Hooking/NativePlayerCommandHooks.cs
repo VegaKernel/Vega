@@ -155,7 +155,7 @@ internal sealed class NativePlayerCommandHooks : IDisposable
                 args.PacketId,
                 args.Instance.readBuffer,
                 args.ReadOffset,
-                args.Length,
+                args.GetPayloadLength(),
                 out PacketView packet))
         {
             return false;

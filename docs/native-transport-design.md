@@ -141,7 +141,17 @@ and dispose-only is retained as an internal A/B experiment. Raw output:
 `../artifacts/performance-2026-11-26/send-cancellation-results.txt`. These are
 aggregate same-process local sender/reader measurements, not server TPS.
 
-## 6. Implementation order
+## 6. Optional distant player movement sampling
+
+Set `distantMovementUpdatesPerSecond` in `config/network.json` and restart. `0` (default) disables it; start with `5` for a staging world whose players usually occupy separated areas. The setting is independent of `useOrderedTcp`.
+
+Only ordinary, fully joined player-control broadcasts (packet 13) are sampled. Pairs enter the distant band beyond 220 tiles and resume normal delivery inside 180 tiles. The first sample, control-state changes, large position jumps and active camera overrides bypass the limiter. Sampling always sends a current packet when due; it never queues an old position for replay. Targeted synchronization, join, teleport, damage, projectiles, NPCs and chat keep their native paths. This is traffic reduction, not visibility enforcement or isolation of gameplay.
+
+Do not enable this globally without validating real clients (especially PvP, map tracking, camera behavior and nearby-player workloads). A crowded world cannot save traffic with this option and still pays for the distance checks.
+
+In an 8-second full-load loopback comparison with Ordered TCP and four groups of 25 simulated players (at least 400 tiles between groups), the observer received 6,521 movement updates instead of 15,840. Across all clients the received traffic fell from 39.73 to 17.52 MiB. The observer saw the same 192 player shots and 159 chat messages in both runs. When all groups converged, the observer again received all 7,920 expected movement updates over four seconds. These are single-run results per configuration, not real-client qualification.
+
+## 7. Implementation order
 
 1. **Implemented:** internal owned-send FIFO and a single byte writer with exact callback metadata, in-flight accounting and pool lifetime. Fake-sink tests.
 2. **Implemented locally:** listener/accepted `ISocket`, native binding, receive-close completion and per-world generation-aware completion pump. Standalone loopback integration tests cover local accepted sockets, FIFO, receive close, slot identity, shared/per-connection budgets and factory restoration. Full real-client acceptance and wire/latency telemetry remain pending.

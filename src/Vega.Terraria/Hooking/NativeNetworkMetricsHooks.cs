@@ -72,6 +72,7 @@ internal sealed class NativeNetworkMetricsHooks : IDisposable
 
     private void OnSendBytes(object? sender, Hooks.NetMessage.SendBytesEventArgs args)
     {
+        if (args.Result == HookResult.Cancel) return;
         metrics.RecordOutbound(args.Size);
         if (Diagnostics.IsEnabled("Packet.Outbound"))
         {

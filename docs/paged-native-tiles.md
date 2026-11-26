@@ -47,4 +47,17 @@ On Windows x64, with TerrariaRuntime 1.1.5 and the same Vega Release build, the 
 | Idle server working set (MiB) | 559.82 | 447.69 | 767.19 | 707.79 |
 | Full active scan (synthetic, ms) | 30.97 | 56.49 | 69.52 | 129.81 |
 
-The native servers saved both fixtures successfully; the resulting worlds and rolling backups had identical tile and entity bytes, and the stock collection reloaded both saved worlds. Only native timestamp and cloud-state header bytes varied between the independent processes. The paged synthetic scan was about 1.8 times slower, and native save throughput did not improve. Paging is therefore an optional memory tradeoff, particularly for small isolated worlds, not a universal speed improvement. Large worlds and live-player workloads have not been measured, and combined image-cache/paging mode has not been separately tested end to end.
+The native servers saved both fixtures successfully; the resulting worlds and rolling backups had identical tile and entity bytes, and the stock collection reloaded both saved worlds. Only native timestamp and cloud-state header bytes varied between the independent processes. The paged synthetic scan was about 1.8 times slower, and native save throughput did not improve. Paging is therefore an optional memory tradeoff, particularly for small isolated worlds, not a universal speed improvement.
+
+### Small world: heap and network load
+
+On Windows x64 with Terraria 1.4.6.1, both modes ran the same small world with the stock TCP transport. Separate GC heap captures before players joined showed one 161,366,448-byte rectangular tile-reference array with the default grid, versus about 41.2 MB of page arrays and page directory with paging. Both retained 5,040,000 native `Terraria.Tile` objects. Reported managed heap size fell from 484 to 369 MiB. The private commit on an idle empty server fell from 534 to 417 MiB (official Terraria 1.4.6.1: 407 MiB on the same world, using a different .NET runtime).
+
+| Full workload (one 12-second phase per mode) | Default grid | Paged grid |
+| --- | ---: | ---: |
+| Working set (MiB) | 641.3 | 530.0 |
+| CPU (process-seconds) | 13.56 | 13.03 |
+| Movement p99 (ms) | 28.55 | 28.63 |
+| Chat p99 (ms) | 64.57 | 59.83 |
+
+All 64 simulated clients remained connected during movement, shots, chat, and the two-boss phase in both runs. These were loopback clients, not full gameplay clients. One run per mode does not establish a CPU or latency improvement. Keep paging opt-in; large worlds, real-client workloads and combined image-cache/paging still need separate validation.

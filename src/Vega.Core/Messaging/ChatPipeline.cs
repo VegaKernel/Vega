@@ -45,6 +45,7 @@ public sealed class ChatPipeline : IChatPipeline
         }
 
         var deliveries = new ChatDelivery[context.Recipients.Count];
+        string? defaultDelivery = null;
         for (var index = 0; index < context.Recipients.Count; index++)
         {
             PlayerSnapshot recipient = context.Recipients[index];
@@ -58,7 +59,9 @@ public sealed class ChatPipeline : IChatPipeline
 
             deliveries[index] = new ChatDelivery(
                 recipient.Id,
-                $"{context.Sender.Name}: {rendered}");
+                rendered == content
+                    ? defaultDelivery ??= $"{context.Sender.Name}: {content}"
+                    : $"{context.Sender.Name}: {rendered}");
         }
 
         return new ChatPipelineResult(

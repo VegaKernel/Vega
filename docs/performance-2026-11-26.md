@@ -303,3 +303,40 @@ The 32-sends-per-peer offered workload was repeated with explicit closure detect
 At 255 peers CPU was 24.88–28.80 s versus vanilla 51.91–52.81 s, pump p95 1.91–1.96 ms, and callback p95 42.32–50.89 ms (intentional game-thread completion cadence). Allocations remain higher (402.4–404.5 versus 208.0 B/request); the deadline is cooperative, not a hard wall-clock cutoff for individual callbacks. Enable the raised count ceiling only inside opt-in Ordered TCP (new `orderedCallbacksPerPass`, default 8192; bounded 1–8192); vanilla remains default and batching remains off. Raw: `native-tcp-production-overload.txt` and `native-tcp-production-pump-cap.txt`.
 
 Final current solution verification after the transport ceiling, CIDR shared allowlist and offline whitelist import: 702 runtime + 33 architecture tests passed, two external DB tests skipped (`roadmap-whitelist-final.trx`). Actual native server with opt-in Ordered 8192, native SSC, normal local TCP connect/close, metrics CSV and graceful shutdown passed (`artifacts/metrics-smoke-881ca05652284c7d9c8e4afb9c41cd10`). The additional whitelist CLI import preserved source bytes and persisted both an IP and a CIDR network (`artifacts/whitelist-migration-smoke-bf37efc6db904b91b319431a37de1ee9`). Rebuilt the local 20-library Vega package. Stock client 1.4.6.1 is installed on the development host but no interactive client window was started; actual client qualification remains separate.
+
+### Ordered TCP: receive readiness instead of polling on broadcast
+
+A separate EventPipe trace of the batched Ordered transport under 64 joined loopback clients showed Winsock `select` on the game-thread broadcast path and on native client updates. Ordered now reads connection lifecycle state in `IsConnected`; the native read path polls for readiness. Readable includes EOF, so buffered bytes are still delivered before FIN retires the connection. The regression test covers an idle socket, buffered bytes followed by FIN, and the zero-byte completion.
+
+Both variants used the same small world on Windows, the same 64-client load, batched Ordered TCP, and two runs of the 12-second full phase (movement, shots, chat and two bosses). These are ranges of observed results, not confidence intervals.
+
+| Metric | Ordered before | Ordered with receive readiness |
+| --- | ---: | ---: |
+| CPU (process-seconds over 12 seconds) | 24.92–25.75 | 9.30–9.83 |
+| Movement p99 (ms) | 29.35–32.19 | 34.06–34.77 |
+| Chat p99 (ms) | 37.54–43.81 | 36.72–37.79 |
+| Working set (MiB) | 680.6–681.9 | 684.1–685.7 |
+
+All 64 clients remained connected and both boss NPCs were observed in each repeat. Ordered remains opt-in; these runs do not qualify real clients, WAN or long-running production load.
+
+### 100 joined clients with emulated network delay
+
+Same Vega binaries and small world, only `useOrderedTcp` differed. One run per mode, Ordered first. A bounded FIFO loopback proxy delayed application bytes by 20 ms in each direction, without added loss or a bandwidth limit. The proxy and generator ran on the server machine; generator wake p99 was 24 ms for Ordered and 12 ms for stock TCP. This tests delayed delivery, not real WAN behavior or TCP congestion.
+
+| Metric, 60-second full-load phase | Ordered TCP | Stock TCP |
+| --- | ---: | ---: |
+| Clients still connected | 100 | 100 |
+| Movement updates seen by one observer | 118,800 | 82,967 |
+| Player shots seen by one observer | 5,940 | 4,155 |
+| Chat messages seen by one observer | 1,188 | 830 |
+| Chat p99 among received messages | 138 ms | 20.3 s |
+| Server CPU (process-seconds) | 94.0 | 64.1 |
+| Server working set (MiB) | 753 | 651 |
+
+Both bosses were observed. Stock TCP delivered only about 70% as many updates within the observation window while all sockets stayed open; this is backlog, not evidence of TCP packet loss. Its lower process CPU is not an equal-throughput saving. Ordered matched all 1,200 movement probes (p99 137 ms). The stock movement percentile is omitted: delayed positions can repeat and 772 probes were unmatched or expired. The snapshot taken by `tpsstats` after the phase reported a one-minute mean of 60.0 TPS (Ordered) and 27.8 TPS (stock); it is not an independent per-phase capture. Keep Ordered opt-in until repeated runs, representative real clients, and a longer soak under bandwidth limits and loss have been checked.
+
+### Ordered TCP: release batch reservations once
+
+Coalescing still copies adjacent packets into an owned rental and keeps every completion credit. Returning the original rentals now releases their summed capacity in one operation under the shared world budget lock, instead of re-entering that lock for every packet. The temporary merged rental is still charged before copying, so both limits remain in force.
+
+Four loopback runs, baseline/candidate/candidate/baseline, 100 joined clients and identical 18-second full phases. CPU fell from 27.56–28.08 to 24.27–25.30 process-seconds (about 11% on average). All runs delivered 35,640 movement updates and 1,782 player shots to the observer, with no disconnected clients. Chat p99 fell from 50.14–50.42 to 44.71–46.46 ms; movement p99 and working set overlapped. The results do not establish a WAN or slow-client improvement.

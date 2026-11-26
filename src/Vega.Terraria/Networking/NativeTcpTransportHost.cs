@@ -21,19 +21,31 @@ internal sealed class NativeTcpTransportHost : IDisposable
     private readonly NativeTcpListener listener;
     private readonly bool activeSlotSnapshot;
     private readonly Func<ISocket> listenerFactory;
+    private readonly Action afterEnqueue;
+    private readonly Action<long, NativeOutboundEnqueueResult>? onSendRejected;
+    private readonly int pressureThreshold;
+    private readonly int sendsBetweenPressureChecks;
     private Func<ISocket>? previousFactory;
     private long generation;
     private int nextSlot;
+    private int worldThreadId;
+    private int sendsSincePressureCheck;
+    private bool pumping;
     private bool attached;
     private bool stopped;
 
     public NativeTcpTransportHost(NativeTcpTransportOptions options, Func<IPEndPoint>? bindEndpoint = null,
-        Func<int, ISocket?>? currentSocket = null, bool activeSlotSnapshot = true)
+        Func<int, ISocket?>? currentSocket = null, bool activeSlotSnapshot = true,
+        Action<long, NativeOutboundEnqueueResult>? onSendRejected = null)
     {
         this.options = options ?? throw new ArgumentNullException(nameof(options));
         options.Validate();
         this.currentSocket = currentSocket ?? ResolveNativeSocket;
         this.activeSlotSnapshot = activeSlotSnapshot;
+        this.onSendRejected = onSendRejected;
+        afterEnqueue = DrainDuringSendBurst;
+        pressureThreshold = Math.Max(1, options.MaxOutstandingPerConnection / 2);
+        sendsBetweenPressureChecks = Math.Clamp(pressureThreshold / 8, 1, 512);
         budget = new NativeOutboundBudget(options.MaxOutstandingPerWorld, options.MaxRetainedBytesPerWorld);
         listener = new NativeTcpListener(bindEndpoint ?? ResolveNativeEndpoint, CreateAccepted);
         listenerFactory = () => listener;
@@ -64,7 +76,8 @@ internal sealed class NativeTcpTransportHost : IDisposable
         lock (gate)
         {
             if (stopped || connections.Count >= options.MaxConnections) return null;
-            connection = new NativeTcpConnection(socket, ++generation, options, budget);
+            connection = new NativeTcpConnection(socket, ++generation, options, budget,
+                afterEnqueue: afterEnqueue, onSendRejected: onSendRejected);
             connections.Add(connection);
         }
         _ = RetireWhenFinishedAsync(connection);
@@ -98,8 +111,26 @@ internal sealed class NativeTcpTransportHost : IDisposable
 
     private void OnNativePacketPass(object? sender, HookEvents.Terraria.Netplay.UpdateServerInMainThreadEventArgs args) => DrainCompletions();
 
+    private void DrainDuringSendBurst()
+    {
+        if (Environment.CurrentManagedThreadId != Volatile.Read(ref worldThreadId) || pumping ||
+            ++sendsSincePressureCheck < sendsBetweenPressureChecks) return;
+        sendsSincePressureCheck = 0;
+        if (budget.Snapshot.Entries >= pressureThreshold)
+            DrainCompletions();
+    }
+
     /// <summary>World-thread-only completion pump. Do not call from socket workers.</summary>
     internal int DrainCompletions()
+    {
+        if (pumping) return 0;
+        Volatile.Write(ref worldThreadId, Environment.CurrentManagedThreadId);
+        pumping = true;
+        try { return DrainCompletionsCore(); }
+        finally { pumping = false; }
+    }
+
+    private int DrainCompletionsCore()
     {
         if (!activeSlotSnapshot) return DrainAllSlots();
         long started = Stopwatch.GetTimestamp();
