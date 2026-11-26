@@ -226,9 +226,14 @@ public interface ISceneRuntime
             overlay.Observers.Contains(observer)));
 
     bool HasOverlayInRegion(WorldId worldId, SceneBounds region, PlayerId? observer = null) =>
-        SnapshotScenes().Any(scene => scene.WorldId == worldId && scene.Overlays.Any(overlay =>
+        region.Width > 0 && region.Height > 0 && SnapshotScenes().Any(scene => scene.WorldId == worldId && scene.Overlays.Any(overlay =>
             overlay.Enabled && (overlay.Bounds.Intersects(region) || overlay.FillOutsideWithAir) &&
             (observer is null || overlay.Observers.Contains(observer.Value))));
+
+    /// <summary>Enabled overlay rectangles, excluding the implicit personal air background.</summary>
+    IEnumerable<SceneOverlayDefinition> EnumerateOverlaysInRegion(WorldId worldId, SceneBounds region) =>
+        SnapshotScenes().Where(scene => scene.WorldId == worldId).SelectMany(static scene => scene.Overlays)
+            .Where(overlay => region.Width > 0 && region.Height > 0 && overlay.Enabled && overlay.Bounds.Intersects(region));
 
     ISceneLease CreateScene(WorldId worldId, string name, string owner);
 

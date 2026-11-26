@@ -15,7 +15,8 @@ public sealed class NavigationModule(
     IPlayerSessionLifecycle sessions,
     IWorldEnvironmentService? environment = null,
     WarpStore? warps = null,
-    IWorldNpcService? npcs = null) : IVegaModule
+    IWorldNpcService? npcs = null,
+    IPlayerMessenger? messenger = null) : IVegaModule
 {
     private const string OthersPermission = "vega.navigation.others";
     private const string OverridePermission = "vega.navigation.override";
@@ -216,8 +217,25 @@ public sealed class NavigationModule(
                     if (point is null) return Failure("navigation.warp_not_found", "Warp '{0}' was not found.", name);
                     if (action == "send" && !invocation.Principal.HasPermission(OverridePermission) && IsBlocked(source))
                         return Failure("navigation.teleport_disabled", "The player has disabled incoming teleports.");
-                    return Result(await navigation.ToPositionAsync(source, point.Position, token).ConfigureAwait(false),
-                        "navigation.warped", "Teleported {0} to warp '{1}'.", source.Name, point.Name);
+                    var moved = await navigation.ToPositionAsync(source, point.Position, token).ConfigureAwait(false);
+                    var result = Result(moved, "navigation.warped", "Teleported {0} to warp '{1}'.", source.Name, point.Name);
+                    if (moved.IsSuccess && action == "send" && source.SessionId != actor?.SessionId && messenger is not null)
+                    {
+                        // A successful teleport remains successful if the target leaves before notification.
+                        // Use the exact snapshot overload, never a bare reusable player slot.
+                        if (!token.IsCancellationRequested && players.TryGet(source.Id, out var current) &&
+                            current is { SessionId: { } currentSession } && currentSession == source.SessionId &&
+                            current.WorldId == invocation.WorldId)
+                        {
+                            try
+                            {
+                                await messenger.SendMessageAsync(source, $"{invocation.Principal.Name} sent you to warp '{point.Name}'.", token)
+                                    .ConfigureAwait(false);
+                            }
+                            catch (OperationCanceledException) when (token.IsCancellationRequested) { }
+                        }
+                    }
+                    return result;
             }
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or System.Text.Json.JsonException or InvalidDataException)

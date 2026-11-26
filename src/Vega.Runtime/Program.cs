@@ -405,7 +405,7 @@ int Start()
         using IDisposable reloadRegistration = commandDispatcher.Register(reloadConfiguration);
         using IDisposable configCommandRegistration = commandDispatcher.Register(new ConfigurationCommand(serverConfiguration, reloadConfiguration));
         using var navigationModule = new NavigationModule(commandDispatcher, playerBoundary, playerBoundary, playerBoundary,
-            worldEnvironment, new WarpStore(Path.Combine(runtimeDataRoot, "warps")), worldNpcs);
+            worldEnvironment, new WarpStore(Path.Combine(runtimeDataRoot, "warps")), worldNpcs, playerBoundary);
         navigationModule.Start();
         using IDisposable timeCommandRegistration = commandDispatcher.Register(new TimeCommand(worldEnvironment));
         using IDisposable windCommandRegistration = commandDispatcher.Register(new WindCommand(worldEnvironment));

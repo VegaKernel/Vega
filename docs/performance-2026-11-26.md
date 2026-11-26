@@ -340,3 +340,68 @@ Both bosses were observed. Stock TCP delivered only about 70% as many updates wi
 Coalescing still copies adjacent packets into an owned rental and keeps every completion credit. Returning the original rentals now releases their summed capacity in one operation under the shared world budget lock, instead of re-entering that lock for every packet. The temporary merged rental is still charged before copying, so both limits remain in force.
 
 Four loopback runs, baseline/candidate/candidate/baseline, 100 joined clients and identical 18-second full phases. CPU fell from 27.56–28.08 to 24.27–25.30 process-seconds (about 11% on average). All runs delivered 35,640 movement updates and 1,782 player shots to the observer, with no disconnected clients. Chat p99 fell from 50.14–50.42 to 44.71–46.46 ms; movement p99 and working set overlapped. The results do not establish a WAN or slow-client improvement.
+
+### Updated repository checkpoint (`e2f95603`): transport and scene network path
+
+Windows / .NET 11, 32 logical cores. The existing loopback byte-validation workload
+was repeated unchanged at 8 ordinary sends per peer per tick (120 measured ticks,
+baseline/Ordered/Ordered/baseline). The values below are observed ranges, not confidence intervals.
+
+| Peers | Vanilla throughput (MiB/s) | Ordered throughput (MiB/s) | Vanilla → Ordered process CPU (s) | Producer p95 (ms) |
+| ---: | ---: | ---: | ---: | ---: |
+| 200 | 116.19–123.62 | 121.12–122.81 | 11.52–11.95 → 8.66–10.39 | 22.14–26.05 → 4.59–6.44 |
+| 255 | 100.35–129.50 | 155.47–155.55 | 14.75–16.56 → 9.14–11.70 | 25.22–40.00 → 5.89–6.35 |
+
+All eight runs validated every byte and all 192,000 / 244,800 measured callbacks.
+At 255 peers Ordered still allocates about 462–473 B/request versus 208 for vanilla.
+Its callback p95 is about 28 ms because delivery is game-thread-pumped, not a direct
+socket completion. The workload is transport-only, not 255 joined Terraria clients.
+
+New benchmark option `--queue-age` compares the new diagnostics in an off/on/on/off
+sequence, including three samples per tick. At 255 peers, diagnostics-off throughput
+was 153.89–155.06 MiB/s; diagnostics-on was 153.49–155.16 MiB/s, with overlapping
+CPU ranges. No reliable throughput improvement or regression is established. The
+observed maximum send age was 1.49–1.57 ms and maximum undelivered completion age
+30.03–30.57 ms (200 peers: 1.62–3.63 and 30.68–31.58 ms). These are sampled maxima,
+not continuous maxima or percentiles. Diagnostics remain opt-in.
+
+`--sustained` runs 255 peers for 1800 measured ticks (30 seconds of offered
+workload, 3,672,000 requests and 4762.57 MiB per mode). An initial run exposed
+32-bit overflow in the benchmark's aggregate byte counter, not in delivered data;
+the counter was promoted to 64 bits and the whole workload was repeated.
+
+| Verified sustained run | Vanilla | Ordered with queue diagnostics |
+| --- | ---: | ---: |
+| Measured elapsed (s) | 35.748 | 30.008 |
+| Validated throughput (MiB/s) | 133.23 | 158.71 |
+| Process CPU (s) | 218.30 | 148.70 |
+| Producer p95 (ms) | 24.44 | 5.33 |
+| Managed B/request | 208.0 | 484.6 |
+| Callback p95 (ms) | 0.015 | 28.314 |
+
+Both modes delivered all callbacks and validated all bytes. Ordered's sampled
+queue maxima were 5.58 ms send age and 45.31 ms completion age; the prior run
+observed 108.19 ms completion age, so short-run p95 does not bound the tail.
+The long run also shows the allocation cost accumulating (about 1.78 GB versus
+0.76 GB across the measured period). Keep the transport opt-in; this is a local,
+equal-payload transport test, not a joined-client or WAN qualification.
+
+Scene packet interception now uses the existing sparse 64x64 index for small
+rectangles, falling back to the flat projection for broad regions. Section refresh
+enumerates only enabled intersecting overlay definitions from the immutable runtime
+projection instead of constructing diagnostic snapshots (including conflict counts).
+Direct-recipient sends reuse singleton observer scopes instead of building sets.
+
+| Scene workload | Before / flat comparator | After | Allocations |
+| --- | ---: | ---: | ---: |
+| 1M mixed small-region checks, 64 overlays (actual before/after) | 261–274 ns/check | 210–242 ns/check | 56 B total in both, harness noise |
+| 200k mixed small-region checks, 1024 sparse overlays | 2.71–2.78 µs/check | 30–37 ns/check | 56 B total in both |
+| 10k native-section intersections, 64 overlays | 40.0–44.2 µs/query | 1.37–1.39 µs/query | ~52,170 → 104 B/query |
+
+The 1024-overlay comparator scans an already materialized flat projection and does
+not include the world lookup; the indexed measurement uses the public runtime query.
+All queries check expected results. These are isolated CPU/managed-allocation
+measurements, not client latency or overall gameplay TPS. The raw output is saved in
+`artifacts/performance-2026-11-26/vega-e2f95603-*` locally; reproduce with
+`Vega.NativeTcp.Benchmarks --production-peers`, `--queue-age`, `--sustained`, and
+`Vega.Scene.Benchmarks` in Release.

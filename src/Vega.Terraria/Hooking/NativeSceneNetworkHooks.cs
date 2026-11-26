@@ -69,19 +69,36 @@ internal sealed class NativeSceneNetworkHooks(
             PlayerId? recipient = args.RemoteClient >= 0 ? new PlayerId(args.RemoteClient) : null;
             if (!scenes.HasOverlayInRegion(worldId, section, recipient)) return;
             var sectionRequest = Request(section, args.RemoteClient, args.IgnoreClient);
-            var masked = sectionRequest.Observers.Where(player => scenes.HasPersonalAirMask(worldId, player)).ToHashSet();
-            if (masked.Count != 0) renderer.Invalidate(sectionRequest with { Observers = masked });
-            var ordinary = sectionRequest.Observers.Where(player => !masked.Contains(player)).ToHashSet();
+            IReadOnlySet<PlayerId> ordinary;
+            if (recipient is PlayerId player)
+            {
+                if (scenes.HasPersonalAirMask(worldId, player))
+                {
+                    renderer.Invalidate(sectionRequest);
+                    return;
+                }
+                ordinary = sectionRequest.Observers;
+            }
+            else
+            {
+                var masked = sectionRequest.Observers.Where(id => scenes.HasPersonalAirMask(worldId, id)).ToHashSet();
+                if (masked.Count != 0) renderer.Invalidate(sectionRequest with { Observers = masked });
+                ordinary = masked.Count == 0 ? sectionRequest.Observers :
+                    sectionRequest.Observers.Where(id => !masked.Contains(id)).ToHashSet();
+            }
             if (ordinary.Count == 0) return;
-            foreach (SceneOverlayDefinition overlay in scenes.SnapshotScenes()
-                         .Where(scene => scene.WorldId == worldId)
-                         .SelectMany(static scene => scene.Overlays)
-                         .Where(overlay => overlay.Enabled))
+            foreach (SceneOverlayDefinition overlay in scenes.EnumerateOverlaysInRegion(worldId, section))
             {
                 if (!overlay.Bounds.TryIntersect(section, out var intersection)) continue;
                 var request = sectionRequest with { DirtyRegion = intersection, Observers = ordinary };
                 if (!overlay.Observers.IsGlobal)
-                    request = request with { Observers = request.Observers.Where(overlay.Observers.Contains).ToHashSet() };
+                {
+                    if (recipient is PlayerId direct)
+                    {
+                        if (!overlay.Observers.Contains(direct)) continue;
+                    }
+                    else request = request with { Observers = request.Observers.Where(overlay.Observers.Contains).ToHashSet() };
+                }
                 if (request.Observers.Count != 0) renderer.Invalidate(request);
             }
         }
@@ -96,7 +113,7 @@ internal sealed class NativeSceneNetworkHooks(
                 worldId,
                 bounds,
                 false,
-                new HashSet<PlayerId> { new(remoteClient) });
+                SceneObserverScope.Personal(new PlayerId(remoteClient)).Players);
         }
 
         return new SceneRenderRequest(

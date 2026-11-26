@@ -23,15 +23,51 @@ public sealed class SceneRuntime(ISceneRenderSink? sink = null) : ISceneRuntime
 
     public bool HasOverlayInRegion(WorldId worldId, SceneBounds region, PlayerId? observer = null)
     {
+        if (region.Width <= 0 || region.Height <= 0) return false;
         if (!ReadLookup().TryGetValue(worldId, out var world)) return false;
         if (world.AirMasks is { Count: > 0 } masks &&
             (observer is null || masks.ContainsKey(observer.Value))) return true;
-        foreach (var overlay in world.All)
+
+        if (world.Chunks is not { } chunks) return AnyIntersection(world.All, region, observer);
+        int firstX = region.X >> ChunkShift, lastX = (region.Right - 1) >> ChunkShift;
+        int firstY = region.Y >> ChunkShift, lastY = (region.Bottom - 1) >> ChunkShift;
+        if (firstX == lastX && firstY == lastY)
+            return chunks.TryGetValue((firstX, firstY), out var single) && AnyIntersection(single, region, observer);
+        long buckets = (long)(lastX - firstX + 1) * (lastY - firstY + 1);
+        // Tiny native tile-square probes normally occupy just one or a few buckets.
+        // For broad regions the bounded flat scan avoids visiting many empty buckets.
+        if (buckets <= Math.Min(16, world.All.Length))
+        {
+            for (int x = firstX; x <= lastX; x++)
+            for (int y = firstY; y <= lastY; y++)
+                if (chunks.TryGetValue((x, y), out var candidates) && AnyIntersection(candidates, region, observer))
+                    return true;
+            return false;
+        }
+        return AnyIntersection(world.All, region, observer);
+    }
+
+    private static bool AnyIntersection(SceneOverlayDefinition[] candidates, SceneBounds region, PlayerId? observer)
+    {
+        foreach (var overlay in candidates)
         {
             if (overlay.Bounds.Intersects(region) &&
                 (observer is null || overlay.Observers.Contains(observer.Value))) return true;
         }
         return false;
+    }
+
+    public IEnumerable<SceneOverlayDefinition> EnumerateOverlaysInRegion(WorldId worldId, SceneBounds region)
+    {
+        if (region.Width <= 0 || region.Height <= 0 || !ReadLookup().TryGetValue(worldId, out var world)) yield break;
+        SceneOverlayDefinition[] candidates = world.All;
+        if (world.Chunks is { } chunks && (region.X >> ChunkShift) == ((region.Right - 1) >> ChunkShift) &&
+            (region.Y >> ChunkShift) == ((region.Bottom - 1) >> ChunkShift) &&
+            !chunks.TryGetValue((region.X >> ChunkShift, region.Y >> ChunkShift), out candidates!)) yield break;
+        // Multiple buckets may contain the same overlay: traverse the immutable
+        // flat projection once rather than allocating a deduplication set.
+        foreach (var overlay in candidates)
+            if (overlay.Bounds.Intersects(region)) yield return overlay;
     }
 
     public void OpenSession(WorldId world, PlayerSessionOpened opened)

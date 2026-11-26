@@ -48,6 +48,72 @@ Measurement section = Measure("compose_64x64", 64 * 64, () =>
         throw new InvalidOperationException("Section lookup mismatch.");
 });
 
+// Native tile-square interception normally probes a small region; many probes
+// miss every overlay. Include both outcomes and cross-bucket rectangles.
+int regionIndex = 0;
+void QueryRegion()
+{
+    int value = regionIndex++;
+    int x = (value * 17 & 1023) - 32;
+    int y = (value * 31 >> 4 & 1023) - 32;
+    var bounds = new SceneBounds(x, y, 5, 5);
+    bool expected = x < 256 && x + 5 > 0 && y < 256 && y + 5 > 0;
+    if (runtime.HasOverlayInRegion(WorldId.Primary, bounds, observer) != expected)
+        throw new InvalidOperationException("Overlay region query mismatch.");
+}
+Measure("region_warmup", 50_000, QueryRegion);
+regionIndex = 0;
+Measurement regionQueries = Measure("region_intersection_64_mixed", 1_000_000, QueryRegion);
+
+var nativeSection = new SceneBounds(32, 32, 200, 150);
+int expectedSection = runtime.SnapshotScenes().SelectMany(scene => scene.Overlays)
+    .Count(overlay => overlay.Enabled && overlay.Bounds.Intersects(nativeSection));
+void SectionSnapshot()
+{
+    int count = runtime.SnapshotScenes().Where(scene => scene.WorldId == WorldId.Primary)
+        .SelectMany(static scene => scene.Overlays).Count(overlay => overlay.Enabled && overlay.Bounds.Intersects(nativeSection));
+    if (count != expectedSection) throw new InvalidOperationException("Section snapshot mismatch.");
+}
+void SectionProjection()
+{
+    if (runtime.EnumerateOverlaysInRegion(WorldId.Primary, nativeSection).Count() != expectedSection)
+        throw new InvalidOperationException("Section projection mismatch.");
+}
+Measure("section_snapshot_warmup", 1000, SectionSnapshot);
+Measure("section_projection_warmup", 1000, SectionProjection);
+Measurement sectionSnapshot = Measure("section_snapshot_64", 10_000, SectionSnapshot);
+Measurement sectionProjection = Measure("section_projection_64", 10_000, SectionProjection);
+
+var sparseRuntime = new SceneRuntime();
+using var sparseScene = sparseRuntime.CreateScene(WorldId.Primary, "sparse", "benchmark");
+for (int i = 0; i < 1024; i++)
+    sparseScene.AddOverlay(new SceneOverlayDefinition(default, $"sparse-{i}", new SceneBounds(i % 32 * 64, i / 32 * 64, 32, 32),
+        i, SceneObserverScope.Global, area));
+SceneOverlayDefinition[] flat = sparseRuntime.SnapshotScenes().Single().Overlays.Reverse().ToArray();
+var queries = Enumerable.Range(0, 4096).Select(i => new SceneBounds((i * 173 & 8191) - 64, (i * 3571 & 8191) - 64, 5, 5)).ToArray();
+bool[] expectedQueries = queries.Select(bounds => flat.Any(overlay => overlay.Bounds.Intersects(bounds))).ToArray();
+int sparseIndex = 0;
+void SparseFlat()
+{
+    int index = sparseIndex++ & (queries.Length - 1);
+    bool found = false;
+    foreach (var overlay in flat)
+        if (overlay.Bounds.Intersects(queries[index]) && overlay.Observers.Contains(observer)) { found = true; break; }
+    if (found != expectedQueries[index]) throw new InvalidOperationException("Flat query mismatch.");
+}
+void SparseIndexed()
+{
+    int index = sparseIndex++ & (queries.Length - 1);
+    if (sparseRuntime.HasOverlayInRegion(WorldId.Primary, queries[index], observer) != expectedQueries[index])
+        throw new InvalidOperationException("Sparse indexed query mismatch.");
+}
+Measure("sparse_flat_warmup", 10_000, SparseFlat);
+Measure("sparse_indexed_warmup", 10_000, SparseIndexed);
+sparseIndex = 0;
+Measurement sparseFlat = Measure("region_flat_1024_mixed", 200_000, SparseFlat);
+sparseIndex = 0;
+Measurement sparseIndexed = Measure("region_indexed_1024_mixed", 200_000, SparseIndexed);
+
 var visibility = new SceneVisibilityRuntime();
 using IVisibilityLayerLease layer = visibility.CreateLayer(WorldId.Primary, "cluster", "benchmark", []);
 Measurement observerChanges = Measure("observer_change_200", 1_000, () =>
@@ -106,7 +172,8 @@ Console.WriteLine(JsonSerializer.Serialize(
         Runtime = Environment.Version.ToString(),
         ProcessArchitecture = System.Runtime.InteropServices.RuntimeInformation.ProcessArchitecture.ToString(),
         OverlayCount = overlayCount,
-        Results = new[] { lookup, section, observerChanges, personalOverlays, worldEditMoves, lobbyChurn }
+        Results = new[] { lookup, section, regionQueries, sectionSnapshot, sectionProjection, sparseFlat, sparseIndexed,
+            observerChanges, personalOverlays, worldEditMoves, lobbyChurn }
     },
     new JsonSerializerOptions { WriteIndented = true }));
 

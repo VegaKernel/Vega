@@ -123,6 +123,10 @@ composition across ticks. Ordinary native tile squares outside applicable overla
 are not intercepted; section refreshes redraw only their intersection with an enabled
 overlay, for recipients within its observer scope. Large overlapping redraws still
 share the bounded FIFO; real-client redraw latency under load remains to be measured.
+Small region probes use the sparse chunk index; broad rectangles use the immutable
+flat projection. The section hook enumerates enabled intersecting definitions from
+that projection without allocating diagnostic scene snapshots or calculating conflict
+counts. Direct recipients reuse the immutable one-slot observer scope.
 If the dirty-region queue or game-thread dispatcher refuses admission, the original
 native tile-square send is retained rather than canceled. A rejected reservation
 does not remain in an unscheduled queue; the visual layer may temporarily lag the

@@ -20,6 +20,35 @@ namespace Vega.Runtime.Tests.Core;
 public sealed class SceneRuntimeTests
 {
     [Test]
+    public void IndexedRegionQueriesMatchFlatProjectionAcrossBucketsWithoutDuplicates()
+    {
+        var runtime = new SceneRuntime();
+        var inside = new PlayerId(1);
+        var outside = new PlayerId(2);
+        using var scene = runtime.CreateScene(WorldId.Primary, "index", "test");
+        for (int i = 0; i < 12; i++)
+        {
+            var definition = Overlay($"region{i}", 1, i % 2 == 0 ? SceneObserverScope.Global : SceneObserverScope.Personal(inside))
+                with { Bounds = new SceneBounds(i * 64 - 1, 63, 2, 2), Enabled = i != 4 };
+            scene.AddOverlay(definition);
+        }
+        var flat = runtime.SnapshotScenes().Single().Overlays.Where(overlay => overlay.Enabled).ToArray();
+        foreach (var bounds in new[] { new SceneBounds(-3, 60, 5, 5), new SceneBounds(60, 60, 10, 10),
+                     new SceneBounds(255, 63, 2, 2), new SceneBounds(1000, 1000, 3, 3),
+                     new SceneBounds(-50, -50, 900, 200), new SceneBounds(62, 63, 1, 1) })
+        {
+            var expected = flat.Where(overlay => overlay.Bounds.Intersects(bounds)).ToArray();
+            Assert.That(runtime.EnumerateOverlaysInRegion(WorldId.Primary, bounds).Select(overlay => overlay.Id),
+                Is.EquivalentTo(expected.Select(overlay => overlay.Id)));
+            foreach (var player in new[] { inside, outside })
+                Assert.That(runtime.HasOverlayInRegion(WorldId.Primary, bounds, player),
+                    Is.EqualTo(expected.Any(overlay => overlay.Observers.Contains(player))));
+        }
+        Assert.That(runtime.HasOverlayInRegion(WorldId.Primary, new SceneBounds(63, 64, 0, 5)), Is.False);
+        Assert.That(runtime.EnumerateOverlaysInRegion(new WorldId("other"), new SceneBounds(0, 0, 100, 100)), Is.Empty);
+    }
+
+    [Test]
     public void RenderAdmissionRejectsSaturationAndRollsBackFailedDispatcherReservations()
     {
         var dispatcher = new AdmissionDispatcher();

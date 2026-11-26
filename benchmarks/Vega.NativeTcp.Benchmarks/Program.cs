@@ -14,6 +14,20 @@ var process = Process.GetCurrentProcess();
 Console.WriteLine($"OS={System.Runtime.InteropServices.RuntimeInformation.OSDescription} cores={Environment.ProcessorCount} runtime={Environment.Version}");
 Console.WriteLine("TcpSocket constructors: " + string.Join("; ", typeof(TcpSocket).GetConstructors(BindingFlags.Instance|BindingFlags.Public|BindingFlags.NonPublic).Select(c=>c.ToString())));
 if (args.Contains("--probe")) return;
+if (args.Contains("--sustained"))
+{
+    // Thirty seconds of the same ordinary loopback workload, rather than a short burst.
+    foreach (bool ordered in new[]{false,true})
+        await Run(255, ordered, 1, perPeerPerTick: 8, measureQueueAge: ordered, measurementTicks: 1800);
+    return;
+}
+if (args.Contains("--queue-age"))
+{
+    foreach (int peers in new[]{200,255})
+        foreach (bool measureAge in new[]{false,true,true,false})
+            await Run(peers, true, 1, perPeerPerTick: 8, measureQueueAge: measureAge);
+    return;
+}
 if (args.Contains("--production-pump-cap"))
 {
     foreach (int peers in new[]{200,255})
@@ -83,17 +97,18 @@ foreach (int peers in new[]{1,8,32})
 }
 
 async Task Run(int peers, bool ordered, int batch, bool edge = true, bool activePump = true, bool cancelPendingSocketSend = true,
-    int perPeerPerTick = PerPeerPerTick, int maxCallbacks = NativeTcpTransportOptions.DefaultCallbacksPerPass)
+    int perPeerPerTick = PerPeerPerTick, int maxCallbacks = NativeTcpTransportOptions.DefaultCallbacksPerPass, bool measureQueueAge = false,
+    int measurementTicks = Ticks)
 {
-    using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(peers >= 200 ? 60 : 25));
+    using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(Math.Max(peers >= 200 ? 60 : 25, measurementTicks / 60 + 30)));
     CancellationToken ct = timeout.Token;
     var socks = new ISocket[peers]; // host uses this only after setup
-    using var host = ordered ? new NativeTcpTransportHost(new NativeTcpTransportOptions { MaxBatchRequests = batch, EdgeTriggeredWake = edge, CancelPendingSocketSend = cancelPendingSocketSend, MaxCallbacksPerPass = maxCallbacks }, currentSocket: slot => slot < socks.Length ? socks[slot] : null, activeSlotSnapshot: activePump) : null;
+    using var host = ordered ? new NativeTcpTransportHost(new NativeTcpTransportOptions { MaxBatchRequests = batch, EdgeTriggeredWake = edge, CancelPendingSocketSend = cancelPendingSocketSend, MaxCallbacksPerPass = maxCallbacks, MeasureQueueAge = measureQueueAge }, currentSocket: slot => slot < socks.Length ? socks[slot] : null, activeSlotSnapshot: activePump) : null;
     using var listener = new TcpListener(IPAddress.Loopback,0);
     listener.Start();
     var clients = new TcpClient[peers];
     var payload = new byte[peers][];
-    int totalRequests = peers*Ticks*perPeerPerTick;
+    int totalRequests = checked(peers*measurementTicks*perPeerPerTick);
     int warmupRequests = peers*WarmupTicks*perPeerPerTick;
     var completions = new long[totalRequests+warmupRequests];
     var enqueues = new long[completions.Length];
@@ -102,7 +117,7 @@ async Task Run(int peers, bool ordered, int batch, bool edge = true, bool active
     SocketSendCallback callback=state=>{int i=(int)state!; completions[i]=Stopwatch.GetTimestamp(); Interlocked.Increment(ref callbackCount);};
     int[] sizes = [64, 256, 1024, 4096];
     int bytesPerTick = perPeerPerTick / sizes.Length * sizes.Sum();
-    int peerBytes = (Ticks+WarmupTicks)*bytesPerTick;
+    int peerBytes = checked((measurementTicks+WarmupTicks)*bytesPerTick);
     try
     {
         for(int i=0;i<peers;i++)
@@ -129,12 +144,19 @@ async Task Run(int peers, bool ordered, int batch, bool edge = true, bool active
         long start=Stopwatch.GetTimestamp();
         int peakEntries=0, peakInflight=0, peakCompletions=0;
         long peakBytes=0;
-        var pumpTime = new long[Ticks];
-        var producerTime = new long[Ticks];
+        double peakSendAge=0, peakCompletionAge=0;
+        var pumpTime = new long[measurementTicks];
+        var producerTime = new long[measurementTicks];
         Task delayUntil(long target) => DelayUntil(target,ct);
         void sample()
         {
             if (!ordered) return;
+            if (measureQueueAge)
+            {
+                var ages = host!.ReadQueueAges();
+                peakSendAge = Math.Max(peakSendAge, ages.Send.TotalMilliseconds);
+                peakCompletionAge = Math.Max(peakCompletionAge, ages.Completion.TotalMilliseconds);
+            }
             var retained=host!.Retained;
             peakEntries=Math.Max(peakEntries,retained.Entries); peakBytes=Math.Max(peakBytes,retained.Bytes);
             int inflight=0, comps=0;
@@ -175,11 +197,12 @@ async Task Run(int peers, bool ordered, int batch, bool edge = true, bool active
         { if(ordered)host!.DrainCompletions(); await Task.Delay(1,ct); }
         // Reset measurements after warmup. Buffers, clients and callback arrays preallocated.
         peakEntries=peakInflight=peakCompletions=0; peakBytes=0;
+        peakSendAge=peakCompletionAge=0;
         long alloc0=GC.GetTotalAllocatedBytes(true); var cpu0=process.TotalProcessorTime;
         int gc0=GC.CollectionCount(0),gc1=GC.CollectionCount(1),gc2=GC.CollectionCount(2);
         long measure=Stopwatch.GetTimestamp();
         start=measure-WarmupTicks*cadence;
-        for(int t=WarmupTicks;t<WarmupTicks+Ticks;t++) await tick(t);
+        for(int t=WarmupTicks;t<WarmupTicks+measurementTicks;t++) await tick(t);
         while(Volatile.Read(ref callbackCount)<completions.Length)
         {
             if(ordered) { sample();host!.DrainCompletions(); }
@@ -190,8 +213,8 @@ async Task Run(int peers, bool ordered, int batch, bool edge = true, bool active
         long alloc=GC.GetTotalAllocatedBytes(true)-alloc0; double cpu=(process.TotalProcessorTime-cpu0).TotalSeconds;
         var latency=new long[totalRequests];
         for(int i=0;i<totalRequests;i++) latency[i]=completions[i+warmupRequests]-enqueues[i+warmupRequests];
-        double mb=peers*Ticks*bytesPerTick/1_048_576d;
-        Console.WriteLine($"mode={(ordered?"ordered":"vanilla")} batch={batch} wake={(edge?"edge":"counted")} pump={(activePump?"active":"all")} sendCancellation={(cancelPendingSocketSend?"token":"dispose")} peers={peers} sends_per_peer_per_tick={perPeerPerTick} callback_cap={maxCallbacks} requests={totalRequests} MiB={mb:F2} wall_s={wall:F3} req/s={totalRequests/wall:F0} MiB/s={mb/wall:F2} cpu_s={cpu:F3} alloc_MB={alloc/1e6:F2} bytes/request={(double)alloc/totalRequests:F1} GC={GC.CollectionCount(0)-gc0}/{GC.CollectionCount(1)-gc1}/{GC.CollectionCount(2)-gc2} cb_ms={Percentiles(latency)} producer_ms={Percentiles(producerTime)} pump_ms={Percentiles(pumpTime)} samples_peak_entries={peakEntries} samples_peak_retained={peakBytes} samples_peak_inflight={peakInflight} samples_peak_completions={peakCompletions} callbacks={callbackCount-warmupRequests} validated_bytes={mb:F2}MiB");
+        double mb=(long)peers*measurementTicks*bytesPerTick/1_048_576d;
+        Console.WriteLine($"mode={(ordered?"ordered":"vanilla")} batch={batch} wake={(edge?"edge":"counted")} pump={(activePump?"active":"all")} sendCancellation={(cancelPendingSocketSend?"token":"dispose")} peers={peers} sends_per_peer_per_tick={perPeerPerTick} callback_cap={maxCallbacks} requests={totalRequests} MiB={mb:F2} wall_s={wall:F3} req/s={totalRequests/wall:F0} MiB/s={mb/wall:F2} cpu_s={cpu:F3} alloc_MB={alloc/1e6:F2} bytes/request={(double)alloc/totalRequests:F1} GC={GC.CollectionCount(0)-gc0}/{GC.CollectionCount(1)-gc1}/{GC.CollectionCount(2)-gc2} cb_ms={Percentiles(latency)} producer_ms={Percentiles(producerTime)} pump_ms={Percentiles(pumpTime)} samples_peak_entries={peakEntries} samples_peak_retained={peakBytes} samples_peak_inflight={peakInflight} samples_peak_completions={peakCompletions} queue_age={(measureQueueAge?"on":"off")} samples_peak_send_age_ms={peakSendAge:F3} samples_peak_completion_age_ms={peakCompletionAge:F3} callbacks={callbackCount-warmupRequests} validated_bytes={mb:F2}MiB");
     }
     finally
     {

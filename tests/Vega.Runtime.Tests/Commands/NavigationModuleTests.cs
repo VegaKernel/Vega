@@ -13,6 +13,36 @@ public sealed class NavigationModuleTests
     private static readonly WorldId World = new("test");
 
     [Test]
+    public async Task WarpSendNotifiesOnlyTheSuccessfullyMovedSession()
+    {
+        string path = Path.Combine(Path.GetTempPath(), "vega-warp-notify-tests", Guid.NewGuid().ToString("N"));
+        var fixture = new Fixture();
+        var world = new RecordingWorld();
+        try
+        {
+            using var module = fixture.Start(world, new WarpStore(path));
+            Assert.That((await fixture.Run(fixture.Alice, "warp", ["add", "Town"], "vega.navigation.warp.manage")).Status,
+                Is.EqualTo(CommandExecutionStatus.Success));
+            Assert.That((await fixture.Run(fixture.Alice, "warp", ["send", "Bob", "Town"])).Status, Is.EqualTo(CommandExecutionStatus.Forbidden));
+            fixture.Navigation.PositionResult = PlayerOperationResult.NotFound();
+            Assert.That((await fixture.Run(fixture.Alice, "warp", ["send", "Bob", "Town"], "vega.navigation.others")).Status,
+                Is.EqualTo(CommandExecutionStatus.Failed));
+            Assert.That(fixture.Messenger.Notifications, Is.Empty);
+            fixture.Navigation.PositionResult = PlayerOperationResult.Applied();
+            Assert.That((await fixture.Run(fixture.Alice, "warp", ["send", "Bob", "Town"], "vega.navigation.others")).Status,
+                Is.EqualTo(CommandExecutionStatus.Success));
+            Assert.That(fixture.Messenger.Notifications.Single().Player.SessionId, Is.EqualTo(fixture.Bob.SessionId));
+            Assert.That(fixture.Messenger.Notifications.Single().Text, Does.Contain("Town"));
+            fixture.Messenger.Notifications.Clear();
+            fixture.Navigation.AfterPosition = () => fixture.Players.Replace(fixture.Bob, fixture.Bob with { SessionId = PlayerSessionId.New() });
+            Assert.That((await fixture.Run(fixture.Alice, "warp", ["send", "Bob", "Town"], "vega.navigation.others")).Status,
+                Is.EqualTo(CommandExecutionStatus.Success));
+            Assert.That(fixture.Messenger.Notifications, Is.Empty);
+        }
+        finally { if (System.IO.Directory.Exists(path)) System.IO.Directory.Delete(path, true); }
+    }
+
+    [Test]
     public async Task TeleportResolvesExactNamesAndChecksOtherPlayerPermission()
     {
         var fixture = new Fixture();
@@ -109,13 +139,14 @@ public sealed class NavigationModuleTests
         public PlayerSnapshot Bobby { get; } = Player(3, "Bobby");
         public Directory Players { get; }
         public RecordingNavigation Navigation { get; } = new();
+        public RecordingMessenger Messenger { get; } = new();
         public CommandDispatcher Dispatcher { get; } = new([]);
 
         public Fixture() => Players = new([Alice, Bob, Bobby, Player(4, "OtherWorld") with { WorldId = new("different") }]);
 
         public NavigationModule Start(IWorldEnvironmentService? environment = null, WarpStore? warps = null)
         {
-            var module = new NavigationModule(Dispatcher, Players, Navigation, Players, environment, warps);
+            var module = new NavigationModule(Dispatcher, Players, Navigation, Players, environment, warps, messenger: Messenger);
             module.Start();
             return module;
         }
@@ -170,13 +201,16 @@ public sealed class NavigationModuleTests
 
     private sealed class RecordingNavigation : IPlayerNavigation
     {
+        public PlayerOperationResult PositionResult { get; set; } = PlayerOperationResult.Applied();
+        public Action? AfterPosition { get; set; }
         public (PlayerSnapshot, PlayerSnapshot)? Last { get; private set; }
         public PlayerPosition? Position { get; private set; }
         public PlayerSnapshot? Spawned { get; private set; }
         public ValueTask<PlayerOperationResult> ToPositionAsync(PlayerSnapshot player, PlayerPosition destination, CancellationToken cancellationToken = default)
         {
             Position = destination;
-            return ValueTask.FromResult(PlayerOperationResult.Applied());
+            AfterPosition?.Invoke();
+            return ValueTask.FromResult(PositionResult);
         }
         public ValueTask<PlayerOperationResult> ToPlayerAsync(PlayerSnapshot player, PlayerSnapshot destination, CancellationToken cancellationToken = default)
         {
@@ -189,6 +223,18 @@ public sealed class NavigationModuleTests
             return ValueTask.FromResult(PlayerOperationResult.Applied());
         }
         public ValueTask<PlayerOperationResult> ToHomeAsync(PlayerSnapshot player, CancellationToken cancellationToken = default) => ToWorldSpawnAsync(player, cancellationToken);
+    }
+
+    private sealed class RecordingMessenger : IPlayerMessenger
+    {
+        public List<(PlayerSnapshot Player, string Text)> Notifications { get; } = [];
+        public ValueTask<PlayerOperationResult> SendMessageAsync(PlayerId id, string message, CancellationToken cancellationToken = default) =>
+            throw new InvalidOperationException("Expected session-bound delivery.");
+        public ValueTask<PlayerOperationResult> SendMessageAsync(PlayerSnapshot player, string message, CancellationToken cancellationToken = default)
+        {
+            Notifications.Add((player, message));
+            return ValueTask.FromResult(PlayerOperationResult.Applied());
+        }
     }
 
     private sealed class RecordingWorld : IWorldEnvironmentService

@@ -11,6 +11,52 @@ public sealed class NativeOutboundQueueTests
 {
     private static readonly TimeSpan Timeout = TimeSpan.FromSeconds(5);
 
+    [TestCase(false)]
+    [TestCase(true)]
+    public async Task QueueAgeTracksPendingWriteAndUndeliveredCompletionOnlyWhenEnabled(bool measureAge)
+    {
+        var queue = new NativeOutboundQueue(4, 64, 16, new TrackingPool(), measureAge: measureAge);
+        Assert.That(queue.ReadAge(), Is.EqualTo(new NativeOutboundQueueAge(TimeSpan.Zero, TimeSpan.Zero)));
+        Assert.That(queue.TryEnqueue([1, 2, 3], 0, 3, 1), Is.EqualTo(NativeOutboundEnqueueResult.Accepted));
+        await Task.Delay(5);
+        var pending = queue.ReadAge();
+        Assert.That(pending.Send > TimeSpan.Zero, Is.EqualTo(measureAge));
+        Assert.That(pending.Completion, Is.EqualTo(TimeSpan.Zero));
+        var entered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        queue.Complete();
+        var writer = queue.RunWriterAsync(async (bytes, _) =>
+        {
+            entered.TrySetResult();
+            await release.Task.ConfigureAwait(false);
+            return bytes.Length;
+        });
+        try
+        {
+            await entered.Task.WaitAsync(Timeout);
+            var inFlight = queue.ReadAge();
+            Assert.That(inFlight.Send, Is.GreaterThanOrEqualTo(pending.Send));
+            Assert.That(inFlight.Completion, Is.EqualTo(TimeSpan.Zero));
+            release.TrySetResult();
+            Assert.That((await writer.WaitAsync(Timeout)).Status, Is.EqualTo(NativeOutboundWriterStatus.Completed));
+            await Task.Delay(5);
+            var completed = queue.ReadAge();
+            Assert.That(completed.Send, Is.EqualTo(TimeSpan.Zero));
+            Assert.That(completed.Completion > TimeSpan.Zero, Is.EqualTo(measureAge));
+            Assert.That(queue.TryReadCompletion(out var completion), Is.True);
+            Assert.That(completion.EnqueuedAt > 0, Is.EqualTo(measureAge));
+            Assert.That(completion.WrittenAt >= completion.EnqueuedAt, Is.True);
+            Assert.That(completion.WrittenAt > 0, Is.EqualTo(measureAge));
+            Assert.That(queue.ReadAge(), Is.EqualTo(new NativeOutboundQueueAge(TimeSpan.Zero, TimeSpan.Zero)));
+        }
+        finally
+        {
+            release.TrySetResult();
+            queue.Abort();
+            await writer.WaitAsync(Timeout);
+        }
+    }
+
     [Test]
     public async Task OwnedSlicesAndCompletionMetadataKeepOrderAcrossPartialWrites()
     {
