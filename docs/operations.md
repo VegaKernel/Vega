@@ -65,6 +65,8 @@ An unloadable plugin must register commands through `IHotModuleContext.RegisterC
 
 Structured operational events are written independently to the bounded in-memory store, stdout outside headless mode, and `logs/vega-operations.jsonl` when the file sink is available.
 
+JSONL serialization and file writes run on a single background worker. It flushes available records in batches of up to 128, without waiting for a full batch. The file queue holds up to 4,096 records; if full, new records of any level are dropped from the file only, without waiting on the producer. A file write failure disables that sink for the rest of the process. The sink reports overflow or failure to stderr and reports the total dropped or unconfirmed records on shutdown. On orderly shutdown it stops accepting records and waits up to five seconds to drain; a forced exit or stalled disk can leave records unwritten. The in-memory history and console output are separate; this does not change console logging or add file rotation.
+
 Optional TPS-independent world time is configured in `config/world-clock.json`. It is disabled by default. When enabled, the primary Terraria world is corrected from a monotonic per-world clock only on the game thread; drift above `correctionThresholdSeconds` is corrected and broadcast, while drift above `reanchorThresholdSeconds` is treated as an explicit time change. The overview exposes phase, predicted time, drift, correction count and re-anchor count.
 
 ## Command palette and logs

@@ -1,4 +1,3 @@
-using System.Text.Json;
 using Vega.Contracts.Operations;
 
 namespace Vega.Operations.Logging;
@@ -64,45 +63,6 @@ public sealed class ConsoleOperationsLogSink : IOperationsLogSink
             {
                 writer.WriteLine(record.Exception);
             }
-        }
-    }
-}
-
-public sealed class JsonFileOperationsLogSink : IOperationsLogSink, IDisposable
-{
-    private readonly object sync = new();
-    private readonly StreamWriter writer;
-
-    public JsonFileOperationsLogSink(string path)
-    {
-        ArgumentException.ThrowIfNullOrWhiteSpace(path);
-        string fullPath = Path.GetFullPath(path);
-        Directory.CreateDirectory(Path.GetDirectoryName(fullPath)!);
-        writer = new StreamWriter(new FileStream(
-            fullPath,
-            FileMode.Append,
-            FileAccess.Write,
-            FileShare.ReadWrite))
-        {
-            AutoFlush = true
-        };
-    }
-
-    public void Emit(OperationsLogRecord record)
-    {
-        ArgumentNullException.ThrowIfNull(record);
-        string json = JsonSerializer.Serialize(record);
-        lock (sync)
-        {
-            writer.WriteLine(json);
-        }
-    }
-
-    public void Dispose()
-    {
-        lock (sync)
-        {
-            writer.Dispose();
         }
     }
 }

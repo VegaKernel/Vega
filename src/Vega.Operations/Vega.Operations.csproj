@@ -10,5 +10,6 @@
 
   <ItemGroup>
     <ProjectReference Include="..\Vega.Contracts\Vega.Contracts.csproj" />
+    <InternalsVisibleTo Include="Vega.Runtime.Tests" />
   </ItemGroup>
 </Project>
