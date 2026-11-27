@@ -15,7 +15,10 @@ internal sealed class MySqlConnectionFactory : IRelationalConnectionFactory
         {
             ApplicationName = "Vega",
             Pooling = true,
-            UseAffectedRows = false
+            UseAffectedRows = false,
+            // All Vega relational identifiers use textual storage and readers.
+            // MySqlConnector otherwise exposes CHAR(36) identifiers as Guid.
+            GuidFormat = MySqlGuidFormat.None
         };
         this.connectionString = builder.ConnectionString;
     }

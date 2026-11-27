@@ -3,6 +3,7 @@ using NUnit.Framework;
 using System.Data.Common;
 using Vega.Contracts.Authorization;
 using Vega.Contracts.Cluster.Events;
+using Vega.Contracts.Moderation;
 using Vega.Contracts.Regions;
 using Vega.Contracts.Worlds;
 using Vega.Persistence;
@@ -41,6 +42,13 @@ public sealed class ExternalVegaDatabaseContractTests
             PermissionEffect.Grant, presentation.After!.Revision, "contract-test");
         Assert.That(allowance.Succeeded, Is.True);
         await AssertOfflineImportFamiliesAsync(first);
+        DateTimeOffset now = DateTimeOffset.UtcNow;
+        var lease = await first.RoleLeases.GrantAsync(first.Accounts.SnapshotAccounts().Single().Id,
+            "builders", now, now.AddHours(2), "contract-test");
+        Assert.That(lease.Succeeded, Is.True);
+        var mute = new MuteSnapshot(MuteId.New(), MuteSubjectKind.Account, "fixture-user", "fixture",
+            "contract-test", now, now.AddHours(2), 1);
+        Assert.That((await first.Mutes.CreateAsync(mute)).Succeeded, Is.True);
         var region = await first.Regions.CreateAsync(WorldId.Primary, "build-zone", 100, 100, 10, 10, 1, null, "contract-test");
         Assert.That(region.Succeeded, Is.True);
         var access = await first.Regions.SetAccessAsync(WorldId.Primary, "build-zone", RegionAccessKind.Group,
@@ -68,6 +76,9 @@ public sealed class ExternalVegaDatabaseContractTests
                 Assert.That(persistedRegion.Id, Is.EqualTo(region.After.Id));
                 Assert.That(persistedRegion.Groups, Does.Contain("builders"));
                 Assert.That(reopened.Accounts.SnapshotAccounts().Single().Id.Value, Is.EqualTo(42));
+                Assert.That(reopened.RoleLeases.FindActive(first.Accounts.SnapshotAccounts().Single().Id, now)!.Id,
+                    Is.EqualTo(lease.After!.Id));
+                Assert.That(reopened.Mutes.FindActive("other-name", "fixture-user", now)!.Id, Is.EqualTo(mute.Id));
                 var imported = reopened.Regions.SnapshotRegions(WorldId.Primary).Single(entry => entry.Name == "imported-zone");
                 Assert.That(imported.Id, Is.EqualTo(91));
                 Assert.That(imported.Owner, Is.EqualTo("fixture-user"));
