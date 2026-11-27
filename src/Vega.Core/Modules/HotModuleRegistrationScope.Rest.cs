@@ -41,12 +41,7 @@ internal sealed partial class HotModuleRegistrationScope
         private void Register(string operation, PluginRestMethod method, Func<byte[], CancellationToken, ValueTask<PluginRestResponse>> invoke)
         {
             if (registry is null) throw new NotSupportedException("Plugin REST operations are unavailable in this host.");
-            lock (owner.sync)
-            {
-                ObjectDisposedException.ThrowIf(owner.disposed, owner);
-                if (!owner.executionGuard.AcceptsCallbacks) throw new InvalidOperationException("Plugin activation is retiring.");
-                owner.Track(registry.Register(pluginName, operation, method, () => owner.executionGuard.AcceptsCallbacks, invoke));
-            }
+            owner.RegisterOwned(() => registry.Register(pluginName, operation, method, () => owner.executionGuard.AcceptsCallbacks, invoke));
         }
     }
 

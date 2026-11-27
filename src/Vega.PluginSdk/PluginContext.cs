@@ -1,3 +1,4 @@
+using System.Diagnostics.CodeAnalysis;
 using Vega.Contracts.Commands;
 using Vega.Contracts.Operations;
 using Vega.Contracts.Players;
@@ -75,9 +76,9 @@ public interface IPluginPlayers
 
     IPluginPlayerActions Actions => throw new NotSupportedException("Player actions are unavailable in this host.");
 
-    bool TryGet(PlayerId id, out PlayerSnapshot? player);
+    bool TryGet(PlayerId id, [NotNullWhen(true)] out PlayerSnapshot? player);
 
-    bool TryFindExact(string name, out PlayerSnapshot? player);
+    bool TryFindExact(string name, [NotNullWhen(true)] out PlayerSnapshot? player);
 
     /// <summary>Reads redacted metadata only while the observed world and native session still match.</summary>
     bool TryGetConnectionSummary(PlayerSnapshot expected, out PlayerConnectionSummary? summary)

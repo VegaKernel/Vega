@@ -16,14 +16,14 @@ internal sealed partial class HotModuleRegistrationScope
                 Permissions = Array.AsReadOnly(descriptor.Permissions.ToArray())
             }).ToArray());
 
-        public void Register(ICommandHandler handler)
+        public void Register(ICommandHandler handler) => RegisterCommand(handler);
+
+        internal IDisposable RegisterCommand(ICommandHandler handler)
         {
             ArgumentNullException.ThrowIfNull(handler);
-            owner.Track(RegisterCore(handler));
+            var guarded = new GuardedCommandHandler(owner, handler);
+            return owner.RegisterOwned(() => commands.Register(guarded));
         }
-
-        public IDisposable RegisterCore(ICommandHandler handler) =>
-            commands.Register(new GuardedCommandHandler(owner, handler));
 
         private sealed class GuardedCommandHandler : ICommandHandler
         {

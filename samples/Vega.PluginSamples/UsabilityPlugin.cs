@@ -36,7 +36,8 @@ public sealed class UsabilityPlugin : VegaPlugin
         plugin.Commands.Register(new VirtualSignPreviewCommand(plugin));
         plugin.Commands.Register(new ChestRefillCommand(plugin));
         plugin.Commands.Register(new CustomNpcCommand(plugin));
-        plugin.Players.OnJoined(OnJoined);
+        plugin.Players.OnJoined(_ => state = state with { JoinCount = state.JoinCount + 1 });
+        plugin.Players.OnEnteredWorld(player => plugin.Players.Message(player, settings.WelcomeMessage));
         plugin.Players.OnLeft(_ => SaveState());
         plugin.WorldEvents.OnNpcKilled(e =>
         {
@@ -54,12 +55,6 @@ public sealed class UsabilityPlugin : VegaPlugin
     {
         SaveState();
         return ValueTask.CompletedTask;
-    }
-
-    private void OnJoined(Vega.Contracts.Players.PlayerSessionOpened player)
-    {
-        state = state with { JoinCount = state.JoinCount + 1 };
-        plugin.Players.Message(player.PlayerId, settings.WelcomeMessage);
     }
 
     private void SaveState() => plugin.Storage.SaveJson("state.json", state);
@@ -96,7 +91,7 @@ public sealed class UsabilityPlugin : VegaPlugin
                 return CommandExecutionResult.Failed("player.not_found");
             }
 
-            plugin.Players.Message(player!.Id, "An operator sent you a welcome message.");
+            plugin.Players.Message(player, "An operator sent you a welcome message.");
             return CommandExecutionResult.Success;
         }
     }
@@ -122,11 +117,11 @@ public sealed class UsabilityPlugin : VegaPlugin
             var result = invocation.Arguments[1].ToLowerInvariant() switch
             {
                 "message" => await plugin.Players.MessageAsync(
-                    player!.Id, "Hello from the usability sample.", cancellationToken),
+                    player, "Hello from the usability sample.", cancellationToken),
                 "kick" => await plugin.Players.KickAsync(
-                    player!.Id, "Usability sample requested a kick.", cancellationToken),
+                    player, "Usability sample requested a kick.", cancellationToken),
                 "teleport" => await plugin.Players.TeleportAsync(
-                    player!.Id,
+                    player,
                     player.Position with { X = player.Position.X + 16 },
                     cancellationToken),
                 _ => Vega.Contracts.Players.PlayerOperationResult.Failed("command.invalid_usage")

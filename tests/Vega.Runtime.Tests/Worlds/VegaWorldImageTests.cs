@@ -12,18 +12,18 @@ namespace Vega.Runtime.Tests.Worlds;
 public sealed class VegaWorldImageTests
 {
     [Test]
-    public void WorldImageModeIsExplicitAndRemovedFromTerrariaArguments()
+    public void WorldImageDefaultsOnAndCanBeDisabledBeforeNativeLaunch()
     {
         WorldImageOptions defaults = WorldImageOptionsParser.Parse(["-world", "world.wld"]);
-        WorldImageOptions enabled = WorldImageOptionsParser.Parse(
-            ["-world", "world.wld", "--vega-world-image=on"]);
+        WorldImageOptions disabled = WorldImageOptionsParser.Parse(
+            ["-world", "world.wld", "--vega-world-image=off"]);
 
         Assert.Multiple(() =>
         {
-            Assert.That(defaults.Enabled, Is.False);
-            Assert.That(enabled.Enabled, Is.True);
-            Assert.That(enabled.DirectImageRequested, Is.False);
-            Assert.That(enabled.ServerArguments, Is.EqualTo(new[] { "-world", "world.wld" }));
+            Assert.That(defaults.Enabled, Is.True);
+            Assert.That(disabled.Enabled, Is.False);
+            Assert.That(disabled.DirectImageRequested, Is.False);
+            Assert.That(disabled.ServerArguments, Is.EqualTo(new[] { "-world", "world.wld" }));
         });
     }
 

@@ -1,3 +1,4 @@
+using System.Diagnostics.CodeAnalysis;
 using System.Text.Json.Serialization.Metadata;
 using Vega.Contracts.Commands;
 using Vega.Contracts.Messaging;
@@ -53,7 +54,7 @@ public static class PluginReply
 public static class PluginPlayerExtensions
 {
     /// <summary>Resolve the original command's player, never a different connection reusing its slot.</summary>
-    public static bool TryGetCommandPlayer(this IPluginPlayers players, CommandInvocation invocation, out PlayerSnapshot? player)
+    public static bool TryGetCommandPlayer(this IPluginPlayers players, CommandInvocation invocation, [NotNullWhen(true)] out PlayerSnapshot? player)
     {
         player = null;
         if (invocation.Principal is not IPlayerCommandPrincipal { SessionId: { } session } principal ||

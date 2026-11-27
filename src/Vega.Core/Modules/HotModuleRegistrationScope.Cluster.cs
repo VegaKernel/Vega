@@ -28,12 +28,7 @@ internal sealed partial class HotModuleRegistrationScope
             ArgumentNullException.ThrowIfNull(payloadType);
             ArgumentNullException.ThrowIfNull(handler);
             if (registry is null) throw new NotSupportedException("Cluster transport is unavailable in this host.");
-            lock (owner.sync)
-            {
-                ObjectDisposedException.ThrowIf(owner.disposed, owner);
-                if (!owner.executionGuard.AcceptsCallbacks) throw new InvalidOperationException("Plugin activation is retiring.");
-                owner.Track(registry.Register(pluginName, topic, version, () => owner.executionGuard.AcceptsCallbacks, Invoke));
-            }
+            owner.RegisterOwned(() => registry.Register(pluginName, topic, version, () => owner.executionGuard.AcceptsCallbacks, Invoke));
 
             async ValueTask<bool> Invoke(ClusterEnvelope<PluginClusterNotification> envelope, CancellationToken callerToken)
             {

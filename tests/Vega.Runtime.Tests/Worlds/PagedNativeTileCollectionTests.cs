@@ -101,10 +101,10 @@ public sealed class PagedNativeTileCollectionTests
     }
 
     [Test]
-    public void ExplicitOptionIsRemovedFromNativeArgumentsAndDefaultsOff()
+    public void ExplicitOptionIsRemovedFromNativeArgumentsAndDefaultsOn()
     {
         var defaults = NativeTileStorageOptions.Parse(["-port", "7777"]);
-        Assert.That(defaults.Enabled, Is.False);
+        Assert.That(defaults.Enabled, Is.True);
         var enabled = NativeTileStorageOptions.Parse(["-port", "7777", "--vega-paged-tiles=on"]);
         Assert.That(enabled.Enabled, Is.True);
         Assert.That(enabled.ServerArguments, Is.EqualTo(new[] { "-port", "7777" }));

@@ -47,7 +47,7 @@ public sealed class ServerPluginHotReloadHostTests
             string pluginPath = FindTestPlugin();
             File.Copy(pluginPath, Path.Combine(directory, Path.GetFileName(pluginPath)));
             using var host = new ServerPluginHotReloadHost(directory, new ServerPluginHotReloadOptions(true, 100, 5000),
-                new CommandDispatcher([]), new RecordingLogger());
+                new ServerPluginHostServices(new CommandDispatcher([]), new RecordingLogger()));
             host.Start();
             var originalScene = scenes.SnapshotScenes().Single();
             var original = originalScene.Id;
@@ -92,8 +92,7 @@ public sealed class ServerPluginHotReloadHostTests
         using var host = new ServerPluginHotReloadHost(
             directory,
             new ServerPluginHotReloadOptions(true, 100, 5000),
-            dispatcher,
-            logger, pluginRestRegistry: routes);
+            new ServerPluginHostServices(dispatcher, logger) { Extensions = new(Rest: routes) });
 
         host.Start();
 
@@ -139,7 +138,8 @@ public sealed class ServerPluginHotReloadHostTests
         File.Copy(pluginPath, Path.Combine(directory, Path.GetFileName(pluginPath)));
         var dispatcher = new CommandDispatcher([new HealthyCommand()]);
         using var host = new ServerPluginHotReloadHost(directory,
-            new ServerPluginHotReloadOptions(true, 100, 5000) { FaultThreshold = 2 }, dispatcher, new RecordingLogger());
+            new ServerPluginHotReloadOptions(true, 100, 5000) { FaultThreshold = 2 },
+            new ServerPluginHostServices(dispatcher, new RecordingLogger()));
         host.Start();
         for (int index = 0; index < 2; index++)
         {
@@ -176,8 +176,8 @@ public sealed class ServerPluginHotReloadHostTests
         var lifecycle = new LifecycleProbe();
         var gameThread = new ScheduledProbe();
         using var host = new ServerPluginHotReloadHost(directory,
-            new ServerPluginHotReloadOptions(true, 100, 5000) { FaultThreshold = 5 }, dispatcher, new RecordingLogger(),
-            playerLifecycle: lifecycle, gameThread: gameThread);
+            new ServerPluginHotReloadOptions(true, 100, 5000) { FaultThreshold = 5 },
+            new ServerPluginHostServices(dispatcher, new RecordingLogger()) { Players = new(Lifecycle: lifecycle, GameThread: gameThread) });
         host.Start();
         var watch = Stopwatch.StartNew();
         int retiredPeriodic = 0;
@@ -227,7 +227,8 @@ public sealed class ServerPluginHotReloadHostTests
         DeployTestPlugins();
         var dispatcher = new CommandDispatcher([]);
         using var host = new ServerPluginHotReloadHost(directory,
-            new ServerPluginHotReloadOptions(true, 100, 500), dispatcher, new RecordingLogger());
+            new ServerPluginHotReloadOptions(true, 100, 500),
+            new ServerPluginHostServices(dispatcher, new RecordingLogger()));
         host.Start();
         string data = Path.Combine(directory, ".data", "Vega.Test.HotPlugin");
         Directory.CreateDirectory(data);
@@ -279,7 +280,8 @@ public sealed class ServerPluginHotReloadHostTests
         if (stallIo) File.WriteAllBytes(gate, []);
         var dispatcher = new CommandDispatcher([]);
         using var host = new ServerPluginHotReloadHost(directory,
-            new ServerPluginHotReloadOptions(true, 100, 500), dispatcher, new RecordingLogger());
+            new ServerPluginHotReloadOptions(true, 100, 500),
+            new ServerPluginHostServices(dispatcher, new RecordingLogger()));
         try
         {
             var watch = Stopwatch.StartNew();
@@ -318,7 +320,8 @@ public sealed class ServerPluginHotReloadHostTests
         File.Copy(incompatible, Path.Combine(directory, Path.GetFileName(incompatible)));
         var dispatcher = new CommandDispatcher([]);
         using var host = new ServerPluginHotReloadHost(directory,
-            new ServerPluginHotReloadOptions(true, 10000, 5000), dispatcher, new RecordingLogger());
+            new ServerPluginHotReloadOptions(true, 10000, 5000),
+            new ServerPluginHostServices(dispatcher, new RecordingLogger()));
         host.Start();
         Assert.Multiple(() =>
         {
@@ -404,8 +407,7 @@ public sealed class ServerPluginHotReloadHostTests
         using var host = new ServerPluginHotReloadHost(
             directory,
             ServerPluginHotReloadOptions.Default,
-            dispatcher,
-            new RecordingLogger());
+            new ServerPluginHostServices(dispatcher, new RecordingLogger()));
         host.Start();
 
         var result = await host.ReloadAsync("missing.dll");
@@ -436,8 +438,7 @@ public sealed class ServerPluginHotReloadHostTests
         using var host = new ServerPluginHotReloadHost(
             directory,
             new ServerPluginHotReloadOptions(true, 100, 5000),
-            dispatcher,
-            new RecordingLogger());
+            new ServerPluginHostServices(dispatcher, new RecordingLogger()));
         host.Start();
         string deployedPath = Path.Combine(directory, "Watched.Plugin.dll");
 
@@ -471,8 +472,7 @@ public sealed class ServerPluginHotReloadHostTests
         using var host = new ServerPluginHotReloadHost(
             directory,
             new ServerPluginHotReloadOptions(true, 100, 5000),
-            dispatcher,
-            new RecordingLogger());
+            new ServerPluginHostServices(dispatcher, new RecordingLogger()));
 
         host.Start();
 

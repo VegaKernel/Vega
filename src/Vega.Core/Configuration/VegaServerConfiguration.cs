@@ -222,7 +222,7 @@ public static class VegaServerConfigurationStore
             : fileValue;
         if (value is null)
         {
-            values[name] = new EffectiveConfigurationValue("off", "Vega/default");
+            values[name] = new EffectiveConfigurationValue("on", "Vega/default");
             return;
         }
 

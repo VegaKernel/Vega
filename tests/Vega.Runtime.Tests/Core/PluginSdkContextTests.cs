@@ -28,7 +28,7 @@ public sealed class PluginSdkContextTests
         var commands = new CommandDispatcher([]);
         var scope = new HotModuleRegistrationScope(commands, new RecordingLogger(), "Plugin.Convenience", Path.GetTempPath(), playerDirectory: directory, activityWorldId: world);
         scope.Commands.Register("hello", "fixture.hello", invocation => scope.Players.TryGetCommandPlayer(invocation, out var current)
-            ? PluginReply.Success($"Hello, {current!.Name}!") : PluginReply.Error("fixture.stale", "Player is no longer connected."), aliases: ["hi"], allowServer: false);
+            ? PluginReply.Success($"Hello, {current.Name}!") : PluginReply.Error("fixture.stale", "Player is no longer connected."), aliases: ["hi"], allowServer: false);
         var invocation = new CommandInvocation("hi", [], new ActivityPrincipal(player.Id, player.SessionId!.Value), Output.Instance) { WorldId = world };
         var result = await commands.DispatchAsync(invocation);
         Assert.That(result.Status, Is.EqualTo(CommandExecutionStatus.Success));
@@ -38,6 +38,28 @@ public sealed class PluginSdkContextTests
         await scope.DisposeAsync();
         Assert.That((await commands.DispatchAsync(invocation)).ErrorCode, Is.EqualTo("command.not_found"));
     }
+
+    [TestCase(false)]
+    [TestCase(true)]
+    public async Task RetiredActivationCannotPublishCommandsOrPlayerSubscriptions(bool disposed)
+    {
+        var registry = new RecordingCommandRegistry();
+        var players = new RecordingPlayers();
+        await using var scope = new HotModuleRegistrationScope(registry, new RecordingLogger(), "Plugin.Retiring",
+            Path.GetTempPath(), playerLifecycle: players);
+        if (disposed) await scope.DisposeAsync();
+        else await scope.DrainForRetirementAsync(CancellationToken.None);
+
+        Assert.Catch<InvalidOperationException>(() => scope.Commands.Register(new ProbeCommand()));
+        Assert.Catch<InvalidOperationException>(() => scope.RegisterCommand(new ProbeCommand()));
+        Assert.Catch<InvalidOperationException>(() => scope.Players.OnJoined(_ => { }));
+        Assert.Catch<InvalidOperationException>(() => scope.Players.OnLeft(_ => { }));
+        Assert.Catch<InvalidOperationException>(() => scope.Players.OnEnteredWorld(_ => { }));
+        Assert.Catch<InvalidOperationException>(() => scope.Players.OnClosing(_ => { }));
+        Assert.That(registry.Active, Is.Zero);
+        Assert.That(players.OpenedSubscribers + players.ClosedSubscribers + players.EnteredSubscribers + players.ClosingSubscribers, Is.Zero);
+    }
+
     [Test]
     public async Task ReadOnlyWarpCapabilityCancelsPendingReadsDuringRetirementAndRejectsForeignCatalog()
     {

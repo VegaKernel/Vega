@@ -1,8 +1,8 @@
-# Optional paged native tile storage
+# Paged native tile storage
 
-Vega can opt into lazy pages for the canonical Terraria tile **reference grid**, while keeping every native `ITile` object and its behavior unchanged.
+Vega uses lazy pages by default for the canonical Terraria tile **reference grid**, while keeping every native `ITile` object and its behavior unchanged.
 
-The option is startup-only and disabled by default:
+The option is applied at startup and enabled by default:
 
 ```json
 {
@@ -10,7 +10,7 @@ The option is startup-only and disabled by default:
 }
 ```
 
-Set it in `config/server.json`, or override that deployment default with `VEGA_PAGED_TILES=on` or `--vega-paged-tiles=on` on the worker command line. Use `off` to retain the stock collection. Primary and sandbox processes each own their own canonical collection. Vega installs the factory before native `Main.tile` initialization and rejects an explicit opt-in if the expected collection cannot be selected; it never replaces an already loaded world.
+Set it in `config/server.json`, or override that deployment default with `VEGA_PAGED_TILES=on` or `--vega-paged-tiles=on` on the worker command line. Use `off` to retain the stock collection. Primary and sandbox processes each own their own canonical collection. Vega installs the factory before native `Main.tile` initialization and rejects startup with paging enabled if the expected collection cannot be selected; it never replaces an already loaded world.
 
 ## Why pages instead of replacing tiles
 
@@ -60,4 +60,4 @@ On Windows x64 with Terraria 1.4.6.1, both modes ran the same small world with t
 | Movement p99 (ms) | 28.55 | 28.63 |
 | Chat p99 (ms) | 64.57 | 59.83 |
 
-All 64 simulated clients remained connected during movement, shots, chat, and the two-boss phase in both runs. These were loopback clients, not full gameplay clients. One run per mode does not establish a CPU or latency improvement. Keep paging opt-in; large worlds, real-client workloads and combined image-cache/paging still need separate validation.
+All 64 simulated clients remained connected during movement, shots, chat, and the two-boss phase in both runs. These were loopback clients, not full gameplay clients. One run per mode does not establish a CPU or latency improvement. Large-world and real-client workloads require separate validation.

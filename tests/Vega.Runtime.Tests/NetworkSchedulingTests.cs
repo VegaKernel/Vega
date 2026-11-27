@@ -12,10 +12,10 @@ public sealed class NetworkSchedulingTests
     [Test]
     public void OrderedCompletionCeilingIsProductionSizedButBoundedIndependentlyOfTimeBudget()
     {
-        Assert.That(new ServerNetworkOptions().UseOrderedTcp, Is.False);
-        Assert.That(new ServerNetworkOptions().OrderedDeferredWake, Is.False);
+        Assert.That(new ServerNetworkOptions().UseOrderedTcp, Is.True);
+        Assert.That(new ServerNetworkOptions().OrderedDeferredWake, Is.True);
         Assert.That(ServerNetworkOptions.Normalize(new() { OrderedDeferredWakeMilliseconds = 99 }).OrderedDeferredWakeMilliseconds, Is.EqualTo(2));
-        Assert.That(ServerNetworkOptions.Normalize(new() { OrderedDeferredWakeMilliseconds = double.NaN }).OrderedDeferredWakeMilliseconds, Is.EqualTo(1));
+        Assert.That(ServerNetworkOptions.Normalize(new() { OrderedDeferredWakeMilliseconds = double.NaN }).OrderedDeferredWakeMilliseconds, Is.EqualTo(2));
         Assert.That(new ServerNetworkOptions().OrderedCallbacksPerPass, Is.EqualTo(8192));
         Assert.That(ServerNetworkOptions.Normalize(new() { OrderedCallbacksPerPass = int.MaxValue }).OrderedCallbacksPerPass, Is.EqualTo(8192));
         Assert.That(ServerNetworkOptions.Normalize(new() { OrderedCallbacksPerPass = 1 }).OrderedCallbacksPerPass, Is.EqualTo(1));
@@ -32,9 +32,10 @@ public sealed class NetworkSchedulingTests
     [Test]
     public void ProducerBatchingRequiresOrderedDeferredWakeAndMoreThanOneRequest()
     {
-        Assert.That(new ServerNetworkOptions().OrderedProducerBatching, Is.False);
-        Assert.That(ServerNetworkOptions.Normalize(new() { OrderedProducerBatching = true }).OrderedProducerBatching, Is.False);
-        var enabled = new ServerNetworkOptions { UseOrderedTcp = true, OrderedDeferredWake = true, OrderedProducerBatching = true };
+        var enabled = new ServerNetworkOptions();
+        Assert.That(enabled.DistantMovementUpdatesPerSecond, Is.EqualTo(5));
+        Assert.That(enabled.OrderedDeferredWakeMilliseconds, Is.EqualTo(2));
+        Assert.That(ServerNetworkOptions.Normalize(enabled with { OrderedProducerBatching = false }).OrderedProducerBatching, Is.False);
         Assert.That(ServerNetworkOptions.Normalize(enabled).OrderedProducerBatching, Is.True);
         Assert.That(ServerNetworkOptions.Normalize(enabled with { UseOrderedTcp = false }).OrderedProducerBatching, Is.False);
         Assert.That(ServerNetworkOptions.Normalize(enabled with { OrderedDeferredWake = false }).OrderedProducerBatching, Is.False);

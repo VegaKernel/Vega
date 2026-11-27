@@ -117,12 +117,11 @@ internal sealed partial class HotModuleRegistrationScope
                         owner.executionGuard.TryInvoke(operation, current, snapshot);
                 });
             }
-            lock (owner.sync)
+            owner.Subscribe(() => attach(Observe), () =>
             {
-                ObjectDisposedException.ThrowIf(owner.disposed, owner);
-                attach(Observe);
-                owner.Track(new CleanupRegistration(() => { Interlocked.Exchange(ref active, null); detach(Observe); }));
-            }
+                Interlocked.Exchange(ref active, null);
+                detach(Observe);
+            });
         }
 
         public ValueTask<PluginAccountIdentity?> FindAccountAsync(string name, CancellationToken cancellationToken = default)

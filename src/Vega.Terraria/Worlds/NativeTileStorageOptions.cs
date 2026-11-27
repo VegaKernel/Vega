@@ -7,7 +7,7 @@ public sealed record NativeTileStorageOptions(bool Enabled, IReadOnlyList<string
         ArgumentNullException.ThrowIfNull(arguments);
         string[] input = arguments.ToArray();
         var nativeArguments = new List<string>(input.Length);
-        bool enabled = false;
+        bool enabled = true;
         const string option = "--vega-paged-tiles";
         for (int index = 0; index < input.Length; index++)
         {

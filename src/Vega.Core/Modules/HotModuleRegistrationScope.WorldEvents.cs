@@ -45,26 +45,18 @@ internal sealed partial class HotModuleRegistrationScope
         {
             ArgumentNullException.ThrowIfNull(allow);
             if (events is null) throw new NotSupportedException("World gameplay events are unavailable in this host.");
-            lock (owner.sync)
-            {
-                ObjectDisposedException.ThrowIf(owner.disposed, owner);
-                owner.Track(events.SubscribePolicy<T>(value => owner.lifetime.IsCancellationRequested || owner.executionGuard.Allows(operation, allow, value)));
-            }
+            owner.RegisterOwned(() => events.SubscribePolicy<T>(value =>
+                owner.lifetime.IsCancellationRequested || owner.executionGuard.Allows(operation, allow, value)));
         }
 
         private void Register<T>(string operation, Action<T> handler) where T : struct
         {
             ArgumentNullException.ThrowIfNull(handler);
             if (events is null) throw new NotSupportedException("World gameplay events are unavailable in this host.");
-            lock (owner.sync)
+            owner.RegisterOwned(() => events.Subscribe<T>(value =>
             {
-                ObjectDisposedException.ThrowIf(owner.disposed, owner);
-                var registration = events.Subscribe<T>(value =>
-                {
-                    if (!owner.lifetime.IsCancellationRequested) owner.executionGuard.TryInvoke(operation, handler, value);
-                });
-                owner.Track(registration);
-            }
+                if (!owner.lifetime.IsCancellationRequested) owner.executionGuard.TryInvoke(operation, handler, value);
+            }));
         }
     }
 }

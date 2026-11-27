@@ -1,12 +1,12 @@
 {
   "pendingConnectionLimit": 128,
   "framesPerSlotPerPass": 32,
-  "useOrderedTcp": false,
+  "useOrderedTcp": true,
   "orderedQueueDiagnostics": false,
-  "orderedDeferredWake": false,
-  "orderedProducerBatching": false,
-  "orderedDeferredWakeMilliseconds": 1,
-  "distantMovementUpdatesPerSecond": 0,
+  "orderedDeferredWake": true,
+  "orderedProducerBatching": true,
+  "orderedDeferredWakeMilliseconds": 2,
+  "distantMovementUpdatesPerSecond": 5,
   "orderedCallbacksPerPass": 8192,
   "orderedCompletionDrainBatch": 4,
   "orderedBatchRequests": 16

@@ -61,12 +61,7 @@ internal sealed partial class HotModuleRegistrationScope
             ArgumentNullException.ThrowIfNull(responseType);
             ArgumentNullException.ThrowIfNull(handler);
             var address = new PluginServiceAddress(pluginName, name, version);
-            lock (owner.sync)
-            {
-                ObjectDisposedException.ThrowIf(owner.disposed, owner);
-                if (!owner.executionGuard.AcceptsCallbacks) throw new InvalidOperationException("Plugin activation is retiring.");
-                owner.Track(registry.Register(address, () => owner.executionGuard.AcceptsCallbacks, Invoke));
-            }
+            owner.RegisterOwned(() => registry.Register(address, () => owner.executionGuard.AcceptsCallbacks, Invoke));
 
             async ValueTask<PluginServiceRegistry.Response> Invoke(byte[] payload, CancellationToken callerToken)
             {

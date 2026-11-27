@@ -141,11 +141,26 @@ internal sealed partial class HotModuleRegistrationScope : IHotModuleContext, IV
         catch (Exception) when (!token.IsCancellationRequested) { /* Dispose observes tracked failures. */ }
     }
 
-    public IDisposable RegisterCommand(ICommandHandler handler)
+    public IDisposable RegisterCommand(ICommandHandler handler) => ((PluginCommands)Commands).RegisterCommand(handler);
+
+    // Publish and claim the registration under the same lock used to collect registrations at unload.
+    private IDisposable RegisterOwned(Func<IDisposable> register)
     {
-        ArgumentNullException.ThrowIfNull(handler);
-        return Track(((PluginCommands)Commands).RegisterCore(handler));
+        lock (sync)
+        {
+            ObjectDisposedException.ThrowIf(disposed, this);
+            if (!executionGuard.AcceptsCallbacks) throw new InvalidOperationException("Plugin activation is retiring.");
+            var registration = register();
+            registrations.Add(registration);
+            return registration;
+        }
     }
+
+    private void Subscribe(Action attach, Action detach) => RegisterOwned(() =>
+    {
+        attach();
+        return new CleanupRegistration(detach);
+    });
 
     public T Track<T>(T registration) where T : IDisposable
     {
@@ -370,7 +385,7 @@ internal sealed partial class HotModuleRegistrationScope : IHotModuleContext, IV
         }
     }
 
-    private static string SafeDirectoryName(string pluginName)
+    internal static string SafeDirectoryName(string pluginName)
     {
         char[] name = pluginName
             .Select(character => char.IsLetterOrDigit(character) || character is '.' or '-' or '_'

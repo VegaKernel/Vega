@@ -120,7 +120,7 @@ Pop-Location
 artifacts/server/Vega.Server.exe --vega-ui=plain
 ```
 
-Доступные режимы: `auto`, `tui`, `plain`, `headless`. World-image cache включается параметром `--vega-world-image=on` или прямым выбором `-world путь/к/world.vworld`. Ручное и автоматическое сохранение обновляют image. Автосохранение настраивается в `config/world-maintenance.json`; опциональная очистка предметов/снарядов модулем AutoWorldCleaner — в `config/auto-world-cleaner.json`.
+Доступные режимы: `auto`, `tui`, `plain`, `headless`. Кэш мира и страничное хранение тайлов включены по умолчанию. Для отключения используйте `--vega-world-image=off` и `--vega-paged-tiles=off`. Ручное и автоматическое сохранение обновляют image. Автосохранение настраивается в `config/world-maintenance.json`; опциональная очистка предметов/снарядов модулем AutoWorldCleaner — в `config/auto-world-cleaner.json`.
 
 ## Документация
 

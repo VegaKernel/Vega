@@ -79,7 +79,8 @@ public sealed class VegaServerConfigurationTests
         {
             Assert.That(effective.Arguments, Does.Not.Contain("-world"));
             Assert.That(effective.Values["world"].DisplayValue, Is.EqualTo("<default>"));
-            Assert.That(effective.Values["pagedTileStorage"].DisplayValue, Is.EqualTo("off"));
+            Assert.That(effective.Values["worldImage"], Is.EqualTo(new EffectiveConfigurationValue("on", "Vega/default")));
+            Assert.That(effective.Values["pagedTileStorage"], Is.EqualTo(new EffectiveConfigurationValue("on", "Vega/default")));
         });
     }
 

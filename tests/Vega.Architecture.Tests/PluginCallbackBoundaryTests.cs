@@ -57,7 +57,8 @@ public sealed class PluginCallbackBoundaryTests
         string cluster = File.ReadAllText(Path.Combine(root.FullName, "src", "Vega.Core", "Modules", "HotModuleRegistrationScope.Cluster.cs"));
         Assert.Multiple(() =>
         {
-            Assert.That(scope, Does.Contain("commands.Register(new GuardedCommandHandler(owner, handler))"));
+            Assert.That(scope, Does.Contain("var guarded = new GuardedCommandHandler(owner, handler);"));
+            Assert.That(scope, Does.Contain("owner.RegisterOwned(() => commands.Register(guarded))"));
             Assert.That(scope, Does.Contain("owner.executionGuard.InvokeCommandAsync("));
             Assert.That(scope, Does.Contain("owner.executionGuard.TryInvoke(\"players.joined\""));
             Assert.That(scope, Does.Contain("owner.executionGuard.TryInvoke(\"players.left\""));
@@ -70,13 +71,13 @@ public sealed class PluginCallbackBoundaryTests
             Assert.That(scope, Does.Contain("InvokeDiagnostic($\"config:{logicalName}:validate\""));
             Assert.That(scope, Does.Contain("owner.executionGuard.TryInvoke(operation, handler, value)"));
             Assert.That(scope, Does.Contain("owner.executionGuard.Allows(operation, allow, value)"));
-            Assert.That(scope, Does.Contain("owner.Track(events.SubscribePolicy<T>"));
+            Assert.That(scope, Does.Contain("owner.RegisterOwned(() => events.SubscribePolicy<T>"));
             Assert.That(activity, Does.Contain("owner.executionGuard.TryInvoke(operation, liveHandler, value)"));
             Assert.That(activity, Does.Contain("owner.executionGuard.InvokePolicy(operation, live, value)"));
             Assert.That(activity, Does.Contain("Interlocked.Exchange(ref activeHandler, null)"));
             Assert.That(identity, Does.Contain("owner.executionGuard.TryInvoke(operation, current, snapshot)"));
             Assert.That(identity, Does.Contain("Interlocked.Exchange(ref active, null)"));
-            Assert.That(cluster, Does.Contain("owner.Track(registry.Register("));
+            Assert.That(cluster, Does.Contain("owner.RegisterOwned(() => registry.Register("));
             Assert.That(cluster, Does.Contain("owner.executionGuard.InvokeServiceAsync("));
             Assert.That(cluster, Does.Contain("owner.RunScopedAsync("));
         });

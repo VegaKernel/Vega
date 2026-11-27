@@ -1,3 +1,4 @@
+using System.Diagnostics.CodeAnalysis;
 using Vega.Contracts.Operations;
 using Vega.Contracts.Players;
 using Vega.Contracts.Worlds;
@@ -18,23 +19,23 @@ internal sealed partial class HotModuleRegistrationScope
         public IPluginPlayerActions Actions { get; } = new PluginPlayerActions(owner, directory, worldId,
             operations as IPlayerVitalOperations, operations as Vega.Contracts.Items.IPlayerItemDelivery);
 
-        public bool TryGet(PlayerId id, out PlayerSnapshot? player)
+        public bool TryGet(PlayerId id, [NotNullWhen(true)] out PlayerSnapshot? player)
         {
             if (directory is not null)
             {
-                return directory.TryGet(id, out player);
+                return directory.TryGet(id, out player) && player is not null;
             }
 
             player = null;
             return false;
         }
 
-        public bool TryFindExact(string name, out PlayerSnapshot? player)
+        public bool TryFindExact(string name, [NotNullWhen(true)] out PlayerSnapshot? player)
         {
             ArgumentNullException.ThrowIfNull(name);
             if (directory is not null)
             {
-                return directory.TryFindExact(name, out player);
+                return directory.TryFindExact(name, out player) && player is not null;
             }
 
             player = null;
@@ -135,8 +136,7 @@ internal sealed partial class HotModuleRegistrationScope
 
             Action<PlayerSessionOpened> guarded = opened =>
                 owner.executionGuard.TryInvoke("players.joined", handler, opened);
-            lifecycle.Opened += guarded;
-            owner.Track(new CleanupRegistration(() => lifecycle.Opened -= guarded));
+            owner.Subscribe(() => lifecycle.Opened += guarded, () => lifecycle.Opened -= guarded);
         }
 
         public void OnLeft(Action<PlayerSessionClosed> handler)
@@ -149,8 +149,7 @@ internal sealed partial class HotModuleRegistrationScope
 
             Action<PlayerSessionClosed> guarded = closed =>
                 owner.executionGuard.TryInvoke("players.left", handler, closed);
-            lifecycle.Closed += guarded;
-            owner.Track(new CleanupRegistration(() => lifecycle.Closed -= guarded));
+            owner.Subscribe(() => lifecycle.Closed += guarded, () => lifecycle.Closed -= guarded);
         }
 
         public void OnEnteredWorld(Action<PlayerSnapshot> handler)
@@ -158,8 +157,7 @@ internal sealed partial class HotModuleRegistrationScope
             ArgumentNullException.ThrowIfNull(handler);
             if (lifecycle is not IPlayerSessionEnteredWorld entering) return;
             Action<PlayerSnapshot> guarded = player => owner.executionGuard.TryInvoke("players.entered-world", handler, player);
-            entering.EnteredWorld += guarded;
-            owner.Track(new CleanupRegistration(() => entering.EnteredWorld -= guarded));
+            owner.Subscribe(() => entering.EnteredWorld += guarded, () => entering.EnteredWorld -= guarded);
         }
 
         public void OnClosing(Action<PlayerSessionClosed> handler)
@@ -167,8 +165,7 @@ internal sealed partial class HotModuleRegistrationScope
             ArgumentNullException.ThrowIfNull(handler);
             if (lifecycle is not IPlayerSessionClosing closing) return;
             Action<PlayerSessionClosed> guarded = player => owner.executionGuard.TryInvoke("players.closing", handler, player);
-            closing.Closing += guarded;
-            owner.Track(new CleanupRegistration(() => closing.Closing -= guarded));
+            owner.Subscribe(() => closing.Closing += guarded, () => closing.Closing -= guarded);
         }
     }
 }

@@ -12,13 +12,14 @@ For account lifecycle and delegated group assignments see [Identity](plugin-iden
 From a Vega checkout, install the maintained template and create a project:
 
 ```powershell
+dotnet pack packaging/Vega.Package/Vega.Package.csproj -c Release -p:PackageVersion=1.0.0-preview.7.local -o artifacts/plugin-feed
 dotnet new install ./templates/vega-plugin
 dotnet new vegaplugin --name MyPlugin
-dotnet restore MyPlugin/MyPlugin.csproj
-dotnet build MyPlugin/MyPlugin.csproj --configuration Release
+dotnet restore MyPlugin/MyPlugin.csproj "-p:RestoreAdditionalProjectSources=$PWD/artifacts/plugin-feed"
+dotnet build MyPlugin/MyPlugin.csproj --configuration Release --no-restore
 ```
 
-The generated project references the single `Vega` package at the repository's current prerelease baseline. Update that version together with the server/package version when moving the template to another release. Copy only `MyPlugin.dll` to the server's top-level `ServerPlugins/` directory. Enable administrative hot reload in `config/modules.json`, or restart the server after deployment when hot reload remains disabled.
+The generated project references the single `Vega` package at the repository's current prerelease baseline. Update that version together with the server/package version when moving the template to another release. Copy only `MyPlugin.dll` to the server's top-level `ServerPlugins/` directory. Set `enabled` to `true` in `config/modules.json` and restart the server to apply this setting. The loader then activates plugins at startup and watches the directory for changes.
 
 ### SDK compatibility declaration
 

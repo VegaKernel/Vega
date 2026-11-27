@@ -127,24 +127,20 @@ internal static partial class RuntimeHost
             world.Scenes,
             identity.InventoryService,
             world.Visibility, world.WorldSchematics, characters.WorldNpcActors, Regions: database.Regions));
+        var pluginServices = new ServerPluginHostServices(commandDispatcher, logger)
+        {
+            Players = new(playerBoundary, playerBoundary, playerBoundary, playerBoundary, foundation.GameThreadDispatcher),
+            World = new(runtimeWorldId, worldEvents, identity.Chat,
+                new WorldPublicWarpReader(world.WorldEnvironment, world.WarpStore), identity.Playtime),
+            Identity = new(identity.AccountSessions, database.Accounts, database.Authorization,
+                foundation.PlayerAuthorization, database.RoleLeases),
+            Extensions = new(database.PluginData, characters.NpcEconomy, operations.PluginRest,
+                Cluster: clusterTransport is null ? null : pluginCluster, ClusterSender: clusterTransport)
+        };
         var serverPlugins = resources.Own(new ServerPluginHotReloadHost(
-            Path.Combine(AppContext.BaseDirectory, "ServerPlugins"),
-            hotReloadOptions,
-            commandDispatcher,
-            logger,
-            playerDirectory: playerBoundary,
-            playerMessenger: playerBoundary,
-            playerOperations: playerBoundary,
-            playerLifecycle: playerBoundary,
-            gameThread: foundation.GameThreadDispatcher,
+            Path.Combine(AppContext.BaseDirectory, "ServerPlugins"), hotReloadOptions, pluginServices,
             pluginDataRoot: Path.Combine(foundation.RuntimeDataRoot, "plugins"),
-            pluginConfigurationRoot: launch.BackendLaunch.IsBackend ? Path.Combine(foundation.RuntimeDataRoot, "plugin-config") : null,
-            worldEvents: worldEvents, activityWorldId: runtimeWorldId,
-            authentication: identity.AccountSessions, publicChat: identity.Chat,
-            accounts: database.Accounts, groups: database.Authorization, playerPermissions: foundation.PlayerAuthorization,
-            warps: new WorldPublicWarpReader(world.WorldEnvironment, world.WarpStore), playtime: identity.Playtime, pluginDataStore: database.PluginData,
-            roleLeases: database.RoleLeases, npcEconomyRegistry: characters.NpcEconomy, pluginRestRegistry: operations.PluginRest,
-            pluginClusterRegistry: clusterTransport is null ? null : pluginCluster, clusterSender: clusterTransport));
+            pluginConfigurationRoot: launch.BackendLaunch.IsBackend ? Path.Combine(foundation.RuntimeDataRoot, "plugin-config") : null));
         serverPlugins.Start();
         softRestart.SetProcessRestartGuard(() => serverPlugins.Read().IsRestartRequired
             ? "ServerPlugins contains a change or cleanup failure that requires a process restart."

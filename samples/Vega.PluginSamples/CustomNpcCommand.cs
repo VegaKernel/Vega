@@ -47,7 +47,7 @@ internal sealed class CustomNpcCommand(IVegaPluginContext plugin) : ICommandHand
                 return await actor.SetIntentAsync(new NpcActorIntent(NpcActorIntentKind.Patrol)
                     { Waypoints = [new(left, snapshot.Npc.Position.Y), new(right, snapshot.Npc.Position.Y)] }, cancellationToken)
                     ? Info("Patrol route updated.") : Failure("Invalid route or actor unavailable.");
-            if (invocation.Principal.IsServer || !plugin.Players.TryFindExact(invocation.Principal.Name, out var player) || player is null)
+            if (!plugin.Players.TryGetCommandPlayer(invocation, out var player))
                 return Failure("Shop operations require the interacting player.");
             if (args.Count == 1 && args[0] == "present")
             {

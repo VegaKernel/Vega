@@ -756,7 +756,7 @@ public sealed class RuntimeDependencyTests
             Assert.That(handlerSection, Does.Not.Contain("IClusterPublisher"));
             Assert.That(handlerSection, Does.Not.Contain("PublishAsync"));
             Assert.That(runtime, Does.Contain("clusterDispatcher.RegisterEvent(pluginCluster)"));
-            Assert.That(runtime, Does.Contain("pluginClusterRegistry: clusterTransport is null ? null : pluginCluster"));
+            Assert.That(runtime, Does.Contain("Cluster: clusterTransport is null ? null : pluginCluster"));
             Assert.That(runtime, Does.Not.Contain("clusterDispatcher.RegisterCommand"));
             Assert.That(runtime, Does.Not.Contain("clusterDispatcher.RegisterRequest"));
             Assert.That(runtime, Does.Not.Contain("new GlobalBanCoordinator("));

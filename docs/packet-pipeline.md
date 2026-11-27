@@ -15,7 +15,7 @@ game thread             = current-state authority, plugin gameplay hooks and mut
 
 TerrariaRuntime 1.1.2 provides a dedicated TCP listener factory, full packet-pass override and narrower frame/admission budget hooks. Vega currently installs only the narrow budgets (`config/network.json`) and leaves the complete native packet pass intact. The limits bound pending connections and frames per slot, not total packet CPU time or outbound bytes. The game-thread dispatcher runs cooperative work at most once per tick before yielding. This is a bounded scheduling baseline, not evidence of a throughput improvement.
 
-For the experimental opt-in native socket adapter, see [native transport design](native-transport-design.md). Queue ownership is at the accepted socket because some native/Vega sends bypass `SendBytes`; receive completion on close and generation-bound send callbacks are compatibility-critical. Vanilla TCP remains the default.
+For the Ordered TCP socket adapter, see [native transport design](native-transport-design.md). Queue ownership is at the accepted socket because some native/Vega sends bypass `SendBytes`; receive completion on close and generation-bound send callbacks are compatibility-critical. Set `useOrderedTcp: false` to select vanilla TCP.
 
 The ordinary metadata observation path reuses the immutable allow decision and does not format a socket endpoint on every packet. Endpoint formatting remains on the forwarding metadata, admission and rejection paths. Player session snapshots retain the transport endpoint only for that connection generation; effective forwarded identity and login phase still come from the metadata registry. Unchanged metadata records are reused until a field changes, without mutating already published snapshots.
 

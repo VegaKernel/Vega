@@ -25,7 +25,7 @@ dotnet publish src/Vega.Runtime -c Release -r win-x64 --self-contained false -o 
 use `-SmokeReady` instead to verify native startup, expected SSC mode, isolated SQLite creation and
 graceful shutdown without opening any client. `-ClientExecutable <path>` selects a stock executable
 if Steam is installed elsewhere. Client version mismatch stops preparation. `-OrderedTcp` selects
-the optional transport for a separate comparison; native TCP is the default.
+the optional transport for a separate comparison; this qualification fixture explicitly selects native TCP for its baseline.
 
 Run the four cases independently (new directory and new data for each):
 

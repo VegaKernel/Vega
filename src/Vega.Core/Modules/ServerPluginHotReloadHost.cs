@@ -4,12 +4,8 @@ using System.Reflection.Metadata;
 using System.Reflection.PortableExecutable;
 using System.Runtime.CompilerServices;
 using System.Runtime.Versioning;
-using Vega.Contracts.Commands;
 using Vega.Contracts.Modules;
 using Vega.Contracts.Operations;
-using Vega.Contracts.Players;
-using Vega.Contracts.Threading;
-using Vega.Contracts.Worlds;
 using Vega.PluginSdk;
 
 namespace Vega.Core.Modules;
@@ -23,28 +19,8 @@ public sealed class ServerPluginHotReloadHost :
     private readonly object sync = new();
     private readonly string directory;
     private readonly ServerPluginHotReloadOptions options;
-    private readonly ICommandRegistry commands;
+    private readonly ServerPluginHostServices services;
     private readonly IOperationsLogger logger;
-    private readonly IPlayerDirectory? playerDirectory;
-    private readonly IPlayerMessenger? playerMessenger;
-    private readonly IPlayerOperations? playerOperations;
-    private readonly IPlayerSessionLifecycle? playerLifecycle;
-    private readonly IGameThreadDispatcher? gameThread;
-    private readonly IWorldGameplayEvents? worldEvents;
-    private readonly WorldId? activityWorldId;
-    private readonly Vega.Contracts.Accounts.IPlayerAccountSessionService? authentication;
-    private readonly Vega.Contracts.Messaging.IPublicChatObservations? publicChat;
-    private readonly Vega.Contracts.Accounts.IAccountService? accounts;
-    private readonly Vega.Contracts.Authorization.IAuthorizationService? groups;
-    private readonly Vega.Contracts.Authorization.IPlayerAuthorizationService? playerPermissions;
-    private readonly IWorldPublicWarpReader? warps;
-    private readonly IPlayerPlaytimeSessionReader? playtime;
-    private readonly IPluginDocumentStore? pluginDataStore;
-    private readonly Vega.Contracts.Authorization.IRoleLeaseService? roleLeases;
-    private readonly PluginNpcEconomyRegistry? npcEconomyRegistry;
-    private readonly PluginRestRegistry? pluginRestRegistry;
-    private readonly PluginClusterRegistry? pluginClusterRegistry;
-    private readonly Vega.Contracts.Cluster.IClusterNotificationSender? clusterSender;
     private readonly PluginServiceRegistry pluginServices = new();
     private readonly string pluginDataRoot;
     private readonly string? pluginConfigurationRoot;
@@ -63,58 +39,17 @@ public sealed class ServerPluginHotReloadHost :
     private bool disposed;
     private long nextChangeVersion;
 
-    public ServerPluginHotReloadHost(
-        string directory,
-        ServerPluginHotReloadOptions options,
-        ICommandRegistry commands,
-        IOperationsLogger logger,
-        IPlayerDirectory? playerDirectory = null,
-        IPlayerMessenger? playerMessenger = null,
-        IPlayerOperations? playerOperations = null,
-        IPlayerSessionLifecycle? playerLifecycle = null,
-        IGameThreadDispatcher? gameThread = null,
-        string? pluginDataRoot = null,
-        string? pluginConfigurationRoot = null, IWorldGameplayEvents? worldEvents = null,
-        WorldId? activityWorldId = null,
-        Vega.Contracts.Accounts.IPlayerAccountSessionService? authentication = null,
-        Vega.Contracts.Messaging.IPublicChatObservations? publicChat = null,
-        Vega.Contracts.Accounts.IAccountService? accounts = null,
-        Vega.Contracts.Authorization.IAuthorizationService? groups = null,
-        Vega.Contracts.Authorization.IPlayerAuthorizationService? playerPermissions = null,
-        IWorldPublicWarpReader? warps = null,
-        IPlayerPlaytimeSessionReader? playtime = null,
-        IPluginDocumentStore? pluginDataStore = null,
-        Vega.Contracts.Authorization.IRoleLeaseService? roleLeases = null,
-        PluginNpcEconomyRegistry? npcEconomyRegistry = null,
-        PluginRestRegistry? pluginRestRegistry = null,
-        PluginClusterRegistry? pluginClusterRegistry = null,
-        Vega.Contracts.Cluster.IClusterNotificationSender? clusterSender = null)
+    public ServerPluginHotReloadHost(string directory, ServerPluginHotReloadOptions options,
+        ServerPluginHostServices services, string? pluginDataRoot = null, string? pluginConfigurationRoot = null)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(directory);
+        ArgumentNullException.ThrowIfNull(services);
+        ArgumentNullException.ThrowIfNull(services.Commands);
+        ArgumentNullException.ThrowIfNull(services.Logger);
         this.directory = Path.GetFullPath(directory);
         this.options = ServerPluginHotReloadOptions.Normalize(options);
-        this.commands = commands ?? throw new ArgumentNullException(nameof(commands));
-        this.logger = logger ?? throw new ArgumentNullException(nameof(logger));
-        this.playerDirectory = playerDirectory;
-        this.playerMessenger = playerMessenger;
-        this.playerOperations = playerOperations;
-        this.playerLifecycle = playerLifecycle;
-        this.gameThread = gameThread;
-        this.worldEvents = worldEvents;
-        this.activityWorldId = activityWorldId;
-        this.authentication = authentication;
-        this.publicChat = publicChat;
-        this.accounts = accounts;
-        this.groups = groups;
-        this.playerPermissions = playerPermissions;
-        this.warps = warps;
-        this.playtime = playtime;
-        this.pluginDataStore = pluginDataStore;
-        this.roleLeases = roleLeases;
-        this.npcEconomyRegistry = npcEconomyRegistry;
-        this.pluginRestRegistry = pluginRestRegistry;
-        this.pluginClusterRegistry = pluginClusterRegistry;
-        this.clusterSender = clusterSender;
+        this.services = services;
+        logger = services.Logger;
         this.pluginDataRoot = Path.GetFullPath(pluginDataRoot ?? Path.Combine(this.directory, ".data"));
         this.pluginConfigurationRoot = pluginConfigurationRoot is null ? null : Path.GetFullPath(pluginConfigurationRoot);
     }
@@ -462,25 +397,8 @@ public sealed class ServerPluginHotReloadHost :
 
         Guid activationId = Guid.NewGuid();
         string activationPath = staged.Path;
-        var scope = new HotModuleRegistrationScope(
-            commands,
-            logger,
-            staged.Name,
-            Path.Combine(pluginDataRoot, SafeDirectoryName(staged.Name)),
-            playerDirectory,
-            playerMessenger,
-            playerOperations,
-            playerLifecycle,
-            gameThread,
-            pluginConfigurationRoot: pluginConfigurationRoot,
-            activationId: activationId, faultThreshold: options.FaultThreshold,
-            faultWindow: TimeSpan.FromSeconds(options.FaultWindowSeconds),
-            onQuarantine: () => QueueFaultRetirement(activationPath, activationId), worldEvents: worldEvents,
-            activityWorldId: activityWorldId, authentication: authentication, publicChat: publicChat,
-            accounts: accounts, groups: groups, playerPermissions: playerPermissions, warps: warps, playtime: playtime,
-            serviceRegistry: pluginServices, documentStore: pluginDataStore, roleLeases: roleLeases, npcEconomyRegistry: npcEconomyRegistry,
-            identityAssignmentGroups: options.IdentityGroupAssignments.GetValueOrDefault(staged.Name), pluginRestRegistry: pluginRestRegistry,
-            pluginClusterRegistry: pluginClusterRegistry, clusterSender: clusterSender);
+        var scope = services.CreateScope(staged.Name, activationId, pluginDataRoot, pluginConfigurationRoot,
+            pluginServices, options, () => QueueFaultRetirement(activationPath, activationId));
         long startedAt = Stopwatch.GetTimestamp();
         string startupFailure;
         try
@@ -1157,16 +1075,6 @@ public sealed class ServerPluginHotReloadHost :
         false,
         false,
         "Server plugin hot reload is disabled in config/modules.json.");
-
-    private static string SafeDirectoryName(string pluginName)
-    {
-        char[] name = pluginName
-            .Select(character => char.IsLetterOrDigit(character) || character is '.' or '-' or '_'
-                ? character
-                : '_')
-            .ToArray();
-        return name.Length == 0 ? "plugin" : new string(name);
-    }
 
     private sealed class StagedPlugin
     {

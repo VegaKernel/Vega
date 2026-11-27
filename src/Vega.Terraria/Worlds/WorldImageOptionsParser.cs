@@ -45,7 +45,7 @@ public static class WorldImageOptionsParser
         }
 
         return new WorldImageOptions(
-            explicitlyEnabled ?? directImageRequested,
+            explicitlyEnabled ?? true,
             directImageRequested,
             Array.AsReadOnly(serverArguments.ToArray()));
     }

@@ -34,8 +34,7 @@ internal sealed partial class HotModuleRegistrationScope
                 }
 
                 var config = new PluginConfig<T>(logicalName, path, defaults, validate);
-                configs.Add(path, config);
-                owner.Track(VegaManagedConfigurationDiagnostics.Register(
+                owner.RegisterOwned(() => VegaManagedConfigurationDiagnostics.Register(
                     pluginName,
                     logicalName,
                     path,
@@ -43,6 +42,7 @@ internal sealed partial class HotModuleRegistrationScope
                     json => InvokeDiagnostic($"config:{logicalName}:validate", () => config.ValidateJson(json)),
                     json => InvokeDiagnostic($"config:{logicalName}:replace", () => { config.ReplaceJson(json); return true; }),
                     () => InvokeDiagnostic($"config:{logicalName}:reload", () => { config.ReloadUntyped(); return true; })));
+                configs.Add(path, config);
                 return config;
             }
         }

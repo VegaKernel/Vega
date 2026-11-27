@@ -7,13 +7,14 @@
 Из checkout Vega установите поддерживаемый шаблон и создайте проект:
 
 ```powershell
+dotnet pack packaging/Vega.Package/Vega.Package.csproj -c Release -p:PackageVersion=1.0.0-preview.7.local -o artifacts/plugin-feed
 dotnet new install ./templates/vega-plugin
 dotnet new vegaplugin --name MyPlugin
-dotnet restore MyPlugin/MyPlugin.csproj
-dotnet build MyPlugin/MyPlugin.csproj --configuration Release
+dotnet restore MyPlugin/MyPlugin.csproj "-p:RestoreAdditionalProjectSources=$PWD/artifacts/plugin-feed"
+dotnet build MyPlugin/MyPlugin.csproj --configuration Release --no-restore
 ```
 
-Созданный проект ссылается на единственный пакет `Vega`. Скопируйте только `MyPlugin.dll` в верхнеуровневый каталог сервера `ServerPlugins/`. Включите административный hot reload в `config/modules.json` либо перезапустите сервер после развёртывания.
+Созданный проект ссылается на единственный пакет `Vega`. Скопируйте только `MyPlugin.dll` в верхнеуровневый каталог сервера `ServerPlugins/`. Установите `enabled` в `true` в `config/modules.json` и перезапустите сервер для применения настройки. Загрузчик подключит плагины при старте и будет отслеживать изменения в каталоге.
 
 ### Совместимость SDK
 
@@ -38,16 +39,17 @@ public sealed class HelloPlugin : VegaPlugin
 
     protected override void Configure(IVegaPluginContext plugin)
     {
-        plugin.Commands.Register(new HelloCommand());
-        plugin.Players.OnJoined(player =>
-            plugin.Players.Message(player.PlayerId, "Привет от MyPlugin!"));
+        plugin.Commands.Register("hello", "myplugin.hello",
+            command => PluginReply.Success($"Привет, {command.Principal.Name}!"), aliases: ["hi"]);
+        plugin.Players.OnEnteredWorld(player =>
+            plugin.Players.Message(player, "Привет от MyPlugin!"));
     }
 }
 ```
 
 Фиксированный context предоставляет понятные фасады:
 
-- `Commands` регистрирует типизированные command handlers;
+- `Commands.Register` принимает обычную или асинхронную лямбду, а также типизированный обработчик. Для действий над автором команды используйте `Players.TryGetCommandPlayer(invocation, out var player)`. Полученный снимок можно передать в `MessageAsync`, `KickAsync` или `TeleportAsync`, и хост проверит сессию игрока.
 - `Players` даёт immutable snapshots, поиск, сообщения, kick/teleport, join/leave hooks и оптимистичный доступ к инвентарю;
 - `World` даёт безопасный доступ к текущему миру: environment, tiles, chests, NPC и plugin-owned scenes;
 - `Tasks` возвращает работу на game thread, планирует повторяющиеся действия и связывает async I/O с game-thread apply;

@@ -4,10 +4,10 @@ Terraria `.wld` remains Vega's canonical persistence and recovery format. A `.vw
 
 ## Vega 1.0 policy
 
-World images are disabled by default because the first representative benchmark set did not show a reliable startup improvement. Enable the evaluated implementation explicitly:
+Vega enables the cache on a normal world launch:
 
 ```text
-Vega.Server --vega-world-image=on -world path/to/world.wld
+Vega.Server -world path/to/world.wld
 ```
 
 Or select an existing image directly:
@@ -20,7 +20,7 @@ Direct `.vworld` selection enables image mode automatically. Before Terraria sta
 Vega resolves the companion `.wld` as the canonical save/recovery path; the validated
 image remains the actual load source. The companion `.wld` must remain beside the image.
 
-Use `--vega-world-image=off` to state the default policy explicitly. Vega removes this option before passing arguments to Terraria.
+Use `--vega-world-image=off` to disable the cache for a launch. Vega removes this option before passing arguments to Terraria.
 
 On the first enabled load Vega uses `.wld` and builds a file-derived `world.vworld` in the background when the standalone decoder supports the source version (up to 319). For native Terraria 1.4.6.1 (world version 329), a completed local save produces the cache directly from native state without using the legacy file tile decoder. A later load reads the embedded source section and optimized runtime sections from `.vworld`, but only after validating the source content fingerprint, Terraria format version, Vega schema, compiler parameters, manifest and section checksums. A stale or incompatible image is rebuilt when a supported source or a fresh native snapshot is available. A corrupt image is moved to `world.vworld.corrupt`; startup continues from `.wld`.
 
@@ -85,7 +85,7 @@ The same machine was used for live server comparisons after a real `save` produc
 | Medium | 6400×1800 | `.wld` | 387.9 ms | 925.6 ms | 2954.9 ms | 10.61 GB |
 | Medium | 6400×1800 | runtime `.vworld` | 341.5 ms | 174.3 ms | 2180.9 ms | 5.96 GB |
 
-The meaningful gain came from restoring prepared liquid state, not from the tile decoder alone: approximately 40% faster on the small sample and 26% on the medium sample, with substantially fewer allocations. Snapshot capture after save took 192–254 ms on the small world and 501 ms on the medium world; durable publication then took 44–94 ms on the worker. Image mode remains opt-in until repeated cold/warm measurements, the large world, active-liquid snapshots and compatibility fallback are exercised together.
+The meaningful gain came from restoring prepared liquid state, not from the tile decoder alone: approximately 40% faster on the small sample and 26% on the medium sample, with substantially fewer allocations. Snapshot capture after save took 192–254 ms on the small world and 501 ms on the medium world; durable publication then took 44–94 ms on the worker. These measurements used the historical liquid-restore implementation.
 
 ## Reproducing compiler measurements
 

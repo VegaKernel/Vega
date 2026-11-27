@@ -113,16 +113,11 @@ internal sealed partial class HotModuleRegistrationScope
                 if (owner.lifetime.IsCancellationRequested || !owner.executionGuard.AcceptsCallbacks || !accept(value)) return default;
                 return Volatile.Read(ref activeHandler) is { } live ? owner.executionGuard.InvokePolicy(operation, live, value) : default;
             }
-            lock (owner.sync)
+            owner.Subscribe(() => attach(Guarded), () =>
             {
-                ObjectDisposedException.ThrowIf(owner.disposed, owner);
-                attach(Guarded);
-                owner.Track(new CleanupRegistration(() =>
-                {
-                    Interlocked.Exchange(ref activeHandler, null);
-                    detach(Guarded);
-                }));
-            }
+                Interlocked.Exchange(ref activeHandler, null);
+                detach(Guarded);
+            });
         }
 
         private void Subscribe<T>(string operation, Action<T> handler, Action<Action<T>> attach,
@@ -142,16 +137,11 @@ internal sealed partial class HotModuleRegistrationScope
                         owner.executionGuard.TryInvoke(operation, liveHandler, value);
                 });
             }
-            lock (owner.sync)
+            owner.Subscribe(() => attach(Guarded), () =>
             {
-                ObjectDisposedException.ThrowIf(owner.disposed, owner);
-                attach(Guarded);
-                owner.Track(new CleanupRegistration(() =>
-                {
-                    Interlocked.Exchange(ref activeHandler, null);
-                    detach(Guarded);
-                }));
-            }
+                Interlocked.Exchange(ref activeHandler, null);
+                detach(Guarded);
+            });
         }
 
         private static void Ensure(bool supported)

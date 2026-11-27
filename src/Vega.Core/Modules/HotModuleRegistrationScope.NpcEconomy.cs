@@ -18,12 +18,7 @@ internal sealed partial class HotModuleRegistrationScope
             ArgumentNullException.ThrowIfNull(provider);
             if (registry is null) throw new NotSupportedException("Named NPC economy providers are unavailable in this host.");
             var address = new NpcEconomyProviderAddress(pluginName, name, version);
-            lock (owner.sync)
-            {
-                ObjectDisposedException.ThrowIf(owner.disposed, owner);
-                if (!owner.executionGuard.AcceptsCallbacks) throw new InvalidOperationException("Plugin activation is retiring.");
-                owner.Track(registry.Register(address, new GuardedProvider(owner, provider, name), () => owner.executionGuard.AcceptsCallbacks));
-            }
+            owner.RegisterOwned(() => registry.Register(address, new GuardedProvider(owner, provider, name), () => owner.executionGuard.AcceptsCallbacks));
         }
     }
 

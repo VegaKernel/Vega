@@ -5,6 +5,6 @@
   "password": null,
   "defaultCulture": "en-US",
   "uiMode": "auto",
-  "worldImageEnabled": false,
-  "pagedTileStorageEnabled": false
+  "worldImageEnabled": true,
+  "pagedTileStorageEnabled": true
 }
