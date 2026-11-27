@@ -82,6 +82,13 @@ public sealed class PvpPacketPolicy(
 			return Reject("pvp.damage_weapon_mismatch");
 		}
 
+		// This is a current-world eligibility check, not a damage/weapon formula.
+		// Do not infer hostility, team, line of sight or projectile lifetime from a
+		// stale client claim; those need authoritative native combat context.
+		if (!players.TryGet(sender, out var origin) || origin is null ||
+			!players.TryGet(new PlayerId(damage.PlayerId), out var target) || target is null || origin.WorldId != target.WorldId)
+			return Reject("pvp.damage_participant_unavailable");
+
 		return Continue();
 	}
 

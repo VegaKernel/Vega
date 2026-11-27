@@ -111,7 +111,7 @@ public static class TerrariaServerHost
 
         AppDomain.CurrentDomain.UnhandledException += ReportUnhandled;
         using var nativeLifecycleHooks = new NativeLifecycleHooks(lifecycle);
-        using var gameplayEvents = worldEvents is null ? null : new NativeGameplayEventHooks(runtimeWorldId, worldEvents, gameThreadDispatcher, logger);
+        using var gameplayEvents = worldEvents is null ? null : new NativeGameplayEventHooks(runtimeWorldId, worldEvents, gameThreadDispatcher, logger, playerBoundary);
         using var networkMetricsHooks = new NativeNetworkMetricsHooks(networkMetrics);
         ServerNetworkOptions networkLimits = ServerNetworkOptions.Normalize(networkOptions ?? new());
         using var networkBudgetHooks = new NativeNetworkBudgetHooks(networkLimits);

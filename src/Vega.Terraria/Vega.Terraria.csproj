@@ -12,7 +12,7 @@
   <ItemGroup>
     <ProjectReference Include="..\Vega.Contracts\Vega.Contracts.csproj" />
     <ProjectReference Include="..\TerraRuntime.Schematics\TerraRuntime.Schematics.csproj" />
-    <PackageReference Include="TerrariaRuntime" Version="1.1.8" />
+    <PackageReference Include="TerrariaRuntime" Version="1.1.9" />
     <PackageReference Include="Multiplicity" Version="4.0.1" />
   </ItemGroup>
 

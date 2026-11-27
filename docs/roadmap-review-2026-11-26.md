@@ -84,6 +84,16 @@ updates/s), 76,500 movements, 15,300 boss hits (214,200 damage), 3,825 messages,
 Its busy p95 was 19.435 ms and 503/1,800 updates exceeded the 16.667 ms budget.
 Raw local evidence: `artifacts/mysql-migration-2026-11-27/`.
 
+**Follow-up:** [Ordered callback burst and gameplay foundation](performance-completion-burst-2026-11-27.md).
+SQLite, MySQL and PostgreSQL now use schema v3 with idempotent authenticated
+world-residence checkpoints. `/playtime` and `context.Statistics` expose live
+and persisted totals; AFK classification and player/boss historical rankings
+remain open. `/platform`, `/platforms`, SDK connection summaries and REST
+aggregation report only observed client platform metadata. The SDK's bounded
+CPU work lane and true background I/O prefix preserve retirement semantics.
+Native PvE and PvP participant eligibility is enforced; broader native combat
+authority and stock-client combat qualification remain open.
+
 
 - **P0 native gameplay load:** real native world counter now verifies a 255-slot
   mixed fixture, including boss AI, movement, chat and native background traffic.

@@ -176,6 +176,16 @@ identity. NPC native generation is distinct from the optimistic mutation
 revision in `NpcHandle`; capture a current handle through `World.Npcs` before
 requesting a later mutation.
 
+`OnNpcStrikeCompletedWithSource` adds detached observational caller context to
+the same completion result (`e.Strike`). `e.Source.Kind` distinguishes player,
+projectile, other and unknown contexts. `PlayerId` and `SessionId` are present
+together only when a player reference is resolved to the exact active local
+native session, including the current socket. A projectile snapshot carries
+its observed key, slot, type, owner and position; that owner is never converted
+to a player session by this event. Neither context proves valid damage, an
+authenticated attacker or projectile ownership. The source-less event remains
+available; subscribe to one or the other if only one notification is needed.
+
 Notifications and decisions run synchronously at the native world-thread
 boundary, only when subscribed. Keep callbacks short and post follow-up
 mutations through `Tasks.Post` rather than re-entering an in-progress native

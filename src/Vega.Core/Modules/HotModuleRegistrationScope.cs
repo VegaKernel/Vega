@@ -444,6 +444,7 @@ internal sealed partial class HotModuleRegistrationScope : IHotModuleContext, IV
         public void OnNpcCreating(Action<NpcCreatingEvent> handler) => Register("world.npc.creating", handler);
         public void OnNpcKilled(Action<NpcKilledEvent> handler) => Register("world.npc.killed", handler);
         public void OnNpcStrikeCompleted(Action<NpcStrikeCompletedEvent> handler) => Register("world.npc.strike-completed", handler);
+        public void OnNpcStrikeCompletedWithSource(Action<NpcStrikeCompletedWithSourceEvent> handler) => Register("world.npc.strike-completed.source", handler);
         public void OnNpcTransforming(Action<NpcTransformingEvent> handler) => Register("world.npc.transforming", handler);
         public void OnNpcLootDropped(Action<NpcLootDroppedEvent> handler) => Register("world.npc.loot", handler);
         public void OnProjectileSynchronized(Action<ProjectileSynchronizedEvent> handler) => Register("world.projectile.sync", handler);

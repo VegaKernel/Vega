@@ -673,6 +673,11 @@ public sealed class PluginSdkContextTests
             release.Set();
             await WaitUntilAsync(() => Volatile.Read(ref applied) == 4 && scope.TrackedTaskCount == 0);
 
+            Assert.That(scope.Tasks.TryRunCpu<int>("fault", _ => throw new InvalidOperationException("fixture"),
+                value => Interlocked.Add(ref applied, value)), Is.True);
+            await WaitUntilAsync(() => scope.Faults.Count == 1 && scope.TrackedTaskCount == 0);
+            Assert.That(applied, Is.EqualTo(4));
+
             var computeStarted = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
             Assert.That(scope.Tasks.TryRunCpu("cancel", token =>
             {

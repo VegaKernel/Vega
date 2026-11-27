@@ -204,6 +204,7 @@ int Start()
         configuredCulture.StartsWith('<') ? "en-US" : configuredCulture);
     using IDisposable coreRussianCatalog = RegisterCoreRussianCatalog(localization);
     using IDisposable platformRussianCatalog = PlatformCommand.RegisterRussianCatalog(localization);
+    using IDisposable playtimeRussianCatalog = PlaytimeCommand.RegisterRussianCatalog(localization);
 
     // Explicit composition root: no assembly scanning or reflection-based handler discovery.
     IEventPipeline<WorldHardmodeStarting> hardmodeStarting = new EventPipeline<WorldHardmodeStarting>(

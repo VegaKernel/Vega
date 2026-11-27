@@ -1,4 +1,6 @@
 using NUnit.Framework;
+using Terraria.Net;
+using Terraria.Net.Sockets;
 using TerraRuntime.Schematics;
 using Vega.Contracts.Commands;
 using Vega.Contracts.Modules;
@@ -14,6 +16,8 @@ using Vega.Core.Scenes;
 using Vega.PluginSdk;
 using Vega.Modules.Scenes;
 using Vega.Terraria.Hooking;
+using Vega.Terraria.Networking;
+using Vega.Terraria.Players;
 
 namespace Vega.Runtime.Tests.Core;
 
@@ -182,6 +186,127 @@ public sealed class PluginSdkWorldContextTests
             Assert.That(observed, Has.Count.EqualTo(1));
         }
         finally { global::Terraria.Main.netMode = oldMode; global::Terraria.Main.myPlayer = oldPlayer; global::Terraria.Main.dedServ = oldDedicated; }
+    }
+
+    [Test]
+    [NonParallelizable]
+    public async Task SourceAwareNativeStrikeObservesExactSessionsWithoutInferringProjectileOwnership()
+    {
+        const int slot = 5;
+        var world = new WorldId("strike-source-events");
+        var events = new WorldGameplayEventHub();
+        var dispatcher = new EventGameThread();
+        using var boundary = new TerrariaPlayerBoundary(dispatcher, new TerrariaConnectionMetadataRegistry(), world);
+        using var hooks = new NativeGameplayEventHooks(world, events, dispatcher, new NullLogger(), boundary);
+        var oldNativePlayer = global::Terraria.Main.player[slot];
+        var oldClient = global::Terraria.Netplay.Clients[slot];
+        int oldMode = global::Terraria.Main.netMode, oldPlayer = global::Terraria.Main.myPlayer;
+        bool oldDedicated = global::Terraria.Main.dedServ;
+        await using var faulty = new HotModuleRegistrationScope(new NullCommandRegistry(), new NullLogger(),
+            "Plugin.FaultySource", Path.GetTempPath(), faultThreshold: 1, worldEvents: events);
+        await using var healthy = new HotModuleRegistrationScope(new NullCommandRegistry(), new NullLogger(),
+            "Plugin.HealthySource", Path.GetTempPath(), worldEvents: events);
+        try
+        {
+            global::Terraria.Main.netMode = 2; global::Terraria.Main.myPlayer = 255; global::Terraria.Main.dedServ = true;
+            boundary.Attach();
+            hooks.Attach();
+            global::Terraria.Player Open()
+            {
+                var player = new global::Terraria.Player { active = true, whoAmI = slot, name = "Fighter" };
+                global::Terraria.Main.player[slot] = player;
+                var client = new global::Terraria.RemoteClient { Id = slot };
+                global::Terraria.Netplay.Clients[slot] = client;
+                client.Activate(new StrikeFixtureSocket());
+                client.State = 10;
+                return player;
+            }
+
+            var original = Open();
+            global::TerrariaRuntime.Hooks.Netplay.NotifyServerPlayerEnteringWorld(slot);
+            Assert.That(boundary.TryGet(new PlayerId(slot), out var first), Is.True);
+            Assert.That(first!.SessionId, Is.Not.Null);
+
+            var npc = new global::Terraria.NPC { whoAmI = 7, generation = 4, type = 1, active = true, life = 200, lifeMax = 200,
+                defense = 0, realLife = -1, takenDamageMultiplier = 1, knockBackResist = 0 };
+            var observed = new List<NpcStrikeCompletedWithSourceEvent>();
+            var legacy = new List<NpcStrikeCompletedEvent>();
+            faulty.WorldEvents.OnNpcStrikeCompletedWithSource(_ => throw new InvalidOperationException("fixture"));
+            healthy.WorldEvents.OnNpcStrikeCompletedWithSource(observed.Add);
+            healthy.WorldEvents.OnNpcStrikeCompleted(legacy.Add);
+            NpcStrikeCompletedWithSourceEvent Strike(global::Terraria.Entity? source)
+            {
+                Assert.That(npc.StrikeNPC(10, 0, 0, false, true, 1, source), Is.EqualTo(10));
+                Assert.That(legacy.Count, Is.EqualTo(observed.Count));
+                Assert.That(legacy[^1], Is.EqualTo(observed[^1].Strike));
+                return observed[^1];
+            }
+
+            var firstStrike = Strike(original);
+            Assert.That(firstStrike.Source, Is.EqualTo(new NpcStrikeSourceSnapshot(NpcStrikeSourceKind.Player, first.Id, first.SessionId)));
+            Assert.That(firstStrike.Strike.Npc.Life, Is.EqualTo(190));
+            Assert.That(faulty.Faults.Quarantined, Is.True);
+
+            var projectile = new global::Terraria.Projectile { whoAmI = 3, key = (global::Terraria.DataStructures.ProjectileKey)123,
+                type = 7, owner = slot, position = new(10, 20) };
+            var projectileStrike = Strike(projectile);
+            projectile.position = new(30, 40);
+            Assert.That(projectileStrike.Source, Is.EqualTo(new NpcStrikeSourceSnapshot(NpcStrikeSourceKind.Projectile,
+                Projectile: new ProjectileEventSnapshot(world, 3, 123, 7, slot, new(10, 20)))));
+            Assert.That(Strike(null).Source, Is.EqualTo(new NpcStrikeSourceSnapshot(NpcStrikeSourceKind.Unknown)));
+            Assert.That(Strike(new global::Terraria.NPC()).Source, Is.EqualTo(new NpcStrikeSourceSnapshot(NpcStrikeSourceKind.Other)));
+
+            // A same-slot entity reference is not enough to establish a connection identity.
+            var unrelated = new global::Terraria.Player { whoAmI = slot, active = true };
+            Assert.That(Strike(unrelated).Source, Is.EqualTo(new NpcStrikeSourceSnapshot(NpcStrikeSourceKind.Player)));
+            var replacement = Open();
+            Assert.That(Strike(replacement).Source, Is.EqualTo(new NpcStrikeSourceSnapshot(NpcStrikeSourceKind.Player)),
+                "Socket replacement invalidates the old snapshot immediately.");
+            global::TerrariaRuntime.Hooks.Netplay.NotifyServerPlayerEnteringWorld(slot);
+            Assert.That(boundary.TryGet(new PlayerId(slot), out var current), Is.True);
+            Assert.That(current!.SessionId, Is.Not.Null.And.Not.EqualTo(first.SessionId));
+            Assert.That(Strike(original).Source, Is.EqualTo(new NpcStrikeSourceSnapshot(NpcStrikeSourceKind.Player)));
+            Assert.That(Strike(replacement).Source, Is.EqualTo(new NpcStrikeSourceSnapshot(NpcStrikeSourceKind.Player, current.Id, current.SessionId)));
+            Assert.That(firstStrike.Source.SessionId, Is.EqualTo(first.SessionId), "Previously observed metadata is detached.");
+
+            int count = observed.Count;
+            npc.active = false;
+            Assert.That(npc.StrikeNPC(10, 0, 0, false, true, 1, replacement), Is.Zero);
+            dispatcher.OnThread = false;
+            global::TerrariaRuntime.Hooks.NPC.NotifyStrikeCompletedWithSource(10, npc, 10, false, replacement);
+            dispatcher.OnThread = true;
+            Assert.That(observed, Has.Count.EqualTo(count));
+            hooks.Dispose();
+            global::TerrariaRuntime.Hooks.NPC.NotifyStrikeCompletedWithSource(10, npc, 10, false, replacement);
+            Assert.That(observed, Has.Count.EqualTo(count), "Retired native notification adapter must not invoke the SDK.");
+            hooks.Attach();
+            await healthy.DisposeAsync(); await faulty.DisposeAsync();
+            Assert.That(events.HasSubscribers<NpcStrikeCompletedWithSourceEvent>(), Is.False);
+            Assert.That(events.HasSubscribers<NpcStrikeCompletedEvent>(), Is.False);
+            npc.active = true;
+            Assert.That(npc.StrikeNPC(10, 0, 0, false, true, 1, replacement), Is.EqualTo(10));
+            Assert.That(observed, Has.Count.EqualTo(count));
+        }
+        finally
+        {
+            hooks.Dispose(); boundary.Dispose();
+            global::Terraria.Main.player[slot] = oldNativePlayer;
+            global::Terraria.Netplay.Clients[slot] = oldClient;
+            global::Terraria.Main.netMode = oldMode; global::Terraria.Main.myPlayer = oldPlayer; global::Terraria.Main.dedServ = oldDedicated;
+        }
+    }
+
+    private sealed class StrikeFixtureSocket : ISocket
+    {
+        public void Close() { }
+        public bool IsConnected() => true;
+        public bool IsDataAvailable() => false;
+        public RemoteAddress GetRemoteAddress() => new TcpAddress(System.Net.IPAddress.Loopback, 12345);
+        public void Connect(RemoteAddress remoteAddress) => throw new NotSupportedException();
+        public bool StartListening(SocketConnectionAccepted callback) => throw new NotSupportedException();
+        public void StopListening() => throw new NotSupportedException();
+        public void AsyncSend(byte[] data, int offset, int size, SocketSendCallback callback, object? state = null) => callback(state);
+        public void AsyncReceive(byte[] data, int offset, int size, SocketReceiveCallback callback, object? state = null) => throw new NotSupportedException();
     }
 
     [Test]

@@ -3,12 +3,13 @@ using Vega.Contracts.Operations;
 using Vega.Contracts.Players;
 using Vega.Contracts.Threading;
 using Vega.Contracts.Worlds;
+using Vega.Terraria.Players;
 
 namespace Vega.Terraria.Hooking;
 
 /// <summary>Converts native gameplay notifications to detached, world-local values.</summary>
 internal sealed class NativeGameplayEventHooks(WorldId world, IWorldGameplayEvents events,
-    IGameThreadDispatcher dispatcher, IOperationsLogger logger) : IDisposable
+    IGameThreadDispatcher dispatcher, IOperationsLogger logger, TerrariaPlayerBoundary? players = null) : IDisposable
 {
     private bool attached;
     private int attachmentEpoch;
@@ -19,6 +20,7 @@ internal sealed class NativeGameplayEventHooks(WorldId world, IWorldGameplayEven
         Hooks.NPC.Create += Creating;
         Hooks.NPC.Killed += Killed;
         Hooks.NPC.StrikeCompleted += StrikeCompleted;
+        Hooks.NPC.StrikeCompletedWithSource += StrikeCompletedWithSource;
         Hooks.NPC.Transforming += Transforming;
         Hooks.NPC.DropLoot += Loot;
         Hooks.MessageBuffer.ServerProjectileSynced += ProjectileSynced;
@@ -36,6 +38,7 @@ internal sealed class NativeGameplayEventHooks(WorldId world, IWorldGameplayEven
         Hooks.NPC.Create -= Creating;
         Hooks.NPC.Killed -= Killed;
         Hooks.NPC.StrikeCompleted -= StrikeCompleted;
+        Hooks.NPC.StrikeCompletedWithSource -= StrikeCompletedWithSource;
         Hooks.NPC.Transforming -= Transforming;
         Hooks.NPC.DropLoot -= Loot;
         Hooks.MessageBuffer.ServerProjectileSynced -= ProjectileSynced;
@@ -94,6 +97,27 @@ internal sealed class NativeGameplayEventHooks(WorldId world, IWorldGameplayEven
     {
         if (Volatile.Read(ref attached) && Observed<NpcStrikeCompletedEvent>())
             Publish(new NpcStrikeCompletedEvent(Snapshot(npc), requestedDamage, damage, critical));
+    }
+
+    private void StrikeCompletedWithSource(global::Terraria.NPC npc, int damage, int requestedDamage, bool critical, global::Terraria.Entity? source)
+    {
+        if (!Volatile.Read(ref attached) || !Observed<NpcStrikeCompletedWithSourceEvent>()) return;
+        Publish(new NpcStrikeCompletedWithSourceEvent(new(Snapshot(npc), requestedDamage, damage, critical), SnapshotSource(source)));
+    }
+
+    private NpcStrikeSourceSnapshot SnapshotSource(global::Terraria.Entity? source)
+    {
+        if (source is global::Terraria.Player player)
+        {
+            if (players is not null && players.TryGet(new PlayerId(player.whoAmI), out var snapshot) &&
+                snapshot is { SessionId: { } session } && snapshot.WorldId == world &&
+                players.TryGetSessionPlayer(snapshot, out var live) && ReferenceEquals(live, player))
+                return new(NpcStrikeSourceKind.Player, snapshot.Id, session);
+            return new(NpcStrikeSourceKind.Player);
+        }
+        if (source is global::Terraria.Projectile projectile)
+            return new(NpcStrikeSourceKind.Projectile, Projectile: Snapshot(projectile));
+        return new(source is null ? NpcStrikeSourceKind.Unknown : NpcStrikeSourceKind.Other);
     }
 
     private void Transforming(object? sender, Hooks.NPC.TransformingEventArgs args)

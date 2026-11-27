@@ -13,6 +13,9 @@ public interface IPluginWorldEvents
     void OnNpcKilled(Action<NpcKilledEvent> handler);
     /// <summary>Observes successful positive native strike returns. No cancellation or damage override is available.</summary>
     void OnNpcStrikeCompleted(Action<NpcStrikeCompletedEvent> handler);
+    /// <summary>Observes the same native completion with detached caller context; does not certify attacker identity.</summary>
+    void OnNpcStrikeCompletedWithSource(Action<NpcStrikeCompletedWithSourceEvent> handler) =>
+        throw new NotSupportedException("Source-aware native strike observations are unavailable in this host.");
     void OnNpcTransforming(Action<NpcTransformingEvent> handler);
     void OnNpcLootDropped(Action<NpcLootDroppedEvent> handler);
     void OnProjectileSynchronized(Action<ProjectileSynchronizedEvent> handler);

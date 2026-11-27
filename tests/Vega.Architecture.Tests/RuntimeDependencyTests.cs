@@ -502,7 +502,7 @@ public sealed class RuntimeDependencyTests
 
         Assert.Multiple(() =>
         {
-            Assert.That(terrariaProject, Does.Contain("PackageReference Include=\"TerrariaRuntime\" Version=\"1.1.8\""));
+            Assert.That(terrariaProject, Does.Contain("PackageReference Include=\"TerrariaRuntime\" Version=\"1.1.9\""));
             Assert.That(terrariaProject, Does.Not.Contain("TerrariaRuntime.Upcoming"));
             Assert.That(runtimeProject, Does.Not.Contain("ModFramework"));
             Assert.That(playerBoundary, Does.Contain("Hooks.Netplay.ServerConnectionClosing += OnConnectionClosing"));

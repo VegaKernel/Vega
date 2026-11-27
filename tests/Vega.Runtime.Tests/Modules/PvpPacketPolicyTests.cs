@@ -4,6 +4,7 @@ using Multiplicity.Packets.Views;
 using NUnit.Framework;
 using Vega.Contracts.Networking;
 using Vega.Contracts.Players;
+using Vega.Contracts.Worlds;
 using Vega.Core.Extensions;
 using Vega.Modules.Pvp;
 
@@ -65,6 +66,21 @@ public sealed class PvpPacketPolicyTests
 			new PacketProcessingDecision(PacketDecisionKind.Reject, "pvp.projectile_while_inactive")));
 	}
 
+	[Test]
+	public void OrdinaryDamageRequiresCurrentWorldParticipants()
+	{
+		using TestPolicy test = CreatePolicy(isHostile: true);
+		var ordinaryHit = new PlayerHurtV2 { PlayerId = 8, FromPlayerIndex = 7, Damage = 20 };
+		test.Target = new PlayerSnapshot(new PlayerId(8), "Bob", false, 100, 100, 20, 20,
+			new PlayerPosition(16, 0), true, 0);
+		Assert.That(test.Process(ordinaryHit).Kind, Is.EqualTo(PacketDecisionKind.Allow));
+		// The same ordinary observation after the other player left this world is no longer eligible.
+		test.Target = test.Target with { WorldId = new WorldId("arena") };
+		Assert.That(test.Process(ordinaryHit).Reason, Is.EqualTo("pvp.damage_participant_unavailable"));
+		test.Target = null;
+		Assert.That(test.Process(ordinaryHit).Reason, Is.EqualTo("pvp.damage_participant_unavailable"));
+	}
+
 	private static TestPolicy CreatePolicy(
 		bool isHostile = false,
 		short heldItemType = 1)
@@ -83,6 +99,7 @@ public sealed class PvpPacketPolicyTests
 		private readonly ExtensionStateStore store = new();
 		private readonly PvpSessionStateService sessions;
 		private readonly PvpPacketPolicy policy;
+		public PlayerSnapshot? Target { get; set; }
 
 		public TestPolicy(PlayerSnapshot player, short heldItemType)
 		{
@@ -113,7 +130,7 @@ public sealed class PvpPacketPolicyTests
 		public IReadOnlyList<PlayerSnapshot> SnapshotOnlinePlayers() => [player];
 		public bool TryGet(PlayerId id, out PlayerSnapshot? snapshot)
 		{
-			snapshot = id == player.Id ? player : null;
+			snapshot = id == player.Id ? player : Target?.Id == id ? Target : null;
 			return snapshot is not null;
 		}
 		public bool TryFindExact(string name, out PlayerSnapshot? snapshot)

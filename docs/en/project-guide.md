@@ -4,7 +4,7 @@
 
 ## 1. Project overview
 
-Vega is an independent server framework for Terraria 1.4.6.1 built for .NET 11. The process host uses TerrariaRuntime 1.1.8 and the patched official dedicated server while Vega owns the server-facing contracts, policies, module lifecycle, observability, and application boundaries.
+Vega is an independent server framework for Terraria 1.4.6.1 built for .NET 11. The process host uses TerrariaRuntime 1.1.9 and the patched official dedicated server while Vega owns the server-facing contracts, policies, module lifecycle, observability, and application boundaries.
 
 The project is designed around three rules:
 

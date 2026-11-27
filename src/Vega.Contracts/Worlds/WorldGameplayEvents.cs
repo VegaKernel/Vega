@@ -12,6 +12,16 @@ public readonly record struct NpcKilledEvent(NpcEventSnapshot Npc);
 /// <summary>Native completed strike with the NPC snapshot after the native finally block.
 /// NativeDamage is StrikeNPC's returned damage, not necessarily the exact life decrement (e.g. shared-life NPCs).</summary>
 public readonly record struct NpcStrikeCompletedEvent(NpcEventSnapshot Npc, int RequestedDamage, int NativeDamage, bool Critical);
+/// <summary>Observed native caller category; not authoritative attack attribution.</summary>
+public enum NpcStrikeSourceKind { Unknown, Player, Projectile, Other }
+
+/// <summary>Detached native caller context. PlayerId and SessionId are populated together only for an exact
+/// active local player session. Projectile owner is observed native metadata, never resolved to a session.
+/// A caller context does not establish who caused, authorized or owns the damage.</summary>
+public readonly record struct NpcStrikeSourceSnapshot(NpcStrikeSourceKind Kind, PlayerId? PlayerId = null,
+    PlayerSessionId? SessionId = null, ProjectileEventSnapshot? Projectile = null);
+
+public readonly record struct NpcStrikeCompletedWithSourceEvent(NpcStrikeCompletedEvent Strike, NpcStrikeSourceSnapshot Source);
 public readonly record struct NpcTransformingEvent(NpcEventSnapshot Npc, int RequestedType);
 public readonly record struct NpcLootCreatingEvent(NpcEventSnapshot Npc, int ItemType, int Stack, int Prefix,
     PlayerPosition RequestedPosition);
