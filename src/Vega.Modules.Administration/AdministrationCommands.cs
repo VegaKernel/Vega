@@ -1,8 +1,11 @@
 using System.Globalization;
+using System.Net;
 using Vega.Contracts.Accounts;
 using Vega.Contracts.Authorization;
 using Vega.Contracts.Commands;
+using Vega.Contracts.Localization;
 using Vega.Contracts.Messaging;
+using Vega.Contracts.Networking;
 using Vega.Contracts.Players;
 
 namespace Vega.Modules.Administration;
@@ -402,46 +405,91 @@ public sealed class AccountCommand(
 
 public sealed class UserInfoCommand(
     IPlayerDirectory players,
-    IPlayerInspectionService inspection) : ICommandHandler
+    IPlayerAccountSessionService? accounts = null,
+    IRoleLeaseService? roleLeases = null) : ICommandHandler
 {
+    private const string Source = "vega.userinfo";
     public CommandDescriptor Descriptor { get; } = new(
         "userinfo",
         ["ui"],
         ["vega.players.inspect"],
         Syntax: "userinfo <player>");
 
-    public async ValueTask<CommandExecutionResult> ExecuteAsync(
+    public ValueTask<CommandExecutionResult> ExecuteAsync(
         CommandInvocation invocation,
         CancellationToken cancellationToken)
     {
-        if (invocation.Arguments.Count != 1 ||
-            !players.TryFindExact(invocation.Arguments[0], out PlayerSnapshot? target) || target is null || target.WorldId != invocation.WorldId)
+        if (invocation.Arguments.Count < 1)
         {
-            return Failure("command.userinfo.usage", "Usage: userinfo <online-player>");
+            return ValueTask.FromResult(new CommandExecutionResult(CommandExecutionStatus.InvalidUsage,
+                "command.userinfo.usage", [Error("command.userinfo.usage", "Invalid syntax. Proper syntax: /userinfo <player>.")]));
         }
 
-        bool sensitive = invocation.Principal.HasPermission("vega.players.sensitive");
-        PlayerInspectionSnapshot? snapshot = await inspection.CaptureAsync(
-            target,
-            sensitive ? PlayerInspectionExposure.Sensitive : PlayerInspectionExposure.Redacted,
-            cancellationToken).ConfigureAwait(false);
-        if (snapshot is null)
+        var matches = PlayerTargetLookup.FindByNameOrSlot(players, invocation.WorldId, invocation.Arguments[0]);
+        if (matches.Count == 0) return ValueTask.FromResult(Failure("command.userinfo.invalid_player", "Invalid player."));
+        if (matches.Count > 1) return ValueTask.FromResult(Failure("command.userinfo.multiple_matches", "Multiple players matched: {0}.",
+            string.Join(", ", matches.Select(player => player.Name))));
+        var target = matches[0];
+        // No inventory capture is needed for TShock-style userinfo. Revalidate the
+        // observed session before exposing connection metadata or account data.
+        if (target.SessionId is not { } session || !players.TryGet(target.Id, out var player) || player is null ||
+            player.SessionId != session || player.WorldId != invocation.WorldId)
         {
-            return Failure("player.not_found", "Player is no longer online.");
+            return ValueTask.FromResult(Failure("command.userinfo.invalid_player", "Invalid player."));
         }
 
-        string endpoint = snapshot.Player.RemoteEndpoint ?? "<redacted>";
-        string uuid = snapshot.Player.Connection?.ClientUuid ?? "<redacted>";
-        return CommandExecutionResult.WithMessages(
-            MessageDescriptor.Info("command.userinfo.summary")
-                .WithDefaultText(
-                    $"{snapshot.Player.Name}: slot={snapshot.Player.Id.Slot}, world={snapshot.Player.WorldId}, " +
-                    $"endpoint={endpoint}, uuid={uuid}, inventoryRevision={snapshot.Inventory.Revision}."),
-            PlatformCommand.DescribePlayerPlatform(snapshot.Player));
+        var messages = new List<MessageDescriptor>();
+        if (invocation.Principal.HasPermission("vega.players.sensitive"))
+        {
+            messages.Add(Success("command.userinfo.ip", "IP Address: {0}.", IpAddress(player.Connection?.EffectiveEndpoint ?? player.RemoteEndpoint)));
+            messages.Add(Success("command.userinfo.uuid", "Short UUID: {0}", ShortUuid(player.Connection?.ClientUuid)));
+        }
+        if (accounts is not null && accounts.TryGetBinding(player, out var binding) &&
+            accounts.TryRunWithBinding(binding, () => ReadIdentity(binding), out var identity) && identity is { } current)
+            messages.Add(Success("command.userinfo.account", " -> Logged-in as: {0}; in group {1}.", current.Name, current.Group));
+        messages.Add(player.Platform.Kind switch
+        {
+            ClientPlatformKind.Unknown => Success("command.userinfo.platform_unknown", "Platform: Unknown"),
+            ClientPlatformKind.Unrecognized => Success("command.userinfo.platform_unrecognized", "Platform: Unrecognized"),
+            ClientPlatformKind.Pc => Success("command.userinfo.platform", "Platform: {0}", "PC"),
+            _ => Success("command.userinfo.platform", "Platform: {0}", PlatformCommand.Label(player.Platform.Kind))
+        });
+        return ValueTask.FromResult(CommandExecutionResult.WithMessages([.. messages]));
     }
 
-    private static CommandExecutionResult Failure(string code, string text) =>
-        CommandExecutionResult.Failed(code, MessageDescriptor.Error(code).WithDefaultText(text));
+    private (string Name, string Group)? ReadIdentity(PlayerAccountBinding binding)
+    {
+        if (accounts is null || !accounts.TryGetAccount(binding.PlayerId, out var account) || account is null || account.Id != binding.AccountId)
+            return null;
+        string group = roleLeases?.FindActive(account.Id, DateTimeOffset.UtcNow)?.GroupName ?? account.GroupName;
+        return (account.Name, group);
+    }
+
+    private static string IpAddress(string? endpoint) => IPAddress.TryParse(endpoint, out var address) ? address.ToString() :
+        endpoint is not null && IPEndPoint.TryParse(endpoint, out var parsed) ? parsed.Address.ToString() : "N/A";
+
+    private static string ShortUuid(string? uuid) => string.IsNullOrEmpty(uuid) ? "N/A" : uuid.Length <= 17 ? uuid : $"{uuid[..8]}…{uuid[^8..]}";
+
+    private static MessageDescriptor Success(string key, string text, params object?[] args) =>
+        MessageDescriptor.Success(key, args).WithSource(Source).WithDefaultText(text);
+    private static MessageDescriptor Error(string key, string text, params object?[] args) =>
+        MessageDescriptor.Error(key, args).WithSource(Source).WithDefaultText(text);
+    private static CommandExecutionResult Failure(string code, string text, params object?[] args) =>
+        CommandExecutionResult.Failed(code, Error(code, text, args));
+
+    public static IDisposable RegisterRussianCatalog(ILocalizationService localization) => localization.RegisterCatalog(Source, "ru-RU",
+        new Dictionary<string, string>
+        {
+            ["command.userinfo.usage"] = "Неверный синтаксис. Правильно: /userinfo <игрок>.",
+            ["command.userinfo.invalid_player"] = "Игрок не найден.",
+            ["command.userinfo.multiple_matches"] = "Найдено несколько игроков: {0}.",
+            ["command.userinfo.ip"] = "IP-адрес: {0}.",
+            ["command.userinfo.uuid"] = "Короткий UUID: {0}",
+            ["command.userinfo.account"] = " -> Авторизован как: {0}; группа: {1}.",
+            ["command.userinfo.platform"] = "Платформа: {0}",
+            ["command.userinfo.platform_unknown"] = "Платформа: Неизвестно",
+            ["command.userinfo.platform_unrecognized"] = "Платформа: Не распознана"
+        });
 }
 
 public sealed class InventoryCommand(

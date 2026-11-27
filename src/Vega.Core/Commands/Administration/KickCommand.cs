@@ -2,7 +2,6 @@ using Vega.Contracts.Authorization;
 using Vega.Contracts.Commands;
 using Vega.Contracts.Messaging;
 using Vega.Contracts.Players;
-using Vega.Contracts.Worlds;
 
 namespace Vega.Core.Commands.Administration;
 
@@ -31,7 +30,7 @@ public sealed class KickCommand(
                 "Usage: kick <player> [reason].");
         }
 
-        IReadOnlyList<PlayerSnapshot> matches = FindPlayers(invocation.Arguments[0], invocation.WorldId);
+        IReadOnlyList<PlayerSnapshot> matches = PlayerTargetLookup.FindByNameOrSlot(players, invocation.WorldId, invocation.Arguments[0]);
         if (matches.Count == 0)
         {
             return Failure(
@@ -77,65 +76,6 @@ public sealed class KickCommand(
         return CommandExecutionResult.WithMessages(
             MessageDescriptor.Success("command.kick.applied", target.Name, reason)
                 .WithDefaultText("Kicked {0} for '{1}'."));
-    }
-
-    private IReadOnlyList<PlayerSnapshot> FindPlayers(string rawSearch, WorldId worldId)
-    {
-        string search = rawSearch.Trim();
-        if (search.Length == 0)
-        {
-            return Array.Empty<PlayerSnapshot>();
-        }
-
-        bool exactIndexOnly = search.StartsWith("tsi:", StringComparison.OrdinalIgnoreCase);
-        bool exactNameOnly = search.StartsWith("tsn:", StringComparison.OrdinalIgnoreCase);
-        if (exactIndexOnly || exactNameOnly)
-        {
-            search = search[4..];
-            if (search.Length == 0)
-            {
-                return Array.Empty<PlayerSnapshot>();
-            }
-        }
-
-        IReadOnlyList<PlayerSnapshot> online = players.SnapshotOnlinePlayers().Where(player => player.WorldId == worldId).ToArray();
-        var matches = new List<PlayerSnapshot>();
-
-        if (int.TryParse(search, out int slot))
-        {
-            PlayerSnapshot? bySlot = online.FirstOrDefault(player => player.Id.Slot == slot);
-            if (bySlot is not null)
-            {
-                matches.Add(bySlot);
-            }
-
-            if (exactIndexOnly)
-            {
-                return matches;
-            }
-        }
-        else if (exactIndexOnly)
-        {
-            return Array.Empty<PlayerSnapshot>();
-        }
-
-        if (exactNameOnly)
-        {
-            PlayerSnapshot? exact = online.FirstOrDefault(player =>
-                string.Equals(player.Name, search, StringComparison.OrdinalIgnoreCase));
-            return exact is null ? Array.Empty<PlayerSnapshot>() : [exact];
-        }
-
-        foreach (PlayerSnapshot player in online)
-        {
-            if (player.Name.StartsWith(search, StringComparison.OrdinalIgnoreCase) &&
-                matches.All(match => match.Id != player.Id))
-            {
-                matches.Add(player);
-            }
-        }
-
-        return matches;
     }
 
     private static CommandExecutionResult InvalidUsage(

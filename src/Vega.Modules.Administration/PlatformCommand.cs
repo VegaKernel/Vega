@@ -43,14 +43,14 @@ public sealed class PlatformCommand(IPlayerDirectory players, bool summary = fal
             : CommandExecutionResult.WithMessages(DescribePlayerPlatform(player)));
     }
 
-    internal static MessageDescriptor DescribePlayerPlatform(PlayerSnapshot player) => player.Platform.Kind switch
+    private static MessageDescriptor DescribePlayerPlatform(PlayerSnapshot player) => player.Platform.Kind switch
     {
         ClientPlatformKind.Unknown => Info("platform.player.unknown", "{0}: client platform is unknown.", player.Name),
         ClientPlatformKind.Unrecognized => Info("platform.player.unrecognized", "{0}: client reported an unrecognized platform.", player.Name),
         _ => Info("platform.player.reported", "{0}: client-reported platform: {1}.", player.Name, Label(player.Platform.Kind))
     };
 
-    private static string Label(ClientPlatformKind kind) => kind switch
+    internal static string Label(ClientPlatformKind kind) => kind switch
     {
         ClientPlatformKind.Pc => "Steam / PC",
         ClientPlatformKind.Switch => "Nintendo Switch",

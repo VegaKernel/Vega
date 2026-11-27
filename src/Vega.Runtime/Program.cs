@@ -204,6 +204,7 @@ int Start()
         configuredCulture.StartsWith('<') ? "en-US" : configuredCulture);
     using IDisposable coreRussianCatalog = RegisterCoreRussianCatalog(localization);
     using IDisposable platformRussianCatalog = PlatformCommand.RegisterRussianCatalog(localization);
+    using IDisposable userInfoRussianCatalog = UserInfoCommand.RegisterRussianCatalog(localization);
     using IDisposable playtimeRussianCatalog = PlaytimeCommand.RegisterRussianCatalog(localization);
 
     // Explicit composition root: no assembly scanning or reflection-based handler discovery.
@@ -543,9 +544,8 @@ int Start()
         using IDisposable languageCommandRegistration = commandDispatcher.Register(
             new LanguageCommand(localization, accountSessions));
         var inventoryService = new TerrariaPlayerInventoryService(gameThreadDispatcher, playerBoundary);
-        var inspectionService = new PlayerInspectionService(playerBoundary, inventoryService);
         using IDisposable userInfoCommandRegistration = commandDispatcher.Register(
-            new UserInfoCommand(playerBoundary, inspectionService));
+            new UserInfoCommand(playerBoundary, accountSessions, database.RoleLeases));
         using IDisposable inventoryCommandRegistration = commandDispatcher.Register(
             new InventoryCommand(playerBoundary, inventoryService));
         var chat = new ChatPipeline(

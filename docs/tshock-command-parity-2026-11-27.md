@@ -31,7 +31,7 @@ Legend: **C** = actual console help; **P** = player-only source registration, no
 | 21 | `tempgroup` | yes | `tempgroup <account> <group> <duration> \| tempgroup <account> clear \| tempgroup list` | none | C; vega.accounts.manage |
 | 22 | `su` | yes | `Not implemented` | - | D — explicit permission/delegation model |
 | 23 | `sudo` | yes | `Not implemented` | - | D — explicit permission/delegation model |
-| 24 | `userinfo, ui` | yes | `userinfo <player>` | ui | C; vega.players.inspect |
+| 24 | `userinfo, ui` | yes | `userinfo <player\|id>` (`tsn:`/`tsi:` also accepted) | ui | C; vega.players.inspect; TShock/TSExt card format and platform line tested |
 | 25 | `annoy` | yes | `annoy <player> <seconds:1..30>` | none | C; vega.players.annoy |
 | 26 | `rocket` | yes | `rocket <player>` | none | S (authoritative SSC required); vega.players.rocket |
 | 27 | `firework` | yes | `firework <player> [red\|green\|blue\|yellow\|star\|spiral\|rings\|flower]` | none | C; vega.players.firework |

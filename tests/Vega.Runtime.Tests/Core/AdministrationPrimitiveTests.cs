@@ -1,4 +1,6 @@
 using NUnit.Framework;
+using Vega.Contracts.Accounts;
+using Vega.Contracts.Authorization;
 using Vega.Contracts.Commands;
 using Vega.Contracts.Events;
 using Vega.Contracts.Localization;
@@ -168,11 +170,11 @@ public sealed class AdministrationPrimitiveTests
         Assert.That(await service.CaptureAsync(alice), Is.Null);
     }
 
-    [TestCase(ClientPlatformKind.Pc, 6, "Alice: платформа по данным клиента: Steam / PC.")]
-    [TestCase(ClientPlatformKind.Switch, 5, "Alice: платформа по данным клиента: Nintendo Switch.")]
-    [TestCase(ClientPlatformKind.GameCenter, 7, "Alice: платформа по данным клиента: Game Center.")]
-    [TestCase(ClientPlatformKind.Unknown, -1, "Alice: платформа клиента неизвестна.")]
-    [TestCase(ClientPlatformKind.Unrecognized, 99, "Alice: клиент сообщил нераспознанную платформу.")]
+    [TestCase(ClientPlatformKind.Pc, 6, "Платформа: PC")]
+    [TestCase(ClientPlatformKind.Switch, 5, "Платформа: Nintendo Switch")]
+    [TestCase(ClientPlatformKind.GameCenter, 7, "Платформа: Game Center")]
+    [TestCase(ClientPlatformKind.Unknown, -1, "Платформа: Неизвестно")]
+    [TestCase(ClientPlatformKind.Unrecognized, 99, "Платформа: Не распознана")]
     public async Task UserInfoChatAliasDisplaysCurrentLocalizedPlatformWithoutSensitivePermission(
         ClientPlatformKind platform, int reportedCode, string expected)
     {
@@ -184,26 +186,72 @@ public sealed class AdministrationPrimitiveTests
                 ConnectionForwardingProvenance.Direct, ClientPlatformInfo.Unknown, "uuid-secret", ConnectionLoginPhase.FullyConnected)
         };
         var current = new ClientPlatformInfo(platform, reportedCode < 0 ? null : (byte)reportedCode);
-        var directory = new StubPlayers(alice);
-        // The reported metadata may arrive while inventory inspection is pending.
-        var service = new PlayerInspectionService(directory, new StubInventory(alice.Id, () => directory.Current = alice with
+        var directory = new StubPlayers(alice with
         {
             Platform = current,
             Connection = alice.Connection! with { Platform = current }
-        }));
-        var dispatcher = new CommandDispatcher([new UserInfoCommand(directory, service)]);
+        });
+        var dispatcher = new CommandDispatcher([new UserInfoCommand(directory)]);
         var localization = new LocalizationService("en-US");
-        using var catalog = PlatformCommand.RegisterRussianCatalog(localization);
+        using var catalog = UserInfoCommand.RegisterRussianCatalog(localization);
         var invocation = new CommandInvocation("ui", ["Alice"], new InspectPrincipal(), new SilentOutput());
         foreach (string command in new[] { "ui", "userinfo" })
         {
             var result = await dispatcher.DispatchAsync(invocation with { Name = command });
             Assert.That(result.Status, Is.EqualTo(CommandExecutionStatus.Success));
-            Assert.That(result.Messages, Has.Count.EqualTo(2));
-            string[] lines = result.Messages!.Select(message => localization.Format(message, new PlayerCulture("ru-RU"))).ToArray();
-            Assert.That(lines[1], Is.EqualTo(expected));
-            Assert.That(lines[0], Does.Contain("<redacted>").And.Not.Contain("203.0.113.1").And.Not.Contain("uuid-secret"));
+            Assert.That(result.Messages, Has.Count.EqualTo(1));
+            Assert.That(localization.Format(result.Messages!.Single(), new PlayerCulture("ru-RU")), Is.EqualTo(expected));
         }
+    }
+
+    [TestCase("203.0.113.1:7777", "203.0.113.1")]
+    [TestCase("[2001:db8::1]:7777", "2001:db8::1")]
+    public async Task UserInfoUsesTShockCardSelectorsAndExactAuthenticatedGroup(string endpoint, string ip)
+    {
+        var alice = Player(1, "Alice") with
+        {
+            SessionId = PlayerSessionId.New(), RemoteEndpoint = endpoint, Platform = new(ClientPlatformKind.Pc, 6),
+            Connection = new(new(1), endpoint, endpoint, ConnectionForwardingProvenance.Direct,
+                new(ClientPlatformKind.Pc, 6), "12345678-middle-abcdefgh", ConnectionLoginPhase.FullyConnected)
+        };
+        var directory = new StubPlayers(alice) { Additional = [
+            Player(2, "Alice2") with { SessionId = PlayerSessionId.New() },
+            Player(3, "OtherWorld") with { SessionId = PlayerSessionId.New(), WorldId = new("arena") }
+        ] };
+        var accountSessions = new StubAccountSession(alice);
+        var dispatcher = new CommandDispatcher([new UserInfoCommand(directory, accountSessions, new StubRoleLeases())]);
+        var localization = new LocalizationService("en-US");
+        var invocation = new CommandInvocation("ui", ["tsi:1"], new InspectPrincipal(sensitive: true), new SilentOutput());
+        foreach (string selector in new[] { "1", "tsi:1", "tsn:Alice" })
+        {
+            var result = await dispatcher.DispatchAsync(invocation with { Arguments = [selector] });
+            Assert.That(result.Status, Is.EqualTo(CommandExecutionStatus.Success));
+            Assert.That(result.Messages!.Select(message => localization.Format(message, new PlayerCulture("en-US"))), Is.EqualTo(new[]
+            {
+                $"IP Address: {ip}.", "Short UUID: 12345678…abcdefgh", " -> Logged-in as: alice; in group temporary.", "Platform: PC"
+            }));
+        }
+        var redacted = await dispatcher.DispatchAsync(invocation with { Principal = new InspectPrincipal(), Arguments = ["tsn:Alice"] });
+        Assert.That(redacted.Messages!.Select(message => message.Key), Is.EqualTo(new[] { "command.userinfo.account", "command.userinfo.platform" }));
+        Assert.That((await dispatcher.DispatchAsync(invocation with { Arguments = ["Ali"] })).ErrorCode, Is.EqualTo("command.userinfo.multiple_matches"));
+        Assert.That((await dispatcher.DispatchAsync(invocation with { Arguments = ["OtherWorld"] })).ErrorCode, Is.EqualTo("command.userinfo.invalid_player"));
+        Assert.That((await dispatcher.DispatchAsync(invocation with { Arguments = [] })).Status, Is.EqualTo(CommandExecutionStatus.InvalidUsage));
+        accountSessions.Authenticated = false;
+        var guest = await dispatcher.DispatchAsync(invocation with { Arguments = ["tsn:Alice"] });
+        Assert.That(guest.Messages!.Select(message => message.Key), Does.Not.Contain("command.userinfo.account"));
+    }
+
+    [Test]
+    public async Task UserInfoDoesNotExposeReplacementSlotAfterTargetLookup()
+    {
+        var alice = Player(1, "Alice") with { SessionId = PlayerSessionId.New(), RemoteEndpoint = "203.0.113.1" };
+        var replacement = Player(1, "Bob") with { SessionId = PlayerSessionId.New(), RemoteEndpoint = "192.0.2.10" };
+        var directory = new StubPlayers(alice);
+        directory.DuringSnapshot = () => directory.Current = replacement;
+        var dispatcher = new CommandDispatcher([new UserInfoCommand(directory)]);
+        var result = await dispatcher.DispatchAsync(new CommandInvocation("ui", ["tsi:1"], new InspectPrincipal(sensitive: true), new SilentOutput()));
+        Assert.That(result.ErrorCode, Is.EqualTo("command.userinfo.invalid_player"));
+        Assert.That(result.Messages!.Select(message => message.Key), Is.EqualTo(new[] { "command.userinfo.invalid_player" }));
     }
 
     [Test]
@@ -300,11 +348,18 @@ public sealed class AdministrationPrimitiveTests
     private sealed class StubPlayers(PlayerSnapshot player) : IPlayerDirectory
     {
         public PlayerSnapshot Current { get; set; } = player;
-        public IReadOnlyList<PlayerSnapshot> SnapshotOnlinePlayers() => [Current];
+        public PlayerSnapshot[] Additional { get; init; } = [];
+        public Action? DuringSnapshot { get; set; }
+        public IReadOnlyList<PlayerSnapshot> SnapshotOnlinePlayers()
+        {
+            PlayerSnapshot[] snapshot = [Current, .. Additional];
+            DuringSnapshot?.Invoke();
+            return snapshot;
+        }
 
         public bool TryGet(PlayerId id, out PlayerSnapshot? found)
         {
-            found = id == Current.Id ? Current : null;
+            found = id == Current.Id ? Current : Additional.FirstOrDefault(player => player.Id == id);
             return found is not null;
         }
 
@@ -315,11 +370,39 @@ public sealed class AdministrationPrimitiveTests
         }
     }
 
-    private sealed class InspectPrincipal : ICommandPrincipal
+    private sealed class InspectPrincipal(bool sensitive = false) : ICommandPrincipal
     {
         public string Name => "Inspector";
         public bool IsServer => false;
-        public bool HasPermission(string permission) => permission == "vega.players.inspect";
+        public bool HasPermission(string permission) => permission == "vega.players.inspect" || sensitive && permission == "vega.players.sensitive";
+    }
+
+    private sealed class StubAccountSession(PlayerSnapshot player) : IPlayerAccountSessionService
+    {
+        private readonly PlayerAccountBinding binding = new(player.Id, player.SessionId!.Value, new(42), Guid.NewGuid());
+        private readonly AccountSnapshot account = new(new(42), "alice", "default", null);
+        public bool Authenticated { get; set; } = true;
+        public bool TryGetAccount(PlayerId id, out AccountSnapshot? value) => (value = Authenticated && id == binding.PlayerId ? account : null) is not null;
+        public bool TryGetBinding(PlayerSnapshot snapshot, out PlayerAccountBinding value)
+        {
+            value = binding;
+            return Authenticated && snapshot.Id == binding.PlayerId && snapshot.SessionId == binding.SessionId;
+        }
+        public bool TryRunWithBinding<T>(PlayerAccountBinding expected, Func<T> operation, out T result)
+        {
+            if (Authenticated && binding == expected) { result = operation(); return true; }
+            result = default!;
+            return false;
+        }
+        public ValueTask<bool> SetCultureAsync(PlayerId playerId, string? culture, CancellationToken cancellationToken = default) => throw new NotSupportedException();
+    }
+
+    private sealed class StubRoleLeases : IRoleLeaseService
+    {
+        public RoleLeaseSnapshot? FindActive(AccountId accountId, DateTimeOffset now) => new(Guid.NewGuid(), accountId, "temporary", "server", now.AddMinutes(-1), now.AddHours(1), 1, false);
+        public IReadOnlyList<RoleLeaseSnapshot> SnapshotActive(DateTimeOffset now) => throw new NotSupportedException();
+        public ValueTask<RoleLeaseMutationResult> GrantAsync(AccountId id, string group, DateTimeOffset issued, DateTimeOffset expires, string actor, CancellationToken token = default) => throw new NotSupportedException();
+        public ValueTask<RoleLeaseMutationResult> RevokeAsync(Guid id, long revision, string actor, CancellationToken token = default) => throw new NotSupportedException();
     }
 
     private sealed class SilentOutput : ICommandOutput
