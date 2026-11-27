@@ -10,6 +10,7 @@ using Vega.Core.Modules;
 using Vega.PluginSdk;
 
 const int iterations = 5_000_000;
+const int warmupIterations = 100_000;
 var directRegistry = new RecordingRegistry();
 var facadeRegistry = new RecordingRegistry();
 var directLifecycle = new RecordingLifecycle();
@@ -41,12 +42,6 @@ if (!ReferenceEquals(handler, directRegistry.Handler) ||
 var invocation = new CommandInvocation("noop", [], new Principal(), new Output());
 ICommandHandler directCommandHandler = directRegistry.Handler!;
 ICommandHandler facadeCommandHandler = facadeRegistry.Handler!;
-for (var index = 0; index < 100_000; index++)
-{
-    directCommandHandler.ExecuteAsync(invocation, CancellationToken.None).GetAwaiter().GetResult();
-    facadeCommandHandler.ExecuteAsync(invocation, CancellationToken.None).GetAwaiter().GetResult();
-}
-
 var directCommand = MeasureCommand(directCommandHandler);
 var facadeCommand = MeasureCommand(facadeCommandHandler);
 var opened = new PlayerSessionOpened(PlayerSessionId.New(), new PlayerId(1), "player", DateTimeOffset.UtcNow);
@@ -61,10 +56,12 @@ plugin.WorldEvents.AllowNpcTransform(_ => true);
 var transform = new NpcTransformingEvent(killed.Npc, 23);
 var worldPolicyDispatch = Measure(() => { if (worldEvents.HasPolicies<NpcTransformingEvent>() && !worldEvents.Allows(transform)) throw new InvalidOperationException(); });
 
-if (joinCount != 2 * iterations || npcCount != iterations || scope.Faults.Count != 0 ||
+if (joinCount != 2 * (iterations + warmupIterations) || npcCount != iterations + warmupIterations || scope.Faults.Count != 0 ||
     facadeCommand.AllocatedBytes > 4096 || facadeHook.AllocatedBytes > 4096 || worldEventProbe.AllocatedBytes > 4096 ||
     worldEventDispatch.AllocatedBytes > 4096 || worldPolicyDispatch.AllocatedBytes > 4096)
-    throw new InvalidOperationException("Guarded success paths dropped callbacks, recorded unexpected faults, or allocated per dispatch.");
+    throw new InvalidOperationException($"Guarded success path verification failed: joins={joinCount}, npc={npcCount}, faults={scope.Faults.Count}, " +
+        $"allocated bytes: command={facadeCommand.AllocatedBytes}, join={facadeHook.AllocatedBytes}, empty event={worldEventProbe.AllocatedBytes}, " +
+        $"event={worldEventDispatch.AllocatedBytes}, policy={worldPolicyDispatch.AllocatedBytes}.");
 
 await scope.DisposeAsync();
 if (worldEvents.HasSubscribers<NpcKilledEvent>() || worldEvents.HasPolicies<NpcTransformingEvent>())
@@ -74,6 +71,7 @@ Console.WriteLine(JsonSerializer.Serialize(new
 {
     Runtime = Environment.Version.ToString(),
     Iterations = iterations,
+    WarmupIterations = warmupIterations,
     Command = new { Direct = directCommand, Facade = facadeCommand },
     PlayerJoinHook = new { Direct = directHook, Facade = facadeHook },
     WorldEvent = new { EmptyProbe = worldEventProbe, GuardedDispatch = worldEventDispatch, GuardedPolicy = worldPolicyDispatch },
@@ -85,6 +83,9 @@ Console.WriteLine(JsonSerializer.Serialize(new
 
 Measurement Measure(Action action)
 {
+    // All measured paths, including lifecycle/event/policy dispatch, must be warm
+    // before steady-state allocation probes. Warmup callbacks are still counted.
+    for (var index = 0; index < warmupIterations; index++) action();
     GC.Collect();
     GC.WaitForPendingFinalizers();
     GC.Collect();
