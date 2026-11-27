@@ -68,6 +68,22 @@ public sealed class RegionObservations : IDisposable
         // Cached repository snapshot is reused until a committed mutation; unchanged tile positions
         // do not scan regions. ponytail: moving players scan O(region count) per tile crossing;
         // if large moving-player/region workloads warrant it, replace with a shared spatial index.
+        IReadOnlyList<RegionSnapshot> snapshot = RefreshRegionSnapshot();
+        int currentStamp = unchecked(++stamp);
+        foreach (PlayerSnapshot player in players.SnapshotOnlinePlayers())
+        {
+            ObservePlayer(player, snapshot, currentStamp);
+        }
+
+        foreach (var (session, membership) in tracked)
+            if (membership.Stamp != currentStamp) missing.Add(session);
+        foreach (PlayerSessionId session in missing) LeaveSession(session);
+        missing.Clear();
+        hits.Clear();
+    }
+
+    private IReadOnlyList<RegionSnapshot> RefreshRegionSnapshot()
+    {
         IReadOnlyList<RegionSnapshot> snapshot = regions.SnapshotRegions(world);
         if (!ReferenceEquals(snapshot, cachedSource))
         {
@@ -79,54 +95,49 @@ public sealed class RegionObservations : IDisposable
             }).ToArray();
             cachedSource = snapshot;
         }
-        int currentStamp = unchecked(++stamp);
-        foreach (PlayerSnapshot player in players.SnapshotOnlinePlayers())
+        return snapshot;
+    }
+
+    private void ObservePlayer(PlayerSnapshot player, IReadOnlyList<RegionSnapshot> snapshot, int currentStamp)
+    {
+        if (player.WorldId != world || player.SessionId is not { } session ||
+            player.Connection?.LoginPhase is { } phase && phase != ConnectionLoginPhase.FullyConnected ||
+            !float.IsFinite(player.Position.X) || !float.IsFinite(player.Position.Y) ||
+            player.Position.X < 0 || player.Position.Y < 0 ||
+            player.Position.X / 16d > int.MaxValue || player.Position.Y / 16d > int.MaxValue) return;
+
+        int x = (int)Math.Floor(player.Position.X / 16d), y = (int)Math.Floor(player.Position.Y / 16d);
+        tracked.TryGetValue(session, out MembershipState? before);
+        if (before is not null && before.Player != player.Id)
         {
-            if (player.WorldId != world || player.SessionId is not { } session ||
-                player.Connection?.LoginPhase is { } phase && phase != ConnectionLoginPhase.FullyConnected ||
-                !float.IsFinite(player.Position.X) || !float.IsFinite(player.Position.Y) ||
-                player.Position.X < 0 || player.Position.Y < 0 ||
-                player.Position.X / 16d > int.MaxValue || player.Position.Y / 16d > int.MaxValue) continue;
-
-            int x = (int)Math.Floor(player.Position.X / 16d), y = (int)Math.Floor(player.Position.Y / 16d);
-            tracked.TryGetValue(session, out MembershipState? before);
-            if (before is not null && before.Player != player.Id)
-            {
-                LeaveSession(session);
-                before = null;
-            }
-            if (before is not null && before.Player == player.Id && before.X == x && before.Y == y && ReferenceEquals(before.Source, snapshot))
-            {
-                before.Stamp = currentStamp;
-                continue;
-            }
-
-            hits.Clear();
-            foreach (RegionSnapshot region in detached)
-                if (region.Contains(x, y)) hits.Add(region);
-
-            if (before is not null)
-                foreach (RegionSnapshot region in before.Regions)
-                    if (!ContainsRegion(hits, region.Id))
-                        events.Publish(new RegionLeftEvent(new(world, player.Id, session, x, y, region)));
-            foreach (RegionSnapshot region in hits)
-                if (before is null || !ContainsRegion(before.Regions, region.Id))
-                    events.Publish(new RegionEnteredEvent(new(world, player.Id, session, x, y, region)));
-            var next = before ?? new MembershipState(player.Id);
-            next.X = x;
-            next.Y = y;
-            next.Stamp = currentStamp;
-            next.Source = snapshot;
-            next.Regions.Clear();
-            next.Regions.AddRange(hits);
-            if (before is null) tracked[session] = next;
+            LeaveSession(session);
+            before = null;
+        }
+        if (before is not null && before.Player == player.Id && before.X == x && before.Y == y && ReferenceEquals(before.Source, snapshot))
+        {
+            before.Stamp = currentStamp;
+            return;
         }
 
-        foreach (var (session, membership) in tracked)
-            if (membership.Stamp != currentStamp) missing.Add(session);
-        foreach (PlayerSessionId session in missing) LeaveSession(session);
-        missing.Clear();
         hits.Clear();
+        foreach (RegionSnapshot region in detached)
+            if (region.Contains(x, y)) hits.Add(region);
+
+        if (before is not null)
+            foreach (RegionSnapshot region in before.Regions)
+                if (!ContainsRegion(hits, region.Id))
+                    events.Publish(new RegionLeftEvent(new(world, player.Id, session, x, y, region)));
+        foreach (RegionSnapshot region in hits)
+            if (before is null || !ContainsRegion(before.Regions, region.Id))
+                events.Publish(new RegionEnteredEvent(new(world, player.Id, session, x, y, region)));
+        var next = before ?? new MembershipState(player.Id);
+        next.X = x;
+        next.Y = y;
+        next.Stamp = currentStamp;
+        next.Source = snapshot;
+        next.Regions.Clear();
+        next.Regions.AddRange(hits);
+        if (before is null) tracked[session] = next;
     }
 
     private static bool ContainsRegion(List<RegionSnapshot> regions, int id)

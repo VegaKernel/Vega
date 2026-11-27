@@ -28,11 +28,9 @@ public sealed class HomeCommand(HomeCommandAction action, IPlayerDirectory playe
         string name = invocation.Arguments.Count == 0 ? "home" : invocation.Arguments[0];
         bool list = action == HomeCommandAction.Teleport && name.Equals("-l", StringComparison.OrdinalIgnoreCase);
         if (!list && !PlayerHome.IsValidName(name)) return Usage();
-        if (invocation.Principal is not IPlayerCommandPrincipal { SessionId: { } session, AccountName: { } accountName } principal ||
-            !players.TryGet(principal.PlayerId, out var player) || player is null || player.SessionId != session || player.WorldId != invocation.WorldId ||
-            !accounts.TryGetBinding(player, out var binding) || !accounts.TryRunWithBinding(binding,
-                () => accounts.TryGetAccount(player.Id, out var account) && account?.Id == binding.AccountId && account.Name.Equals(accountName, StringComparison.OrdinalIgnoreCase), out bool bound) || !bound)
+        if (ResolveAuthenticatedPlayer(invocation) is not { } authenticated)
             return Failure("homes.login", "You're not logged in.");
+        var (principal, player, binding, session) = authenticated;
 
         try
         {
@@ -54,20 +52,7 @@ public sealed class HomeCommand(HomeCommandAction action, IPlayerDirectory playe
             }
 
             if (action == HomeCommandAction.Set)
-            {
-                if (live.IsDead || !float.IsFinite(live.Position.X) || !float.IsFinite(live.Position.Y) || live.Position.X < 0 || live.Position.Y < 0 ||
-                    live.Position.X >= world.WidthTiles * 16f || live.Position.Y >= world.HeightTiles * 16f)
-                    return Failure("homes.invalid_position", "Cannot set home at this position.");
-                int limit = DynamicPermissionLimit.Resolve("homes.set", authorization.SnapshotGroups().SelectMany(group => group.Permissions),
-                    principal.HasPermission, principal.HasPermission("vega.navigation.homes.set") ? 1 : 0);
-                var result = await Task.Run(async () => await homes.SetAsync(new(binding.AccountId, invocation.WorldId, worldFile, name, live.Position), limit, token).ConfigureAwait(false), token).ConfigureAwait(false);
-                return result switch
-                {
-                    HomeWriteResult.Applied => Success("homes.set", "Set your home '{0}'.", name),
-                    HomeWriteResult.LimitReached => Failure("homes.limit", "You have reached your home limit!"),
-                    _ => Failure("homes.storage", "Could not set home, check logs for more details.")
-                };
-            }
+                return await SetHomeAsync(invocation, principal, binding, live, world, worldFile, name, token).ConfigureAwait(false);
             if (action == HomeCommandAction.Delete)
                 return await Task.Run(async () => await homes.DeleteAsync(binding.AccountId, invocation.WorldId, worldFile, name, token).ConfigureAwait(false), token).ConfigureAwait(false)
                     ? Success("homes.deleted", "Deleted your home '{0}'.", name) : Missing(name);
@@ -82,6 +67,35 @@ public sealed class HomeCommand(HomeCommandAction action, IPlayerDirectory playe
         {
             return Failure("homes.storage", "Home storage is unavailable.");
         }
+    }
+
+    private (IPlayerCommandPrincipal Principal, PlayerSnapshot Player, PlayerAccountBinding Binding, PlayerSessionId Session)?
+        ResolveAuthenticatedPlayer(CommandInvocation invocation)
+    {
+        if (invocation.Principal is not IPlayerCommandPrincipal { SessionId: { } session, AccountName: { } accountName } principal ||
+            !players.TryGet(principal.PlayerId, out var player) || player is null || player.SessionId != session || player.WorldId != invocation.WorldId ||
+            !accounts.TryGetBinding(player, out var binding) || !accounts.TryRunWithBinding(binding,
+                () => accounts.TryGetAccount(player.Id, out var account) && account?.Id == binding.AccountId && account.Name.Equals(accountName, StringComparison.OrdinalIgnoreCase), out bool bound) || !bound)
+            return null;
+
+        return (principal, player, binding, session);
+    }
+
+    private async ValueTask<CommandExecutionResult> SetHomeAsync(CommandInvocation invocation, IPlayerCommandPrincipal principal,
+        PlayerAccountBinding binding, PlayerSnapshot live, WorldEnvironmentSnapshot world, Guid worldFile, string name, CancellationToken token)
+    {
+        if (live.IsDead || !float.IsFinite(live.Position.X) || !float.IsFinite(live.Position.Y) || live.Position.X < 0 || live.Position.Y < 0 ||
+            live.Position.X >= world.WidthTiles * 16f || live.Position.Y >= world.HeightTiles * 16f)
+            return Failure("homes.invalid_position", "Cannot set home at this position.");
+        int limit = DynamicPermissionLimit.Resolve("homes.set", authorization.SnapshotGroups().SelectMany(group => group.Permissions),
+            principal.HasPermission, principal.HasPermission("vega.navigation.homes.set") ? 1 : 0);
+        var result = await Task.Run(async () => await homes.SetAsync(new(binding.AccountId, invocation.WorldId, worldFile, name, live.Position), limit, token).ConfigureAwait(false), token).ConfigureAwait(false);
+        return result switch
+        {
+            HomeWriteResult.Applied => Success("homes.set", "Set your home '{0}'.", name),
+            HomeWriteResult.LimitReached => Failure("homes.limit", "You have reached your home limit!"),
+            _ => Failure("homes.storage", "Could not set home, check logs for more details.")
+        };
     }
 
     private CommandExecutionResult Usage() => new(CommandExecutionStatus.InvalidUsage, "homes.usage",

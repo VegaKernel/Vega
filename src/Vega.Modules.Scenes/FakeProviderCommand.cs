@@ -96,38 +96,10 @@ public sealed class FakeProviderCommand(FakeProviderService providers, IPlayerDi
     {
         if (args.Count == 0) return Failure(Descriptor.Syntax);
         string action = args[0].ToLowerInvariant();
-        if (action == "list" && args.Count <= 2)
-        {
-            int page = 1;
-            if (args.Count == 2 && (!int.TryParse(args[1], out page) || page < 1)) return Failure("Invalid page.");
-            var all = providers.Snapshot(personal);
-            var pages = Math.Max(1, (all.Count + 9) / 10);
-            if (page > pages) return Failure($"Page must be between 1 and {pages}.");
-            string entries = string.Join("; ", all.Skip((page - 1) * 10).Take(10).Select(Describe));
-            return Info($"Providers ({page}/{pages}): {(entries.Length == 0 ? "none" : entries)}");
-        }
+        if (action == "list" && args.Count <= 2) return ListProviders(args);
         if (args.Count < 2) return Failure(Descriptor.Syntax);
         string name = args[1];
-        if (action == "create")
-        {
-            int start = personal ? 3 : 2;
-            if (args.Count != start + 4 && args.Count != start + 5) return Failure(Descriptor.Syntax);
-            if (!int.TryParse(args[start], out int x) || !int.TryParse(args[start + 1], out int y) ||
-                !int.TryParse(args[start + 2], out int width) || !int.TryParse(args[start + 3], out int height) ||
-                x < 0 || y < 0 || width is < 1 or > 255 || height is < 1 or > 255) return Failure("Invalid bounds (width/height 1–255).");
-            string fill = args.Count == start + 5 ? args[start + 4].ToLowerInvariant() : "air";
-            if (fill is not ("air" or "stone")) return Failure("Fill must be air or stone.");
-            PlayerId[]? observers = null;
-            if (personal)
-            {
-                if (!players.TryFindExact(args[2], out var player) || player is not { SessionId: not null }) return Failure("Online player not found.");
-                observers = [player.Id];
-            }
-            var tile = fill == "stone" ? new SceneTile(1, Flags: SceneTileFlags.Active) : SceneTile.Air;
-            var tiles = SceneTileArea.Fill(width, height, tile);
-            return providers.Create(name, new SceneBounds(x, y, width, height), tiles, observers)
-                ? Info($"Provider '{name}' created.") : Failure("Provider name already exists in this world.");
-        }
+        if (action == "create") return CreateProvider(args, name);
         if (action == "info" && args.Count == 2)
             return providers.TryGet(name, personal, out var definition) ? Info(Describe(definition!)) : Failure("Provider not found.");
 
@@ -143,6 +115,38 @@ public sealed class FakeProviderCommand(FakeProviderService providers, IPlayerDi
             _ => null
         };
         return updated is true ? Info($"Provider '{name}' {action}: ok.") : Failure(updated is false ? "Provider not found." : Descriptor.Syntax);
+    }
+
+    private CommandExecutionResult ListProviders(IReadOnlyList<string> args)
+    {
+        int page = 1;
+        if (args.Count == 2 && (!int.TryParse(args[1], out page) || page < 1)) return Failure("Invalid page.");
+        var all = providers.Snapshot(personal);
+        var pages = Math.Max(1, (all.Count + 9) / 10);
+        if (page > pages) return Failure($"Page must be between 1 and {pages}.");
+        string entries = string.Join("; ", all.Skip((page - 1) * 10).Take(10).Select(Describe));
+        return Info($"Providers ({page}/{pages}): {(entries.Length == 0 ? "none" : entries)}");
+    }
+
+    private CommandExecutionResult CreateProvider(IReadOnlyList<string> args, string name)
+    {
+        int start = personal ? 3 : 2;
+        if (args.Count != start + 4 && args.Count != start + 5) return Failure(Descriptor.Syntax);
+        if (!int.TryParse(args[start], out int x) || !int.TryParse(args[start + 1], out int y) ||
+            !int.TryParse(args[start + 2], out int width) || !int.TryParse(args[start + 3], out int height) ||
+            x < 0 || y < 0 || width is < 1 or > 255 || height is < 1 or > 255) return Failure("Invalid bounds (width/height 1–255).");
+        string fill = args.Count == start + 5 ? args[start + 4].ToLowerInvariant() : "air";
+        if (fill is not ("air" or "stone")) return Failure("Fill must be air or stone.");
+        PlayerId[]? observers = null;
+        if (personal)
+        {
+            if (!players.TryFindExact(args[2], out var player) || player is not { SessionId: not null }) return Failure("Online player not found.");
+            observers = [player.Id];
+        }
+        var tile = fill == "stone" ? new SceneTile(1, Flags: SceneTileFlags.Active) : SceneTile.Air;
+        var tiles = SceneTileArea.Fill(width, height, tile);
+        return providers.Create(name, new SceneBounds(x, y, width, height), tiles, observers)
+            ? Info($"Provider '{name}' created.") : Failure("Provider name already exists in this world.");
     }
 
     private static string Describe(SceneOverlayDefinition definition) =>

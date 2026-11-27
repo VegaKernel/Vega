@@ -149,74 +149,96 @@ public sealed class BanCommand(
         DateTimeOffset now = time.GetUtcNow();
         if (action == "help")
             return CommandExecutionResult.WithMessages(MessageDescriptor.Info("command.bt.help").WithDefaultText("BT Sub-Commands: add <player> <reason> [time] | addip <ip> <reason> [time] | addrange <ip/prefix> <reason> <time> | delrange <ip/prefix> | listrange [page] | info <player/IP>"));
-        if (action == "listrange")
-        {
-            int page = 1;
-            if (args.Count > 2 || (args.Count == 2 && (!int.TryParse(args[1], out page) || page < 1 || page > int.MaxValue / 10))) return InvalidUsage("command.bt.usage", "Usage: bt listrange [page number].");
-            var ranges = bans.SnapshotActive(now).Where(b => b.Subject.Kind == GlobalBanSubjectKind.Network).Skip((page - 1) * 10).Take(10).ToArray();
-            return ranges.Length == 0 ? CommandExecutionResult.WithMessages(MessageDescriptor.Info("command.bt.empty").WithDefaultText("No banned IP ranges.")) : CommandExecutionResult.WithMessages(ranges.Select(b => MessageDescriptor.Info("command.bt.range", FormatSubject(b.Subject, invocation.Principal), b.Reason, FormatExpiry(b.ExpiresAt), b.CreatedBy).WithDefaultText("{0} - Reason: {1}, Expiration: {2}, Banned by {3}")).ToArray());
-        }
-        if (action is "addrange" or "delrange")
-        {
-            if (!invocation.Principal.IsServer && !invocation.Principal.HasPermission("vega.admin.ban.iprange") && !invocation.Principal.HasPermission("tshock.admin.ban.iprange"))
-                return new(CommandExecutionStatus.Forbidden, "command.bt.range.permission");
-            if (action == "addrange" && args.Count == 4)
-                return await AddTypedAsync(invocation with { Arguments = ["add", "cidr", args[1], args[3], args[2]] }, token).ConfigureAwait(false);
-            if (action == "delrange" && args.Count == 2 && bans.TryNormalizeSubject(new(GlobalBanSubjectKind.Network, args[1]), out var normalized, out _))
-            {
-                var matches = bans.SnapshotActive(now).Where(b => b.Subject == normalized).ToArray();
-                if (matches.Length == 0) return Failure("command.ban.not-found", "Active ban not found.");
-                foreach (var ban in matches)
-                    if (!await bans.RevokeAsync(new(ban.Id, invocation.Principal.Name, now, checked(ban.Revision + 1)), token).ConfigureAwait(false))
-                        return Failure("command.ban.persist-failed", "Unable to revoke range ban.");
-                return CommandExecutionResult.WithMessages(MessageDescriptor.Success("command.bt.removed").WithDefaultText("IP range has been removed."));
-            }
-        }
+        if (action == "listrange") return ListRanges(invocation, now);
+        if (action is "addrange" or "delrange") return await MutateRangeAsync(invocation, action, now, token).ConfigureAwait(false);
         if (action == "addip" && args.Count is 3 or 4)
             return await AddTypedAsync(invocation with { Arguments = ["add", "ip", args[1], args.Count == 4 ? args[3] : "permanent", args[2]] }, token).ConfigureAwait(false);
         if (action is "add" or "info" && args.Count >= 2)
-        {
-            var targets = FindPlayers(args[1], invocation.WorldId);
-            if (targets.Count > 1) return Failure("command.ban.multiple-matches", "Multiple players matched: {0}.", string.Join(", ", targets.Select(p => p.Name)));
-            var subjects = new List<GlobalBanSubject>();
-            if (targets.Count == 1)
-            {
-                var player = targets[0];
-                subjects.Add(new(GlobalBanSubjectKind.PlayerName, player.Name));
-                if (TryGetIpAddress(player.Connection?.EffectiveEndpoint ?? player.RemoteEndpoint, out var ip) && ip is not null) subjects.Add(new(GlobalBanSubjectKind.IpAddress, ip));
-                if (!string.IsNullOrWhiteSpace(player.Connection?.ClientUuid)) subjects.Add(new(GlobalBanSubjectKind.Uuid, player.Connection.ClientUuid));
-                if (accountSessions?.TryGetAccount(player.Id, out var account) == true && account is not null) subjects.Add(new(GlobalBanSubjectKind.Account, account.Name));
-            }
-            else if (accounts is not null && await accounts.FindByNameAsync(args[1], token).ConfigureAwait(false) is { } account)
-            {
-                subjects.Add(new(GlobalBanSubjectKind.Account, account.Name));
-                if (account.LastKnownIp is { } lastIp) subjects.Add(new(GlobalBanSubjectKind.IpAddress, lastIp));
-                if (account.LastKnownUuid is { } lastUuid) subjects.Add(new(GlobalBanSubjectKind.Uuid, lastUuid));
-            }
-            else if (action == "info" && IPAddress.TryParse(args[1], out var address)) subjects.Add(new(GlobalBanSubjectKind.IpAddress, address.ToString()));
-            else if (action == "info") subjects.Add(new(GlobalBanSubjectKind.PlayerName, args[1]));
-            if (subjects.Count == 0) return Failure("command.ban.player-not-found", "Invalid user.");
-            if (action == "info" && args.Count == 2)
-            {
-                var matching = bans.SnapshotActive(now).Where(b => subjects.Any(s => bans.TryNormalizeSubject(s, out var n, out _) && n == b.Subject)).ToArray();
-                return matching.Length == 0 ? Failure("command.ban.not-found", "Invalid ban") : CommandExecutionResult.WithMessages(matching.Select(b => MessageDescriptor.Info("command.bt.ticket", b.Id.Value, FormatSubject(b.Subject, invocation.Principal), b.Reason).WithDefaultText("Ban ticket: {0} | {1} | {2}")).ToArray());
-            }
-            if (action == "add" && args.Count is 3 or 4 && TryParseDuration(args.Count == 4 ? args[3] : "permanent", out var duration))
-            {
-                var tickets = new List<string>();
-                foreach (var subject in subjects)
-                {
-                    if (!bans.TryNormalizeSubject(subject, out var normalized, out _) || normalized is null) continue;
-                    var id = GlobalBanId.New();
-                    if (await bans.CreateAsync(new(id, normalized, args[2], invocation.Principal.Name, now, duration is { } d ? now.Add(d) : null, 1), token).ConfigureAwait(false)) tickets.Add($"{normalized.Kind}: {id.Value}");
-                }
-                if (tickets.Count == 0) return Failure("command.ban.persist-failed", "Unable to persist ban.");
-                if (targets.Count == 1) await playerOperations.KickAsync(targets[0], $"Banned: {args[2]}", token).ConfigureAwait(false);
-                return CommandExecutionResult.WithMessages(MessageDescriptor.Success("command.bt.add", args[1], string.Join(", ", tickets)).WithDefaultText("Player {0} is banned by ticket's: {1}"));
-            }
-        }
-        return InvalidUsage("command.bt.usage", "Invalid syntax. Use /bt help.");
+            return await ExecutePlayerBanToolsAsync(invocation, action, now, token).ConfigureAwait(false);
+        return BanToolsUsage();
     }
+
+    private CommandExecutionResult ListRanges(CommandInvocation invocation, DateTimeOffset now)
+    {
+        var args = invocation.Arguments;
+        int page = 1;
+        if (args.Count > 2 || (args.Count == 2 && (!int.TryParse(args[1], out page) || page < 1 || page > int.MaxValue / 10))) return InvalidUsage("command.bt.usage", "Usage: bt listrange [page number].");
+        var ranges = bans.SnapshotActive(now).Where(b => b.Subject.Kind == GlobalBanSubjectKind.Network).Skip((page - 1) * 10).Take(10).ToArray();
+        return ranges.Length == 0 ? CommandExecutionResult.WithMessages(MessageDescriptor.Info("command.bt.empty").WithDefaultText("No banned IP ranges.")) : CommandExecutionResult.WithMessages(ranges.Select(b => MessageDescriptor.Info("command.bt.range", FormatSubject(b.Subject, invocation.Principal), b.Reason, FormatExpiry(b.ExpiresAt), b.CreatedBy).WithDefaultText("{0} - Reason: {1}, Expiration: {2}, Banned by {3}")).ToArray());
+    }
+
+    private async ValueTask<CommandExecutionResult> MutateRangeAsync(CommandInvocation invocation, string action, DateTimeOffset now, CancellationToken token)
+    {
+        var args = invocation.Arguments;
+        if (!invocation.Principal.IsServer && !invocation.Principal.HasPermission("vega.admin.ban.iprange") && !invocation.Principal.HasPermission("tshock.admin.ban.iprange"))
+            return new(CommandExecutionStatus.Forbidden, "command.bt.range.permission");
+        if (action == "addrange" && args.Count == 4)
+            return await AddTypedAsync(invocation with { Arguments = ["add", "cidr", args[1], args[3], args[2]] }, token).ConfigureAwait(false);
+        if (action == "delrange" && args.Count == 2 && bans.TryNormalizeSubject(new(GlobalBanSubjectKind.Network, args[1]), out var normalized, out _))
+        {
+            var matches = bans.SnapshotActive(now).Where(b => b.Subject == normalized).ToArray();
+            if (matches.Length == 0) return Failure("command.ban.not-found", "Active ban not found.");
+            foreach (var ban in matches)
+                if (!await bans.RevokeAsync(new(ban.Id, invocation.Principal.Name, now, checked(ban.Revision + 1)), token).ConfigureAwait(false))
+                    return Failure("command.ban.persist-failed", "Unable to revoke range ban.");
+            return CommandExecutionResult.WithMessages(MessageDescriptor.Success("command.bt.removed").WithDefaultText("IP range has been removed."));
+        }
+        return BanToolsUsage();
+    }
+
+    private async ValueTask<CommandExecutionResult> ExecutePlayerBanToolsAsync(CommandInvocation invocation, string action, DateTimeOffset now, CancellationToken token)
+    {
+        var args = invocation.Arguments;
+        var targets = FindPlayers(args[1], invocation.WorldId);
+        if (targets.Count > 1) return Failure("command.ban.multiple-matches", "Multiple players matched: {0}.", string.Join(", ", targets.Select(p => p.Name)));
+        var subjects = await ResolveBanToolSubjectsAsync(targets, args[1], action, token).ConfigureAwait(false);
+        if (subjects.Count == 0) return Failure("command.ban.player-not-found", "Invalid user.");
+        if (action == "info" && args.Count == 2) return DescribeBanToolSubjects(subjects, invocation, now);
+        if (action == "add" && args.Count is 3 or 4 && TryParseDuration(args.Count == 4 ? args[3] : "permanent", out var duration))
+        {
+            var tickets = new List<string>();
+            foreach (var subject in subjects)
+            {
+                if (!bans.TryNormalizeSubject(subject, out var normalized, out _) || normalized is null) continue;
+                var id = GlobalBanId.New();
+                if (await bans.CreateAsync(new(id, normalized, args[2], invocation.Principal.Name, now, duration is { } d ? now.Add(d) : null, 1), token).ConfigureAwait(false)) tickets.Add($"{normalized.Kind}: {id.Value}");
+            }
+            if (tickets.Count == 0) return Failure("command.ban.persist-failed", "Unable to persist ban.");
+            if (targets.Count == 1) await playerOperations.KickAsync(targets[0], $"Banned: {args[2]}", token).ConfigureAwait(false);
+            return CommandExecutionResult.WithMessages(MessageDescriptor.Success("command.bt.add", args[1], string.Join(", ", tickets)).WithDefaultText("Player {0} is banned by ticket's: {1}"));
+        }
+        return BanToolsUsage();
+    }
+
+    private async ValueTask<List<GlobalBanSubject>> ResolveBanToolSubjectsAsync(IReadOnlyList<PlayerSnapshot> targets, string input, string action, CancellationToken token)
+    {
+        var subjects = new List<GlobalBanSubject>();
+        if (targets.Count == 1)
+        {
+            var player = targets[0];
+            subjects.Add(new(GlobalBanSubjectKind.PlayerName, player.Name));
+            if (TryGetIpAddress(player.Connection?.EffectiveEndpoint ?? player.RemoteEndpoint, out var ip) && ip is not null) subjects.Add(new(GlobalBanSubjectKind.IpAddress, ip));
+            if (!string.IsNullOrWhiteSpace(player.Connection?.ClientUuid)) subjects.Add(new(GlobalBanSubjectKind.Uuid, player.Connection.ClientUuid));
+            if (accountSessions?.TryGetAccount(player.Id, out var account) == true && account is not null) subjects.Add(new(GlobalBanSubjectKind.Account, account.Name));
+        }
+        else if (accounts is not null && await accounts.FindByNameAsync(input, token).ConfigureAwait(false) is { } account)
+        {
+            subjects.Add(new(GlobalBanSubjectKind.Account, account.Name));
+            if (account.LastKnownIp is { } lastIp) subjects.Add(new(GlobalBanSubjectKind.IpAddress, lastIp));
+            if (account.LastKnownUuid is { } lastUuid) subjects.Add(new(GlobalBanSubjectKind.Uuid, lastUuid));
+        }
+        else if (action == "info" && IPAddress.TryParse(input, out var address)) subjects.Add(new(GlobalBanSubjectKind.IpAddress, address.ToString()));
+        else if (action == "info") subjects.Add(new(GlobalBanSubjectKind.PlayerName, input));
+        return subjects;
+    }
+
+    private CommandExecutionResult DescribeBanToolSubjects(List<GlobalBanSubject> subjects, CommandInvocation invocation, DateTimeOffset now)
+    {
+        var matching = bans.SnapshotActive(now).Where(b => subjects.Any(s => bans.TryNormalizeSubject(s, out var n, out _) && n == b.Subject)).ToArray();
+        return matching.Length == 0 ? Failure("command.ban.not-found", "Invalid ban") : CommandExecutionResult.WithMessages(matching.Select(b => MessageDescriptor.Info("command.bt.ticket", b.Id.Value, FormatSubject(b.Subject, invocation.Principal), b.Reason).WithDefaultText("Ban ticket: {0} | {1} | {2}")).ToArray());
+    }
+
+    private static CommandExecutionResult BanToolsUsage() => InvalidUsage("command.bt.usage", "Invalid syntax. Use /bt help.");
 
     private async ValueTask<CommandExecutionResult> AddTypedAsync(
         CommandInvocation invocation,

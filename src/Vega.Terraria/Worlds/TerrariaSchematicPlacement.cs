@@ -52,26 +52,7 @@ public sealed class TerrariaSchematicPlacement(IGameThreadDispatcher dispatcher,
         {
             ApplyTiles(tiles, bounds);
             objects.Apply();
-            foreach (var record in document.Npcs)
-            {
-                float x = bounds.X * 16f + record.X, y = bounds.Y * 16f + record.Y;
-                int slot = SpawnNpc((int)x, (int)y, record.NpcType);
-                if ((uint)slot >= (uint)slots || occupied[slot] || global::Terraria.Main.npc[slot] is not { active: true } npc)
-                    throw new InvalidOperationException("Native NPC allocation failed.");
-                occupied[slot] = true;
-                created.Add((slot, npc.generation));
-                if (npc.type != record.NpcType || record.LifeOverride is int life && life > npc.lifeMax)
-                    throw new InvalidOperationException("Native NPC type or health does not match the schematic.");
-                npc.position = new(x, y);
-                npc.direction = record.Direction;
-                npc.spriteDirection = record.SpriteDirection;
-                if (record.Name is not null) npc.GivenName = record.Name;
-                npc.homeless = record.Homeless;
-                npc.homeTileX = record.Homeless ? 0 : bounds.X + record.HomeX;
-                npc.homeTileY = record.Homeless ? 0 : bounds.Y + record.HomeY;
-                if (record.LifeOverride is int overrideLife) npc.life = overrideLife;
-                npc.netUpdate = true;
-            }
+            PlaceNpcs(document, bounds, occupied, created);
             return new(WorldSchematicPlacementStatus.Applied, created.Count);
         }
         catch (Exception ex)
@@ -85,6 +66,31 @@ public sealed class TerrariaSchematicPlacement(IGameThreadDispatcher dispatcher,
             catch (Exception tileRestoreError) { rollbackError ??= tileRestoreError; }
             return new(WorldSchematicPlacementStatus.Failed, Error: rollbackError is null ? ex.Message :
                 $"{ex.Message} Rollback was incomplete: {rollbackError.Message}");
+        }
+    }
+
+    private void PlaceNpcs(SchematicDocument document, SceneBounds bounds, bool[] occupied, List<(int Slot, int Generation)> created)
+    {
+        int slots = occupied.Length;
+        foreach (var record in document.Npcs)
+        {
+            float x = bounds.X * 16f + record.X, y = bounds.Y * 16f + record.Y;
+            int slot = SpawnNpc((int)x, (int)y, record.NpcType);
+            if ((uint)slot >= (uint)slots || occupied[slot] || global::Terraria.Main.npc[slot] is not { active: true } npc)
+                throw new InvalidOperationException("Native NPC allocation failed.");
+            occupied[slot] = true;
+            created.Add((slot, npc.generation));
+            if (npc.type != record.NpcType || record.LifeOverride is int life && life > npc.lifeMax)
+                throw new InvalidOperationException("Native NPC type or health does not match the schematic.");
+            npc.position = new(x, y);
+            npc.direction = record.Direction;
+            npc.spriteDirection = record.SpriteDirection;
+            if (record.Name is not null) npc.GivenName = record.Name;
+            npc.homeless = record.Homeless;
+            npc.homeTileX = record.Homeless ? 0 : bounds.X + record.HomeX;
+            npc.homeTileY = record.Homeless ? 0 : bounds.Y + record.HomeY;
+            if (record.LifeOverride is int overrideLife) npc.life = overrideLife;
+            npc.netUpdate = true;
         }
     }
 

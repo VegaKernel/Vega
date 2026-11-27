@@ -82,7 +82,7 @@ public sealed class RuntimeDependencyTests
             "lifecycle.Advance(RuntimeLifecycleStage.ModulesRegistered);",
             StringComparison.Ordinal);
         int persistenceInitialization = host.IndexOf(
-            "InitializeRuntimeParticipants(startupParticipants, logger);",
+            "InitializeRuntimeParticipants(services.Runtime.StartupParticipants, logger);",
             StringComparison.Ordinal);
         int terrariaMain = host.IndexOf(
             "global::Terraria.WindowsLaunch.Main(args);",
@@ -184,7 +184,7 @@ public sealed class RuntimeDependencyTests
     {
         var repositoryRoot = FindRepositoryRoot();
         var project = File.ReadAllText(Path.Combine(repositoryRoot, "src", "Vega.Runtime", "Vega.Runtime.csproj"));
-        var program = File.ReadAllText(Path.Combine(repositoryRoot, "src", "Vega.Runtime", "Program.cs"));
+        var program = ReadRuntimeComposition(repositoryRoot);
 
         Assert.Multiple(() =>
         {
@@ -338,8 +338,7 @@ public sealed class RuntimeDependencyTests
         string repositoryRoot = FindRepositoryRoot();
         string runtimeProject = File.ReadAllText(Path.Combine(
             repositoryRoot, "src", "Vega.Runtime", "Vega.Runtime.csproj"));
-        string runtime = File.ReadAllText(Path.Combine(
-            repositoryRoot, "src", "Vega.Runtime", "Program.cs"));
+        string runtime = ReadRuntimeComposition(repositoryRoot);
         string packetHook = File.ReadAllText(Path.Combine(
             repositoryRoot, "src", "Vega.Terraria", "Hooking", "NativePlayerPacketSecurityHooks.cs"));
         string packetAdapter = File.ReadAllText(Path.Combine(
@@ -750,7 +749,7 @@ public sealed class RuntimeDependencyTests
         string handlerSection = banHandlers[banHandlers.IndexOf(
             "public sealed class GlobalBanCreatedHandler",
             StringComparison.Ordinal)..];
-        string runtime = File.ReadAllText(Path.Combine(repositoryRoot, "src", "Vega.Runtime", "Program.cs"));
+        string runtime = ReadRuntimeComposition(repositoryRoot);
 
         Assert.Multiple(() =>
         {
@@ -762,6 +761,13 @@ public sealed class RuntimeDependencyTests
             Assert.That(runtime, Does.Not.Contain("clusterDispatcher.RegisterRequest"));
             Assert.That(runtime, Does.Not.Contain("new GlobalBanCoordinator("));
         });
+    }
+
+    private static string ReadRuntimeComposition(string repositoryRoot)
+    {
+        string directory = Path.Combine(repositoryRoot, "src", "Vega.Runtime");
+        return string.Join("\n", Directory.EnumerateFiles(directory, "RuntimeHost*.cs")
+            .Prepend(Path.Combine(directory, "Program.cs")).Select(File.ReadAllText));
     }
 
     private static string FindRepositoryRoot()

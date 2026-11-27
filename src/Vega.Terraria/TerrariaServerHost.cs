@@ -1,23 +1,10 @@
-using Multiplicity.Packets.Views;
 using ReLogic.OS;
 using Terraria.ID;
-using Vega.Contracts.Authorization;
-using Vega.Contracts.Accounts;
-using Vega.Contracts.Commands;
-using Vega.Contracts.Networking;
 using Vega.Contracts.Operations;
-using Vega.Contracts.Events;
+using Vega.Contracts.Players;
 using Vega.Contracts.Runtime;
-using Vega.Contracts.Worlds;
-using Vega.Contracts.Localization;
-using Vega.Contracts.Moderation;
-using Vega.Contracts.Messaging;
-using Vega.Contracts.Scenes;
 using Vega.Terraria.Hooking;
-using Vega.Terraria.Operations;
-using Vega.Terraria.Players;
 using Vega.Terraria.Networking;
-using Vega.Terraria.Threading;
 using Vega.Terraria.Worlds;
 
 namespace Vega.Terraria;
@@ -27,74 +14,24 @@ namespace Vega.Terraria;
 /// </summary>
 public static class TerrariaServerHost
 {
-    public static int Run(
-        string[] args,
-        WorldId runtimeWorldId,
-        IRuntimeLifecycleController lifecycle,
-        IEventPipeline<WorldHardmodeStarting> hardmodeStarting,
-        TerrariaRuntimeGameThreadDispatcher gameThreadDispatcher,
-        TerrariaPlayerBoundary playerBoundary,
-        TerrariaConnectionMetadataRegistry connectionMetadata,
-        TerrariaOperationsState operationsState,
-        INetworkMetricsRecorder networkMetrics,
-        ISecuritySignalRecorder securitySignals,
-        IOperationsLogger logger,
-        TerrariaWorldImageService worldImages,
-        TerrariaWorldMaintenanceService worldMaintenance,
-        IWorldClockController worldClock,
-        IReadOnlyList<IRuntimeStartupParticipant> startupParticipants,
-        IPacketProcessor<PacketView> playerOwnershipSecurity,
-        ICommandDispatcher commandDispatcher,
-        IPlayerAuthorizationService playerAuthorization,
-        IPlayerAccountSessionService accountSessions,
-        IMuteService mutes,
-        IChatPipeline chat,
-        IChestInteractionPolicy chestPolicy,
-        ISceneRuntime scenes,
-        ISceneVisibilityRuntime visibility,
-        ISceneRenderSink sceneRenderer,
-        ILocalizationService localization,
-        IPlayerCultureService cultures,
-        ServerNetworkOptions? networkOptions = null,
-        IConnectionAdmissionPolicy? admission = null,
-        Func<Vega.Contracts.Players.PlayerSnapshot, bool>? primaryGameplayReadiness = null,
-        TerrariaSandboxSscCharacterAdapter? earlyJoinCharacters = null,
-        IPacketProcessor<PacketView>? joinInventoryPolicy = null,
-        bool authoritativeCharacters = false,
-        IWorldGameplayEvents? worldEvents = null)
+    public static int Run(string[] args, TerrariaServerHostServices services)
     {
         ArgumentNullException.ThrowIfNull(args);
-        ArgumentNullException.ThrowIfNull(lifecycle);
-        ArgumentNullException.ThrowIfNull(hardmodeStarting);
-        ArgumentNullException.ThrowIfNull(gameThreadDispatcher);
-        ArgumentNullException.ThrowIfNull(playerBoundary);
-        ArgumentNullException.ThrowIfNull(connectionMetadata);
-        ArgumentNullException.ThrowIfNull(operationsState);
-        ArgumentNullException.ThrowIfNull(networkMetrics);
-        ArgumentNullException.ThrowIfNull(securitySignals);
-        ArgumentNullException.ThrowIfNull(logger);
-        ArgumentNullException.ThrowIfNull(worldImages);
-        ArgumentNullException.ThrowIfNull(worldMaintenance);
-        ArgumentNullException.ThrowIfNull(worldClock);
-        ArgumentNullException.ThrowIfNull(startupParticipants);
-        ArgumentNullException.ThrowIfNull(playerOwnershipSecurity);
-        ArgumentNullException.ThrowIfNull(commandDispatcher);
-        ArgumentNullException.ThrowIfNull(playerAuthorization);
-        ArgumentNullException.ThrowIfNull(accountSessions);
-        ArgumentNullException.ThrowIfNull(mutes);
-        ArgumentNullException.ThrowIfNull(chat);
-        ArgumentNullException.ThrowIfNull(chestPolicy);
-        ArgumentNullException.ThrowIfNull(scenes);
-        ArgumentNullException.ThrowIfNull(visibility);
-        ArgumentNullException.ThrowIfNull(sceneRenderer);
-        ArgumentNullException.ThrowIfNull(localization);
-        ArgumentNullException.ThrowIfNull(cultures);
+        ArgumentNullException.ThrowIfNull(services);
+        services.Validate();
+
+        var world = services.World;
+        var characters = services.Characters;
+        var logger = services.Runtime.Logger;
+        var lifecycle = services.Runtime.Lifecycle;
+        var gameThreadDispatcher = services.Runtime.GameThread;
+        var playerBoundary = services.Players.Boundary;
 
         void Report(RuntimeLifecycleTransition transition)
         {
             if (transition.Stage == RuntimeLifecycleStage.NetworkReady)
             {
-                operationsState.ResetTickRateStatistics();
+                services.Runtime.Operations.ResetTickRateStatistics();
             }
 
             ReportLifecycleTransition(transition, logger);
@@ -111,9 +48,10 @@ public static class TerrariaServerHost
 
         AppDomain.CurrentDomain.UnhandledException += ReportUnhandled;
         using var nativeLifecycleHooks = new NativeLifecycleHooks(lifecycle);
-        using var gameplayEvents = worldEvents is null ? null : new NativeGameplayEventHooks(runtimeWorldId, worldEvents, gameThreadDispatcher, logger, playerBoundary);
-        using var networkMetricsHooks = new NativeNetworkMetricsHooks(networkMetrics);
-        ServerNetworkOptions networkLimits = ServerNetworkOptions.Normalize(networkOptions ?? new());
+        using var gameplayEvents = world.Events is null ? null : new NativeGameplayEventHooks(
+            world.Id, world.Events, gameThreadDispatcher, logger, playerBoundary);
+        using var networkMetricsHooks = new NativeNetworkMetricsHooks(services.Network.Metrics);
+        ServerNetworkOptions networkLimits = ServerNetworkOptions.Normalize(services.Network.Options ?? new());
         using var networkBudgetHooks = new NativeNetworkBudgetHooks(networkLimits);
         int distantMovementRate = networkLimits.DistantMovementUpdatesPerSecond;
         using var movementInterest = distantMovementRate > 0
@@ -139,74 +77,73 @@ public static class TerrariaServerHost
                 logger.Log(OperationsLogLevel.Information, "ordered-tcp", FormattableString.Invariant(
                     $"queue entries={entries} bytes={bytes} oldest_send_ms={send.TotalMilliseconds:F2} send_slot={slot} oldest_completion_ms={completion.TotalMilliseconds:F2}"));
             }, null, TimeSpan.FromSeconds(1), TimeSpan.FromSeconds(1)) : null;
-        using var connectionLifecycleHooks = new NativeConnectionLifecycleHooks(connectionMetadata);
-        using var worldDecisionHooks = new NativeWorldDecisionHooks(hardmodeStarting);
-        using var npcCombatAuthority = new NativeNpcCombatAuthorityHooks(networkMetrics);
-        Func<Vega.Contracts.Players.PlayerSnapshot, bool>? validatedReadiness = primaryGameplayReadiness is null ? null : player =>
+        using var connectionLifecycleHooks = new NativeConnectionLifecycleHooks(services.Network.Connections);
+        using var worldDecisionHooks = new NativeWorldDecisionHooks(world.HardmodeStarting);
+        using var npcCombatAuthority = new NativeNpcCombatAuthorityHooks(services.Network.Metrics);
+        Func<PlayerSnapshot, bool>? validatedReadiness = characters.GameplayReadiness is null ? null : player =>
             gameThreadDispatcher.IsGameThread && NativeGameplayReadinessHooks.IsFullyConnected(player.Id.Slot) &&
-            playerBoundary.TryGetSessionPlayer(player, out _) && primaryGameplayReadiness(player);
-        if (authoritativeCharacters && (validatedReadiness is null || earlyJoinCharacters is null))
-            throw new InvalidOperationException("Authoritative character mode requires native character lifecycle and readiness.");
-        using var gameplayReadinessHooks = validatedReadiness is null ? null : new NativeGameplayReadinessHooks(playerBoundary, validatedReadiness, logger, authoritativeCharacters);
+            playerBoundary.TryGetSessionPlayer(player, out _) && characters.GameplayReadiness(player);
+        using var gameplayReadinessHooks = validatedReadiness is null ? null : new NativeGameplayReadinessHooks(
+            playerBoundary, validatedReadiness, logger, characters.Authoritative);
         using var playerPacketSecurityHooks = new NativePlayerPacketSecurityHooks(
-            playerOwnershipSecurity,
-            connectionMetadata,
+            services.Network.PacketPolicies,
+            services.Network.Connections,
             logger,
-            networkMetrics,
-            securitySignals,
-            admission,
-            joinInventoryPolicy);
+            services.Network.Metrics,
+            services.Network.SecuritySignals,
+            services.Network.Admission,
+            characters.JoinInventoryPolicy);
         using var consoleCommandHooks = new NativeConsoleCommandHooks(
-            commandDispatcher,
-            localization,
-            cultures,
-            runtimeWorldId);
+            services.Commands.Dispatcher,
+            services.Commands.Localization,
+            services.Commands.Cultures,
+            world.Id);
         using var playerCommandHooks = new NativePlayerCommandHooks(
-            commandDispatcher,
-            playerAuthorization,
+            services.Commands.Dispatcher,
+            services.Players.Authorization,
             playerBoundary,
             playerBoundary,
             logger,
-            localization,
-            cultures,
+            services.Commands.Localization,
+            services.Commands.Cultures,
             playerBoundary,
-            accountSessions,
-            chat,
+            services.Players.Accounts,
+            services.Commands.Chat,
             validatedReadiness);
         using var chestPolicyHooks = new NativeChestPolicyHooks(
             playerBoundary,
-            chestPolicy,
+            world.ChestPolicy,
             gameThreadDispatcher,
             logger,
-            runtimeWorldId);
+            world.Id);
         using var sceneNetworkHooks = new NativeSceneNetworkHooks(
-            scenes,
-            sceneRenderer,
+            services.Scenes.Runtime,
+            services.Scenes.Renderer,
             playerBoundary,
-            runtimeWorldId,
+            world.Id,
             gameThreadDispatcher,
             logger);
         using var sceneVisibilityHooks = new NativeSceneVisibilityHooks(
-            visibility,
+            services.Scenes.Visibility,
             playerBoundary,
-            runtimeWorldId);
-        using var worldClockSynchronizer = new TerrariaWorldClockSynchronizer(worldClock, logger, runtimeWorldId);
+            world.Id);
+        using var worldClockSynchronizer = new TerrariaWorldClockSynchronizer(world.Clock, logger, world.Id);
 
-        using var sscLifecycleHooks = earlyJoinCharacters is null ? null : new NativeSscLifecycleHooks(
-            earlyJoinCharacters, playerBoundary, accountSessions, gameThreadDispatcher, logger, authoritativeCharacters);
+        using var sscLifecycleHooks = characters.EarlyJoin is null ? null : new NativeSscLifecycleHooks(
+            characters.EarlyJoin, playerBoundary, services.Players.Accounts, gameThreadDispatcher, logger, characters.Authoritative);
 
         try
         {
             PrepareSavePath(args);
             InitialiseTerrariaInternals();
-            global::Terraria.Main.ServerSideCharacter = authoritativeCharacters;
-            if (authoritativeCharacters) logger.Log(OperationsLogLevel.Information, "ssc", "Native server-side character mode enabled.");
+            global::Terraria.Main.ServerSideCharacter = characters.Authoritative;
+            if (characters.Authoritative) logger.Log(OperationsLogLevel.Information, "ssc", "Native server-side character mode enabled.");
 
             nativeLifecycleHooks.Attach();
             gameThreadDispatcher.Attach();
             gameplayEvents?.Attach();
             playerBoundary.Attach();
-            operationsState.Attach();
+            services.Runtime.Operations.Attach();
             networkBudgetHooks.Attach();
             connectionLifecycleHooks.Attach();
             sscLifecycleHooks?.Attach();
@@ -217,8 +154,8 @@ public static class TerrariaServerHost
                 if (networkLimits.OrderedProducerBatching)
                     logger.Log(OperationsLogLevel.Information, "network", "Ordered producer-owned packet batching enabled with deferred wake.");
             }
-            worldImages.Attach();
-            worldMaintenance.Attach();
+            world.Images.Attach();
+            world.Maintenance.Attach();
             worldClockSynchronizer.Attach();
             worldDecisionHooks.Attach();
             npcCombatAuthority.Attach();
@@ -237,7 +174,7 @@ public static class TerrariaServerHost
             // The explicit composition root has already started and validated every Vega module.
             lifecycle.Advance(RuntimeLifecycleStage.ModulesRegistered);
 
-            InitializeRuntimeParticipants(startupParticipants, logger);
+            InitializeRuntimeParticipants(services.Runtime.StartupParticipants, logger);
 
             if (args.Any(static arg => string.Equals(arg, "-skipassemblyload", StringComparison.OrdinalIgnoreCase)))
             {

@@ -80,120 +80,7 @@ public sealed class LoopbackRestService(
 
             try
             {
-                var request = context.Request;
-                var response = context.Response;
-                response.Headers["Cache-Control"] = "no-store";
-                Access access = Authenticate(request.Headers["Authorization"]);
-                response.KeepAlive = false;
-                if (request.RemoteEndPoint is not { Address: var address } || !IPAddress.IsLoopback(address) || access == Access.None)
-                {
-                    response.StatusCode = 401;
-                    response.Headers["WWW-Authenticate"] = "Bearer";
-                    continue;
-                }
-                if (request.Url is not { Query.Length: 0 } url) { response.StatusCode = 400; continue; }
-                if (url.AbsolutePath.StartsWith("/v1/plugins/", StringComparison.Ordinal))
-                {
-                    if (access != Access.Administration) { response.StatusCode = 403; continue; }
-                    if (pluginRest is null) { response.StatusCode = 404; continue; }
-                    if (!WorldReady()) { response.StatusCode = 503; continue; }
-                    await ApplyPluginOperationAsync(request, response, url.AbsolutePath["/v1/plugins/".Length..]).ConfigureAwait(false);
-                    continue;
-                }
-                if (url.AbsolutePath.StartsWith("/v1/admin/", StringComparison.Ordinal))
-                {
-                    if (access != Access.Administration) { response.StatusCode = 403; continue; }
-                    if (administration is null) { response.StatusCode = 404; continue; }
-                    if (!WorldReady()) { response.StatusCode = 503; continue; }
-                    string route = url.AbsolutePath["/v1/admin/".Length..];
-                    if (request.HttpMethod == "GET")
-                    {
-                        try
-                        {
-                            object? page = administration.Read(route);
-                            if (page is null) response.StatusCode = 404;
-                            else await WriteJsonAsync(response, page).ConfigureAwait(false);
-                        }
-                        catch (Exception) { response.StatusCode = 500; }
-                    }
-                    else if (request.HttpMethod == "POST")
-                    {
-                        if (!RestAdministration.IsMutationRoute(route)) response.StatusCode = 404;
-                        else await ApplyAdministrationAsync(request, response, route).ConfigureAwait(false);
-                    }
-                    else response.StatusCode = 405;
-                    continue;
-                }
-                if (request.HttpMethod == "POST" && url.AbsolutePath == "/v1/world/save")
-                {
-                    if (!CanMaintain(access) || maintenance is null) { response.StatusCode = 403; continue; }
-                    if (request.HasEntityBody) { response.StatusCode = 400; continue; }
-                    if (!WorldReady())
-                    { response.StatusCode = 503; continue; }
-                    using var deadline = CancellationTokenSource.CreateLinkedTokenSource(stopping.Token);
-                    deadline.CancelAfter(TimeSpan.FromSeconds(30));
-                    try
-                    {
-                        await maintenance.SaveAsync(deadline.Token).ConfigureAwait(false);
-                        response.StatusCode = 204;
-                    }
-                    catch (OperationCanceledException) { response.StatusCode = 504; }
-                    catch (Exception) { response.StatusCode = 500; }
-                    AuditMaintenance("save", response.StatusCode);
-                    continue;
-                }
-                if (request.HttpMethod == "POST" && url.AbsolutePath is "/v1/world/time" or "/v1/world/weather")
-                {
-                    if (!CanMaintain(access)) { response.StatusCode = 403; continue; }
-                    if (environment is null) { response.StatusCode = 404; continue; }
-                    await ApplyWorldPatchAsync(request, response, url.AbsolutePath == "/v1/world/time").ConfigureAwait(false);
-                    continue;
-                }
-                if (request.HttpMethod == "POST" && url.AbsolutePath is "/v1/players/kick" or "/v1/players/message")
-                {
-                    if (!CanMaintain(access)) { response.StatusCode = 403; continue; }
-                    await ApplyPlayerActionAsync(request, response, url.AbsolutePath == "/v1/players/kick").ConfigureAwait(false);
-                    continue;
-                }
-                if (request.HttpMethod != "GET") { response.StatusCode = 405; continue; }
-                if (url.AbsolutePath == "/v1/world" && environment is not null)
-                {
-                    if (!WorldReady()) { response.StatusCode = 503; continue; }
-                    using var deadline = CancellationTokenSource.CreateLinkedTokenSource(stopping.Token);
-                    deadline.CancelAfter(TimeSpan.FromSeconds(5));
-                    try
-                    {
-                        WorldEnvironmentSnapshot? snapshot = await environment.CaptureAsync(worldId, deadline.Token).ConfigureAwait(false);
-                        if (snapshot is null || snapshot.WorldId != worldId) response.StatusCode = 503;
-                        else await WriteJsonAsync(response, WorldView(snapshot)).ConfigureAwait(false);
-                    }
-                    catch (OperationCanceledException) { response.StatusCode = 504; }
-                    catch (Exception) { response.StatusCode = 500; }
-                    continue;
-                }
-                object? payload = url.AbsolutePath switch
-                {
-                    "/v1/status" => new
-                    {
-                        world = worldId.Value,
-                        stage = lifecycle.CurrentStage.ToString(),
-                        uptimeSeconds = lifecycle.Elapsed.TotalSeconds,
-                        state = state.Read(),
-                        online = players.SnapshotOnlinePlayers().Count(player => player.WorldId == worldId)
-                    },
-                    "/v1/players" => players.SnapshotOnlinePlayers().Where(player => player.WorldId == worldId)
-                        .Select(player => new { id = player.Id.Slot, sessionId = player.SessionId?.ToString(), player.Name, player.IsDead, player.Life, player.MaxLife, player.Team,
-                            platform = player.Platform.Kind.ToString(), platformReported = player.Platform.ReportedCode.HasValue })
-                        .Take(255).ToArray(),
-                    "/v1/platforms" => PlayerPlatformStatistics.Snapshot(players.SnapshotOnlinePlayers(), worldId)
-                        .Select(row => new { platform = row.Platform.ToString(), row.Count }).ToArray(),
-                    "/v1/network" => network.Read(),
-                    "/v1/metrics" when runtimeMetrics is not null => ReadMetrics(runtimeMetrics),
-                    "/v1/scheduler" when queueMetrics is not null => queueMetrics(),
-                    _ => null
-                };
-                if (payload is null) { response.StatusCode = 404; continue; }
-                await WriteJsonAsync(response, payload).ConfigureAwait(false);
+                await HandleRequestAsync(context).ConfigureAwait(false);
             }
             catch (Exception ex) when (ex is IOException or HttpListenerException or ObjectDisposedException or InvalidOperationException)
             {
@@ -205,6 +92,140 @@ public sealed class LoopbackRestService(
                 catch (Exception ex) when (ex is IOException or HttpListenerException or ObjectDisposedException) { }
             }
         }
+    }
+
+    private async Task HandleRequestAsync(HttpListenerContext context)
+    {
+        var request = context.Request;
+        var response = context.Response;
+        response.Headers["Cache-Control"] = "no-store";
+        Access access = Authenticate(request.Headers["Authorization"]);
+        response.KeepAlive = false;
+        if (request.RemoteEndPoint is not { Address: var address } || !IPAddress.IsLoopback(address) || access == Access.None)
+        {
+            response.StatusCode = 401;
+            response.Headers["WWW-Authenticate"] = "Bearer";
+            return;
+        }
+        if (request.Url is not { Query.Length: 0 } url) { response.StatusCode = 400; return; }
+        if (url.AbsolutePath.StartsWith("/v1/plugins/", StringComparison.Ordinal))
+        {
+            if (access != Access.Administration) { response.StatusCode = 403; return; }
+            if (pluginRest is null) { response.StatusCode = 404; return; }
+            if (!WorldReady()) { response.StatusCode = 503; return; }
+            await ApplyPluginOperationAsync(request, response, url.AbsolutePath["/v1/plugins/".Length..]).ConfigureAwait(false);
+            return;
+        }
+        if (url.AbsolutePath.StartsWith("/v1/admin/", StringComparison.Ordinal))
+        {
+            await HandleAdministrationRouteAsync(request, response, access, url.AbsolutePath["/v1/admin/".Length..]).ConfigureAwait(false);
+            return;
+        }
+        if (request.HttpMethod == "POST" && url.AbsolutePath == "/v1/world/save")
+        {
+            await HandleWorldSaveAsync(request, response, access).ConfigureAwait(false);
+            return;
+        }
+        if (request.HttpMethod == "POST" && url.AbsolutePath is "/v1/world/time" or "/v1/world/weather")
+        {
+            if (!CanMaintain(access)) { response.StatusCode = 403; return; }
+            if (environment is null) { response.StatusCode = 404; return; }
+            await ApplyWorldPatchAsync(request, response, url.AbsolutePath == "/v1/world/time").ConfigureAwait(false);
+            return;
+        }
+        if (request.HttpMethod == "POST" && url.AbsolutePath is "/v1/players/kick" or "/v1/players/message")
+        {
+            if (!CanMaintain(access)) { response.StatusCode = 403; return; }
+            await ApplyPlayerActionAsync(request, response, url.AbsolutePath == "/v1/players/kick").ConfigureAwait(false);
+            return;
+        }
+        if (request.HttpMethod != "GET") { response.StatusCode = 405; return; }
+        if (url.AbsolutePath == "/v1/world" && environment is not null)
+        {
+            await ReadWorldAsync(response, environment).ConfigureAwait(false);
+            return;
+        }
+        object? payload = ReadSnapshotPayload(url.AbsolutePath);
+        if (payload is null) { response.StatusCode = 404; return; }
+        await WriteJsonAsync(response, payload).ConfigureAwait(false);
+    }
+
+    private object? ReadSnapshotPayload(string route) => route switch
+    {
+        "/v1/status" => new
+        {
+            world = worldId.Value,
+            stage = lifecycle.CurrentStage.ToString(),
+            uptimeSeconds = lifecycle.Elapsed.TotalSeconds,
+            state = state.Read(),
+            online = players.SnapshotOnlinePlayers().Count(player => player.WorldId == worldId)
+        },
+        "/v1/players" => players.SnapshotOnlinePlayers().Where(player => player.WorldId == worldId)
+            .Select(player => new { id = player.Id.Slot, sessionId = player.SessionId?.ToString(), player.Name, player.IsDead, player.Life, player.MaxLife, player.Team,
+                platform = player.Platform.Kind.ToString(), platformReported = player.Platform.ReportedCode.HasValue })
+            .Take(255).ToArray(),
+        "/v1/platforms" => PlayerPlatformStatistics.Snapshot(players.SnapshotOnlinePlayers(), worldId)
+            .Select(row => new { platform = row.Platform.ToString(), row.Count }).ToArray(),
+        "/v1/network" => network.Read(),
+        "/v1/metrics" when runtimeMetrics is not null => ReadMetrics(runtimeMetrics),
+        "/v1/scheduler" when queueMetrics is not null => queueMetrics(),
+        _ => null
+    };
+
+    private async Task HandleAdministrationRouteAsync(HttpListenerRequest request, HttpListenerResponse response, Access access, string route)
+    {
+        if (access != Access.Administration) { response.StatusCode = 403; return; }
+        if (administration is null) { response.StatusCode = 404; return; }
+        if (!WorldReady()) { response.StatusCode = 503; return; }
+        if (request.HttpMethod == "GET")
+        {
+            try
+            {
+                object? page = administration.Read(route);
+                if (page is null) response.StatusCode = 404;
+                else await WriteJsonAsync(response, page).ConfigureAwait(false);
+            }
+            catch (Exception) { response.StatusCode = 500; }
+        }
+        else if (request.HttpMethod == "POST")
+        {
+            if (!RestAdministration.IsMutationRoute(route)) response.StatusCode = 404;
+            else await ApplyAdministrationAsync(request, response, route).ConfigureAwait(false);
+        }
+        else response.StatusCode = 405;
+    }
+
+    private async Task HandleWorldSaveAsync(HttpListenerRequest request, HttpListenerResponse response, Access access)
+    {
+        if (!CanMaintain(access) || maintenance is null) { response.StatusCode = 403; return; }
+        if (request.HasEntityBody) { response.StatusCode = 400; return; }
+        if (!WorldReady())
+        { response.StatusCode = 503; return; }
+        using var deadline = CancellationTokenSource.CreateLinkedTokenSource(stopping.Token);
+        deadline.CancelAfter(TimeSpan.FromSeconds(30));
+        try
+        {
+            await maintenance.SaveAsync(deadline.Token).ConfigureAwait(false);
+            response.StatusCode = 204;
+        }
+        catch (OperationCanceledException) { response.StatusCode = 504; }
+        catch (Exception) { response.StatusCode = 500; }
+        AuditMaintenance("save", response.StatusCode);
+    }
+
+    private async Task ReadWorldAsync(HttpListenerResponse response, IWorldEnvironmentService environment)
+    {
+        if (!WorldReady()) { response.StatusCode = 503; return; }
+        using var deadline = CancellationTokenSource.CreateLinkedTokenSource(stopping.Token);
+        deadline.CancelAfter(TimeSpan.FromSeconds(5));
+        try
+        {
+            WorldEnvironmentSnapshot? snapshot = await environment.CaptureAsync(worldId, deadline.Token).ConfigureAwait(false);
+            if (snapshot is null || snapshot.WorldId != worldId) response.StatusCode = 503;
+            else await WriteJsonAsync(response, WorldView(snapshot)).ConfigureAwait(false);
+        }
+        catch (OperationCanceledException) { response.StatusCode = 504; }
+        catch (Exception) { response.StatusCode = 500; }
     }
 
     private bool WorldReady() => lifecycle.CurrentStage >= RuntimeLifecycleStage.NetworkReady &&

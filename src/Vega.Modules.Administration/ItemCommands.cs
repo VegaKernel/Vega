@@ -40,6 +40,12 @@ public sealed class ItemCommand(IPlayerDirectory players, IPlayerItemDelivery de
 
         string item = giveOthers ? args[0] : string.Join(" ", args.Take(amountIndex));
         var result = await delivery.GiveCommandAsync(target!, item, stack, prefix, token).ConfigureAwait(false);
+        return await ReportDeliveryAsync(invocation, target, item, stack, result, token).ConfigureAwait(false);
+    }
+
+    private async ValueTask<CommandExecutionResult> ReportDeliveryAsync(CommandInvocation invocation, PlayerSnapshot target,
+        string item, int stack, PlayerOperationResult result, CancellationToken token)
+    {
         int delivered = result.DeliveredItemStack ?? (stack == 0 ? 1 : stack);
         string label = result.DeliveredItemName ?? item;
         if (!result.IsSuccess)
@@ -57,7 +63,7 @@ public sealed class ItemCommand(IPlayerDirectory players, IPlayerItemDelivery de
         if (!giveOthers)
             return CommandExecutionResult.WithMessages(MessageDescriptor.Success("item.given", delivered, label, delivered > 1 ? "s" : "").WithDefaultText("Gave {0} {1}{2}."));
         if (delivery is IPlayerMessenger { SupportsSessionBoundMessages: true } messenger)
-            await messenger.SendMessageAsync(target!, $"{invocation.Principal.Name} gave you {delivered} {label}{(delivered > 1 ? "s" : "")}.", token).ConfigureAwait(false);
-        return CommandExecutionResult.WithMessages(MessageDescriptor.Success("item.given", delivered, target!.Name, label, delivered > 1 ? "s" : "").WithDefaultText("Gave {0} {1} {2}{3}."));
+            await messenger.SendMessageAsync(target, $"{invocation.Principal.Name} gave you {delivered} {label}{(delivered > 1 ? "s" : "")}.", token).ConfigureAwait(false);
+        return CommandExecutionResult.WithMessages(MessageDescriptor.Success("item.given", delivered, target.Name, label, delivered > 1 ? "s" : "").WithDefaultText("Gave {0} {1} {2}{3}."));
     }
 }

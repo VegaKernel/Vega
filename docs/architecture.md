@@ -46,6 +46,8 @@ Owns process-level hosting:
 - startup telemetry and performance budgets;
 - operational hosting concerns that are not Core behavior.
 
+`Program.cs` is the bootstrap only: it installs the runtime assembly resolver before entering `RuntimeHost.Run`. The explicit composition root has typed stages, in this order: launch/world preparation, process foundation, admission and sandboxes, world services and restartable modules, identity, character persistence and packet policies, administration, operations, plugins, dashboard, and native host execution. Stage outputs are private typed records, not a general service locator. Each successful disposable registration is retained by the startup resource scope and released in reverse construction order on an early return, failure or normal shutdown. Native tile storage still encloses the entire host lifetime. See [runtime decomposition audit](code-complexity-metrics-runtime-2026-11-27.md).
+
 ### Vega.Contracts
 
 Contains implementation-independent contracts, identifiers, DTOs, snapshots, events and capability interfaces.

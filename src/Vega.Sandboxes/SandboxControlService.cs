@@ -87,27 +87,8 @@ public sealed class SandboxControlService : ISandboxControlService
         {
             var worldId = new WorldId(request.WorldId.Trim());
             SandboxMaterializer.ValidateWorldId(worldId);
-            if (states.ContainsKey(worldId))
-            {
-                if (request.Schematic is not null)
-                    return Conflict("sandbox.exists", $"Schematic creation requires an unused sandbox ID; '{worldId}' already exists.");
-                RuntimeState existing = states[worldId];
-                string requestedSource = Path.GetFullPath(request.SourceWorldPath);
-                return string.Equals(existing.Descriptor.DisplayName, request.DisplayName.Trim(), StringComparison.Ordinal) &&
-                       string.Equals(existing.Descriptor.SourceWorldPath, requestedSource, StringComparison.OrdinalIgnoreCase) &&
-                       existing.Descriptor.Persistence == request.Persistence &&
-                       existing.Descriptor.PlayerCapacity == request.PlayerCapacity &&
-                       existing.Descriptor.SscMode == request.SscMode &&
-                       existing.Descriptor.Access.Mode == request.Access.Mode &&
-                       string.Equals(existing.Descriptor.Access.Permission, request.Access.Permission, StringComparison.OrdinalIgnoreCase) &&
-                       (existing.Descriptor.Access.AllowedAccounts ?? new HashSet<string>()).SetEquals(request.Access.AllowedAccounts ?? new HashSet<string>()) &&
-                       existing.Descriptor.EnabledModules.SetEquals(request.EnabledModules) &&
-                       existing.Descriptor.IdleTimeToLive == (request.IdleTimeToLive ?? (request.Persistence == SandboxPersistenceMode.Temporary
-                           ? TimeSpan.FromMinutes(options.DefaultIdleTtlMinutes) : null)) &&
-                       (request.ListenerPort is null || existing.Descriptor.ListenerPort == request.ListenerPort)
-                    ? Already(existing, $"Sandbox '{worldId}' already exists with the requested descriptor.")
-                    : Conflict("sandbox.exists", $"Sandbox '{worldId}' already exists with a different descriptor.");
-            }
+            if (states.TryGetValue(worldId, out var existing))
+                return DescribeExistingCreation(worldId, request, existing);
 
             ValidateCreate(request);
             string source = Path.GetFullPath(request.SourceWorldPath);
@@ -122,40 +103,12 @@ public sealed class SandboxControlService : ISandboxControlService
 
             if (request.Schematic is { } schematic)
             {
-                if (request.Persistence is not (SandboxPersistenceMode.Temporary or SandboxPersistenceMode.Persistent))
-                    return Rejected("sandbox.schematic_external", "Schematic creation requires a newly managed sandbox, not an external world.");
-                if (Directory.Exists(Path.GetDirectoryName(instance)))
-                    return Conflict("sandbox.instance_exists", "An existing instance directory must be recovered before schematic creation.");
-                int active;
-                lock (sync) active = states.Values.Count(static state => state.Process is { HasExited: false });
-                if (active >= options.MaximumActiveWorlds)
-                    return Rejected("sandbox.admission_budget", "The global active-sandbox budget is full.");
+                if (CheckSchematicCreation(request, instance) is { } rejection) return rejection;
                 generatedTemplate = await schematicBuilder.BuildAsync(worldId, source, schematic, cancellationToken).ConfigureAwait(false);
                 source = generatedTemplate;
             }
 
-            var descriptor = new SandboxDescriptor(
-                worldId,
-                request.DisplayName.Trim(),
-                source,
-                instance,
-                request.Persistence,
-                request.PlayerCapacity,
-                request.Access with
-                {
-                    AllowedAccounts = request.Access.AllowedAccounts is null
-                        ? new HashSet<string>(StringComparer.OrdinalIgnoreCase)
-                        : new HashSet<string>(request.Access.AllowedAccounts, StringComparer.OrdinalIgnoreCase)
-                },
-                request.IdleTimeToLive ?? (request.Persistence == SandboxPersistenceMode.Temporary
-                    ? TimeSpan.FromMinutes(options.DefaultIdleTtlMinutes)
-                    : null),
-                request.SscMode,
-                new HashSet<string>(request.EnabledModules, StringComparer.OrdinalIgnoreCase),
-                port,
-                1,
-                DateTimeOffset.UtcNow,
-                SandboxMaterializer.ComputeRevision(source));
+            var descriptor = CreateDescriptor(request, worldId, source, instance, port);
             var state = new RuntimeState(descriptor);
             state.State = SandboxLifecycleState.Materializing;
             lock (sync) states.Add(worldId, state);
@@ -196,6 +149,66 @@ public sealed class SandboxControlService : ISandboxControlService
             try { if (generatedTemplate is not null && !templateCommitted) schematicBuilder.Remove(generatedTemplate); }
             finally { operationGate.Release(); }
         }
+    }
+
+    private SandboxOperationResult DescribeExistingCreation(WorldId worldId, SandboxCreateRequest request, RuntimeState existing)
+    {
+        if (request.Schematic is not null)
+            return Conflict("sandbox.exists", $"Schematic creation requires an unused sandbox ID; '{worldId}' already exists.");
+        string requestedSource = Path.GetFullPath(request.SourceWorldPath);
+        return string.Equals(existing.Descriptor.DisplayName, request.DisplayName.Trim(), StringComparison.Ordinal) &&
+               string.Equals(existing.Descriptor.SourceWorldPath, requestedSource, StringComparison.OrdinalIgnoreCase) &&
+               existing.Descriptor.Persistence == request.Persistence &&
+               existing.Descriptor.PlayerCapacity == request.PlayerCapacity &&
+               existing.Descriptor.SscMode == request.SscMode &&
+               existing.Descriptor.Access.Mode == request.Access.Mode &&
+               string.Equals(existing.Descriptor.Access.Permission, request.Access.Permission, StringComparison.OrdinalIgnoreCase) &&
+               (existing.Descriptor.Access.AllowedAccounts ?? new HashSet<string>()).SetEquals(request.Access.AllowedAccounts ?? new HashSet<string>()) &&
+               existing.Descriptor.EnabledModules.SetEquals(request.EnabledModules) &&
+               existing.Descriptor.IdleTimeToLive == (request.IdleTimeToLive ?? (request.Persistence == SandboxPersistenceMode.Temporary
+                   ? TimeSpan.FromMinutes(options.DefaultIdleTtlMinutes) : null)) &&
+               (request.ListenerPort is null || existing.Descriptor.ListenerPort == request.ListenerPort)
+            ? Already(existing, $"Sandbox '{worldId}' already exists with the requested descriptor.")
+            : Conflict("sandbox.exists", $"Sandbox '{worldId}' already exists with a different descriptor.");
+    }
+
+    private SandboxOperationResult? CheckSchematicCreation(SandboxCreateRequest request, string instance)
+    {
+        if (request.Persistence is not (SandboxPersistenceMode.Temporary or SandboxPersistenceMode.Persistent))
+            return Rejected("sandbox.schematic_external", "Schematic creation requires a newly managed sandbox, not an external world.");
+        if (Directory.Exists(Path.GetDirectoryName(instance)))
+            return Conflict("sandbox.instance_exists", "An existing instance directory must be recovered before schematic creation.");
+        int active;
+        lock (sync) active = states.Values.Count(static state => state.Process is { HasExited: false });
+        if (active >= options.MaximumActiveWorlds)
+            return Rejected("sandbox.admission_budget", "The global active-sandbox budget is full.");
+        return null;
+    }
+
+    private SandboxDescriptor CreateDescriptor(SandboxCreateRequest request, WorldId worldId, string source, string instance, int port)
+    {
+        return new SandboxDescriptor(
+            worldId,
+            request.DisplayName.Trim(),
+            source,
+            instance,
+            request.Persistence,
+            request.PlayerCapacity,
+            request.Access with
+            {
+                AllowedAccounts = request.Access.AllowedAccounts is null
+                    ? new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+                    : new HashSet<string>(request.Access.AllowedAccounts, StringComparer.OrdinalIgnoreCase)
+            },
+            request.IdleTimeToLive ?? (request.Persistence == SandboxPersistenceMode.Temporary
+                ? TimeSpan.FromMinutes(options.DefaultIdleTtlMinutes)
+                : null),
+            request.SscMode,
+            new HashSet<string>(request.EnabledModules, StringComparer.OrdinalIgnoreCase),
+            port,
+            1,
+            DateTimeOffset.UtcNow,
+            SandboxMaterializer.ComputeRevision(source));
     }
 
     public async ValueTask<SandboxOperationResult> StartAsync(

@@ -53,56 +53,71 @@ public sealed partial class TerrariaPlayerBoundary
 			if (!TryGetSessionPlayer(player, out var live) || live.dead) return PlayerOperationResult.NotFound();
 			if (stack < 0 || (!command && stack == 0) || prefix < 0 || prefix >= PrefixID.Count || string.IsNullOrWhiteSpace(item))
 				return PlayerOperationResult.Failed("item.invalid_request");
-			int type;
-			if (!int.TryParse(item, out type))
-			{
-				itemCatalog ??= Enumerable.Range(1, ItemID.Count - 1).Select(id => (id, global::Terraria.Lang.GetItemNameValue(id))).ToArray();
-				var matches = itemCatalog.Where(entry => string.Equals(entry.Name, item, StringComparison.OrdinalIgnoreCase)).ToArray();
-				if (matches.Length == 0) matches = itemCatalog.Where(entry => entry.Name.StartsWith(item, StringComparison.OrdinalIgnoreCase)).ToArray();
-				if (matches.Length != 1) return PlayerOperationResult.Failed("item.not_unique");
-				type = matches[0].Id;
-			}
+			if (!TryResolveGiveItemType(item, out int type)) return PlayerOperationResult.Failed("item.not_unique");
 			if (type <= 0 || type >= ItemID.Count) return PlayerOperationResult.Failed("item.invalid_type");
 			if (contentRestrictions?.IsAllowed(player.Id, RestrictedContentKind.Item, type) == false)
 				return PlayerOperationResult.Failed("restriction.item_give");
 			var template = new global::Terraria.Item();
 			template.SetDefaults(type);
-			if (command)
-			{
-				if (live.preventAllItemPickups) return PlayerOperationResult.Failed("item.pickups_disabled");
-				if (!(type is > 70 and < 75 || template.ammo > 0 || type is 58 or 184) &&
-					!live.inventory.Take(50).Any(slot => slot is null || slot.IsAir)) return PlayerOperationResult.Failed("item.inventory_full");
-				if (stack == 0 || stack > template.maxStack) stack = template.maxStack;
-				if (prefix == PrefixID.Quick && template.accessory) prefix = PrefixID.Quick2;
-			}
+			if (command && PrepareCommandDelivery(live, template, type, ref stack, ref prefix) is { } error)
+				return PlayerOperationResult.Failed(error);
 			if (stack > template.maxStack || (prefix != 0 && !template.Prefix(prefix))) return PlayerOperationResult.Failed("item.invalid_stack_or_prefix");
 			if (worldStats is not null && (live.preventAllItemPickups || !NativeWorldItemStats.CanApply(template, stack, worldStats)))
 				return PlayerOperationResult.Failed("item.unsupported_world_stats");
 			if (worldStats is not null && template.shoot > 0 && contentRestrictions?.IsAllowed(player.Id, RestrictedContentKind.Projectile, template.shoot) == false)
 				return PlayerOperationResult.Failed("restriction.item_projectile");
-			bool vacant = false;
-			for (int i = 0; i < global::Terraria.Main.maxItems; i++)
-			{
-				if (!global::Terraria.Main.item[i].active && global::Terraria.Main.timeItemSlotCannotBeReusedFor[i] == 0) { vacant = true; break; }
-			}
-			if (!vacant) return PlayerOperationResult.Failed("item.no_free_slot");
-			int slot = global::Terraria.Item.NewItem(new EntitySource_DebugCommand(), live.Center,
-				type, stack, prefix, global::Terraria.NewItemOwnership.None, noBroadcast: true);
-			if ((uint)slot >= (uint)global::Terraria.Main.maxItems || !global::Terraria.Main.item[slot].active)
-				return PlayerOperationResult.Failed("item.spawn_failed");
-			global::Terraria.Main.item[slot].playerIndexTheItemIsReservedFor = live.whoAmI;
-			if (worldStats is not null)
-			{
-				var worldItem = global::Terraria.Main.item[slot];
-				if (worldItem.inner.type != type || worldItem.inner.stack != stack || worldItem.inner.prefix != prefix)
-				{ worldItem.TurnToAirAndSync(); return PlayerOperationResult.Failed("item.spawn_changed"); }
-				if (!SendCustomWorldItem(worldItem, slot, live.whoAmI, worldStats)) return PlayerOperationResult.Failed("item.delivery_failed");
-				return PlayerOperationResult.Applied() with { DeliveredItemStack = stack, DeliveredItemName = template.AffixName() };
-			}
-			global::Terraria.NetMessage.SendData(MessageID.SyncItem, live.whoAmI, -1, null, slot, 1);
-			global::Terraria.NetMessage.SendData(MessageID.ItemOwner, live.whoAmI, -1, null, slot);
-			return PlayerOperationResult.Applied() with { DeliveredItemStack = stack, DeliveredItemName = template.AffixName() };
+			return SpawnAndDeliverItem(live, template, type, stack, prefix, worldStats);
 		}, "item.delivery_failed", cancellationToken);
+
+	private bool TryResolveGiveItemType(string item, out int type)
+	{
+		if (!int.TryParse(item, out type))
+		{
+			itemCatalog ??= Enumerable.Range(1, ItemID.Count - 1).Select(id => (id, global::Terraria.Lang.GetItemNameValue(id))).ToArray();
+			var matches = itemCatalog.Where(entry => string.Equals(entry.Name, item, StringComparison.OrdinalIgnoreCase)).ToArray();
+			if (matches.Length == 0) matches = itemCatalog.Where(entry => entry.Name.StartsWith(item, StringComparison.OrdinalIgnoreCase)).ToArray();
+			if (matches.Length != 1) return false;
+			type = matches[0].Id;
+		}
+		return true;
+	}
+
+	private static string? PrepareCommandDelivery(global::Terraria.Player live, global::Terraria.Item template, int type, ref int stack, ref int prefix)
+	{
+		if (live.preventAllItemPickups) return "item.pickups_disabled";
+		if (!(type is > 70 and < 75 || template.ammo > 0 || type is 58 or 184) &&
+			!live.inventory.Take(50).Any(slot => slot is null || slot.IsAir)) return "item.inventory_full";
+		if (stack == 0 || stack > template.maxStack) stack = template.maxStack;
+		if (prefix == PrefixID.Quick && template.accessory) prefix = PrefixID.Quick2;
+		return null;
+	}
+
+	private PlayerOperationResult SpawnAndDeliverItem(global::Terraria.Player live, global::Terraria.Item template,
+		int type, int stack, int prefix, CustomWorldItemStats? worldStats)
+	{
+		bool vacant = false;
+		for (int i = 0; i < global::Terraria.Main.maxItems; i++)
+		{
+			if (!global::Terraria.Main.item[i].active && global::Terraria.Main.timeItemSlotCannotBeReusedFor[i] == 0) { vacant = true; break; }
+		}
+		if (!vacant) return PlayerOperationResult.Failed("item.no_free_slot");
+		int slot = global::Terraria.Item.NewItem(new EntitySource_DebugCommand(), live.Center,
+			type, stack, prefix, global::Terraria.NewItemOwnership.None, noBroadcast: true);
+		if ((uint)slot >= (uint)global::Terraria.Main.maxItems || !global::Terraria.Main.item[slot].active)
+			return PlayerOperationResult.Failed("item.spawn_failed");
+		global::Terraria.Main.item[slot].playerIndexTheItemIsReservedFor = live.whoAmI;
+		if (worldStats is not null)
+		{
+			var worldItem = global::Terraria.Main.item[slot];
+			if (worldItem.inner.type != type || worldItem.inner.stack != stack || worldItem.inner.prefix != prefix)
+			{ worldItem.TurnToAirAndSync(); return PlayerOperationResult.Failed("item.spawn_changed"); }
+			if (!SendCustomWorldItem(worldItem, slot, live.whoAmI, worldStats)) return PlayerOperationResult.Failed("item.delivery_failed");
+			return PlayerOperationResult.Applied() with { DeliveredItemStack = stack, DeliveredItemName = template.AffixName() };
+		}
+		global::Terraria.NetMessage.SendData(MessageID.SyncItem, live.whoAmI, -1, null, slot, 1);
+		global::Terraria.NetMessage.SendData(MessageID.ItemOwner, live.whoAmI, -1, null, slot);
+		return PlayerOperationResult.Applied() with { DeliveredItemStack = stack, DeliveredItemName = template.AffixName() };
+	}
 
 	public ValueTask<PlayerOperationResult> HealAsync(PlayerSnapshot player, int amount, CancellationToken cancellationToken = default) =>
 		DispatchAsync("player.heal", () =>

@@ -49,63 +49,91 @@ public sealed class TerrariaWorldEnvironmentService(
         }
 
         WorldEnvironmentPatch patch = request.Patch;
-        if (patch.StartHardmode)
-        {
-            if (patch != new WorldEnvironmentPatch(StartHardmode: true)) return Invalid("world.environment.combined_hardmode");
-            if (!global::Terraria.Main.hardMode) global::Terraria.WorldGen.StartHardmode(force: false);
-            return global::Terraria.Main.hardMode
-                ? new(WorldEnvironmentMutationStatus.Applied, Capture())
-                : new(WorldEnvironmentMutationStatus.Failed, ErrorCode: "world.hardmode.declined");
-        }
+        if (patch.StartHardmode) return ApplyHardmode(patch);
         if (patch.NativeEvent is { } nativeEvent)
         {
             if (patch != new WorldEnvironmentPatch(NativeEvent: nativeEvent)) return Invalid("world.environment.combined_native_event");
             return ApplyNativeEvent(nativeEvent);
         }
-        if (patch.ClearAnglerPlayer is { } playerName)
+        if (patch.ClearAnglerPlayer is { } playerName) return ClearAnglerPlayer(patch, playerName);
+
+        // Validate the entire regular patch before making any native mutations.
+        if (ValidateRegularPatch(patch) is { } error) return Invalid(error);
+        ApplyClockAndWeather(patch);
+        ApplyLocationsAndRules(patch);
+        ApplySeasonAndAngler(patch);
+
+        if (global::Terraria.Main.netMode == 2)
         {
-            if (patch != new WorldEnvironmentPatch(ClearAnglerPlayer: playerName) ||
-                string.IsNullOrWhiteSpace(playerName) || playerName.Length > 128 || playerName.Any(char.IsControl))
-                return Invalid("world.clearangler_invalid_player");
-            if (global::Terraria.Main.anglerWhoFinishedToday.RemoveAll(name => name.Equals(playerName, StringComparison.OrdinalIgnoreCase)) == 0)
-                return Invalid("world.clearangler_player_not_found");
-            if (global::Terraria.Main.netMode == 2)
-                for (int slot = 0; slot < global::Terraria.Main.maxPlayers; slot++)
-                    if (global::Terraria.Netplay.Clients[slot].State == 10 && global::Terraria.Main.player[slot] is { active: true } player &&
-                        player.name.Equals(playerName, StringComparison.OrdinalIgnoreCase)) global::Terraria.NetMessage.SendAnglerQuest(slot);
-            return new(WorldEnvironmentMutationStatus.Applied, Capture());
+            global::Terraria.NetMessage.SendData(MessageID.WorldData);
         }
+
+        return new WorldEnvironmentMutationResult(
+            WorldEnvironmentMutationStatus.Applied,
+            Capture());
+    }
+
+    private WorldEnvironmentMutationResult ApplyHardmode(WorldEnvironmentPatch patch)
+    {
+        if (patch != new WorldEnvironmentPatch(StartHardmode: true)) return Invalid("world.environment.combined_hardmode");
+        if (!global::Terraria.Main.hardMode) global::Terraria.WorldGen.StartHardmode(force: false);
+        return global::Terraria.Main.hardMode
+            ? new(WorldEnvironmentMutationStatus.Applied, Capture())
+            : new(WorldEnvironmentMutationStatus.Failed, ErrorCode: "world.hardmode.declined");
+    }
+
+    private WorldEnvironmentMutationResult ClearAnglerPlayer(WorldEnvironmentPatch patch, string playerName)
+    {
+        if (patch != new WorldEnvironmentPatch(ClearAnglerPlayer: playerName) ||
+            string.IsNullOrWhiteSpace(playerName) || playerName.Length > 128 || playerName.Any(char.IsControl))
+            return Invalid("world.clearangler_invalid_player");
+        if (global::Terraria.Main.anglerWhoFinishedToday.RemoveAll(name => name.Equals(playerName, StringComparison.OrdinalIgnoreCase)) == 0)
+            return Invalid("world.clearangler_player_not_found");
+        if (global::Terraria.Main.netMode == 2)
+            for (int slot = 0; slot < global::Terraria.Main.maxPlayers; slot++)
+                if (global::Terraria.Netplay.Clients[slot].State == 10 && global::Terraria.Main.player[slot] is { active: true } player &&
+                    player.name.Equals(playerName, StringComparison.OrdinalIgnoreCase)) global::Terraria.NetMessage.SendAnglerQuest(slot);
+        return new(WorldEnvironmentMutationStatus.Applied, Capture());
+    }
+
+    private static string? ValidateRegularPatch(WorldEnvironmentPatch patch)
+    {
         bool targetDaytime = patch.IsDaytime ?? global::Terraria.Main.dayTime;
         double maxTime = targetDaytime ? 54000d : 32400d;
         if (patch.TimeTicks is double time && (!double.IsFinite(time) || time < 0d || time > maxTime))
         {
-            return Invalid("world.environment.invalid_time");
+            return "world.environment.invalid_time";
         }
 
         if (patch.MoonPhase is int moon && (moon < 0 || moon > 7))
         {
-            return Invalid("world.environment.invalid_moon_phase");
+            return "world.environment.invalid_moon_phase";
         }
 
         if (patch.RainIntensity is float rain && (!float.IsFinite(rain) || rain < 0f || rain > 1f))
         {
-            return Invalid("world.environment.invalid_rain_intensity");
+            return "world.environment.invalid_rain_intensity";
         }
 
         if (patch.WindSpeed is float wind && (!float.IsFinite(wind) || wind < -1f || wind > 1f))
         {
-            return Invalid("world.environment.invalid_wind_speed");
+            return "world.environment.invalid_wind_speed";
         }
 
         if (patch.Spawn is { } spawn && !InsideWorld(spawn) || patch.Dungeon is { } dungeon && !InsideWorld(dungeon))
-            return Invalid("world.environment.invalid_position");
+            return "world.environment.invalid_position";
         if (patch.DefaultSpawnRate is < 1 or > 60000 || patch.DefaultMaxSpawns is < 0 or > 200)
-            return Invalid("world.environment.invalid_spawn_settings");
+            return "world.environment.invalid_spawn_settings";
         // Journey characters and worlds have a different admission contract. Keep
         // that mode immutable here instead of breaking connected clients.
         if (patch.GameMode is int mode && (mode is < 0 or > 2 || global::Terraria.Main.GameMode == 3))
-            return Invalid("world.environment.invalid_game_mode");
+            return "world.environment.invalid_game_mode";
 
+        return null;
+    }
+
+    private void ApplyClockAndWeather(WorldEnvironmentPatch patch)
+    {
         if (patch.IsDaytime is bool daytime) global::Terraria.Main.dayTime = daytime;
         if (patch.TimeTicks is double ticks) global::Terraria.Main.time = ticks;
         if (patch.IsDaytime.HasValue || patch.TimeTicks.HasValue) clock?.Reset(worldId);
@@ -123,6 +151,10 @@ public sealed class TerrariaWorldEnvironmentService(
             global::Terraria.Main.windSpeedCurrent = speed;
             global::Terraria.Main.windSpeedTarget = speed;
         }
+    }
+
+    private static void ApplyLocationsAndRules(WorldEnvironmentPatch patch)
+    {
         if (patch.Spawn is { } worldSpawn)
         {
             global::Terraria.Main.spawnTileX = worldSpawn.X;
@@ -136,6 +168,10 @@ public sealed class TerrariaWorldEnvironmentService(
         if (patch.DefaultSpawnRate is int rate) global::Terraria.NPC.defaultSpawnRate = rate;
         if (patch.DefaultMaxSpawns is int maximum) global::Terraria.NPC.defaultMaxSpawns = maximum;
         if (patch.GameMode is int gameMode) global::Terraria.Main.GameMode = gameMode;
+    }
+
+    private static void ApplySeasonAndAngler(WorldEnvironmentPatch patch)
+    {
         if (patch.ForceHalloween is bool halloween)
         {
             global::Terraria.Main.forceHalloweenForever = halloween;
@@ -155,14 +191,6 @@ public sealed class TerrariaWorldEnvironmentService(
                     if (global::Terraria.Netplay.Clients[slot].State == 10) global::Terraria.NetMessage.SendAnglerQuest(slot);
         }
 
-        if (global::Terraria.Main.netMode == 2)
-        {
-            global::Terraria.NetMessage.SendData(MessageID.WorldData);
-        }
-
-        return new WorldEnvironmentMutationResult(
-            WorldEnvironmentMutationStatus.Applied,
-            Capture());
     }
 
     private WorldEnvironmentSnapshot Capture()

@@ -24,6 +24,35 @@ public sealed class BanCommandTests
         Assert.That((await command.ExecuteAsync(invocation with { Arguments = ["delrange", "192.0.2.0/24"] }, default)).Status, Is.EqualTo(CommandExecutionStatus.Success));
     }
     [Test]
+    public async Task BanToolsOnlineAddAndInfoShareTheOriginalSubjectsAndSession()
+    {
+        var world = new WorldId("arena");
+        var target = Player(4, "Target") with
+        {
+            WorldId = world, SessionId = PlayerSessionId.New(), RemoteEndpoint = "192.0.2.25:7777"
+        };
+        var other = target with { WorldId = WorldId.Primary, SessionId = PlayerSessionId.New() };
+        var replica = new FakeBans();
+        var operations = new FakeOperations();
+        var command = new BanCommand(new FakeDirectory([other, target]), operations, new GlobalBanService(replica));
+        var invocation = Invocation("bt", ["add", "Target", "test", "1h"]) with { WorldId = world };
+
+        Assert.That((await command.ExecuteAsync(invocation, default)).Status, Is.EqualTo(CommandExecutionStatus.Success));
+        Assert.That(replica.Created.Select(ban => ban.Subject.Kind), Is.EquivalentTo(new[]
+        {
+            GlobalBanSubjectKind.PlayerName, GlobalBanSubjectKind.IpAddress
+        }));
+        Assert.That(operations.KickedSnapshot, Is.EqualTo(target));
+        var info = await command.ExecuteAsync(invocation with { Arguments = ["info", "Target"] }, default);
+        Assert.That(info.Status, Is.EqualTo(CommandExecutionStatus.Success));
+        Assert.That(info.Messages, Has.Count.EqualTo(2));
+
+        Assert.That((await command.ExecuteAsync(invocation with { Arguments = ["add", "Target", "test", "invalid-duration"] }, default)).Status,
+            Is.EqualTo(CommandExecutionStatus.InvalidUsage));
+        Assert.That(replica.Created, Has.Count.EqualTo(2));
+    }
+
+    [Test]
     public async Task LegacyBanDetailsAndDelUseExistingRevisionedBanService()
     {
         var replica = new FakeBans();

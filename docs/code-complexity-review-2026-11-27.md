@@ -32,3 +32,52 @@ The improvements reduce branch concentration, not necessarily the sum of decisio
 ## Plugin migration
 
 See the current [TerraZ readiness matrix](terraz-plugin-port-readiness.md). This round adds bounded committed cell observations, composable FakeProvider tile UI controls, durable virtual custom item instances and authenticated role/capacity cluster discovery. The framework supports developing new plugins against one typed SDK without TShock dependencies. Full legacy TUI widgets, physical arbitrary item stats across stock inventory/SSC, independently hosted player transfer, definitive client-sourced PvP attribution, actual stock-client SSC and stable 60 TPS at target load remain distinct open items. Do not interpret a successful unit/architecture suite as stock-client qualification or production equivalence.
+
+
+## Runtime decomposition follow-up
+
+The [after snapshot](code-complexity-metrics-runtime-2026-11-27.md) records the next round against the original audit. `Program.Start` has been replaced by a short lifecycle sequence in `RuntimeHost.Run`, with private explicitly typed stage outputs. The stages preserve the original hook/policy registration order, primary/sandbox distinctions, configuration-read order and exit-code handling. Construction ownership is shared through a small LIFO resource scope: a failed stage does not strand previously constructed resources, and disposal continues even if a resource fails. The separate tile-storage scope still encloses the host. There is no new dependency, automatic service discovery, public SDK change or database migration.
+
+The native world-environment mutation now validates all regular fields before applying clock/weather, location/rule and seasonal/Angler changes on the game thread. Special native events and hardmode retain their exclusive operation path. Growth keeps separate cactus, herb and tree operations and a ground-type table. Loopback REST separates listener lifetime, request access/dispatch, snapshot projections, administrator routes and world maintenance without changing its sequential lane or authorization requirements.
+
+| Entry point | Before score / lines | After score / lines |
+|---|---:|---:|
+| Startup | 95 / 806 | 13 / 27 |
+| Native world environment patch | 71 / 124 | 8 / 32 |
+| Native growth | 67 / 80 | 18 / 28 |
+| REST listener loop | 62 / 137 | 12 / 24 |
+
+Measured maximum decision score in Vega.Runtime is now 25 (previously 95); no Runtime callable body is 100 lines or longer. This does not imply lower total complexity across every domain: extracted route dispatch, validation and mapping are measured separately. The largest remaining native hotspots are the packet classification and schematic preparation tables, and Core command handlers such as ban tools. Existing performance/TPS and actual-client qualification gates are unchanged.
+
+Verification: Release solution tests passed **937 runtime + 33 architecture**; eight external MySQL/PostgreSQL cases were skipped without local connection settings. The native deployment smoke passed REST world reads and mutations, schematic export, Ordered TCP with producer batching, sandbox startup and shutdown, shared admission storage, and TShock-compatible group/region/restriction/world-event commands. The new tests verify LIFO cleanup despite a disposal failure, validation before compound native mutation, and unchanged incompatible cactus/herb/gem-tree ground.
+
+
+## Further domain decomposition
+
+The [follow-up audit](code-complexity-metrics-followup-2026-11-27.md), compared with the Runtime after-snapshot above, shows **35 ? 18** bodies with decision score ? 30 and **19 ? 15** bodies spanning at least 100 lines. Syntax errors and project dependency cycles remain zero. Additional helper methods explain the increase in physical line count; the goal is smaller independently reviewable responsibilities, not a lower sum of syntax nodes.
+
+| Entry point | Before score | After score |
+|---|---:|---:|
+| ExtendedBans dispatch | 61 | 13 |
+| Native schematic preparation | 59 | 4 |
+| Warp dispatch | 53 | 28 |
+| FakeProvider command | 52 | 26 |
+| Virtual chest transfer | 49 | 23 |
+| Native item delivery callback | 48 | 24 |
+| Mute dispatch | 46 | 10 |
+| Native player-state sampling | 45 | 16 |
+| Sandbox creation | 43 | 20 |
+| Homes dispatch | 40 | 22 |
+| Region membership tick | 37 | 9 |
+| Native schematic placement | 37 | 26 |
+| Schematic document validation | 36 | 1 |
+| Item command | 35 | 17 |
+| REST sandbox administration | 34 | 19 |
+| World-image validation | 33 | 16 |
+| Native schematic object application | 32 | 2 |
+
+The refactoring preserves command aliases, permission checks, response text, exact session/world checks, revision validation, native game-thread ownership, and original operation ordering. Preparation and application of schematic registrations are separated while keeping one shared footprint tracker and rollback list. Virtual chest transfer builds both replacements before the existing atomic authority callback; a committed transfer remains applied even if synchronization fails. The world-image reader retains file format, validation order and failure reason codes. Region and player tick observation retain existing caches, scans and buffer reuse. Sandbox creation's operation gate and template rollback remain in the orchestration method.
+
+The remaining 18 bodies are not 18 defects. The highest score (60) is the exhaustive packet-family classification table, not a deeply nested algorithm; splitting it would obscure the mapping. Native scene send interception, outbound queue lifetime, cluster authentication, tile authorization and binary image decoding are also sensitive to correctness and performance. Further changes should be driven by a specific maintenance or measurement need, with targeted tests; no new workers, dispatch queues or abstraction layers were introduced by this pass.
+
+Verification: final Release solution run passed **938 runtime + 33 architecture tests**, eight external MySQL/PostgreSQL cases skipped without live local endpoints. New ExtendedBans coverage checks the online subject set, exact world/session kick, ticket lookup and invalid-duration non-mutation. Native deployment smoke passed REST, schema export, Ordered TCP, sandbox readiness/isolation/shared admission and parity commands. No new 255-player TPS qualification was attempted for this maintainability round.

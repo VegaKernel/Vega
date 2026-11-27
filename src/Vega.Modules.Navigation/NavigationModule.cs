@@ -182,14 +182,7 @@ public sealed class NavigationModule(
             switch (action)
             {
                 case "list":
-                    int page = 1;
-                    if (args.Count > 2 || (args.Count == 2 && (!int.TryParse(args[1], out page) || page < 1))) return Usage("warp list [page]");
-                    var visible = (await warps!.ReadAsync(world, token).ConfigureAwait(false)).Where(p => !p.Hidden)
-                        .OrderBy(p => p.Name, StringComparer.OrdinalIgnoreCase).ToArray();
-                    int pages = Math.Max(1, (visible.Length + 19) / 20);
-                    if (page > pages) return Failure("navigation.warp_page", "There are only {0} pages.", pages);
-                    return CommandExecutionResult.WithMessages(MessageDescriptor.Info("navigation.warp_list", page, pages,
-                        string.Join(", ", visible.Skip((page - 1) * 20).Take(20).Select(p => p.Name))).WithDefaultText("Warps ({0}/{1}): {2}"));
+                    return await ListWarpsAsync(args, world, token).ConfigureAwait(false);
                 case "add":
                     if (args.Count != 2 || !WarpStore.ValidName(args[1])) return Usage("warp add <name>");
                     if (actor!.IsDead) return Failure("navigation.dead", "Dead players cannot create warps.");
@@ -201,46 +194,67 @@ public sealed class NavigationModule(
                     if (args.Count != 3 || !bool.TryParse(args[2], out bool hidden)) return Usage("warp hide <name> <true|false>");
                     return WarpMutation(await warps!.SetHiddenAsync(world, args[1], hidden, token).ConfigureAwait(false), args[1]);
                 default:
-                    PlayerSnapshot? source = actor;
-                    string name = string.Join(' ', args);
-                    if (action == "send")
-                    {
-                        if (args.Count != 3) return Usage("warp send <player> <name>");
-                        if (!TryResolve(args[1], invocation.WorldId, out source, out var error)) return error;
-                        if (!invocation.Principal.HasPermission(OverridePermission) && IsBlocked(source!))
-                            return Failure("navigation.teleport_disabled", "The player has disabled incoming teleports.");
-                        name = args[2];
-                    }
-                    if (source is null) return Missing();
-                    var point = (await warps!.ReadAsync(world, token).ConfigureAwait(false)).FirstOrDefault(p =>
-                        string.Equals(p.Name, name, StringComparison.OrdinalIgnoreCase));
-                    if (point is null) return Failure("navigation.warp_not_found", "Warp '{0}' was not found.", name);
-                    if (action == "send" && !invocation.Principal.HasPermission(OverridePermission) && IsBlocked(source))
-                        return Failure("navigation.teleport_disabled", "The player has disabled incoming teleports.");
-                    var moved = await navigation.ToPositionAsync(source, point.Position, token).ConfigureAwait(false);
-                    var result = Result(moved, "navigation.warped", "Teleported {0} to warp '{1}'.", source.Name, point.Name);
-                    if (moved.IsSuccess && action == "send" && source.SessionId != actor?.SessionId && messenger is not null)
-                    {
-                        // A successful teleport remains successful if the target leaves before notification.
-                        // Use the exact snapshot overload, never a bare reusable player slot.
-                        if (!token.IsCancellationRequested && players.TryGet(source.Id, out var current) &&
-                            current is { SessionId: { } currentSession } && currentSession == source.SessionId &&
-                            current.WorldId == invocation.WorldId)
-                        {
-                            try
-                            {
-                                await messenger.SendMessageAsync(source, $"{invocation.Principal.Name} sent you to warp '{point.Name}'.", token)
-                                    .ConfigureAwait(false);
-                            }
-                            catch (OperationCanceledException) when (token.IsCancellationRequested) { }
-                        }
-                    }
-                    return result;
+                    return await TeleportWarpAsync(invocation, action, world, actor, token).ConfigureAwait(false);
             }
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or System.Text.Json.JsonException or InvalidDataException)
         {
             return Failure("navigation.warp_storage", "Warp storage is unavailable; no changes were applied.");
+        }
+    }
+
+    private async ValueTask<CommandExecutionResult> ListWarpsAsync(IReadOnlyList<string> args, Guid world, CancellationToken token)
+    {
+        int page = 1;
+        if (args.Count > 2 || (args.Count == 2 && (!int.TryParse(args[1], out page) || page < 1))) return Usage("warp list [page]");
+        var visible = (await warps!.ReadAsync(world, token).ConfigureAwait(false)).Where(p => !p.Hidden)
+            .OrderBy(p => p.Name, StringComparer.OrdinalIgnoreCase).ToArray();
+        int pages = Math.Max(1, (visible.Length + 19) / 20);
+        if (page > pages) return Failure("navigation.warp_page", "There are only {0} pages.", pages);
+        return CommandExecutionResult.WithMessages(MessageDescriptor.Info("navigation.warp_list", page, pages,
+            string.Join(", ", visible.Skip((page - 1) * 20).Take(20).Select(p => p.Name))).WithDefaultText("Warps ({0}/{1}): {2}"));
+    }
+
+    private async ValueTask<CommandExecutionResult> TeleportWarpAsync(CommandInvocation invocation, string action, Guid world, PlayerSnapshot? actor, CancellationToken token)
+    {
+        var args = invocation.Arguments;
+        PlayerSnapshot? source = actor;
+        string name = string.Join(' ', args);
+        if (action == "send")
+        {
+            if (args.Count != 3) return Usage("warp send <player> <name>");
+            if (!TryResolve(args[1], invocation.WorldId, out source, out var error)) return error;
+            if (!invocation.Principal.HasPermission(OverridePermission) && IsBlocked(source!))
+                return Failure("navigation.teleport_disabled", "The player has disabled incoming teleports.");
+            name = args[2];
+        }
+        if (source is null) return Missing();
+        var point = (await warps!.ReadAsync(world, token).ConfigureAwait(false)).FirstOrDefault(p =>
+            string.Equals(p.Name, name, StringComparison.OrdinalIgnoreCase));
+        if (point is null) return Failure("navigation.warp_not_found", "Warp '{0}' was not found.", name);
+        if (action == "send" && !invocation.Principal.HasPermission(OverridePermission) && IsBlocked(source))
+            return Failure("navigation.teleport_disabled", "The player has disabled incoming teleports.");
+        var moved = await navigation.ToPositionAsync(source, point.Position, token).ConfigureAwait(false);
+        var result = Result(moved, "navigation.warped", "Teleported {0} to warp '{1}'.", source.Name, point.Name);
+        if (moved.IsSuccess && action == "send" && source.SessionId != actor?.SessionId && messenger is not null)
+            await NotifyWarpTargetAsync(invocation, source, point.Name, token).ConfigureAwait(false);
+        return result;
+    }
+
+    private async ValueTask NotifyWarpTargetAsync(CommandInvocation invocation, PlayerSnapshot source, string warpName, CancellationToken token)
+    {
+        // A successful teleport remains successful if the target leaves before notification.
+        // Use the exact snapshot overload, never a bare reusable player slot.
+        if (!token.IsCancellationRequested && players.TryGet(source.Id, out var current) &&
+            current is { SessionId: { } currentSession } && currentSession == source.SessionId &&
+            current.WorldId == invocation.WorldId)
+        {
+            try
+            {
+                await messenger!.SendMessageAsync(source, $"{invocation.Principal.Name} sent you to warp '{warpName}'.", token)
+                    .ConfigureAwait(false);
+            }
+            catch (OperationCanceledException) when (token.IsCancellationRequested) { }
         }
     }
 

@@ -20,13 +20,14 @@ internal sealed partial class NativeGameplayEventHooks
 
     private void SamplePlayerStates(WorldId world, IWorldGameplayEvents events, TerrariaPlayerBoundary? players)
     {
-        bool vitals = events.HasSubscribers<PlayerVitalsChangedEvent>();
-        bool death = events.HasSubscribers<PlayerDeathObservedEvent>();
-        bool respawn = events.HasSubscribers<PlayerRespawnObservedEvent>();
-        bool counters = events.HasSubscribers<PlayerDeathCountersChangedEvent>();
-        bool pvp = events.HasSubscribers<PlayerPvpChangedEvent>();
-        bool buffs = events.HasSubscribers<PlayerBuffsChangedEvent>();
-        if (players is null || !(vitals || death || respawn || counters || pvp || buffs))
+        var observed = new PlayerStateSubscriptions(
+            events.HasSubscribers<PlayerVitalsChangedEvent>(),
+            events.HasSubscribers<PlayerDeathObservedEvent>(),
+            events.HasSubscribers<PlayerRespawnObservedEvent>(),
+            events.HasSubscribers<PlayerDeathCountersChangedEvent>(),
+            events.HasSubscribers<PlayerPvpChangedEvent>(),
+            events.HasSubscribers<PlayerBuffsChangedEvent>());
+        if (players is null || !observed.Any)
         {
             if (playerObservationTick != 0) ResetPlayerStateObservations();
             return;
@@ -53,27 +54,38 @@ internal sealed partial class NativeGameplayEventHooks
                 native.statLife, native.statLifeMax2, native.statMana, native.statManaMax2, native.dead,
                 native.hostile, native.team, native.numberOfDeathsPVE, native.numberOfDeathsPVP);
             int[]? oldBuffs = consecutive ? previous.Buffs : null;
-            int[]? newBuffs = buffs ? ReadBuffTypes(native.buffType, oldBuffs) : null;
+            int[]? newBuffs = observed.Buffs ? ReadBuffTypes(native.buffType, oldBuffs) : null;
             // Store detached state before notifying plugins; any changes made in a callback
             // are observed on the next completed tick, not recursively in this one.
             playerStateBaselines[slot] = new(tick, after, newBuffs);
             if (!consecutive) continue;
 
-            if (vitals && (before.Life != after.Life || before.MaxLife != after.MaxLife || before.Mana != after.Mana || before.MaxMana != after.MaxMana))
-                Publish(new PlayerVitalsChangedEvent(before, after));
-            if (death && !before.IsDead && after.IsDead)
-            {
-                PlayerObservedDeathKind kind = after.DeathsPvp > before.DeathsPvp && after.DeathsPve == before.DeathsPve ? PlayerObservedDeathKind.Pvp :
-                    after.DeathsPve > before.DeathsPve && after.DeathsPvp == before.DeathsPvp ? PlayerObservedDeathKind.Pve : PlayerObservedDeathKind.Unknown;
-                Publish(new PlayerDeathObservedEvent(before, after, kind));
-            }
-            if (respawn && before.IsDead && !after.IsDead) Publish(new PlayerRespawnObservedEvent(before, after));
-            if (counters && (before.DeathsPve != after.DeathsPve || before.DeathsPvp != after.DeathsPvp))
-                Publish(new PlayerDeathCountersChangedEvent(before, after));
-            if (pvp && (before.IsHostile != after.IsHostile || before.Team != after.Team)) Publish(new PlayerPvpChangedEvent(before, after));
-            if (oldBuffs is not null && newBuffs is not null && !ReferenceEquals(oldBuffs, newBuffs))
-                Publish(new PlayerBuffsChangedEvent(after, Array.AsReadOnly(oldBuffs), Array.AsReadOnly(newBuffs)));
+            PublishPlayerStateChanges(observed, before, after, oldBuffs, newBuffs);
         }
+    }
+
+    private readonly record struct PlayerStateSubscriptions(bool Vitals, bool Death, bool Respawn, bool Counters, bool Pvp, bool Buffs)
+    {
+        public bool Any => Vitals || Death || Respawn || Counters || Pvp || Buffs;
+    }
+
+    private void PublishPlayerStateChanges(PlayerStateSubscriptions observed, PlayerStateEventSnapshot before,
+        PlayerStateEventSnapshot after, int[]? oldBuffs, int[]? newBuffs)
+    {
+        if (observed.Vitals && (before.Life != after.Life || before.MaxLife != after.MaxLife || before.Mana != after.Mana || before.MaxMana != after.MaxMana))
+            Publish(new PlayerVitalsChangedEvent(before, after));
+        if (observed.Death && !before.IsDead && after.IsDead)
+        {
+            PlayerObservedDeathKind kind = after.DeathsPvp > before.DeathsPvp && after.DeathsPve == before.DeathsPve ? PlayerObservedDeathKind.Pvp :
+                after.DeathsPve > before.DeathsPve && after.DeathsPvp == before.DeathsPvp ? PlayerObservedDeathKind.Pve : PlayerObservedDeathKind.Unknown;
+            Publish(new PlayerDeathObservedEvent(before, after, kind));
+        }
+        if (observed.Respawn && before.IsDead && !after.IsDead) Publish(new PlayerRespawnObservedEvent(before, after));
+        if (observed.Counters && (before.DeathsPve != after.DeathsPve || before.DeathsPvp != after.DeathsPvp))
+            Publish(new PlayerDeathCountersChangedEvent(before, after));
+        if (observed.Pvp && (before.IsHostile != after.IsHostile || before.Team != after.Team)) Publish(new PlayerPvpChangedEvent(before, after));
+        if (oldBuffs is not null && newBuffs is not null && !ReferenceEquals(oldBuffs, newBuffs))
+            Publish(new PlayerBuffsChangedEvent(after, Array.AsReadOnly(oldBuffs), Array.AsReadOnly(newBuffs)));
     }
 
     private int[] ReadBuffTypes(int[] nativeTypes, int[]? previous)

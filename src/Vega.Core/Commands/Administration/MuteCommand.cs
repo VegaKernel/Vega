@@ -38,35 +38,7 @@ public sealed class MuteCommand(
         if (invocation.Arguments.Count == 0) return Usage();
         string action = invocation.Arguments[0].ToLowerInvariant();
         if (action == "list") return List(invocation.Arguments);
-        if (action is "del" or "delete")
-        {
-            if (invocation.Arguments.Count != 2) return Usage();
-            string name = invocation.Arguments[1];
-            var matches = FindPlayers(name, invocation.WorldId);
-            if (matches.Length > 1) return Failure("command.mute.multiple-matches", "Multiple players matched.");
-            var online = matches.FirstOrDefault();
-            if (online is not null && accountSessions.TryGetAccount(online.Id, out var onlineAccount) && onlineAccount is not null) name = onlineAccount.Name;
-            else if (online is not null) name = online.Name;
-            AccountSnapshot? account = accounts is null ? null : await accounts.FindByNameAsync(name, cancellationToken).ConfigureAwait(false);
-            string? ip = account?.LastKnownIp, uuid = account?.LastKnownUuid;
-            if (online is not null)
-            {
-                if (BanCommand.TryGetIpAddress(online.Connection?.EffectiveEndpoint ?? online.RemoteEndpoint, out var liveIp)) ip = liveIp;
-                uuid = online.Connection?.ClientUuid ?? uuid;
-            }
-            var snapshot = mutes.SnapshotActive(time.GetUtcNow());
-            var active = snapshot.Where(m => m.SubjectValue.Equals(name, StringComparison.OrdinalIgnoreCase)).ToArray();
-            if (active.Length == 0 && account is null)
-                active = snapshot.Where(m => m.SubjectKind == MuteSubjectKind.PlayerName &&
-                    ((m.IpAddress is not null && m.IpAddress.Equals(ip, StringComparison.OrdinalIgnoreCase)) || (m.Uuid is not null && m.Uuid.Equals(uuid, StringComparison.Ordinal)))).ToArray();
-            if (active.Length == 0) return Failure("mute.not-found", "The player is not muted.");
-            foreach (var mute in active)
-            {
-                var result = await RevokeAsync([mute.Id.Value.ToString()], invocation.Principal, cancellationToken).ConfigureAwait(false);
-                if (result.Status != CommandExecutionStatus.Success) return result;
-            }
-            return CommandExecutionResult.WithMessages(MessageDescriptor.Success("command.mute.deleted", invocation.Principal.Name, name).WithDefaultText("{0} unmuted {1}."));
-        }
+        if (action is "del" or "delete") return await DeleteByPlayerAsync(invocation, cancellationToken).ConfigureAwait(false);
         if (action == "show") return Show(invocation.Arguments);
         if (action is "remove" or "revoke")
         {
@@ -74,38 +46,69 @@ public sealed class MuteCommand(
                 .ConfigureAwait(false);
         }
 
-        if (action == "add")
-        {
-            if (invocation.Arguments.Count >= 4 && TryParseKind(invocation.Arguments[1], out _))
-                return await AddTypedAsync(invocation, cancellationToken).ConfigureAwait(false);
-            if (invocation.Arguments.Count < 2) return Usage();
-            string name = invocation.Arguments[1];
-            string expiry = invocation.Arguments.Count > 2 ? invocation.Arguments[2] : "0";
-            TimeSpan? duration = null;
-            if (expiry != "0" && !expiry.Equals("permanent", StringComparison.OrdinalIgnoreCase))
-            {
-                if (!TryParseDuration(expiry, out var finite)) return Usage();
-                duration = finite;
-            }
-            var matches = FindPlayers(name, invocation.WorldId);
-            if (matches.Length > 1) return Failure("command.mute.multiple-matches", "Multiple players matched.");
-            AccountSnapshot? account = null;
-            if (matches.Length == 1) accountSessions.TryGetAccount(matches[0].Id, out account);
-            else if (accounts is not null) account = await accounts.FindByNameAsync(name, cancellationToken).ConfigureAwait(false);
-            if (matches.Length == 0 && account is null) return Failure("command.mute.player-not-found", "Invalid user.");
-            if (!CanMute(invocation.Principal, matches.FirstOrDefault(), account)) return Failure("command.mute.authority", "You can't mute {0}!", name);
-            string? ip = account?.LastKnownIp, uuid = account?.LastKnownUuid;
-            if (matches.Length == 1)
-            {
-                var target = matches[0];
-                if (BanCommand.TryGetIpAddress(target.Connection?.EffectiveEndpoint ?? target.RemoteEndpoint, out var liveIp)) ip = liveIp;
-                uuid = target.Connection?.ClientUuid ?? uuid;
-            }
-            return await CreateAsync(account is null ? MuteSubjectKind.PlayerName : MuteSubjectKind.Account,
-                account?.Name ?? matches[0].Name, duration, invocation.Arguments.Count > 3 ? string.Join(" ", invocation.Arguments.Skip(3)) : "Offensive behavior", invocation.Principal.Name, cancellationToken, ip, uuid).ConfigureAwait(false);
-        }
-
+        if (action == "add") return await AddCompatibilityAsync(invocation, cancellationToken).ConfigureAwait(false);
         return await AddOnlineAsync(invocation, cancellationToken).ConfigureAwait(false);
+    }
+
+    private async ValueTask<CommandExecutionResult> DeleteByPlayerAsync(CommandInvocation invocation, CancellationToken cancellationToken)
+    {
+        if (invocation.Arguments.Count != 2) return Usage();
+        string name = invocation.Arguments[1];
+        var matches = FindPlayers(name, invocation.WorldId);
+        if (matches.Length > 1) return Failure("command.mute.multiple-matches", "Multiple players matched.");
+        var online = matches.FirstOrDefault();
+        if (online is not null && accountSessions.TryGetAccount(online.Id, out var onlineAccount) && onlineAccount is not null) name = onlineAccount.Name;
+        else if (online is not null) name = online.Name;
+        AccountSnapshot? account = accounts is null ? null : await accounts.FindByNameAsync(name, cancellationToken).ConfigureAwait(false);
+        var (ip, uuid) = ObservedIdentifiers(account, online);
+        var snapshot = mutes.SnapshotActive(time.GetUtcNow());
+        var active = snapshot.Where(m => m.SubjectValue.Equals(name, StringComparison.OrdinalIgnoreCase)).ToArray();
+        if (active.Length == 0 && account is null)
+            active = snapshot.Where(m => m.SubjectKind == MuteSubjectKind.PlayerName &&
+                ((m.IpAddress is not null && m.IpAddress.Equals(ip, StringComparison.OrdinalIgnoreCase)) || (m.Uuid is not null && m.Uuid.Equals(uuid, StringComparison.Ordinal)))).ToArray();
+        if (active.Length == 0) return Failure("mute.not-found", "The player is not muted.");
+        foreach (var mute in active)
+        {
+            var result = await RevokeAsync([mute.Id.Value.ToString()], invocation.Principal, cancellationToken).ConfigureAwait(false);
+            if (result.Status != CommandExecutionStatus.Success) return result;
+        }
+        return CommandExecutionResult.WithMessages(MessageDescriptor.Success("command.mute.deleted", invocation.Principal.Name, name).WithDefaultText("{0} unmuted {1}."));
+    }
+
+    private async ValueTask<CommandExecutionResult> AddCompatibilityAsync(CommandInvocation invocation, CancellationToken cancellationToken)
+    {
+        if (invocation.Arguments.Count >= 4 && TryParseKind(invocation.Arguments[1], out _))
+            return await AddTypedAsync(invocation, cancellationToken).ConfigureAwait(false);
+        if (invocation.Arguments.Count < 2) return Usage();
+        string name = invocation.Arguments[1];
+        string expiry = invocation.Arguments.Count > 2 ? invocation.Arguments[2] : "0";
+        TimeSpan? duration = null;
+        if (expiry != "0" && !expiry.Equals("permanent", StringComparison.OrdinalIgnoreCase))
+        {
+            if (!TryParseDuration(expiry, out var finite)) return Usage();
+            duration = finite;
+        }
+        var matches = FindPlayers(name, invocation.WorldId);
+        if (matches.Length > 1) return Failure("command.mute.multiple-matches", "Multiple players matched.");
+        AccountSnapshot? account = null;
+        if (matches.Length == 1) accountSessions.TryGetAccount(matches[0].Id, out account);
+        else if (accounts is not null) account = await accounts.FindByNameAsync(name, cancellationToken).ConfigureAwait(false);
+        if (matches.Length == 0 && account is null) return Failure("command.mute.player-not-found", "Invalid user.");
+        if (!CanMute(invocation.Principal, matches.FirstOrDefault(), account)) return Failure("command.mute.authority", "You can't mute {0}!", name);
+        var (ip, uuid) = ObservedIdentifiers(account, matches.FirstOrDefault());
+        return await CreateAsync(account is null ? MuteSubjectKind.PlayerName : MuteSubjectKind.Account,
+            account?.Name ?? matches[0].Name, duration, invocation.Arguments.Count > 3 ? string.Join(" ", invocation.Arguments.Skip(3)) : "Offensive behavior", invocation.Principal.Name, cancellationToken, ip, uuid).ConfigureAwait(false);
+    }
+
+    private static (string? Ip, string? Uuid) ObservedIdentifiers(AccountSnapshot? account, PlayerSnapshot? online)
+    {
+        string? ip = account?.LastKnownIp, uuid = account?.LastKnownUuid;
+        if (online is not null)
+        {
+            if (BanCommand.TryGetIpAddress(online.Connection?.EffectiveEndpoint ?? online.RemoteEndpoint, out var liveIp)) ip = liveIp;
+            uuid = online.Connection?.ClientUuid ?? uuid;
+        }
+        return (ip, uuid);
     }
 
     private async ValueTask<CommandExecutionResult> AddOnlineAsync(

@@ -31,35 +31,9 @@ public sealed partial class TerrariaPlayerInventoryService : IVirtualChestInvent
 
         if ((uint)request.InventorySlot >= (uint)player.inventory.Length) return new(VirtualChestTransferStatus.InvalidRequest);
         var inventoryItem = player.inventory[request.InventorySlot];
-        ChestItemSnapshot chestItem = chest.Items.FirstOrDefault(item => item.Slot == request.ChestSlot);
-        bool withdrawing = request.Direction == VirtualChestTransferDirection.Withdraw;
-        int type = withdrawing ? chestItem.ItemType : inventoryItem.type;
-        int prefix = withdrawing ? chestItem.Prefix : inventoryItem.prefix;
-        int sourceStack = withdrawing ? chestItem.Stack : inventoryItem.stack;
-        int destinationType = withdrawing ? inventoryItem.type : chestItem.ItemType;
-        int destinationPrefix = withdrawing ? inventoryItem.prefix : chestItem.Prefix;
-        int destinationStack = withdrawing ? inventoryItem.stack : chestItem.Stack;
-        if (type <= 0 || type >= ItemID.Count || prefix >= PrefixID.Count || sourceStack < request.Amount || destinationStack < 0 ||
-            (destinationType == 0 && destinationStack != 0) ||
-            (!withdrawing && inventoryItem.favorited) || (destinationType != 0 && (destinationType != type || destinationPrefix != prefix)))
+        if (PrepareVirtualChestTransfer(request, chest, inventoryItem) is not { } prepared)
             return new(VirtualChestTransferStatus.InvalidItem);
-
-        var prototype = new global::Terraria.Item();
-        prototype.SetDefaults(type);
-        if (prefix != 0 && !prototype.Prefix(prefix) || sourceStack > prototype.maxStack ||
-            (long)destinationStack + request.Amount > Math.Min(prototype.maxStack, 9999))
-            return new(VirtualChestTransferStatus.InvalidItem);
-
-        int remaining = sourceStack - request.Amount;
-        int received = destinationStack + request.Amount;
-        global::Terraria.Item nextInventory = inventoryItem.type == 0 ? prototype : inventoryItem.Clone();
-        nextInventory.stack = withdrawing ? received : remaining;
-        if (nextInventory.stack == 0) nextInventory.TurnToAir();
-        int nextChestStack = withdrawing ? remaining : received;
-        var nextItems = chest.Items.Where(item => item.Slot != request.ChestSlot).ToList();
-        if (nextChestStack != 0) nextItems.Add(new(request.ChestSlot, type, nextChestStack, (byte)prefix));
-        var replacement = new SceneVirtualChestDefinition(chest.Id, chest.LocalX, chest.LocalY, chest.Name,
-            checked(chest.Revision + 1), nextItems);
+        var (replacement, nextInventory) = prepared;
         if (!authority.TryCommitVirtualChestTransfer(expected, request.Open, replacement, () => player.inventory[request.InventorySlot] = nextInventory))
             return new(VirtualChestTransferStatus.StaleInteraction);
 
@@ -76,5 +50,40 @@ public sealed partial class TerrariaPlayerInventoryService : IVirtualChestInvent
             return new(VirtualChestTransferStatus.Applied, replacement, revision, "inventory.sync_failed");
         }
         return new(VirtualChestTransferStatus.Applied, replacement, revision);
+    }
+
+    private static (SceneVirtualChestDefinition Chest, global::Terraria.Item Inventory)? PrepareVirtualChestTransfer(
+        SceneVirtualChestTransferRequest request, SceneVirtualChestDefinition chest, global::Terraria.Item inventoryItem)
+    {
+        ChestItemSnapshot chestItem = chest.Items.FirstOrDefault(item => item.Slot == request.ChestSlot);
+        bool withdrawing = request.Direction == VirtualChestTransferDirection.Withdraw;
+        int type = withdrawing ? chestItem.ItemType : inventoryItem.type;
+        int prefix = withdrawing ? chestItem.Prefix : inventoryItem.prefix;
+        int sourceStack = withdrawing ? chestItem.Stack : inventoryItem.stack;
+        int destinationType = withdrawing ? inventoryItem.type : chestItem.ItemType;
+        int destinationPrefix = withdrawing ? inventoryItem.prefix : chestItem.Prefix;
+        int destinationStack = withdrawing ? inventoryItem.stack : chestItem.Stack;
+        if (type <= 0 || type >= ItemID.Count || prefix >= PrefixID.Count || sourceStack < request.Amount || destinationStack < 0 ||
+            (destinationType == 0 && destinationStack != 0) ||
+            (!withdrawing && inventoryItem.favorited) || (destinationType != 0 && (destinationType != type || destinationPrefix != prefix)))
+            return null;
+
+        var prototype = new global::Terraria.Item();
+        prototype.SetDefaults(type);
+        if (prefix != 0 && !prototype.Prefix(prefix) || sourceStack > prototype.maxStack ||
+            (long)destinationStack + request.Amount > Math.Min(prototype.maxStack, 9999))
+            return null;
+
+        int remaining = sourceStack - request.Amount;
+        int received = destinationStack + request.Amount;
+        global::Terraria.Item nextInventory = inventoryItem.type == 0 ? prototype : inventoryItem.Clone();
+        nextInventory.stack = withdrawing ? received : remaining;
+        if (nextInventory.stack == 0) nextInventory.TurnToAir();
+        int nextChestStack = withdrawing ? remaining : received;
+        var nextItems = chest.Items.Where(item => item.Slot != request.ChestSlot).ToList();
+        if (nextChestStack != 0) nextItems.Add(new(request.ChestSlot, type, nextChestStack, (byte)prefix));
+        var replacement = new SceneVirtualChestDefinition(chest.Id, chest.LocalX, chest.LocalY, chest.Name,
+            checked(chest.Revision + 1), nextItems);
+        return (replacement, nextInventory);
     }
 }

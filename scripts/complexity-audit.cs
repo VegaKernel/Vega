@@ -49,7 +49,19 @@ Table("Longest callable bodies", methods.OrderByDescending(m => m.Lines).Take(12
 Table("Refactored entry points", methods.Where(m => m.Name is "OfflineMigrationCommands.TryRun" or
     "RestAdministration.WriteAsync" or "WorldEventCommand.ExecuteAsync" ||
     m.Name.StartsWith("RestAdministration.Write") && m.Name.EndsWith("Async") ||
-    m.Name.StartsWith("OfflineMigrationCommands.Import") || m.Name.StartsWith("WorldEventCommand.") || m.Name.StartsWith("GroupCommand.")).Distinct());
+    m.Name.StartsWith("OfflineMigrationCommands.Import") || m.Name.StartsWith("WorldEventCommand.") || m.Name.StartsWith("GroupCommand.") ||
+    m.Name.StartsWith("RuntimeHost.") || m.Name.StartsWith("TerrariaWorldEnvironmentService.") ||
+    m.Name.StartsWith("TerrariaWorldNativeActions.") || m.Name.StartsWith("LoopbackRestService.") ||
+    m.Name.StartsWith("BanCommand.") || m.Name.StartsWith("MuteCommand.") ||
+    m.Name.StartsWith("NavigationModule.") || m.Name.StartsWith("HomeCommand.") ||
+    m.Name.StartsWith("TerrariaSchematicObjects.") || m.Name.StartsWith("FakeProviderCommand.") ||
+    m.Name.StartsWith("TerrariaPlayerInventoryService.") && m.File.EndsWith("VirtualChests.cs") ||
+    m.Name.StartsWith("NativeGameplayEventHooks.") && m.File.EndsWith("PlayerState.cs") ||
+    m.Name.StartsWith("TerrariaPlayerBoundary.") && m.File.EndsWith("Administration.cs") ||
+    m.Name.StartsWith("SandboxControlService.") || m.Name.StartsWith("SchematicValidator.") ||
+    m.Name.StartsWith("TerrariaSchematicPlacement.") || m.Name.StartsWith("RegionObservations.") ||
+    m.Name.StartsWith("ItemCommand.") || m.Name.StartsWith("VegaWorldImageReader.Validate") ||
+    m.Name.StartsWith("RestAdministration.CreateSandbox")).Distinct());
 return parseErrors == 0 ? 0 : 1;
 
 static bool HasCycle(string start, string current, Dictionary<string, string[]> projects, HashSet<string> visited)

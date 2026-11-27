@@ -129,75 +129,10 @@ internal static class VegaWorldImageReader
             }
 
             VegaWorldImageManifest manifest = ReadManifest(manifestBytes);
-            if (manifest.SchemaVersion != VegaWorldImageFormat.SchemaVersion)
-            {
-                return WorldImageValidationResult.Invalid("schema-version");
-            }
-
-            if (!string.Equals(
-                    manifest.CompilerParameters,
-                    VegaWorldImageFormat.CompilerParameters,
-                    StringComparison.Ordinal))
-            {
-                return WorldImageValidationResult.Invalid("compiler-parameters");
-            }
-
-            if (manifest.SourceLength != sourceInfo.Length)
-            {
-                return WorldImageValidationResult.Invalid("source-size");
-            }
-
-            int sourceVersion = ReadTerrariaVersion(sourcePath);
-            if (manifest.TerrariaVersion != sourceVersion)
-            {
-                return WorldImageValidationResult.Invalid("terraria-version");
-            }
-
-            if (!IsSectionRangeValid(manifest.SourceWorld, image.Length) ||
-                !IsSectionRangeValid(manifest.TileRuns, image.Length) ||
-                !IsSectionRangeValid(manifest.LiquidState, image.Length) ||
-                manifest.SourceWorld.Offset != 0 ||
-                manifest.SourceWorld.Length != manifest.SourceLength ||
-                manifest.TileRuns.Offset != manifest.SourceWorld.Length ||
-                manifest.LiquidState.Offset != manifest.TileRuns.Offset + manifest.TileRuns.Length ||
-                manifest.LiquidState.Offset + manifest.LiquidState.Length != manifestOffset)
-            {
-                return WorldImageValidationResult.Invalid("section-range");
-            }
-
-            byte[] sourceHash = HashFile(sourcePath);
-            if (!sourceHash.AsSpan().SequenceEqual(manifest.SourceWorld.Sha256))
-            {
-                return WorldImageValidationResult.Invalid("source-fingerprint");
-            }
-
-            if (!HashSection(image, manifest.SourceWorld).AsSpan().SequenceEqual(manifest.SourceWorld.Sha256))
-            {
-                return WorldImageValidationResult.Invalid("source-section-checksum");
-            }
-
-            if (!HashSection(image, manifest.TileRuns).AsSpan().SequenceEqual(manifest.TileRuns.Sha256))
-            {
-                return WorldImageValidationResult.Invalid("tile-section-checksum");
-            }
-
-            if (!HashSection(image, manifest.LiquidState).AsSpan().SequenceEqual(manifest.LiquidState.Sha256))
-            {
-                return WorldImageValidationResult.Invalid("liquid-section-checksum");
-            }
-
-            bool hasRuntimeLiquidState =
-                manifest.SnapshotFlags.HasFlag(WorldImageSnapshotFlags.LiquidRuntimeState);
-            const WorldImageSnapshotFlags knownSnapshotFlags =
-                WorldImageSnapshotFlags.RuntimeTiles |
-                WorldImageSnapshotFlags.LiquidRuntimeState;
-            if ((manifest.SnapshotFlags & ~knownSnapshotFlags) != 0 ||
-                hasRuntimeLiquidState != (manifest.LiquidState.Length > 0) ||
-                hasRuntimeLiquidState &&
-                !manifest.SnapshotFlags.HasFlag(WorldImageSnapshotFlags.RuntimeTiles))
-            {
-                return WorldImageValidationResult.Invalid("snapshot-flags");
-            }
+            string? error = ValidateSourceMetadata(manifest, sourceInfo, sourcePath)
+                ?? ValidateSections(manifest, image, manifestOffset, sourcePath)
+                ?? ValidateSnapshotFlags(manifest);
+            if (error is not null) return WorldImageValidationResult.Invalid(error);
 
             return WorldImageValidationResult.Valid(manifest);
         }
@@ -217,6 +152,88 @@ internal static class VegaWorldImageReader
         {
             return WorldImageValidationResult.Invalid("invalid-format");
         }
+    }
+
+    private static string? ValidateSourceMetadata(VegaWorldImageManifest manifest, FileInfo sourceInfo, string sourcePath)
+    {
+        if (manifest.SchemaVersion != VegaWorldImageFormat.SchemaVersion)
+        {
+            return "schema-version";
+        }
+
+        if (!string.Equals(
+                manifest.CompilerParameters,
+                VegaWorldImageFormat.CompilerParameters,
+                StringComparison.Ordinal))
+        {
+            return "compiler-parameters";
+        }
+
+        if (manifest.SourceLength != sourceInfo.Length)
+        {
+            return "source-size";
+        }
+
+        int sourceVersion = ReadTerrariaVersion(sourcePath);
+        if (manifest.TerrariaVersion != sourceVersion)
+        {
+            return "terraria-version";
+        }
+        return null;
+    }
+
+    private static string? ValidateSections(VegaWorldImageManifest manifest, FileStream image, long manifestOffset, string sourcePath)
+    {
+        if (!IsSectionRangeValid(manifest.SourceWorld, image.Length) ||
+            !IsSectionRangeValid(manifest.TileRuns, image.Length) ||
+            !IsSectionRangeValid(manifest.LiquidState, image.Length) ||
+            manifest.SourceWorld.Offset != 0 ||
+            manifest.SourceWorld.Length != manifest.SourceLength ||
+            manifest.TileRuns.Offset != manifest.SourceWorld.Length ||
+            manifest.LiquidState.Offset != manifest.TileRuns.Offset + manifest.TileRuns.Length ||
+            manifest.LiquidState.Offset + manifest.LiquidState.Length != manifestOffset)
+        {
+            return "section-range";
+        }
+
+        byte[] sourceHash = HashFile(sourcePath);
+        if (!sourceHash.AsSpan().SequenceEqual(manifest.SourceWorld.Sha256))
+        {
+            return "source-fingerprint";
+        }
+
+        if (!HashSection(image, manifest.SourceWorld).AsSpan().SequenceEqual(manifest.SourceWorld.Sha256))
+        {
+            return "source-section-checksum";
+        }
+
+        if (!HashSection(image, manifest.TileRuns).AsSpan().SequenceEqual(manifest.TileRuns.Sha256))
+        {
+            return "tile-section-checksum";
+        }
+
+        if (!HashSection(image, manifest.LiquidState).AsSpan().SequenceEqual(manifest.LiquidState.Sha256))
+        {
+            return "liquid-section-checksum";
+        }
+        return null;
+    }
+
+    private static string? ValidateSnapshotFlags(VegaWorldImageManifest manifest)
+    {
+        bool hasRuntimeLiquidState =
+            manifest.SnapshotFlags.HasFlag(WorldImageSnapshotFlags.LiquidRuntimeState);
+        const WorldImageSnapshotFlags knownSnapshotFlags =
+            WorldImageSnapshotFlags.RuntimeTiles |
+            WorldImageSnapshotFlags.LiquidRuntimeState;
+        if ((manifest.SnapshotFlags & ~knownSnapshotFlags) != 0 ||
+            hasRuntimeLiquidState != (manifest.LiquidState.Length > 0) ||
+            hasRuntimeLiquidState &&
+            !manifest.SnapshotFlags.HasFlag(WorldImageSnapshotFlags.RuntimeTiles))
+        {
+            return "snapshot-flags";
+        }
+        return null;
     }
 
     internal static byte[] HashFile(string path)

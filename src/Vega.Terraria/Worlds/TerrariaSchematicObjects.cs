@@ -25,28 +25,39 @@ internal sealed class TerrariaSchematicObjects(SceneBounds bounds)
     {
         var result = new TerrariaSchematicObjects(bounds);
         var covered = new bool[checked(bounds.Width * bounds.Height)];
+        result.PrepareChests(document, tiles, covered);
+        result.PrepareSigns(document, tiles, covered);
+        result.PrepareEntities(document, tiles, covered);
+        result.PrepareWorldItems(document);
+        for (int i = 0; i < covered.Length; i++)
+            if (!covered[i] && NeedsRegisteredObject(tiles.Tiles[i]))
+                throw new SchematicFormatException("Schematic has a native object tile without its complete registration record.");
+        return result;
+    }
 
-        // Only complete standard 18-pixel framed footprints are accepted, never an anchor
-        // whose registration would overlap another object or leave a partial object outside the region.
-        void Cover(int x, int y, int width, int height, ushort type, bool standardFrame = true)
+    // Only complete standard 18-pixel framed footprints are accepted, never an anchor
+    // whose registration would overlap another object or leave a partial object outside the region.
+    private void Cover(SceneTileArea tiles, bool[] covered, int x, int y, int width, int height, ushort type, bool standardFrame = true)
+    {
+        if (x < 0 || y < 0 || x > bounds.Width - width || y > bounds.Height - height)
+            throw new SchematicFormatException("Registered object footprint exceeds its schematic region.");
+        var anchor = tiles[x, y];
+        if (standardFrame && (anchor.FrameX < 0 || anchor.FrameX % (18 * width) != 0 || anchor.FrameY != 0))
+            throw new SchematicFormatException("Registered object anchor is not a supported native frame.");
+        for (int dy = 0; dy < height; dy++)
+        for (int dx = 0; dx < width; dx++)
         {
-            if (x < 0 || y < 0 || x > bounds.Width - width || y > bounds.Height - height)
-                throw new SchematicFormatException("Registered object footprint exceeds its schematic region.");
-            var anchor = tiles[x, y];
-            if (standardFrame && (anchor.FrameX < 0 || anchor.FrameX % (18 * width) != 0 || anchor.FrameY != 0))
-                throw new SchematicFormatException("Registered object anchor is not a supported native frame.");
-            for (int dy = 0; dy < height; dy++)
-            for (int dx = 0; dx < width; dx++)
-            {
-                int index = (y + dy) * bounds.Width + x + dx;
-                var tile = tiles[x + dx, y + dy];
-                if (covered[index] || !tile.Flags.HasFlag(SceneTileFlags.Active) || tile.TileType != type ||
-                    tile.FrameX != anchor.FrameX + 18 * dx || tile.FrameY != anchor.FrameY + 18 * dy)
-                    throw new SchematicFormatException("Registered object has overlapping, missing or mismatched native tiles.");
-                covered[index] = true;
-            }
+            int index = (y + dy) * bounds.Width + x + dx;
+            var tile = tiles[x + dx, y + dy];
+            if (covered[index] || !tile.Flags.HasFlag(SceneTileFlags.Active) || tile.TileType != type ||
+                tile.FrameX != anchor.FrameX + 18 * dx || tile.FrameY != anchor.FrameY + 18 * dy)
+                throw new SchematicFormatException("Registered object has overlapping, missing or mismatched native tiles.");
+            covered[index] = true;
         }
+    }
 
+    private void PrepareChests(SchematicDocument document, SceneTileArea tiles, bool[] covered)
+    {
         var freeChests = Enumerable.Range(0, Main.chest.Length).Where(i => Main.chest[i] is null)
             .Take(document.Chests.Length).ToArray();
         if (freeChests.Length != document.Chests.Length || document.Signs.Length > Main.sign.Count(sign => sign is null))
@@ -62,18 +73,26 @@ internal sealed class TerrariaSchematicObjects(SceneBounds bounds)
                 record.Capacity > Math.Min(SchematicLimits.MaxChestItems, Chest.AbsoluteMaxItemsWeCanEverReachInAChestForNow) || record.Items.Length > record.Capacity ||
                 Chest.FindChest(bounds.X + record.X, bounds.Y + record.Y) >= 0)
                 throw new SchematicFormatException("Unsupported native chest type, name, capacity or existing registration.");
-            Cover(record.X, record.Y, type == TileID.Dressers ? 3 : 2, 2, type);
-            result.chests.Add((record, Items(record.Items), freeChests[i]));
+            Cover(tiles, covered, record.X, record.Y, type == TileID.Dressers ? 3 : 2, 2, type);
+            chests.Add((record, Items(record.Items), freeChests[i]));
         }
+    }
+
+    private void PrepareSigns(SchematicDocument document, SceneTileArea tiles, bool[] covered)
+    {
         foreach (var record in document.Signs)
         {
             if ((uint)record.X >= (uint)bounds.Width || (uint)record.Y >= (uint)bounds.Height)
                 throw new SchematicFormatException("Sign anchor lies outside its schematic region.");
             ushort type = tiles[record.X, record.Y].TileType;
             if (!Main.tileSign[type]) throw new SchematicFormatException("Sign record requires a native sign tile.");
-            Cover(record.X, record.Y, 2, 2, type);
-            result.signs.Add(record);
+            Cover(tiles, covered, record.X, record.Y, 2, 2, type);
+            signs.Add(record);
         }
+    }
+
+    private void PrepareEntities(SchematicDocument document, SceneTileArea tiles, bool[] covered)
+    {
         var pylonTypes = new HashSet<TeleportPylonType>();
         if (document.TileEntities.Any(entity => entity is SchematicTeleportationPylonTileEntity))
             foreach (var existing in TileEntity.ByPosition.Values.OfType<TETeleportationPylon>())
@@ -104,9 +123,13 @@ internal sealed class TerrariaSchematicObjects(SceneBounds bounds)
                 if (style < 0 || style >= (int)TeleportPylonType.Count || !pylonTypes.Add((TeleportPylonType)style))
                     throw new SchematicFormatException("Invalid or duplicate native pylon type in this world.");
             }
-            Cover(record.X, record.Y, width, height, type, standardFrame: record is not SchematicLogicSensorTileEntity);
-            result.entities.Add((record, entityType, items, dyes));
+            Cover(tiles, covered, record.X, record.Y, width, height, type, standardFrame: record is not SchematicLogicSensorTileEntity);
+            entities.Add((record, entityType, items, dyes));
         }
+    }
+
+    private void PrepareWorldItems(SchematicDocument document)
+    {
         int itemSlots = Math.Min(Main.maxItems, Math.Min(Main.item.Length, Main.timeItemSlotCannotBeReusedFor.Length));
         if (document.WorldItems.Length != 0 && document.WorldItems.Length > Enumerable.Range(0, itemSlots).Count(IsFreeItemSlot))
             throw new SchematicFormatException("Insufficient vacant native world item slots.");
@@ -118,15 +141,19 @@ internal sealed class TerrariaSchematicObjects(SceneBounds bounds)
                 record.X >= bounds.Width * 16f || record.Y >= bounds.Height * 16f ||
                 x + template.width > Main.maxTilesX * 16f || y + template.height > Main.maxTilesY * 16f)
                 throw new SchematicFormatException("Dropped world item cannot be represented within the native world.");
-            result.worldItems.Add((record, template));
+            worldItems.Add((record, template));
         }
-        for (int i = 0; i < covered.Length; i++)
-            if (!covered[i] && NeedsRegisteredObject(tiles.Tiles[i]))
-                throw new SchematicFormatException("Schematic has a native object tile without its complete registration record.");
-        return result;
     }
 
     public void Apply()
+    {
+        ApplyChests();
+        ApplySigns();
+        ApplyEntities();
+        foreach (var (record, template) in worldItems) PlaceWorldItem(record, template);
+    }
+
+    private void ApplyChests()
     {
         foreach (var (record, items, slot) in chests)
         {
@@ -143,6 +170,10 @@ internal sealed class TerrariaSchematicObjects(SceneBounds bounds)
                 throw new InvalidOperationException("Native chest capacity could not be restored.");
             CopyItems(items, chest.item);
         }
+    }
+
+    private void ApplySigns()
+    {
         foreach (var record in signs)
         {
             int x = bounds.X + record.X, y = bounds.Y + record.Y;
@@ -152,6 +183,10 @@ internal sealed class TerrariaSchematicObjects(SceneBounds bounds)
             rollback.Add(() => { if (ReferenceEquals(Main.sign[slot], sign)) Main.sign[slot] = null; });
             sign.text = record.Text;
         }
+    }
+
+    private void ApplyEntities()
+    {
         foreach (var (record, entityType, items, dyes) in entities)
         {
             int x = bounds.X + record.X, y = bounds.Y + record.Y;
@@ -192,7 +227,6 @@ internal sealed class TerrariaSchematicObjects(SceneBounds bounds)
                 default: throw new InvalidOperationException("Native tile entity type does not match the schematic.");
             }
         }
-        foreach (var (record, template) in worldItems) PlaceWorldItem(record, template);
     }
 
     private static bool IsFreeItemSlot(int slot) => Main.item[slot] is { active: false } && Main.timeItemSlotCannotBeReusedFor[slot] == 0;

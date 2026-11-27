@@ -206,12 +206,12 @@ public sealed class RestAdministration(WorldId world, IAccountService accounts, 
 
     private async ValueTask<int> WriteSandboxesAsync(string route, JsonElement payload, CancellationToken token)
     {
+        if (sandboxControl is null) return 404;
         switch (route)
         {
             case "sandboxes/start":
             case "sandboxes/stop":
             case "sandboxes/restart":
-                if (sandboxControl is null) return 404;
                 var target = new WorldId(Text(Body<SandboxTarget>(payload).WorldId));
                 if (target == WorldId.Primary) return 400;
                 SandboxOperationResult result = route switch
@@ -221,33 +221,34 @@ public sealed class RestAdministration(WorldId world, IAccountService accounts, 
                     _ => await sandboxControl.RestartAsync(target, token)
                 };
                 return Status(result);
-            case "sandboxes/create":
-                if (sandboxControl is null) return 404;
-                var create = Body<CreateSandbox>(payload);
-                var persistence = create.Persistence switch
-                { "temporary" => SandboxPersistenceMode.Temporary, "persistent" => SandboxPersistenceMode.Persistent, _ => throw new ArgumentException() };
-                var ssc = create.SscMode switch
-                { "inherit" => SandboxSscMode.Inherit, "copyOnEnter" => SandboxSscMode.CopyOnEnter,
-                    "isolated" => SandboxSscMode.Isolated, "disabled" => SandboxSscMode.Disabled, _ => throw new ArgumentException() };
-                if (create.Capacity is < 1 or > 255 || create.WorldId.Equals("primary", StringComparison.OrdinalIgnoreCase)) return 400;
-                string? template = ResolveTemplate(create.Template);
-                if (template is null) return 404;
-                return Status(await sandboxControl.CreateAsync(new SandboxCreateRequest(Text(create.WorldId), Text(create.Name), template,
-                    persistence, create.Capacity, new(SandboxAccessMode.Public), null, ssc, new HashSet<string>()), token));
+            case "sandboxes/create": return await CreateSandboxAsync(sandboxControl, payload, token);
             case "sandboxes/reset":
-                if (sandboxControl is null) return 404;
                 var reset = Body<ResetSandbox>(payload);
                 if (!reset.Confirm || reset.WorldId.Equals("primary", StringComparison.OrdinalIgnoreCase)) return 400;
                 string? replacement = reset.Template is null ? null : ResolveTemplate(reset.Template);
                 if (reset.Template is not null && replacement is null) return 404;
                 return Status(await sandboxControl.ResetConfirmedAsync(new(Text(reset.WorldId)), Revision(reset.Revision), reset.CreatedAt, replacement, token));
             case "sandboxes/destroy":
-                if (sandboxControl is null) return 404;
                 var destroy = Body<DestroySandbox>(payload);
                 if (!destroy.Confirm || destroy.WorldId.Equals("primary", StringComparison.OrdinalIgnoreCase)) return 400;
                 return Status(await sandboxControl.DestroyConfirmedAsync(new(Text(destroy.WorldId)), Revision(destroy.Revision), destroy.CreatedAt, token));
             default: return 404;
         }
+    }
+
+    private async ValueTask<int> CreateSandboxAsync(ISandboxControlService control, JsonElement payload, CancellationToken token)
+    {
+        var create = Body<CreateSandbox>(payload);
+        var persistence = create.Persistence switch
+        { "temporary" => SandboxPersistenceMode.Temporary, "persistent" => SandboxPersistenceMode.Persistent, _ => throw new ArgumentException() };
+        var ssc = create.SscMode switch
+        { "inherit" => SandboxSscMode.Inherit, "copyOnEnter" => SandboxSscMode.CopyOnEnter,
+            "isolated" => SandboxSscMode.Isolated, "disabled" => SandboxSscMode.Disabled, _ => throw new ArgumentException() };
+        if (create.Capacity is < 1 or > 255 || create.WorldId.Equals("primary", StringComparison.OrdinalIgnoreCase)) return 400;
+        string? template = ResolveTemplate(create.Template);
+        if (template is null) return 404;
+        return Status(await control.CreateAsync(new SandboxCreateRequest(Text(create.WorldId), Text(create.Name), template,
+            persistence, create.Capacity, new(SandboxAccessMode.Public), null, ssc, new HashSet<string>()), token));
     }
 
     private static string Text(string value, int max = 128) => !string.IsNullOrWhiteSpace(value) && value.Length <= max && !value.Any(char.IsControl)

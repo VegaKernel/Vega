@@ -23,6 +23,15 @@ internal static class SchematicValidator
         ArgumentNullException.ThrowIfNull(document);
         ValidateHeader(document.ContentVersion, document.Width, document.Height, document.OriginX, document.OriginY);
 
+        ValidateTiles(document);
+        ValidateContainers(document);
+        ValidateTileEntities(document);
+        ValidateActorsAndItems(document);
+        ValidateMarkersAndMetadata(document);
+    }
+
+    private static void ValidateTiles(SchematicDocument document)
+    {
         int expectedTileCount = checked(document.Width * document.Height);
         if (document.Tiles.Length != expectedTileCount)
             throw new SchematicFormatException($"Tile count {document.Tiles.Length} does not match dimensions {document.Width}x{document.Height}.");
@@ -34,7 +43,10 @@ internal static class SchematicValidator
             if (!Enum.IsDefined(tile.LiquidKind))
                 throw new SchematicFormatException($"Unknown liquid kind {(byte)tile.LiquidKind}.");
         }
+    }
 
+    private static void ValidateContainers(SchematicDocument document)
+    {
         ValidateCount(document.Chests.Length, SchematicLimits.MaxChests, "chests");
         foreach (SchematicChest chest in document.Chests)
         {
@@ -52,7 +64,10 @@ internal static class SchematicValidator
             ValidateTilePosition(sign.X, sign.Y, document.Width, document.Height, "sign");
             ValidateString(sign.Text, SchematicLimits.MaxSignTextUtf8Bytes, allowNull: false, "sign text");
         }
+    }
 
+    private static void ValidateTileEntities(SchematicDocument document)
+    {
         ValidateCount(document.TileEntities.Length, SchematicLimits.MaxTileEntities, "tile entities");
         foreach (SchematicTileEntity entity in document.TileEntities)
         {
@@ -86,7 +101,10 @@ internal static class SchematicValidator
                     throw new SchematicFormatException($"Unsupported tile entity model {entity.GetType().Name}.");
             }
         }
+    }
 
+    private static void ValidateActorsAndItems(SchematicDocument document)
+    {
         ValidateCount(document.Npcs.Length, SchematicLimits.MaxNpcs, "NPCs");
         foreach (SchematicNpc npc in document.Npcs)
         {
@@ -108,7 +126,10 @@ internal static class SchematicValidator
             ValidateItem(item.Item, allowEmpty: false, "world item");
             ValidatePixelPosition(item.X, item.Y, document.Width, document.Height, "world item");
         }
+    }
 
+    private static void ValidateMarkersAndMetadata(SchematicDocument document)
+    {
         ValidateCount(document.Markers.Length, SchematicLimits.MaxMarkers, "markers");
         foreach (SchematicMarker marker in document.Markers)
         {
