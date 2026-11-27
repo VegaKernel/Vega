@@ -18,6 +18,7 @@ internal sealed class NativeGameplayEventHooks(WorldId world, IWorldGameplayEven
         Interlocked.Increment(ref attachmentEpoch);
         Hooks.NPC.Create += Creating;
         Hooks.NPC.Killed += Killed;
+        Hooks.NPC.StrikeCompleted += StrikeCompleted;
         Hooks.NPC.Transforming += Transforming;
         Hooks.NPC.DropLoot += Loot;
         Hooks.MessageBuffer.ServerProjectileSynced += ProjectileSynced;
@@ -34,6 +35,7 @@ internal sealed class NativeGameplayEventHooks(WorldId world, IWorldGameplayEven
         Interlocked.Increment(ref attachmentEpoch);
         Hooks.NPC.Create -= Creating;
         Hooks.NPC.Killed -= Killed;
+        Hooks.NPC.StrikeCompleted -= StrikeCompleted;
         Hooks.NPC.Transforming -= Transforming;
         Hooks.NPC.DropLoot -= Loot;
         Hooks.MessageBuffer.ServerProjectileSynced -= ProjectileSynced;
@@ -86,6 +88,12 @@ internal sealed class NativeGameplayEventHooks(WorldId world, IWorldGameplayEven
     private void Killed(object? sender, Hooks.NPC.KilledEventArgs args)
     {
         if (Observed<NpcKilledEvent>()) Publish(new NpcKilledEvent(Snapshot(args.Npc)));
+    }
+
+    private void StrikeCompleted(global::Terraria.NPC npc, int damage, int requestedDamage, bool critical)
+    {
+        if (Volatile.Read(ref attached) && Observed<NpcStrikeCompletedEvent>())
+            Publish(new NpcStrikeCompletedEvent(Snapshot(npc), requestedDamage, damage, critical));
     }
 
     private void Transforming(object? sender, Hooks.NPC.TransformingEventArgs args)

@@ -24,6 +24,7 @@ public sealed class PluginCallbackBoundaryTests
             "IPluginTasks.RunIo", "IPluginConfiguration.Use", "IPluginStorage.LoadJson",
             "IPluginWorldEvents.OnTickCompleted", "IPluginWorldEvents.OnSaveCompleted",
             "IPluginWorldEvents.OnNpcCreating", "IPluginWorldEvents.OnNpcKilled", "IPluginWorldEvents.OnNpcTransforming",
+            "IPluginWorldEvents.OnNpcStrikeCompleted",
             "IPluginWorldEvents.OnNpcLootDropped", "IPluginWorldEvents.OnProjectileSynchronized", "IPluginWorldEvents.OnProjectileRemoved",
             "IPluginWorldEvents.AllowNpcTransform", "IPluginWorldEvents.AllowNpcLoot", "IPluginWorldEvents.OnNpcActorInteracted",
             "IPluginWorldEvents.OnNpcActorPurchased", "IPluginWorldEvents.OnNpcActorDialogueChoice",

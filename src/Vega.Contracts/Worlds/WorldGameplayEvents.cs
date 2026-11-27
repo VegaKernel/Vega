@@ -9,6 +9,9 @@ public readonly record struct NpcEventSnapshot(WorldId WorldId, int Slot, int Ge
 /// <summary>Observed allocation request, before the native NPC is created; not a successful-spawn notification.</summary>
 public readonly record struct NpcCreatingEvent(WorldId WorldId, int Slot, int Generation, int Type, PlayerPosition RequestedPosition);
 public readonly record struct NpcKilledEvent(NpcEventSnapshot Npc);
+/// <summary>Native completed strike with the NPC snapshot after the native finally block.
+/// NativeDamage is StrikeNPC's returned damage, not necessarily the exact life decrement (e.g. shared-life NPCs).</summary>
+public readonly record struct NpcStrikeCompletedEvent(NpcEventSnapshot Npc, int RequestedDamage, int NativeDamage, bool Critical);
 public readonly record struct NpcTransformingEvent(NpcEventSnapshot Npc, int RequestedType);
 public readonly record struct NpcLootCreatingEvent(NpcEventSnapshot Npc, int ItemType, int Stack, int Prefix,
     PlayerPosition RequestedPosition);

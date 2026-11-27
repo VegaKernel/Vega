@@ -211,7 +211,7 @@ context.WorldEvents.AllowNpcLoot(e => e.Stack <= configuredStackLimit);
 ```
 
 Доступны уведомления `OnNpcCreating`, `OnNpcKilled`, `OnNpcTransforming`,
-`OnNpcLootDropped`, `OnProjectileSynchronized` и `OnProjectileRemoved`.
+`OnNpcLootDropped`, `OnProjectileSynchronized`, `OnProjectileRemoved` и `OnNpcStrikeCompleted`. Последнее событие вызывается только после завершённого нативного удара с положительным результатом: содержит запрошенный урон, возвращённый игрой урон, признак критического удара и снимок NPC. Возвращённый урон не обязательно равен изменению здоровья; событие не позволяет отменить удар и не определяет атакующего.
 Они передают отделённые от Terraria данные текущего мира. Уведомление о
 создании NPC относится к запросу выделения слота, а события снарядов — к
 нативной входящей синхронизации, не ко всему жизненному циклу. Политики

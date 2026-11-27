@@ -11,6 +11,8 @@ public interface IPluginWorldEvents
     void OnSaveCompleted(Action<WorldSaveCompletedEvent> handler);
     void OnNpcCreating(Action<NpcCreatingEvent> handler);
     void OnNpcKilled(Action<NpcKilledEvent> handler);
+    /// <summary>Observes successful positive native strike returns. No cancellation or damage override is available.</summary>
+    void OnNpcStrikeCompleted(Action<NpcStrikeCompletedEvent> handler);
     void OnNpcTransforming(Action<NpcTransformingEvent> handler);
     void OnNpcLootDropped(Action<NpcLootDroppedEvent> handler);
     void OnProjectileSynchronized(Action<ProjectileSynchronizedEvent> handler);

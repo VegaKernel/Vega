@@ -8,7 +8,7 @@
   · <a href="docs/decisions/">ADRs</a>
 </p>
 
-Vega is an independent server framework for Terraria 1.4.6.1 targeting .NET 11. It hosts the patched official dedicated server through TerrariaRuntime 1.1.5, separates game integration from server behavior, and exposes typed contracts for commands, events, players, packets, modules, operations, and cluster scenarios.
+Vega is an independent server framework for Terraria 1.4.6.1 targeting .NET 11. It hosts the patched official dedicated server through TerrariaRuntime 1.1.8, separates game integration from server behavior, and exposes typed contracts for commands, events, players, packets, modules, operations, and cluster scenarios.
 
 Vega is not a TShock fork and does not provide binary or source compatibility for TShock/TSAPI plugins. Historical implementations are used only as evidence for production behavior, requirements, and regression scenarios.
 

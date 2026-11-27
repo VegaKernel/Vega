@@ -140,6 +140,52 @@ public sealed class PluginSdkWorldContextTests
     }
     [Test]
     [NonParallelizable]
+    public async Task NativeStrikeCompletionReportsReturnedDamageAndPostStrikeSnapshotWithoutChangingVanilla()
+    {
+        var world = new WorldId("strike-events");
+        var events = new WorldGameplayEventHub();
+        var dispatcher = new EventGameThread();
+        using var hooks = new NativeGameplayEventHooks(world, events, dispatcher, new NullLogger());
+        hooks.Attach();
+        await using var faulty = new HotModuleRegistrationScope(new NullCommandRegistry(), new NullLogger(),
+            "Plugin.FaultyStrike", Path.GetTempPath(), faultThreshold: 1, worldEvents: events);
+        await using var healthy = new HotModuleRegistrationScope(new NullCommandRegistry(), new NullLogger(),
+            "Plugin.HealthyStrike", Path.GetTempPath(), worldEvents: events);
+        int oldMode = global::Terraria.Main.netMode, oldPlayer = global::Terraria.Main.myPlayer;
+        bool oldDedicated = global::Terraria.Main.dedServ;
+        try
+        {
+            global::Terraria.Main.netMode = 2; global::Terraria.Main.myPlayer = 255; global::Terraria.Main.dedServ = true;
+            var npc = new global::Terraria.NPC { whoAmI = 7, generation = 4, type = 1, active = true, life = 100, lifeMax = 100,
+                defense = 0, realLife = -1, takenDamageMultiplier = 1, knockBackResist = 0, position = new(100, 200) };
+            Assert.That(npc.StrikeNPC(10, 0, 0, false, true, 1), Is.EqualTo(10));
+            Assert.That(npc.life, Is.EqualTo(90));
+            faulty.WorldEvents.OnNpcStrikeCompleted(_ => throw new InvalidOperationException("fixture"));
+            var observed = new List<NpcStrikeCompletedEvent>();
+            healthy.WorldEvents.OnNpcStrikeCompleted(observed.Add);
+            int dealt = npc.StrikeNPC(10, 0, 0, true, true, 1);
+            Assert.That(dealt, Is.EqualTo(20));
+            Assert.That(npc.life, Is.EqualTo(70));
+            Assert.That(observed.Single(), Is.EqualTo(new NpcStrikeCompletedEvent(
+                new NpcEventSnapshot(world, 7, 4, 1, new(100, 200), 70, false, false), 10, dealt, true)));
+            Assert.That(faulty.Faults.Quarantined, Is.True);
+            npc.position = new(300, 400);
+            npc.active = false;
+            Assert.That(npc.StrikeNPC(10, 0, 0, false, true, 1), Is.Zero);
+            Assert.That(observed, Has.Count.EqualTo(1));
+            Assert.That(observed[0].Npc.Position, Is.EqualTo(new PlayerPosition(100, 200)));
+            await healthy.DisposeAsync();
+            await faulty.DisposeAsync();
+            Assert.That(events.HasSubscribers<NpcStrikeCompletedEvent>(), Is.False);
+            npc.active = true;
+            Assert.That(npc.StrikeNPC(10, 0, 0, false, true, 1), Is.EqualTo(10));
+            Assert.That(observed, Has.Count.EqualTo(1));
+        }
+        finally { global::Terraria.Main.netMode = oldMode; global::Terraria.Main.myPlayer = oldPlayer; global::Terraria.Main.dedServ = oldDedicated; }
+    }
+
+    [Test]
+    [NonParallelizable]
     public async Task NativeNpcNotificationsAreWorldScopedDetachedGuardedAndUnsubscribed()
     {
         var world = new WorldId("event-world");

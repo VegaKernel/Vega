@@ -1,6 +1,6 @@
 # Roadmap review — 26 November 2026
 
-**Target:** independently replace TShock as an operator-facing server, retaining official Terraria 1.4.6.1 gameplay, protocol 329, and `.wld` semantics through TerrariaRuntime 1.1.7. The protocol library is Multiplicity 4.0.1. Neither TShock API compatibility nor a separate Terraria simulation is a prerequisite.
+**Target:** independently replace TShock as an operator-facing server, retaining official Terraria 1.4.6.1 gameplay, protocol 329, and `.wld` semantics through TerrariaRuntime 1.1.8. The protocol library is Multiplicity 4.0.1. Neither TShock API compatibility nor a separate Terraria simulation is a prerequisite.
 
 ## Current implementation checkpoint
 
@@ -58,6 +58,28 @@ account/ban/region destination imports into SQLite, MySQL or PostgreSQL. See
 [migration](migration.md) for separate schema/backup and group-mapping rules.
 Legacy source schema variations, automatic permission mapping, third-party data
 and stock-client restoration still require qualification.
+
+The SDK adds credential-free identity and effective permission reads for exact
+sessions, public current-world warp snapshots, and TerrariaRuntime 1.1.8's
+completed NPC strike notification with detached native results. The latter
+is an observation of positive native damage, not a mutable damage policy.
+
+The MySQL 8.4 / PostgreSQL 17 CI contract job passed all five cases, including
+SELECT-only TShock MySQL source to SQLite and to a separate MySQL destination,
+transaction/rollback and dump contracts for both external providers. The first
+run caught MySqlConnector's implicit CHAR(36) GUID decoding; Vega now explicitly
+uses text identifiers, including bans, temporary roles and mutes.
+
+Native 1.1.8 integration: 900 local test cases passed (five external-provider
+cases skipped locally and exercised separately in CI); deployment smoke passed
+for REST, schemas, Ordered transport, sandbox isolation and parity commands.
+A 600-update full-world, 255-peer synthetic loopback fixture with deferred
+producer batching (2 ms) completed in 9.437 s, 25,500 movements, 5,100 boss hits
+(71,400 damage), 1,275 messages, 8,261,324 completion callbacks and 144,253,282
+bytes with all peer hashes verified. Busy p95 was 19.260 ms with 139 cadence
+budget overruns: 63.58 average updates/s is not stable 60 TPS or stock-client
+qualification. Raw local evidence: `artifacts/mysql-migration-2026-11-27/`.
+
 
 - **P0 native gameplay load:** real native world counter now verifies a 255-slot
   mixed fixture, including boss AI, movement, chat and native background traffic.

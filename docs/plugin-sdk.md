@@ -157,7 +157,12 @@ The other notifications are `OnNpcCreating` (native allocation request, not
 confirmation), `OnNpcTransforming` (approved prospective transformation),
 `OnNpcLootDropped` (actual allocated world item), `OnProjectileSynchronized`
 and `OnProjectileRemoved` (native ingress notifications, not a complete
-projectile lifetime census). All carry detached values and the current world
+projectile lifetime census). `OnNpcStrikeCompleted` runs only after native
+`StrikeNPC` returns a positive damage result and its finally block has completed;
+it reports requested damage, native returned damage, critical flag and a detached
+post-strike NPC snapshot. Returned damage is not necessarily the life decrement
+for shared-life/immortal NPCs. It is neither a cancellation policy nor an
+attacker/session identity grant. All carry detached values and the current world
 identity. NPC native generation is distinct from the optimistic mutation
 revision in `NpcHandle`; capture a current handle through `World.Npcs` before
 requesting a later mutation.
