@@ -14,7 +14,7 @@ internal sealed class NativeMovementInterestHooks(int updatesPerSecond, Func<boo
     private const int DistantRadius = 220 * 16;
     private readonly long interval = Stopwatch.Frequency / updatesPerSecond;
     private readonly int[] generations = new int[Slots];
-    private readonly MovementSample[] samples = new MovementSample[Slots * Slots];
+    private readonly MovementSample[]?[] samples = new MovementSample[Slots][];
     private Hooks.NetMessage.SendDataEventArgs? relay;
     private long now;
 
@@ -50,29 +50,43 @@ internal sealed class NativeMovementInterestHooks(int updatesPerSecond, Func<boo
 
     private void OnSendBytes(ref Hooks.NetMessage.ReadOnlySendBytesContext args)
     {
-        if (args.Size < 17 || args.Data[2] != MovementPacket || !isGameThread() ||
-            relay is not { } current || current.Result == HookResult.Cancel || args.Cancelled ||
-            args.Data[3] != current.Number || (uint)args.RemoteClient >= Slots) return;
+        if (relay is not { } current || !isGameThread()) return;
 
         int source = current.Number, target = args.RemoteClient;
-        if (global::Terraria.Netplay.Clients[target] is not { State: FullyConnected } remote ||
-            !ReferenceEquals(args.Socket, remote.Socket)) return;
+        if ((uint)source >= Slots || (uint)target >= Slots) return;
         if (global::Terraria.Main.player[source] is not { active: true } origin ||
             global::Terraria.Main.player[target] is not { active: true } viewer) return;
-        ref MovementSample sample = ref samples[source * Slots + target];
-        if (viewer.netCameraTarget.HasValue || Vector2.DistanceSquared(origin.position, viewer.position) < NearRadius * NearRadius)
+        var row = samples[source];
+        bool near = viewer.netCameraTarget.HasValue || Vector2.DistanceSquared(origin.position, viewer.position) < NearRadius * NearRadius;
+        // A nearby recipient with no distant history needs neither packet inspection nor a state change.
+        if (near && (row is null || !row[target].Distant)) return;
+        FilterTrackedMovement(ref args, current, origin, viewer, near);
+    }
+
+    private void FilterTrackedMovement(ref Hooks.NetMessage.ReadOnlySendBytesContext args,
+        Hooks.NetMessage.SendDataEventArgs current, global::Terraria.Player origin, global::Terraria.Player viewer,
+        bool near)
+    {
+        if (args.Cancelled || current.Result == HookResult.Cancel || args.Size < 17) return;
+        int source = current.Number, target = args.RemoteClient;
+        var data = args.Data;
+        if (data[2] != MovementPacket || data[3] != source ||
+            global::Terraria.Netplay.Clients[target] is not { State: FullyConnected } remote ||
+            !ReferenceEquals(args.Socket, remote.Socket)) return;
+        if (near)
         {
-            sample.MarkNear();
+            samples[source]![target].MarkNear();
             return;
         }
         if (!ReferenceEquals(args.Callback.Target, remote) ||
             args.Callback.Method.Name != nameof(global::Terraria.RemoteClient.ServerWriteCallBack)) return;
 
-        ReadOnlySpan<byte> payload = args.Data.Slice(4, 5);
+        var row = samples[source] ??= new MovementSample[Slots];
+        ReadOnlySpan<byte> payload = data.Slice(4, 5);
         long state = (uint)((payload[0] & 0x20) | ((payload[1] & 0xfb) << 8) | (payload[2] << 16)) |
             ((long)payload[3] << 24) | ((long)payload[4] << 32);
         bool special = (payload[2] & 0x40) != 0 || (payload[3] & 0x38) != 0;
-        if (!sample.ShouldSend(origin.position, viewer.position, state, special,
+        if (!row[target].ShouldSend(origin.position, viewer.position, state, special,
                 Volatile.Read(ref generations[source]), Volatile.Read(ref generations[target]), now, interval))
         {
             args.Cancel();
@@ -87,17 +101,17 @@ internal sealed class NativeMovementInterestHooks(int updatesPerSecond, Func<boo
         private long lastState;
         private int sourceGeneration;
         private int targetGeneration;
-        private bool distant;
+        public bool Distant { get; private set; }
 
-        public void MarkNear() => distant = false;
+        public void MarkNear() => Distant = false;
 
         public bool ShouldSend(Vector2 origin, Vector2 viewer, long state, bool special,
             int sourceSession, int targetSession, long stamp, long intervalTicks)
         {
             bool sameSession = lastStamp != 0 && sourceSession == sourceGeneration && targetSession == targetGeneration;
-            int radius = sameSession && distant ? NearRadius : DistantRadius;
+            int radius = sameSession && Distant ? NearRadius : DistantRadius;
             bool far = Vector2.DistanceSquared(origin, viewer) >= radius * radius;
-            bool send = !far || !sameSession || !distant || special || state != lastState ||
+            bool send = !far || !sameSession || !Distant || special || state != lastState ||
                 Vector2.DistanceSquared(lastPosition, origin) >= 640 * 640 || stamp - lastStamp >= intervalTicks;
             if (!send) return false;
             lastPosition = origin;
@@ -105,7 +119,7 @@ internal sealed class NativeMovementInterestHooks(int updatesPerSecond, Func<boo
             lastState = state;
             sourceGeneration = sourceSession;
             targetGeneration = targetSession;
-            distant = far;
+            Distant = far;
             return true;
         }
     }
