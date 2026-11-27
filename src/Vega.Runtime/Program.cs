@@ -387,8 +387,9 @@ int Start()
             [("shared whitelist", whitelist.ReloadAsync), ("restrictions", restrictions.ReloadAsync), ("build-protection", buildProtection.ReloadAsync)]);
         using IDisposable reloadRegistration = commandDispatcher.Register(reloadConfiguration);
         using IDisposable configCommandRegistration = commandDispatcher.Register(new ConfigurationCommand(serverConfiguration, reloadConfiguration));
+        var warpStore = new WarpStore(Path.Combine(runtimeDataRoot, "warps"));
         using var navigationModule = new NavigationModule(commandDispatcher, playerBoundary, playerBoundary, playerBoundary,
-            worldEnvironment, new WarpStore(Path.Combine(runtimeDataRoot, "warps")), worldNpcs, playerBoundary);
+            worldEnvironment, warpStore, worldNpcs, playerBoundary);
         navigationModule.Start();
         using IDisposable timeCommandRegistration = commandDispatcher.Register(new TimeCommand(worldEnvironment));
         using IDisposable windCommandRegistration = commandDispatcher.Register(new WindCommand(worldEnvironment));
@@ -770,7 +771,9 @@ int Start()
             pluginDataRoot: Path.Combine(runtimeDataRoot, "plugins"),
             pluginConfigurationRoot: backendLaunch.IsBackend ? Path.Combine(runtimeDataRoot, "plugin-config") : null,
             worldEvents: worldEvents, activityWorldId: runtimeWorldId,
-            authentication: accountSessions, publicChat: chat);
+            authentication: accountSessions, publicChat: chat,
+            accounts: database.Accounts, groups: database.Authorization, playerPermissions: playerAuthorization,
+            warps: new WorldPublicWarpReader(worldEnvironment, warpStore));
         serverPlugins.Start();
         softRestart.SetProcessRestartGuard(() => serverPlugins.Read().IsRestartRequired
             ? "ServerPlugins contains a change or cleanup failure that requires a process restart."

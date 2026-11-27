@@ -1,24 +1,21 @@
-using Microsoft.Data.Sqlite;
+using System.Data;
 using Vega.Modules.Navigation;
 
 namespace Vega.Runtime;
 
-/// <summary>Read-only access to the pinned TShock SQLite warp schema; target world selection is explicit.</summary>
+/// <summary>Read-only access to the pinned TShock warp schema; target world selection is explicit.</summary>
 internal static class TShockWarpMigration
 {
     public static IReadOnlyList<WarpPoint> Read(string sourcePath, int legacyWorldId)
+        => Read(TShockMigrationSource.Parse(sourcePath), legacyWorldId);
+
+    public static IReadOnlyList<WarpPoint> Read(TShockMigrationSource source, int legacyWorldId)
     {
-        var settings = new SqliteConnectionStringBuilder
-        {
-            DataSource = Path.GetFullPath(sourcePath),
-            Mode = SqliteOpenMode.ReadOnly,
-            Pooling = false
-        };
-        using var connection = new SqliteConnection(settings.ConnectionString);
-        connection.Open();
+        using var connection = source.OpenReadOnly();
         using var command = connection.CreateCommand();
-        command.CommandText = "SELECT WarpName, X, Y, Private FROM Warps WHERE WorldID = @world ORDER BY Id;";
-        command.Parameters.AddWithValue("@world", legacyWorldId.ToString(System.Globalization.CultureInfo.InvariantCulture));
+        command.CommandText = source.IsMySql ? "SELECT WarpName, X, Y, `Private` FROM Warps WHERE WorldID = @world ORDER BY Id;" :
+            "SELECT WarpName, X, Y, Private FROM Warps WHERE WorldID = @world ORDER BY Id;";
+        TShockMigrationSource.AddParameter(command, "@world", DbType.String, legacyWorldId.ToString(System.Globalization.CultureInfo.InvariantCulture));
         using var reader = command.ExecuteReader();
         var points = new List<WarpPoint>();
         while (reader.Read())

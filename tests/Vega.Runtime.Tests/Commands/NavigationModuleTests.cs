@@ -13,6 +13,34 @@ public sealed class NavigationModuleTests
     private static readonly WorldId World = new("test");
 
     [Test]
+    public async Task PublicWarpReaderOmitsHiddenAndOtherWorldCatalogsAndChecksPersistentIdentity()
+    {
+        string path = Path.Combine(Path.GetTempPath(), "vega-warp-reader-tests", Guid.NewGuid().ToString("N"));
+        var world = new RecordingWorld();
+        var store = new WarpStore(path);
+        Guid original = world.FileIdentity;
+        try
+        {
+            Assert.That(await store.AddAsync(original, new("Town", new(100, 200))), Is.True);
+            Assert.That(await store.AddAsync(original, new("Secret", new(200, 300), Hidden: true)), Is.True);
+            var reader = new WorldPublicWarpReader(world, store);
+            var catalog = await reader.ReadAsync(World);
+            Assert.That(catalog!.WorldId, Is.EqualTo(World));
+            Assert.That(catalog.FileIdentity, Is.EqualTo(original));
+            Assert.That(catalog.Warps, Is.EqualTo(new[] { new PublicWarpSnapshot("Town", new(100, 200)) }));
+            world.FileIdentity = Guid.NewGuid();
+            Assert.That((await reader.ReadAsync(World))!.Warps, Is.Empty);
+            world.FileIdentity = original;
+            world.AfterCapture = () => world.FileIdentity = Guid.NewGuid();
+            Assert.That(await reader.ReadAsync(World), Is.Null);
+            world.AfterCapture = null;
+            world.FileIdentity = Guid.Empty;
+            Assert.That(await reader.ReadAsync(World), Is.Null);
+        }
+        finally { if (System.IO.Directory.Exists(path)) System.IO.Directory.Delete(path, true); }
+    }
+
+    [Test]
     public async Task WarpSendNotifiesOnlyTheSuccessfullyMovedSession()
     {
         string path = Path.Combine(Path.GetTempPath(), "vega-warp-notify-tests", Guid.NewGuid().ToString("N"));
@@ -240,9 +268,14 @@ public sealed class NavigationModuleTests
     private sealed class RecordingWorld : IWorldEnvironmentService
     {
         public Guid FileIdentity { get; set; } = Guid.NewGuid();
-        public ValueTask<WorldEnvironmentSnapshot?> CaptureAsync(WorldId worldId, CancellationToken cancellationToken = default) =>
-            ValueTask.FromResult<WorldEnvironmentSnapshot?>(new(worldId, 4200, 1200, 100, 100, true, 0, 0, false, false, false, 0, 0, false, DateTimeOffset.UtcNow)
-                { FileIdentity = FileIdentity });
+        public Action? AfterCapture { get; set; }
+        public ValueTask<WorldEnvironmentSnapshot?> CaptureAsync(WorldId worldId, CancellationToken cancellationToken = default)
+        {
+            var snapshot = new WorldEnvironmentSnapshot(worldId, 4200, 1200, 100, 100, true, 0, 0, false, false, false, 0, 0, false, DateTimeOffset.UtcNow)
+                { FileIdentity = FileIdentity };
+            AfterCapture?.Invoke();
+            return ValueTask.FromResult<WorldEnvironmentSnapshot?>(snapshot);
+        }
         public ValueTask<WorldEnvironmentMutationResult> PatchAsync(WorldEnvironmentMutationRequest request, CancellationToken cancellationToken = default) =>
             throw new NotSupportedException();
     }

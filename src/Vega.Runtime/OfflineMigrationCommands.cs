@@ -1,4 +1,5 @@
 using Vega.Core.Bans;
+using System.Data.Common;
 using Vega.Modules.Administration;
 using Vega.Modules.Navigation;
 using Vega.Persistence;
@@ -9,6 +10,7 @@ namespace Vega.Runtime;
 /// <summary>Explicit offline operator migrations; the normal Terraria host is never initialized.</summary>
 internal static class OfflineMigrationCommands
 {
+    private const string SourceUsage = "<TShock SQLite file|@mysql>";
     public static int? TryRun(string[] args, string baseDirectory)
     {
         if (args.Contains("--vega-import-tshock-whitelist", StringComparer.Ordinal))
@@ -49,21 +51,22 @@ internal static class OfflineMigrationCommands
             if (args.Length != 4 || args[0] != "--vega-import-tshock-regions" ||
                 !int.TryParse(args[2], System.Globalization.CultureInfo.InvariantCulture, out int legacyWorldId))
             {
-                Console.Error.WriteLine("Usage: --vega-import-tshock-regions <TShock SQLite database> <legacy numeric WorldID> <group mapping JSON>. Stop all worlds first.");
+                Console.Error.WriteLine($"Usage: --vega-import-tshock-regions {SourceUsage} <legacy numeric WorldID> <group mapping JSON>. Stop all worlds first.");
                 return 2;
             }
             try
             {
-                var database = OpenMigrationDatabase(args[1], "tshock-regions", baseDirectory);
-                var regions = TShockRegionMigration.Read(args[1], legacyWorldId, args[3], database.Accounts.SnapshotAccounts());
+                var source = TShockMigrationSource.Parse(args[1]);
+                var database = OpenMigrationDatabase(source, "tshock-regions", baseDirectory);
+                var regions = TShockRegionMigration.Read(source, legacyWorldId, args[3], database.Accounts.SnapshotAccounts());
                 if (regions.Count == 0) { Console.Error.WriteLine("No regions matched the selected legacy WorldID. No regions were changed."); return 2; }
-                int imported = database.ImportPrimaryRegionsAsync(regions).AsTask().GetAwaiter().GetResult();
+                int imported = OfflineImporter(database).ImportPrimaryRegionsAsync(regions).AsTask().GetAwaiter().GetResult();
                 Console.WriteLine($"Imported {imported} regions into the primary world.");
                 return 0;
             }
-            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or InvalidDataException or Microsoft.Data.Sqlite.SqliteException or ArgumentException or InvalidCastException or OverflowException or System.Text.Json.JsonException)
+            catch (Exception ex) when (IsTShockMigrationFailure(ex))
             {
-                Console.Error.WriteLine($"Region import failed: {ex.Message}");
+                ReportMigrationFailure("Region", ex);
                 return 2;
             }
         }
@@ -72,7 +75,7 @@ internal static class OfflineMigrationCommands
         {
             if (args.Length != 3 || args[0] != "--vega-import-tshock-ssc" || args[2] is not ("classic" or "journey"))
             {
-                Console.Error.WriteLine("Usage: --vega-import-tshock-ssc <TShock SQLite database> <classic|journey>. Import accounts and stop all worlds first.");
+                Console.Error.WriteLine($"Usage: --vega-import-tshock-ssc {SourceUsage} <classic|journey>. Import accounts and stop all worlds first.");
                 return 2;
             }
             try
@@ -80,23 +83,17 @@ internal static class OfflineMigrationCommands
                 string data = Path.Combine(baseDirectory, "data");
                 if (File.Exists(Path.Combine(data, "primary-characters.json")))
                     throw new InvalidDataException("Migrate existing Vega primary SSC before importing TShock characters.");
-                var options = VegaDatabaseOptionsStore.Load(Path.Combine(baseDirectory, "config", "database.json"));
-                if (options.ParseProvider() != VegaDatabaseProvider.Sqlite)
-                    throw new InvalidDataException("This offline import currently supports a SQLite Vega account database only.");
-                string target = Path.GetFullPath(options.SqlitePath, baseDirectory);
-                if (!File.Exists(target) || string.Equals(target, Path.GetFullPath(args[1]), StringComparison.OrdinalIgnoreCase))
-                    throw new InvalidDataException("Import accounts into a separate Vega database first.");
-                var database = VegaDatabaseFactory.Create(options, baseDirectory);
-                database.InitializeAsync().AsTask().GetAwaiter().GetResult();
-                var payloads = TShockCharacterMigration.Read(args[1], database.Accounts.SnapshotAccounts(), args[2] == "journey" ? (byte)3 : (byte)0);
+                var source = TShockMigrationSource.Parse(args[1]);
+                var database = OpenMigrationDatabase(source, "tshock-ssc", baseDirectory, accountsOnly: true);
+                var payloads = TShockCharacterMigration.Read(source, database.Accounts.SnapshotAccounts(), args[2] == "journey" ? (byte)3 : (byte)0);
                 if (payloads.Count == 0) { Console.WriteLine("No TShock characters to import."); return 0; }
                 var result = new SandboxSscStore(Path.Combine(data, "sandboxes", "ssc.json")).ImportPrimary(payloads, DateTimeOffset.UtcNow);
                 Console.WriteLine($"TShock SSC: imported {result.Imported}, already present {result.AlreadyPresent}. Previous shared store: {result.SharedBackup ?? "(did not exist)"}");
                 return 0;
             }
-            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or InvalidDataException or Microsoft.Data.Sqlite.SqliteException or ArgumentException or InvalidCastException or OverflowException or System.Text.Json.JsonException)
+            catch (Exception ex) when (IsTShockMigrationFailure(ex))
             {
-                Console.Error.WriteLine($"SSC import failed: {ex.Message}");
+                ReportMigrationFailure("SSC", ex);
                 return 2;
             }
         }
@@ -105,21 +102,22 @@ internal static class OfflineMigrationCommands
         {
             if (args.Length != 3 || args[0] != "--vega-import-tshock-accounts")
             {
-                Console.Error.WriteLine("Usage: --vega-import-tshock-accounts <TShock SQLite database> <explicit group mapping JSON>. Stop all worlds first.");
+                Console.Error.WriteLine($"Usage: --vega-import-tshock-accounts {SourceUsage} <explicit group mapping JSON>. Stop all worlds first.");
                 return 2;
             }
             try
             {
-                var rows = TShockAccountMigration.Read(args[1], args[2]);
+                var source = TShockMigrationSource.Parse(args[1]);
+                var rows = TShockAccountMigration.Read(source, args[2]);
                 if (rows.Count == 0) { Console.WriteLine("No TShock accounts to import."); return 0; }
-                var database = OpenMigrationDatabase(args[1], "tshock-accounts", baseDirectory);
-                int imported = database.ImportAccountsAsync(rows).AsTask().GetAwaiter().GetResult();
+                var database = OpenMigrationDatabase(source, "tshock-accounts", baseDirectory);
+                int imported = OfflineImporter(database).ImportAccountsAsync(rows).AsTask().GetAwaiter().GetResult();
                 Console.WriteLine($"TShock accounts: imported {imported}, with original IDs and explicit target groups.");
                 return 0;
             }
-            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or InvalidDataException or Microsoft.Data.Sqlite.SqliteException or ArgumentException or InvalidCastException or OverflowException or System.Text.Json.JsonException)
+            catch (Exception ex) when (IsTShockMigrationFailure(ex))
             {
-                Console.Error.WriteLine($"Account import failed: {ex.Message}");
+                ReportMigrationFailure("Account", ex);
                 return 2;
             }
         }
@@ -128,22 +126,23 @@ internal static class OfflineMigrationCommands
         {
             if (args.Length != 2 || args[0] != "--vega-import-tshock-bans")
             {
-                Console.Error.WriteLine("Usage: --vega-import-tshock-bans <TShock SQLite database>. Stop all worlds first.");
+                Console.Error.WriteLine($"Usage: --vega-import-tshock-bans {SourceUsage}. Stop all worlds first.");
                 return 2;
             }
             try
             {
-                var bans = TShockBanMigration.Read(args[1], DateTimeOffset.UtcNow,
+                var source = TShockMigrationSource.Parse(args[1]);
+                var bans = TShockBanMigration.Read(source, DateTimeOffset.UtcNow,
                     new GlobalBanService(new Vega.Cluster.Scenarios.Bans.InMemoryGlobalBanReplica()));
                 if (bans.Count == 0) { Console.WriteLine("No active TShock bans to import."); return 0; }
-                var database = OpenMigrationDatabase(args[1], "tshock-bans", baseDirectory);
-                int imported = database.ImportBansAsync(bans).AsTask().GetAwaiter().GetResult();
+                var database = OpenMigrationDatabase(source, "tshock-bans", baseDirectory);
+                int imported = OfflineImporter(database).ImportBansAsync(bans).AsTask().GetAwaiter().GetResult();
                 Console.WriteLine($"TShock bans: imported {imported}, already present {bans.Count - imported}. Existing IDs were preserved.");
                 return 0;
             }
-            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or InvalidDataException or Microsoft.Data.Sqlite.SqliteException or ArgumentException or InvalidCastException or OverflowException)
+            catch (Exception ex) when (IsTShockMigrationFailure(ex))
             {
-                Console.Error.WriteLine($"Ban import failed: {ex.Message}");
+                ReportMigrationFailure("Ban", ex);
                 return 2;
             }
         }
@@ -154,12 +153,12 @@ internal static class OfflineMigrationCommands
                 !int.TryParse(args[2], System.Globalization.CultureInfo.InvariantCulture, out int legacyWorld) ||
                 !Guid.TryParse(args[3], out Guid world) || world == Guid.Empty)
             {
-                Console.Error.WriteLine("Usage: --vega-import-tshock-warps <TShock SQLite database> <legacy numeric WorldID> <Vega world file GUID>. Stop all worlds first.");
+                Console.Error.WriteLine($"Usage: --vega-import-tshock-warps {SourceUsage} <legacy numeric WorldID> <Vega world file GUID>. Stop all worlds first.");
                 return 2;
             }
             try
             {
-                var points = TShockWarpMigration.Read(args[1], legacyWorld);
+                var points = TShockWarpMigration.Read(TShockMigrationSource.Parse(args[1]), legacyWorld);
                 if (points.Count == 0)
                 {
                     Console.Error.WriteLine("No warps matched the selected legacy WorldID. Nothing was changed.");
@@ -174,9 +173,9 @@ internal static class OfflineMigrationCommands
                 Console.WriteLine($"Imported {points.Count} warps for world {world:D}.");
                 return 0;
             }
-            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or InvalidDataException or Microsoft.Data.Sqlite.SqliteException or InvalidCastException or OverflowException)
+            catch (Exception ex) when (IsTShockMigrationFailure(ex))
             {
-                Console.Error.WriteLine($"Warp import failed: {ex.Message}");
+                ReportMigrationFailure("Warp", ex);
                 return 2;
             }
         }
@@ -206,23 +205,54 @@ internal static class OfflineMigrationCommands
         return null;
     }
 
-    private static Vega.Persistence.Sqlite.SqliteVegaDatabase OpenMigrationDatabase(string source, string migration, string baseDirectory)
+    private static IVegaDatabase OpenMigrationDatabase(TShockMigrationSource source, string migration, string baseDirectory, bool accountsOnly = false)
     {
         var options = VegaDatabaseOptionsStore.Load(Path.Combine(baseDirectory, "config", "database.json"));
-        if (options.ParseProvider() != VegaDatabaseProvider.Sqlite)
-            throw new InvalidDataException("This offline import currently supports a SQLite Vega destination only.");
-        string target = Path.GetFullPath(options.SqlitePath, baseDirectory);
-        if (string.Equals(target, Path.GetFullPath(source), StringComparison.OrdinalIgnoreCase))
+        VegaDatabaseProvider provider = options.ParseProvider();
+        string? target = provider == VegaDatabaseProvider.Sqlite ? Path.GetFullPath(options.SqlitePath, baseDirectory) : null;
+        if (target is not null && source.SqlitePath is { } sourcePath &&
+            string.Equals(CanonicalPath(target), CanonicalPath(sourcePath), OperatingSystem.IsWindows() ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal))
             throw new InvalidDataException("TShock source and Vega destination must differ.");
-        var database = (Vega.Persistence.Sqlite.SqliteVegaDatabase)VegaDatabaseFactory.Create(options, baseDirectory);
-        bool existed = File.Exists(target);
+        if (provider == VegaDatabaseProvider.MySql)
+            source.EnsureDifferentMySqlDestination(options.ResolveExternalConnectionString());
+        if (accountsOnly && target is not null && !File.Exists(target))
+            throw new InvalidDataException("Import accounts into a separate Vega database first.");
+        var database = VegaDatabaseFactory.Create(options, baseDirectory);
+        bool existed = target is null || File.Exists(target);
         database.InitializeAsync().AsTask().GetAwaiter().GetResult();
-        if (existed)
+        if (existed && !accountsOnly)
         {
-            string backup = target + $".before-{migration}.{Guid.NewGuid():N}";
-            database.WriteBackupAsync(backup).AsTask().GetAwaiter().GetResult();
+            string backup = target is not null ? target + $".before-{migration}.{Guid.NewGuid():N}"
+                : Path.Combine(baseDirectory, "data", "migration-backups", $"{migration}.{Guid.NewGuid():N}", database.BackupFileName);
+            try
+            {
+                database.WriteBackupAsync(backup).AsTask().GetAwaiter().GetResult();
+                if (!File.Exists(backup) || new FileInfo(backup).Length == 0)
+                    throw new IOException("Destination backup was empty; no import rows were written.");
+            }
+            catch (Exception ex) when (target is null && IsTShockMigrationFailure(ex))
+            {
+                // External driver/dump diagnostics can include connection identity. No imported rows
+                // have been written, and connection strings must never become console output.
+                throw new InvalidDataException("Unable to back up the Vega destination. Verify the configured database, dump tool and backup permissions; no import rows were written.");
+            }
             Console.WriteLine($"Previous Vega database: {backup}");
         }
         return database;
     }
+
+    private static string CanonicalPath(string path) => File.Exists(path)
+        ? new FileInfo(path).ResolveLinkTarget(returnFinalTarget: true)?.FullName ?? Path.GetFullPath(path)
+        : Path.GetFullPath(path);
+
+    private static IVegaOfflineImport OfflineImporter(IVegaDatabase database) => database as IVegaOfflineImport
+        ?? throw new InvalidDataException("The configured Vega database does not support offline import.");
+
+    private static bool IsTShockMigrationFailure(Exception ex) => ex is IOException or UnauthorizedAccessException or InvalidDataException
+        or DbException or ArgumentException or InvalidCastException or OverflowException or FormatException or System.Text.Json.JsonException or InvalidOperationException;
+
+    private static void ReportMigrationFailure(string operation, Exception ex) => Console.Error.WriteLine($"{operation} import failed: " +
+        (ex is DbException or ArgumentException or InvalidOperationException or FormatException
+            ? "Invalid migration request or database operation failed. Verify the provider, schema, connection and source values."
+            : ex.Message));
 }

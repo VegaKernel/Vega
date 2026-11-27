@@ -1,5 +1,5 @@
 using System.Globalization;
-using Microsoft.Data.Sqlite;
+using System.Data;
 using Vega.Contracts.Accounts;
 using Vega.Contracts.Regions;
 using Vega.Contracts.Worlds;
@@ -10,15 +10,15 @@ internal static class TShockRegionMigration
 {
     public static IReadOnlyList<RegionSnapshot> Read(string source, int legacyWorldId, string groupMapping,
         IReadOnlyList<AccountSnapshot> accounts)
+        => Read(TShockMigrationSource.Parse(source), legacyWorldId, groupMapping, accounts);
+
+    public static IReadOnlyList<RegionSnapshot> Read(TShockMigrationSource source, int legacyWorldId, string groupMapping,
+        IReadOnlyList<AccountSnapshot> accounts)
     {
         var groups = TShockAccountMigration.ReadGroupMapping(groupMapping);
         var byId = accounts.ToDictionary(account => account.Id.Value);
         var byName = accounts.ToDictionary(account => account.Name, StringComparer.OrdinalIgnoreCase);
-        using var connection = new SqliteConnection(new SqliteConnectionStringBuilder
-        {
-            DataSource = Path.GetFullPath(source), Mode = SqliteOpenMode.ReadOnly, Pooling = false
-        }.ConnectionString);
-        connection.Open();
+        using var connection = source.OpenReadOnly();
         // Verify that imported account IDs still refer to the same source names, rather than just matching a number.
         using var users = connection.CreateCommand();
         users.CommandText = "SELECT ID, Username FROM Users;";
@@ -27,8 +27,8 @@ internal static class TShockRegionMigration
             while (sourceReader.Read()) sourceAccounts.Add(sourceReader.GetInt32(0), sourceReader.GetString(1));
 
         using var command = connection.CreateCommand();
-        command.CommandText = "SELECT Id, RegionName, X1, Y1, width, height, Owner, UserIds, \"Groups\", Protected, Z FROM Regions WHERE WorldID = @world ORDER BY Id;";
-        command.Parameters.AddWithValue("@world", legacyWorldId.ToString(CultureInfo.InvariantCulture));
+        command.CommandText = $"SELECT Id, RegionName, X1, Y1, width, height, Owner, UserIds, {source.GroupsIdentifier}, Protected, Z FROM Regions WHERE WorldID = @world ORDER BY Id;";
+        TShockMigrationSource.AddParameter(command, "@world", DbType.String, legacyWorldId.ToString(CultureInfo.InvariantCulture));
         using var reader = command.ExecuteReader();
         var result = new List<RegionSnapshot>();
         while (reader.Read())

@@ -4,11 +4,16 @@ using Vega.Contracts.Authorization;
 using Vega.Contracts.Accounts;
 using Vega.Contracts.Cluster.Events;
 using Vega.Contracts.Localization;
+using Vega.Contracts.Operations;
 using Vega.Contracts.Players;
+using Vega.Contracts.Worlds;
 using Vega.Core.Authorization;
 using Vega.Core.Bans;
+using Vega.Core.Commands;
 using Vega.Core.Localization;
+using Vega.Core.Modules;
 using Vega.Persistence.Sqlite;
+using Vega.PluginSdk;
 
 namespace Vega.Runtime.Tests.Core;
 
@@ -31,6 +36,68 @@ public sealed class PlayerAccountSessionServiceTests
         {
             Directory.Delete(testDirectory, recursive: true);
         }
+    }
+
+    [Test]
+    public async Task PluginIdentityQueriesUseMinimalAccountProjectionAndExactBindingPermissions()
+    {
+        var database = await OpenAsync();
+        var parent = await database.Authorization.CreateGroupAsync("builders", "default", "Server");
+        await database.Authorization.SetPermissionAsync("builders", "world.build", PermissionEffect.Grant, parent.After!.Revision, "Server");
+        var child = await database.Authorization.CreateGroupAsync("members", "builders", "Server");
+        await database.Authorization.SetPermissionAsync("members", "world.denied", PermissionEffect.Deny, child.After!.Revision, "Server");
+        var created = await database.Accounts.CreateAsync("alice", "fixture password", "members", "Server");
+        var lifecycle = new FakeLifecycle();
+        using var permissions = new PlayerSessionAuthorizationService(lifecycle);
+        using var sessions = new PlayerAccountSessionService(database.Accounts, database.Authorization, permissions,
+            new LocalizationService("en-US"), lifecycle);
+        var playerId = new PlayerId(4);
+        var world = new WorldId("identity");
+        var player = new PlayerSnapshot(playerId, "Alice", false, 100, 100, 20, 20, new(0, 0), false, 0)
+        { WorldId = world, SessionId = lifecycle.Open(playerId) };
+        var directory = new IdentityDirectory { Current = player };
+        await using var scope = new HotModuleRegistrationScope(new CommandDispatcher([]), new IdentityLogger(), "Plugin.Identity",
+            Path.GetTempPath(), playerDirectory: directory, activityWorldId: world, authentication: sessions,
+            accounts: database.Accounts, groups: database.Authorization, playerPermissions: permissions);
+        var identity = scope.Identity;
+        Assert.That(identity.AccountsAvailable && identity.GroupsAvailable && identity.AuthenticatedPermissionsAvailable, Is.True);
+        var projected = new PluginAccountIdentity(created.After!.Id, "alice", "members");
+        Assert.That(await identity.FindAccountAsync("ALICE"), Is.EqualTo(projected));
+        Assert.That(await identity.FindAccountAsync("nonexistent"), Is.Null);
+        Assert.That(await identity.GroupHasPermissionAsync("members", "world.build"), Is.True);
+        Assert.That(await identity.GroupHasPermissionAsync("members", "world.denied"), Is.False);
+        var groups = await identity.SnapshotGroupsAsync();
+        Assert.That(groups.Any(group => group.Name == "members" && group.DeniedPermissions.Contains("WORLD.DENIED")), Is.True);
+        Assert.That((await identity.FindGroupAsync("builders"))!.Permissions.Contains("WORLD.BUILD"), Is.True);
+        Assert.That(identity.TryGetAuthenticatedAccount(player, out _), Is.False);
+        Assert.That((await sessions.LoginAsync(playerId, "alice", "fixture password", expectedSession: player.SessionId)).Succeeded, Is.True);
+        Assert.That(identity.TryGetAuthenticatedAccount(player, out var current), Is.True);
+        Assert.That(current, Is.EqualTo(projected));
+        Assert.That(identity.TryHasAuthenticatedPermission(player, "world.build", out bool allowed) && allowed, Is.True);
+        Assert.That(identity.TryHasAuthenticatedPermission(player, "world.denied", out bool denied), Is.True);
+        Assert.That(denied, Is.False);
+        Assert.That(identity.TryHasAuthenticatedPermission(player with { WorldId = new("foreign") }, "world.build", out _), Is.False);
+        var next = player with { SessionId = lifecycle.Open(playerId) };
+        directory.Current = next;
+        Assert.That(identity.TryGetAuthenticatedAccount(player, out _), Is.False);
+        Assert.That(identity.TryHasAuthenticatedPermission(player, "world.build", out _), Is.False);
+        Assert.That(identity.TryGetAuthenticatedAccount(next, out _), Is.False);
+        await scope.DisposeAsync();
+        Assert.CatchAsync<OperationCanceledException>(async () => await identity.FindAccountAsync("alice"));
+        Assert.That(identity.TryGetAuthenticatedAccount(next, out _), Is.False);
+    }
+
+    private sealed class IdentityDirectory : IPlayerDirectory
+    {
+        public PlayerSnapshot? Current { get; set; }
+        public IReadOnlyList<PlayerSnapshot> SnapshotOnlinePlayers() => Current is { } value ? [value] : [];
+        public bool TryGet(PlayerId id, out PlayerSnapshot? player) => (player = Current?.Id == id ? Current : null) is not null;
+        public bool TryFindExact(string name, out PlayerSnapshot? player) => (player = Current?.Name == name ? Current : null) is not null;
+    }
+
+    private sealed class IdentityLogger : IOperationsLogger
+    {
+        public void Log(OperationsLogLevel level, string source, string text, Exception? exception = null, string? correlationId = null) { }
     }
 
     [Test]

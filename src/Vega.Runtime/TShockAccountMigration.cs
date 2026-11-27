@@ -1,6 +1,5 @@
 using System.Globalization;
 using System.Text.Json;
-using Microsoft.Data.Sqlite;
 using Vega.Persistence.Relational;
 using Vega.Persistence.Sqlite;
 
@@ -9,13 +8,12 @@ namespace Vega.Runtime;
 internal static class TShockAccountMigration
 {
     public static IReadOnlyList<LegacyAccountImport> Read(string sourcePath, string mappingPath)
+        => Read(TShockMigrationSource.Parse(sourcePath), mappingPath);
+
+    public static IReadOnlyList<LegacyAccountImport> Read(TShockMigrationSource source, string mappingPath)
     {
         var mapping = ReadGroupMapping(mappingPath);
-        using var connection = new SqliteConnection(new SqliteConnectionStringBuilder
-        {
-            DataSource = Path.GetFullPath(sourcePath), Mode = SqliteOpenMode.ReadOnly, Pooling = false
-        }.ConnectionString);
-        connection.Open();
+        using var connection = source.OpenReadOnly();
         using var command = connection.CreateCommand();
         command.CommandText = "SELECT ID, Username, Password, Usergroup, LastAccessed FROM Users ORDER BY ID;";
         using var reader = command.ExecuteReader();

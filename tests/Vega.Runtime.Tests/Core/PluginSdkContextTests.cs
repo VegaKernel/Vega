@@ -18,6 +18,50 @@ namespace Vega.Runtime.Tests.Core;
 public sealed class PluginSdkContextTests
 {
     [Test]
+    public async Task ReadOnlyWarpCapabilityCancelsPendingReadsDuringRetirementAndRejectsForeignCatalog()
+    {
+        var world = new WorldId("warp-test");
+        var reader = new WarpReadFixture();
+        var scope = new HotModuleRegistrationScope(new RecordingCommandRegistry(), new RecordingLogger(), "Plugin.Warps",
+            Path.GetTempPath(), activityWorldId: world, warps: reader);
+        var catalog = new WorldWarpCatalogSnapshot(world, Guid.NewGuid(), [new("Home", new(10, 20))]);
+        Assert.That(scope.Warps.IsAvailable, Is.True);
+        reader.Immediate = catalog with { WorldId = new("foreign") };
+        Assert.That(await scope.Warps.SnapshotAsync(), Is.Null);
+        reader.Immediate = catalog;
+        Assert.That((await scope.Warps.SnapshotAsync())!.Warps, Is.EqualTo(catalog.Warps));
+        Assert.That(reader.RequestedWorld, Is.EqualTo(world));
+        reader.Immediate = null;
+        try
+        {
+            Task<WorldWarpCatalogSnapshot?> pending = scope.Warps.SnapshotAsync().AsTask();
+            Task retirement = scope.DrainForRetirementAsync(CancellationToken.None);
+            Assert.That(reader.Cancellation.IsCancellationRequested, Is.True);
+            Assert.That(retirement.IsCompleted, Is.False);
+            reader.Complete(catalog);
+            Assert.CatchAsync<OperationCanceledException>(async () => await pending);
+            await retirement;
+        }
+        finally { reader.Complete(catalog); await scope.DisposeAsync(); }
+        Assert.CatchAsync<OperationCanceledException>(async () => await scope.Warps.SnapshotAsync());
+    }
+
+    private sealed class WarpReadFixture : IWorldPublicWarpReader
+    {
+        private readonly TaskCompletionSource<WorldWarpCatalogSnapshot?> pending = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        public WorldWarpCatalogSnapshot? Immediate { get; set; }
+        public WorldId? RequestedWorld { get; private set; }
+        public CancellationToken Cancellation { get; private set; }
+        public ValueTask<WorldWarpCatalogSnapshot?> ReadAsync(WorldId worldId, CancellationToken cancellationToken = default)
+        {
+            RequestedWorld = worldId;
+            Cancellation = cancellationToken;
+            return Immediate is { } value ? ValueTask.FromResult<WorldWarpCatalogSnapshot?>(value) : new(pending.Task);
+        }
+        public void Complete(WorldWarpCatalogSnapshot? value) => pending.TrySetResult(value);
+    }
+
+    [Test]
     public async Task PlayerActionsUseExactSnapshotNativeValidationAndActivationLifetime()
     {
         var world = new WorldId("actions");

@@ -52,6 +52,8 @@ The fixed context exposes these discoverable facets:
 - `World` exposes the active world through immutable environment, tile, chest and NPC snapshots plus plugin-owned scenes;
 - `WorldEvents` registers world-local gameplay notifications and narrowly scoped NPC transformation/loot policies;
 - `Activity` observes exact authentication tenures, accepted ordinary public chat and completed authorized commands without obtaining credentials or command arguments;
+- `Identity` provides read-only minimal account identity, group snapshots and exact authenticated effective permission queries;
+- `Warps` reads public navigation points in the hosted persistent world, not hidden warps or other worlds;
 - `Tasks` posts to the game thread, schedules repeating game-thread work and runs async I/O with a game-thread apply callback;
 - `Resources` owns explicitly transferred disposable or asynchronous resources and cleanup actions for this activation;
 - `Configuration` owns typed, validated and reloadable operator settings under `config/plugins/<plugin-name>/`;
@@ -107,6 +109,26 @@ observations can be dropped. All subscriptions are guarded and detached on unloa
 uses the host's existing region priority/ranking. ACL members, groups and flags
 are copied into immutable collections. Region mutation and change notifications
 are intentionally not exposed by this read-only snapshot capability.
+
+`plugin.Identity` exposes credential-free `FindAccountAsync(name)` (account ID,
+name and stored group only), `TryGetAuthenticatedAccount(player, out account)`
+and detached group snapshots via `SnapshotGroupsAsync` and `FindGroupAsync`.
+Check availability before calling. `GroupHasPermissionAsync` uses the existing
+inherited group authorization evaluator; `TryHasAuthenticatedPermission` uses
+the exact current authentication tenure and effective player permission service,
+including temporary group leases. A failed `Try` means no exact current authenticated
+binding, distinct from a valid lookup returning `allowed = false`. These reads
+are observations, not authorization leases for later mutation. Account identity
+does not expose passwords, credential hashes, IP addresses, culture or last seen.
+Group/account I/O is dispatched off the game thread and pending reads are tracked
+and cancelled at activation retirement.
+
+`plugin.Warps.SnapshotAsync()` returns an immutable public catalog and persistent
+world-file identity, or `null` when the world has no current persistent identity.
+`IsAvailable` indicates host support. Hidden warps are omitted. The reader uses
+the same bounded warp store as the navigation module and rechecks the persistent
+world identity after asynchronous file I/O; no arbitrary world ID, mutation or
+teleport override is available through this facet.
 
 For extra resources created by a plugin, register ownership once with `plugin.Resources.Own(resource)`
 (`IDisposable`), `OwnAsync(resource)` (`IAsyncDisposable`) or `OnCleanup(action)`. The host drains callbacks

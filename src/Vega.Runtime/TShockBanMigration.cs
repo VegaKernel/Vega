@@ -1,7 +1,7 @@
 using System.Globalization;
 using System.Security.Cryptography;
 using System.Text;
-using Microsoft.Data.Sqlite;
+using System.Data;
 using Vega.Contracts.Cluster.Events;
 using Vega.Core.Bans;
 
@@ -10,15 +10,14 @@ namespace Vega.Runtime;
 internal static class TShockBanMigration
 {
     public static IReadOnlyList<GlobalBanCreated> Read(string path, DateTimeOffset now, GlobalBanService validator)
+        => Read(TShockMigrationSource.Parse(path), now, validator);
+
+    public static IReadOnlyList<GlobalBanCreated> Read(TShockMigrationSource source, DateTimeOffset now, GlobalBanService validator)
     {
-        using var connection = new SqliteConnection(new SqliteConnectionStringBuilder
-        {
-            DataSource = Path.GetFullPath(path), Mode = SqliteOpenMode.ReadOnly, Pooling = false
-        }.ConnectionString);
-        connection.Open();
+        using var connection = source.OpenReadOnly();
         using var command = connection.CreateCommand();
         command.CommandText = "SELECT TicketNumber, Identifier, Reason, BanningUser, Date, Expiration FROM PlayerBans WHERE Expiration > @now AND Date <= @now ORDER BY TicketNumber;";
-        command.Parameters.AddWithValue("@now", now.UtcTicks);
+        TShockMigrationSource.AddParameter(command, "@now", DbType.Int64, now.UtcTicks);
         using var reader = command.ExecuteReader();
         var bans = new List<GlobalBanCreated>();
         while (reader.Read())

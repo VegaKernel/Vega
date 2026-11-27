@@ -52,6 +52,13 @@ content-restriction and world-event subbranches, player action APIs, activity
 notifications, immutable region reads, and native tick/save completion hooks.
 The pinned comparison is retained rather than silently redefining the baseline.
 
+Current-schema migration now supports TShock SQLite **and MySQL** sources for
+accounts, bans, regions, warps and SSC, with provider-neutral transactional Vega
+account/ban/region destination imports into SQLite, MySQL or PostgreSQL. See
+[migration](migration.md) for separate schema/backup and group-mapping rules.
+Legacy source schema variations, automatic permission mapping, third-party data
+and stock-client restoration still require qualification.
+
 - **P0 native gameplay load:** real native world counter now verifies a 255-slot
   mixed fixture, including boss AI, movement, chat and native background traffic.
   Ordered loopback completed all 1,800 updates and 24.8 million sends with exact

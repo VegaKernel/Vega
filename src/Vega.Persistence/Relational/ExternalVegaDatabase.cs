@@ -5,12 +5,14 @@ using Vega.Contracts.Moderation;
 using Vega.Contracts.Regions;
 using Vega.Contracts.Worlds;
 using System.Diagnostics;
+using Vega.Persistence.Sqlite;
 
 namespace Vega.Persistence.Relational;
 
-public abstract class ExternalVegaDatabase : IVegaDatabase
+public abstract class ExternalVegaDatabase : IVegaDatabase, IVegaOfflineImport
 {
     private readonly ExternalSchemaInitializer schemaInitializer;
+    private readonly RelationalOfflineImport offlineImport;
     private readonly SemaphoreSlim initialization = new(1, 1);
     private int schemaVersion;
 
@@ -53,6 +55,8 @@ public abstract class ExternalVegaDatabase : IVegaDatabase
             connections.Open,
             connections.OpenAsync,
             EnsureReady);
+        offlineImport = new(connections.OpenAsync, EnsureReady,
+            () => ((RelationalRegionService)Regions).Invalidate(WorldId.Primary));
     }
 
     public string Provider { get; }
@@ -76,6 +80,15 @@ public abstract class ExternalVegaDatabase : IVegaDatabase
     public IMuteService Mutes { get; }
 
     public IRegionService Regions { get; }
+
+    public ValueTask<int> ImportAccountsAsync(IReadOnlyList<LegacyAccountImport> imports, CancellationToken token = default) =>
+        offlineImport.ImportAccountsAsync(imports, token);
+
+    public ValueTask<int> ImportPrimaryRegionsAsync(IReadOnlyList<RegionSnapshot> regions, CancellationToken token = default) =>
+        offlineImport.ImportPrimaryRegionsAsync(regions, token);
+
+    public ValueTask<int> ImportBansAsync(IReadOnlyList<GlobalBanCreated> bans, CancellationToken token = default) =>
+        ((RelationalGlobalBanReplica)GlobalBans).ImportNewAsync(bans, token);
 
     public async ValueTask InitializeAsync(CancellationToken cancellationToken = default)
     {

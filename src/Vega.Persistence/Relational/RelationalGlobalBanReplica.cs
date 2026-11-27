@@ -1,4 +1,5 @@
 using System.Data.Common;
+using System.Data;
 using System.Globalization;
 using Vega.Contracts.Cluster.Events;
 
@@ -72,6 +73,56 @@ internal sealed class RelationalGlobalBanReplica(
         {
             writes.Release();
         }
+    }
+
+    /// <summary>Offline insert-only migration; existing rows (including tombstones) never change.</summary>
+    internal async ValueTask<int> ImportNewAsync(IReadOnlyList<GlobalBanCreated> bans, CancellationToken token)
+    {
+        ensureReady();
+        foreach (var ban in bans) Validate(ban);
+        if (bans.Select(ban => ban.BanId).Distinct().Count() != bans.Count)
+            throw new InvalidDataException("Ban import contains duplicate identifiers.");
+        await writes.WaitAsync(token).ConfigureAwait(false);
+        try
+        {
+            await using DbConnection connection = await connections.OpenAsync(token).ConfigureAwait(false);
+            await using DbTransaction transaction = await connection.BeginTransactionAsync(IsolationLevel.Serializable, token).ConfigureAwait(false);
+            int imported = 0;
+            foreach (var ban in bans)
+            {
+                string id = ban.BanId.Value.ToString("D");
+                // Explicit existing-ID check rather than MySQL INSERT IGNORE,
+                // which can silently suppress validation errors other than duplicates.
+                await using (DbCommand exists = connection.CreateCommand())
+                {
+                    exists.Transaction = transaction;
+                    exists.CommandText = "SELECT COUNT(*) FROM global_bans WHERE id = @id;";
+                    exists.AddParameter("@id", id);
+                    if (Convert.ToInt64(await exists.ExecuteScalarAsync(token).ConfigureAwait(false), CultureInfo.InvariantCulture) != 0)
+                        continue;
+                }
+                await using DbCommand command = connection.CreateCommand();
+                command.Transaction = transaction;
+                command.CommandText = """
+                    INSERT INTO global_bans (id, subject_kind, subject_value, reason, created_by, created_at_utc, expires_at_utc, revision, revoked)
+                    VALUES (@id, @subjectKind, @subjectValue, @reason, @createdBy, @createdAt, @expiresAt, @revision, FALSE);
+                    """;
+                command.AddParameter("@id", id);
+                command.AddParameter("@subjectKind", (int)ban.Subject.Kind);
+                command.AddParameter("@subjectValue", ban.Subject.Value);
+                command.AddParameter("@reason", ban.Reason);
+                command.AddParameter("@createdBy", ban.CreatedBy);
+                command.AddParameter("@createdAt", Format(ban.CreatedAt));
+                command.AddParameter("@expiresAt", ban.ExpiresAt is { } expiresAt ? Format(expiresAt) : null);
+                command.AddParameter("@revision", ban.Revision);
+                if (await command.ExecuteNonQueryAsync(token).ConfigureAwait(false) != 1)
+                    throw new InvalidDataException("An imported ban was not inserted.");
+                imported++;
+            }
+            await transaction.CommitAsync(token).ConfigureAwait(false);
+            return imported;
+        }
+        finally { writes.Release(); }
     }
 
     public IReadOnlyList<GlobalBanCreated> SnapshotActive(DateTimeOffset now)

@@ -54,6 +54,14 @@ public sealed class SqliteVegaDatabaseTests
     }
 
     [Test]
+    public async Task ProviderNeutralImportPreservesIdentityAclCacheAndRevokedBans()
+    {
+        SqliteVegaDatabase database = await OpenAsync();
+        Assert.That((await database.Authorization.CreateGroupAsync("builders", "default", "Server")).Succeeded, Is.True);
+        await ExternalVegaDatabaseContractTests.AssertOfflineImportFamiliesAsync(database);
+    }
+
+    [Test]
     public async Task ExistingSchemaOneUpgradesAndPresentationKeepsRevisionAuditAndPermissions()
     {
         SqliteVegaDatabase original = await OpenAsync();

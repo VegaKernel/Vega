@@ -34,6 +34,10 @@ public sealed class ServerPluginHotReloadHost :
     private readonly WorldId? activityWorldId;
     private readonly Vega.Contracts.Accounts.IPlayerAccountSessionService? authentication;
     private readonly Vega.Contracts.Messaging.IPublicChatObservations? publicChat;
+    private readonly Vega.Contracts.Accounts.IAccountService? accounts;
+    private readonly Vega.Contracts.Authorization.IAuthorizationService? groups;
+    private readonly Vega.Contracts.Authorization.IPlayerAuthorizationService? playerPermissions;
+    private readonly IWorldPublicWarpReader? warps;
     private readonly string pluginDataRoot;
     private readonly string? pluginConfigurationRoot;
     private readonly Dictionary<string, LoadedPlugin> loaded = new(StringComparer.OrdinalIgnoreCase);
@@ -65,7 +69,11 @@ public sealed class ServerPluginHotReloadHost :
         string? pluginConfigurationRoot = null, IWorldGameplayEvents? worldEvents = null,
         WorldId? activityWorldId = null,
         Vega.Contracts.Accounts.IPlayerAccountSessionService? authentication = null,
-        Vega.Contracts.Messaging.IPublicChatObservations? publicChat = null)
+        Vega.Contracts.Messaging.IPublicChatObservations? publicChat = null,
+        Vega.Contracts.Accounts.IAccountService? accounts = null,
+        Vega.Contracts.Authorization.IAuthorizationService? groups = null,
+        Vega.Contracts.Authorization.IPlayerAuthorizationService? playerPermissions = null,
+        IWorldPublicWarpReader? warps = null)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(directory);
         this.directory = Path.GetFullPath(directory);
@@ -81,6 +89,10 @@ public sealed class ServerPluginHotReloadHost :
         this.activityWorldId = activityWorldId;
         this.authentication = authentication;
         this.publicChat = publicChat;
+        this.accounts = accounts;
+        this.groups = groups;
+        this.playerPermissions = playerPermissions;
+        this.warps = warps;
         this.pluginDataRoot = Path.GetFullPath(pluginDataRoot ?? Path.Combine(this.directory, ".data"));
         this.pluginConfigurationRoot = pluginConfigurationRoot is null ? null : Path.GetFullPath(pluginConfigurationRoot);
     }
@@ -442,7 +454,8 @@ public sealed class ServerPluginHotReloadHost :
             activationId: activationId, faultThreshold: options.FaultThreshold,
             faultWindow: TimeSpan.FromSeconds(options.FaultWindowSeconds),
             onQuarantine: () => QueueFaultRetirement(activationPath, activationId), worldEvents: worldEvents,
-            activityWorldId: activityWorldId, authentication: authentication, publicChat: publicChat);
+            activityWorldId: activityWorldId, authentication: authentication, publicChat: publicChat,
+            accounts: accounts, groups: groups, playerPermissions: playerPermissions, warps: warps);
         long startedAt = Stopwatch.GetTimestamp();
         string startupFailure;
         try

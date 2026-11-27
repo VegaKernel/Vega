@@ -1,5 +1,4 @@
 using System.Globalization;
-using Microsoft.Data.Sqlite;
 using Vega.Contracts.Accounts;
 using Vega.Terraria.Networking;
 using static Vega.Terraria.Players.TerrariaSandboxSscCharacterAdapter;
@@ -12,14 +11,13 @@ internal static class TShockCharacterMigration
     private const int SlotCount = 350;
 
     public static IReadOnlyDictionary<string, string> Read(string source, IReadOnlyList<AccountSnapshot> destinationAccounts, byte difficulty)
+        => Read(TShockMigrationSource.Parse(source), destinationAccounts, difficulty);
+
+    public static IReadOnlyDictionary<string, string> Read(TShockMigrationSource source, IReadOnlyList<AccountSnapshot> destinationAccounts, byte difficulty)
     {
         if (difficulty is not (0 or 3)) throw new ArgumentOutOfRangeException(nameof(difficulty));
         var accounts = destinationAccounts.ToDictionary(account => account.Id.Value);
-        using var connection = new SqliteConnection(new SqliteConnectionStringBuilder
-        {
-            DataSource = Path.GetFullPath(source), Mode = SqliteOpenMode.ReadOnly, Pooling = false
-        }.ConnectionString);
-        connection.Open();
+        using var connection = source.OpenReadOnly();
         using var command = connection.CreateCommand();
         command.CommandText = "SELECT c.*, u.Username AS SourceUsername FROM tsCharacter c LEFT JOIN Users u ON u.ID = c.Account ORDER BY c.Account;";
         using var reader = command.ExecuteReader();

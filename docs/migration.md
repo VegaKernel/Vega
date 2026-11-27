@@ -1,6 +1,51 @@
 # Offline migration to Vega
 
-Commands here operate on Vega's own deployment data directory and exit without starting the Terraria server. Stop the primary and all sandbox processes first, and retain a complete deployment backup. Use the current server executable from its own directory. TShock source databases are read-only; these tools never update them. Run against a disposable copy first.
+Commands here operate on Vega's own deployment data directory and exit without starting the Terraria server. Stop the TShock source server, the Vega primary and all sandbox processes first, and retain a complete deployment backup. Use the current server executable from its own directory. TShock source databases are read-only; these tools never update them. Run against a disposable copy first. Each command is a separate transaction or atomic file publication, not a single cross-database/file transaction.
+
+## MySQL source and external destinations
+
+Every database-backed TShock converter below accepts either an SQLite file path
+or the literal `@mysql` source argument. For MySQL, provide the connection
+settings in `VEGA_TSHOCK_MYSQL_CONNECTION`, using a source user with `SELECT`
+access and an explicit database name. For example, load a connection string
+from a local file with restricted permissions (do not commit it):
+
+```powershell
+$env:VEGA_TSHOCK_MYSQL_CONNECTION = (Get-Content -LiteralPath 'D:\Migration\tshock-mysql.connection' -Raw).Trim()
+.\Vega.Server.exe --vega-import-tshock-accounts '@mysql' 'D:\Migration\groups.json'
+.\Vega.Server.exe --vega-import-tshock-ssc '@mysql' classic
+.\Vega.Server.exe --vega-import-tshock-bans '@mysql'
+.\Vega.Server.exe --vega-import-tshock-regions '@mysql' 12345678 'D:\Migration\groups.json'
+.\Vega.Server.exe --vega-import-tshock-warps '@mysql' 12345678 '00000000-0000-0000-0000-000000000001'
+```
+
+Use your actual legacy world ID and native persistent GUID. The MySQL source is
+opened with a read-only repeatable-read transaction per converter; stop source
+writes across the whole migration so separate commands see the same data.
+Connection strings and driver diagnostics are not emitted by the migration CLI.
+
+The **destination** is selected independently by Vega's existing
+`config/database.json`: `provider` can be `sqlite`, `mysql` or `postgresql`.
+For example, configure `provider: mysql` and supply the destination connection
+via the configured `VEGA_DATABASE_CONNECTION_STRING` environment variable.
+Create a separate Vega database and review its group mapping first. MySQL
+source and target database names must differ even if hosts differ (fail closed
+against source/target aliasing). SQLite source and destination files must differ.
+
+Account, ban and region imports run transactionally in the selected relational
+provider. The SQLite destination backup remains beside the existing DB; for a
+configured external destination, a logical dump (`mysqldump` or `pg_dump`)
+must succeed after schema initialization and before imported rows are written.
+It is stored under `data/migration-backups/<unique-import-directory>/`.
+Install the proper dump tool on PATH and grant sufficient backup rights before
+importing; retain a full external DB backup **before schema initialization**
+as well. Backups contain authentication data. SSC, warps and whitelist remain
+in their normal atomic Vega file stores regardless of relational provider.
+
+To roll back, stop all worlds and restore the appropriate full database and
+file-store backups together with the matching deployment version. Never
+restore an older backup over newer live progress. SQLite CLI examples below
+remain unchanged.
 
 ## Existing Vega primary SSC
 
@@ -12,15 +57,15 @@ This imports `data/primary-characters.json` into `data/sandboxes/ssc.json`. It p
 
 After successful migration, enable `enabled` and `authoritative` in `config/primary-character-persistence.json`. A conflict leaves both original stores unchanged. If publication fails before source archival, retry while still offline: identical imported rows are recognized; conflicting rows require explicit operator reconciliation. To roll back offline before resuming play, restore the archived primary file and previous shared backup together (if the shared store did not exist, restore from the complete deployment backup), then disable authority. Do not restore an old backup over later live progress. Existing source file/archives are intentionally never discarded.
 
-## TShock SQLite active bans
+## TShock active bans
 
 ```powershell
 .\Vega.Server.exe --vega-import-tshock-bans "D:\TShock\tshock.sqlite"
 ```
 
-Imports the current `PlayerBans` schema into the configured Vega SQLite database, shared by primary and sandbox worlds. Active `ip:`, `uuid:`, `name:` and `acc:` identifiers, reason, actor, UTC tick timestamps and permanent/temporary expiration are preserved; an absent reason or actor gets an explicit import default. Expired/revoked source rows are not imported. An unsupported identifier or invalid active row aborts before any ban writes. Older `Bans` schemas and plugin-specific identifier types require a separate conversion. A pre-existing destination database is backed up using the SQLite backup API; all active inserts form a single transaction. Stable imported IDs make repeat imports insert-only and preserve existing/revoked Vega records. Stop all worlds before restoring the backup. No account authentication data is imported by this command.
+Imports the current `PlayerBans` schema into the configured Vega database, shared by primary and sandbox worlds. Active `ip:`, `uuid:`, `name:` and `acc:` identifiers, reason, actor, UTC tick timestamps and permanent/temporary expiration are preserved; an absent reason or actor gets an explicit import default. Expired/revoked source rows are not imported. An unsupported identifier or invalid active row aborts before any ban writes. Older `Bans` schemas and plugin-specific identifier types require a separate conversion. Destination backup follows the provider rules above; all active inserts form a single transaction. Stable imported IDs make repeat imports insert-only and preserve existing/revoked Vega records. Stop all worlds before restoring the backup. No account authentication data is imported by this command.
 
-## TShock SQLite warps
+## TShock warps
 
 ```powershell
 .\Vega.Server.exe --vega-import-tshock-warps "D:\TShock\tshock.sqlite" 12345678 "00000000-0000-0000-0000-000000000001"
@@ -64,8 +109,8 @@ Use `journey` instead of `classic` for a Journey world; TShock's character row d
 .\Vega.Server.exe --vega-import-tshock-regions "D:\TShock\tshock.sqlite" 12345678 "D:\Migration\groups.json"
 ```
 
-This imports only the selected native legacy WorldID into the primary Vega world, which must not already contain regions. IDs, rectangle bounds, priority (`Z`), protected flag, owner and allowed accounts/groups are carried over. Account references must resolve by original ID and name; group references must be explicitly mapped. A console-owned `Server` region without a matching account has no account owner. All writes form a single SQLite transaction. Unrecognized references or collisions abort, and a backup of the existing database is retained. Vega's region precedence and protection semantics still require live-world verification (including equal-priority overlaps). Do not treat a character display name as account membership when account sessions are configured.
+This imports only the selected native legacy WorldID into the primary Vega world, which must not already contain regions. IDs, rectangle bounds, priority (`Z`), protected flag, owner and allowed accounts/groups are carried over. Account references must resolve by original ID and name; group references must be explicitly mapped. A console-owned `Server` region without a matching account has no account owner. All writes form a single transaction in the configured Vega provider. Unrecognized references or collisions abort, and a backup of the existing database is retained. Vega's region precedence and protection semantics still require live-world verification (including equal-priority overlaps). Do not treat a character display name as account membership when account sessions are configured.
 
 ## Remaining TShock migration requirements
 
-The current pinned TShock SQLite schema is supported for the listed data. Full legacy schema coverage, automatic group/permission translation, external database providers, ancillary plugin/configuration data and real deployment migration remain separate work. Review group permissions rather than copying TShock wildcard grants into Vega. The complete synthetic CLI smoke run imported accounts, SSC, regions, warps and bans, re-ran the ban import without duplicate rows, and verified the source database SHA-256 remained identical.
+The current pinned TShock SQLite and MySQL schemas are supported for the listed data. Full older schema coverage, automatic group/permission translation, ancillary plugin/configuration data and real deployment migration remain separate work. Review group permissions rather than copying TShock wildcard grants into Vega. Synthetic coverage includes legacy SQLite file fingerprints and independent MySQL source/target provider contracts; the MySQL CLI contract exercises all five converter families and repeat/no-overwrite cases. Actual stock-client SSC restoration remains an acceptance gate.

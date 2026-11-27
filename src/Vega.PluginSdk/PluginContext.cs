@@ -22,6 +22,9 @@ public interface IVegaPluginContext
 
     IPluginActivity Activity => throw new NotSupportedException("Player activity observations are unavailable in this host.");
 
+    IPluginIdentity Identity => throw new NotSupportedException("Identity queries are unavailable in this host.");
+    IPluginWarps Warps => throw new NotSupportedException("Warp queries are unavailable in this host.");
+
     IPluginTasks Tasks { get; }
     /// <summary>Plugin-owned disposable resources, retired with this activation.</summary>
     IPluginResources Resources => throw new NotSupportedException("Resource ownership is unavailable in this host.");

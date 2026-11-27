@@ -556,7 +556,7 @@ internal sealed class RelationalRegionService(
 
     private static string Target(WorldId worldId, string name) => $"{worldId.Value}:{name}";
 
-    private void Invalidate(WorldId worldId)
+    internal void Invalidate(WorldId worldId)
     {
         lock (cacheSync)
         {

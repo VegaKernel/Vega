@@ -129,6 +129,9 @@ jobs:
     env:
       VEGA_TEST_POSTGRESQL: Host=127.0.0.1;Port=5432;Database=vega_test;Username=vega;Password=vega_test_password
       VEGA_TEST_MYSQL: Server=127.0.0.1;Port=3306;Database=vega_test;User ID=vega;Password=vega_test_password
+      VEGA_TEST_TSHOCK_MYSQL: Server=127.0.0.1;Port=3306;Database=vega_test_tshock;User ID=vega;Password=vega_test_password
+      VEGA_TEST_TSHOCK_MYSQL_READER: Server=127.0.0.1;Port=3306;Database=vega_test_tshock;User ID=vega_import_reader;Password=vega_reader_test_password
+      VEGA_TEST_VEGA_IMPORT_MYSQL: Server=127.0.0.1;Port=3306;Database=vega_test_import;User ID=vega;Password=vega_test_password
     steps:
       - uses: actions/checkout@v6
       - name: Setup .NET
@@ -160,9 +163,20 @@ jobs:
           mysqldump --version
       - name: Restore persistence contracts
         run: dotnet restore tests/Vega.Runtime.Tests/Vega.Runtime.Tests.csproj
+      - name: Prepare separate synthetic TShock source and Vega import databases
+        shell: bash
+        run: |
+          docker exec -i -e MYSQL_PWD=root_test_password "${{ job.services.mysql.id }}" mysql -uroot <<'SQL'
+          CREATE DATABASE vega_test_tshock;
+          CREATE DATABASE vega_test_import;
+          GRANT ALL PRIVILEGES ON vega_test_tshock.* TO 'vega'@'%';
+          GRANT ALL PRIVILEGES ON vega_test_import.* TO 'vega'@'%';
+          CREATE USER 'vega_import_reader'@'%' IDENTIFIED BY 'vega_reader_test_password';
+          GRANT SELECT ON vega_test_tshock.* TO 'vega_import_reader'@'%';
+          SQL
       - name: Run empty-provider and logical-dump contracts
         run: >-
           dotnet test tests/Vega.Runtime.Tests/Vega.Runtime.Tests.csproj
           --configuration Release
-          --filter FullyQualifiedName~ExternalVegaDatabaseContractTests
+          --filter "FullyQualifiedName~ExternalVegaDatabaseContractTests|FullyQualifiedName~TShockMySqlMigrationContractTests|FullyQualifiedName~TShockOfflineMigrationContractTests"
           --verbosity normal

@@ -46,7 +46,11 @@ internal sealed partial class HotModuleRegistrationScope : IHotModuleContext, IV
         Action? onQuarantine = null, IWorldGameplayEvents? worldEvents = null,
         WorldId? activityWorldId = null,
         Vega.Contracts.Accounts.IPlayerAccountSessionService? authentication = null,
-        Vega.Contracts.Messaging.IPublicChatObservations? publicChat = null)
+        Vega.Contracts.Messaging.IPublicChatObservations? publicChat = null,
+        Vega.Contracts.Accounts.IAccountService? accounts = null,
+        Vega.Contracts.Authorization.IAuthorizationService? groups = null,
+        Vega.Contracts.Authorization.IPlayerAuthorizationService? playerPermissions = null,
+        IWorldPublicWarpReader? warps = null)
     {
         ArgumentNullException.ThrowIfNull(commands);
         this.logger = logger ?? throw new ArgumentNullException(nameof(logger));
@@ -75,6 +79,8 @@ internal sealed partial class HotModuleRegistrationScope : IHotModuleContext, IV
         WorldEvents = new PluginWorldEvents(this, worldEvents);
         Activity = new PluginActivity(this, activityWorldId, playerDirectory, gameThread,
             authentication, publicChat, commands as ICommandCompletionObservations);
+        Identity = new PluginIdentity(this, activityWorldId, playerDirectory, authentication, accounts, groups, playerPermissions);
+        Warps = new PluginWarps(this, activityWorldId, warps);
         Tasks = new PluginTasks(this, gameThread);
         Resources = new PluginResources(this);
         Configuration = new PluginConfiguration(this, pluginName, configurationDirectory);
@@ -92,6 +98,8 @@ internal sealed partial class HotModuleRegistrationScope : IHotModuleContext, IV
     public IPluginPlayers Players { get; }
     public IPluginWorldEvents WorldEvents { get; }
     public IPluginActivity Activity { get; }
+    public IPluginIdentity Identity { get; }
+    public IPluginWarps Warps { get; }
     public IPluginTasks Tasks { get; }
     public IPluginResources Resources { get; }
     public IPluginConfiguration Configuration { get; }
