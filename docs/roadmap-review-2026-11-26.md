@@ -1,6 +1,6 @@
 # Roadmap review — 26 November 2026
 
-**Target:** independently replace TShock as an operator-facing server, retaining official Terraria 1.4.6.1 gameplay, protocol 329, and `.wld` semantics through TerrariaRuntime 1.1.8. The protocol library is Multiplicity 4.0.1. Neither TShock API compatibility nor a separate Terraria simulation is a prerequisite.
+**Target:** independently replace TShock as an operator-facing server, retaining official Terraria 1.4.6.1 gameplay, protocol 329, and `.wld` semantics through TerrariaRuntime 1.1.9. The protocol library is Multiplicity 4.0.1. Neither TShock API compatibility nor a separate Terraria simulation is a prerequisite.
 
 ## Current implementation checkpoint
 
@@ -93,6 +93,11 @@ aggregation report only observed client platform metadata. The SDK's bounded
 CPU work lane and true background I/O prefix preserve retirement semantics.
 Native PvE and PvP participant eligibility is enforced; broader native combat
 authority and stock-client combat qualification remain open.
+Final 1.1.9 Windows tests passed 880 runtime and 33 architecture cases; eight
+external-dependent cases were skipped locally. Real MySQL 8.4 / PostgreSQL 17
+CI plus SQLite passed all 10 provider/migration cases. Native deployment smoke
+passed. Controlled 255-peer completion-burst ABBA and the 1,800-tick soak are
+recorded in the linked report; the latter still has 235 over-budget updates.
 
 
 - **P0 native gameplay load:** real native world counter now verifies a 255-slot
