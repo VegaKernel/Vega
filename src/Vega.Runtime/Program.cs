@@ -203,6 +203,7 @@ int Start()
     var localization = new LocalizationService(
         configuredCulture.StartsWith('<') ? "en-US" : configuredCulture);
     using IDisposable coreRussianCatalog = RegisterCoreRussianCatalog(localization);
+    using IDisposable platformRussianCatalog = PlatformCommand.RegisterRussianCatalog(localization);
 
     // Explicit composition root: no assembly scanning or reflection-based handler discovery.
     IEventPipeline<WorldHardmodeStarting> hardmodeStarting = new EventPipeline<WorldHardmodeStarting>(
@@ -230,6 +231,8 @@ int Start()
         new PlayingCommand(playerBoundary)
     ];
     var commandDispatcher = new CommandDispatcher(commandHandlers);
+    using IDisposable platformRegistration = commandDispatcher.Register(new PlatformCommand(playerBoundary));
+    using IDisposable platformsRegistration = commandDispatcher.Register(new PlatformCommand(playerBoundary, summary: true));
     using IDisposable broadcastRegistration = commandDispatcher.Register(new BroadcastCommand(playerBoundary, playerBoundary));
     using IDisposable giveCommandRegistration = commandDispatcher.Register(new ItemCommand(playerBoundary, playerBoundary, giveOthers: true, resolvePrefix: TerrariaReferenceDataExporter.ResolvePrefixName));
     using IDisposable itemCommandRegistration = commandDispatcher.Register(new ItemCommand(playerBoundary, playerBoundary, resolvePrefix: TerrariaReferenceDataExporter.ResolvePrefixName));

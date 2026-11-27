@@ -264,6 +264,19 @@ internal sealed class NativeOutboundQueue
         }
     }
 
+    internal int ReadCompletions(Span<NativeSendCompletion> destination)
+    {
+        if (destination.IsEmpty || (skipEmptyCompletionGate && !Volatile.Read(ref hasCompletions))) return 0;
+        lock (completionGate)
+        {
+            int count = Math.Min(destination.Length, completions.Count);
+            for (int i = 0; i < count; i++) destination[i] = completions.Dequeue();
+            if (skipEmptyCompletionGate && completions.Count == 0) Volatile.Write(ref hasCompletions, false);
+            if (count != 0) ReleaseEntries(count);
+            return count;
+        }
+    }
+
     private async Task<NativeOutboundWriterResult> WriteLoopAsync(
         Func<ReadOnlyMemory<byte>, CancellationToken, ValueTask<int>> writeSome, CancellationToken cancellationToken)
     {

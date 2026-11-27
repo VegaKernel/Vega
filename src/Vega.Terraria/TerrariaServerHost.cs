@@ -122,6 +122,7 @@ public static class TerrariaServerHost
             ? new NativeTcpTransportHost(new NativeTcpTransportOptions
             {
                 MaxCallbacksPerPass = networkLimits.OrderedCallbacksPerPass,
+                CompletionDrainBatch = networkLimits.OrderedCompletionDrainBatch,
                 MeasureQueueAge = networkLimits.OrderedQueueDiagnostics,
                 MaxBatchRequests = networkLimits.OrderedBatchRequests,
                 DeferWriterWake = networkLimits.OrderedDeferredWake,

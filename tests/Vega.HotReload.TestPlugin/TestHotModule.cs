@@ -23,11 +23,16 @@ public sealed class TestHotModule : VegaPlugin
         plugin.Commands.Register(new StallProbeCommand(Path.Combine(plugin.Storage.DataDirectory, "hold-command")));
         string startGate = Path.Combine(plugin.Storage.DataDirectory, "hold-start-io");
         if (File.Exists(startGate))
+        {
+            var started = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
             plugin.Tasks.RunIo("blocked-start-io", async _ =>
             {
+                started.TrySetResult();
                 while (File.Exists(startGate)) await Task.Delay(10);
                 return true;
             }, static _ => { });
+            if (!started.Task.Wait(TimeSpan.FromSeconds(2))) throw new TimeoutException("Test IO did not start.");
+        }
         if (File.Exists(Path.Combine(plugin.Storage.DataDirectory, "soak-mode")))
         {
             plugin.Players.OnJoined(_ => plugin.Tasks.Post("faulty-joined", static () => { }));

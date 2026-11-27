@@ -173,8 +173,11 @@ public sealed class LoopbackRestService(
                         online = players.SnapshotOnlinePlayers().Count(player => player.WorldId == worldId)
                     },
                     "/v1/players" => players.SnapshotOnlinePlayers().Where(player => player.WorldId == worldId)
-                        .Select(player => new { id = player.Id.Slot, sessionId = player.SessionId?.ToString(), player.Name, player.IsDead, player.Life, player.MaxLife, player.Team })
+                        .Select(player => new { id = player.Id.Slot, sessionId = player.SessionId?.ToString(), player.Name, player.IsDead, player.Life, player.MaxLife, player.Team,
+                            platform = player.Platform.Kind.ToString(), platformReported = player.Platform.ReportedCode.HasValue })
                         .Take(255).ToArray(),
+                    "/v1/platforms" => PlayerPlatformStatistics.Snapshot(players.SnapshotOnlinePlayers(), worldId)
+                        .Select(row => new { platform = row.Platform.ToString(), row.Count }).ToArray(),
                     "/v1/network" => network.Read(),
                     "/v1/metrics" when runtimeMetrics is not null => ReadMetrics(runtimeMetrics),
                     "/v1/scheduler" when queueMetrics is not null => queueMetrics(),

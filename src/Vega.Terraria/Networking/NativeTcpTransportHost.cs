@@ -26,6 +26,7 @@ internal sealed class NativeTcpTransportHost : IDisposable
     private readonly Action<long, NativeOutboundEnqueueResult>? onSendRejected;
     private readonly int pressureThreshold;
     private readonly int sendsBetweenPressureChecks;
+    private readonly NativeSendCompletion[]? completionBatch;
     private Func<ISocket>? previousFactory;
     private long generation;
     private int nextSlot;
@@ -43,6 +44,7 @@ internal sealed class NativeTcpTransportHost : IDisposable
     {
         this.options = options ?? throw new ArgumentNullException(nameof(options));
         options.Validate();
+        completionBatch = options.CompletionDrainBatch > 1 ? new NativeSendCompletion[options.CompletionDrainBatch] : null;
         this.currentSocket = currentSocket ?? ResolveNativeSocket;
         this.activeSlotSnapshot = activeSlotSnapshot;
         this.onSendRejected = onSendRejected;
@@ -196,14 +198,14 @@ internal sealed class NativeTcpTransportHost : IDisposable
             if (++index == candidateCount) index = 0;
             nextSlot = (slot + 1) % slots.Length;
             NativeTcpConnection? connection = Volatile.Read(ref slots[slot]);
-            if (connection is null || !connection.TryReadCompletion(out NativeSendCompletion completion))
+            int count = connection is null ? 0 : DrainPeer(slot, connection, options.MaxCallbacksPerPass - processed);
+            if (count == 0)
             {
                 missed++;
                 continue;
             }
             missed = 0;
-            processed++;
-            DeliverCompletion(slot, connection, completion);
+            processed += count;
         }
         return processed;
     }
@@ -218,16 +220,37 @@ internal sealed class NativeTcpTransportHost : IDisposable
             int slot = nextSlot;
             nextSlot = (nextSlot + 1) % slots.Length;
             NativeTcpConnection? connection = Volatile.Read(ref slots[slot]);
-            if (connection is null || !connection.TryReadCompletion(out NativeSendCompletion completion))
+            int count = connection is null ? 0 : DrainPeer(slot, connection, options.MaxCallbacksPerPass - processed);
+            if (count == 0)
             {
                 missed++;
                 continue;
             }
             missed = 0;
-            processed++;
-            DeliverCompletion(slot, connection, completion);
+            processed += count;
         }
         return processed;
+    }
+
+    private int DrainPeer(int slot, NativeTcpConnection connection, int remaining)
+    {
+        if (completionBatch is not { } batch)
+        {
+            if (!connection.TryReadCompletion(out NativeSendCompletion completion)) return 0;
+            DeliverCompletion(slot, connection, completion);
+            return 1;
+        }
+        // One short peer-local burst amortizes queue/credit synchronization. The
+        // outer round-robin time/count checks remain; every delivery revalidates
+        // the native socket generation even if an earlier callback retired it.
+        int count = connection.ReadCompletions(batch.AsSpan(0, Math.Min(remaining, batch.Length)));
+        for (int i = 0; i < count; i++)
+        {
+            NativeSendCompletion completion = batch[i];
+            batch[i] = default;
+            DeliverCompletion(slot, connection, completion);
+        }
+        return count;
     }
 
     private void DeliverCompletion(int slot, NativeTcpConnection connection, NativeSendCompletion completion)

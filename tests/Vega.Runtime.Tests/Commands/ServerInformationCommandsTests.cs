@@ -1,10 +1,13 @@
 using NUnit.Framework;
 using Vega.Contracts.Commands;
+using Vega.Contracts.Localization;
+using Vega.Contracts.Networking;
 using Vega.Contracts.Players;
 using Vega.Contracts.Operations;
 using Vega.Contracts.Worlds;
 using Vega.Core.Commands;
 using Vega.Core.Commands.System;
+using Vega.Core.Localization;
 using Vega.Modules.Administration;
 using Vega.Operations.Logging;
 
@@ -13,6 +16,33 @@ namespace Vega.Runtime.Tests.Commands;
 [TestFixture]
 public sealed class ServerInformationCommandsTests
 {
+    [Test]
+    public async Task ReportedPlatformsAreLocalizedPermissionCheckedAndWorldScoped()
+    {
+        var world = new WorldId("arena");
+        var alice = Player(1, "Alice", world, 0, 0) with { Platform = new(ClientPlatformKind.Pc, 6) };
+        var bob = Player(2, "Bob", world, 0, 0);
+        var other = Player(3, "Other", WorldId.Primary, 0, 0) with { Platform = new(ClientPlatformKind.Xbox, 2) };
+        var noSession = Player(4, "Pending", world, 0, 0) with { SessionId = null };
+        var players = new Directory([alice, bob, other, noSession]);
+        var dispatcher = new CommandDispatcher([new PlatformCommand(players), new PlatformCommand(players, summary: true)]);
+        var self = new CommandInvocation("platform", [], new Principal(alice, false), new Output()) { WorldId = world };
+        Assert.That((await dispatcher.DispatchAsync(self)).Messages!.Single().Arguments, Is.EqualTo(new object[]{"Alice", "Steam / PC"}));
+        Assert.That((await dispatcher.DispatchAsync(self with { Arguments = ["Bob"] })).Status, Is.EqualTo(CommandExecutionStatus.Forbidden));
+        Assert.That((await dispatcher.DispatchAsync(self with { Name = "platforms" })).Status, Is.EqualTo(CommandExecutionStatus.Forbidden));
+        Assert.That((await dispatcher.DispatchAsync(self with { Principal = new Principal(alice with { SessionId = PlayerSessionId.New() }, false) })).Status, Is.EqualTo(CommandExecutionStatus.Failed));
+        var admin = self with { Principal = new Principal(alice), Arguments = ["Bob"] };
+        var result = await dispatcher.DispatchAsync(admin);
+        Assert.That(result.Messages!.Single().Key, Is.EqualTo("platform.player.unknown"));
+        var localization = new LocalizationService("en-US");
+        using var catalog = PlatformCommand.RegisterRussianCatalog(localization);
+        Assert.That(localization.Format(result.Messages!.Single(), new PlayerCulture("ru-RU")), Is.EqualTo("Bob: платформа клиента неизвестна."));
+        Assert.That((await dispatcher.DispatchAsync(admin with { Arguments = ["Other"] })).Status, Is.EqualTo(CommandExecutionStatus.Failed));
+        var counts = (await dispatcher.DispatchAsync(admin with { Name = "platforms", Arguments = [] })).Messages!;
+        Assert.That(counts.Select(message => message.Key), Is.EqualTo(new[] { "platform.summary.title", "platform.summary.unknown", "platform.summary.reported" }));
+        Assert.That(counts[0].Arguments[0], Is.EqualTo(2));
+    }
+
     [Test]
     public async Task DeathStatisticsSelectTheNativeCounterAndCurrentWorldOnly()
     {
@@ -83,12 +113,12 @@ public sealed class ServerInformationCommandsTests
         public bool TryFindExact(string name, out PlayerSnapshot? player) => (player = players.FirstOrDefault(p => p.Name == name)) is not null;
     }
 
-    private sealed class Principal(PlayerSnapshot player) : IPlayerCommandPrincipal
+    private sealed class Principal(PlayerSnapshot player, bool permitted = true) : IPlayerCommandPrincipal
     {
         public string Name => player.Name; public bool IsServer => false; public string CultureSubjectId => Name;
         public PlayerId PlayerId => player.Id; public PlayerSessionId? SessionId => player.SessionId;
         public string PlayerName => player.Name; public string? AccountName => null;
-        public bool HasPermission(string permission) => true;
+        public bool HasPermission(string permission) => permitted;
     }
 
     private sealed class Output : ICommandOutput

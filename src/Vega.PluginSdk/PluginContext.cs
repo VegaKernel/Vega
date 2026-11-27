@@ -1,6 +1,7 @@
 using Vega.Contracts.Commands;
 using Vega.Contracts.Operations;
 using Vega.Contracts.Players;
+using Vega.Contracts.Worlds;
 
 namespace Vega.PluginSdk;
 
@@ -65,6 +66,24 @@ public interface IPluginPlayers
     bool TryGet(PlayerId id, out PlayerSnapshot? player);
 
     bool TryFindExact(string name, out PlayerSnapshot? player);
+
+    /// <summary>Reads redacted metadata only while the observed world and native session still match.</summary>
+    bool TryGetConnectionSummary(PlayerSnapshot expected, out PlayerConnectionSummary? summary)
+    {
+        ArgumentNullException.ThrowIfNull(expected);
+        if (expected.SessionId is { } session && TryGet(expected.Id, out var current) && current is not null &&
+            current.SessionId == session && current.WorldId == expected.WorldId)
+        {
+            summary = new(current.Id, session, current.WorldId, current.Platform, current.ConnectedAt, current.Connection?.LoginPhase);
+            return true;
+        }
+
+        summary = null;
+        return false;
+    }
+
+    /// <summary>Counts reported platforms among current sessions in the specified world, including Unknown.</summary>
+    IReadOnlyList<PlayerPlatformCount> SnapshotPlatformCounts(WorldId worldId) => PlayerPlatformStatistics.Snapshot(Online, worldId);
 
     /// <summary>Sends a message through a host-tracked player operation.</summary>
     void Message(PlayerId id, string message);
@@ -133,6 +152,10 @@ public interface IPluginTasks
         string name,
         Func<CancellationToken, ValueTask<T>> operation,
         Action<T> apply);
+
+    /// <summary>Admits bounded CPU work on a detached input; publishes the result on the game thread.
+    /// Returns false under load or retirement. Do not capture mutable Terraria state. Respect cancellation.</summary>
+    bool TryRunCpu<T>(string name, Func<CancellationToken, T> compute, Action<T> apply) => false;
 }
 
 public interface IPluginStorage

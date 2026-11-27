@@ -8,6 +8,7 @@ using System.Text.Json;
 using Microsoft.Data.Sqlite;
 using NUnit.Framework;
 using Vega.Contracts.Commands;
+using Vega.Contracts.Networking;
 using Vega.Contracts.Operations;
 using Vega.Contracts.Players;
 using Vega.Contracts.Runtime;
@@ -338,13 +339,15 @@ public sealed class LoopbackRestServiceTests
         int port = ((IPEndPoint)portProbe.LocalEndpoint).Port;
         portProbe.Stop();
         using var service = new LoopbackRestService(world, new RuntimeLifecycleTracker(Stopwatch.GetTimestamp()), new State(),
-            new Players([Player(1, "Alice", world), Player(2, "Other", WorldId.Primary)]), new NetworkMetricsCounter(),
+            new Players([Player(1, "Alice", world) with { SessionId = PlayerSessionId.New(), Platform = new(ClientPlatformKind.Pc, 6) },
+                Player(2, "Other", WorldId.Primary) with { SessionId = PlayerSessionId.New(), Platform = new(ClientPlatformKind.GameCenter, 7) }]), new NetworkMetricsCounter(),
             runtimeMetrics: new SampledRuntimeMetricsReader(new ProcessHostMetricsReader()),
             queueMetrics: () => new GameThreadQueueSnapshot(3, 4096, 1, 128, 2));
         service.Start(port, fingerprint);
         using var http = new HttpClient { BaseAddress = new Uri($"http://127.0.0.1:{port}/"), Timeout = TimeSpan.FromSeconds(5) };
         using (var denied = await http.GetAsync("v1/status")) Assert.That(denied.StatusCode, Is.EqualTo(HttpStatusCode.Unauthorized));
         using (var denied = await http.GetAsync("v1/metrics")) Assert.That(denied.StatusCode, Is.EqualTo(HttpStatusCode.Unauthorized));
+        using (var denied = await http.GetAsync("v1/platforms")) Assert.That(denied.StatusCode, Is.EqualTo(HttpStatusCode.Unauthorized));
         http.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", token);
         using (var status = await http.GetAsync("v1/status")) Assert.That(status.StatusCode, Is.EqualTo(HttpStatusCode.OK));
         using (var sample = JsonDocument.Parse(await http.GetStringAsync("v1/metrics")))
@@ -362,7 +365,15 @@ public sealed class LoopbackRestServiceTests
         {
             Assert.That(players.RootElement.GetArrayLength(), Is.EqualTo(1));
             Assert.That(players.RootElement[0].GetProperty("name").GetString(), Is.EqualTo("Alice"));
+            Assert.That(players.RootElement[0].GetProperty("platform").GetString(), Is.EqualTo("Pc"));
+            Assert.That(players.RootElement[0].GetProperty("platformReported").GetBoolean(), Is.True);
             Assert.That(players.RootElement[0].TryGetProperty("remoteEndpoint", out _), Is.False);
+        }
+        using (var platforms = JsonDocument.Parse(await http.GetStringAsync("v1/platforms")))
+        {
+            Assert.That(platforms.RootElement.GetArrayLength(), Is.EqualTo(1));
+            Assert.That(platforms.RootElement[0].GetProperty("platform").GetString(), Is.EqualTo("Pc"));
+            Assert.That(platforms.RootElement[0].GetProperty("count").GetInt32(), Is.EqualTo(1));
         }
         using (var method = await http.PostAsync("v1/status", new StringContent(""))) Assert.That(method.StatusCode, Is.EqualTo(HttpStatusCode.MethodNotAllowed));
         var dispatcher = new CommandDispatcher([service]);

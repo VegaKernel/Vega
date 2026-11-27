@@ -69,6 +69,14 @@ The host owns every command, event subscription, repeating task and async operat
 `OnLeft` remains the subsequent session removal notification. These callbacks are notifications, not
 cancellation policies, and all use the same per-plugin fault guard and automatic detachment as join/leave.
 
+`Players.TryGetConnectionSummary(observedPlayer, out summary)` returns a detached,
+non-sensitive summary only when its world and session ID still match; it includes
+the client-reported platform, connection timestamp and optional login phase, not
+endpoints, UUID, platform account names or credentials. `summary.ConnectionAge(now)`
+is wall-clock connection age, not authenticated or active game time.
+`Players.SnapshotPlatformCounts(worldId)` returns read-only online counts per
+reported platform, including `Unknown`. Neither API attests the device or OS.
+
 `plugin.Players.Actions` provides typed native player operations: `HealAsync`,
 `BuffAsync`, `KillAsync`, `SlapAsync`, `RespawnAsync`, and `GiveAsync` (ordinary
 native item delivery). Check `VitalsAvailable` / `ItemDeliveryAvailable` on hosts
@@ -318,7 +326,9 @@ plugin.Tasks.RunIo(
     motd => plugin.Log.Write(OperationsLogLevel.Information, motd));
 ```
 
-Do not capture mutable Terraria state in the I/O callback. Cancellation, exception logging and unload joining belong to the host.
+Do not capture mutable Terraria state in the I/O callback. Its synchronous prefix also runs on a worker, not the caller's game thread. Cancellation, exception logging and unload joining belong to the host.
+
+For pure CPU work on detached snapshots, use `Tasks.TryRunCpu(name, compute, apply)`. It returns `false` rather than building an unbounded backlog. At most four admitted jobs per plugin and 32 per world process share up to four CPU lanes (one CPU reserved where possible). Results are posted through the bounded game-thread dispatcher; retirement cancels waiting work, suppresses late results and joins cooperative active work. Capture immutable data on the owning thread before calling and respect cancellation inside the computation. This is not an authorization to run native simulation in parallel.
 
 ## DEBUG boundary
 

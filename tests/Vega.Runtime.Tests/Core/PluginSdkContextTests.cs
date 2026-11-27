@@ -4,6 +4,7 @@ using Vega.Contracts.Commands;
 using Vega.Contracts.Items;
 using Vega.Contracts.Messaging;
 using Vega.Contracts.Modules;
+using Vega.Contracts.Networking;
 using Vega.Contracts.Operations;
 using Vega.Contracts.Players;
 using Vega.Contracts.Threading;
@@ -345,6 +346,39 @@ public sealed class PluginSdkContextTests
     }
 
     [Test]
+    public async Task PlatformMetadataUsesExactWorldSessionAndNeverGuessesPc()
+    {
+        var now = DateTimeOffset.UtcNow;
+        var world = new WorldId("platform-test");
+        var player = new PlayerSnapshot(new(1), "fixture", false, 100, 100, 20, 20, new(0, 0), false, 0)
+        {
+            WorldId = world, SessionId = PlayerSessionId.New(), ConnectedAt = now.AddMinutes(-2),
+            RemoteEndpoint = "192.0.2.1", Platform = ClientPlatformInfo.Unknown
+        };
+        var players = new RecordingPlayers { Current = player };
+        var scope = new HotModuleRegistrationScope(new RecordingCommandRegistry(), new RecordingLogger(), "Plugin.Platform",
+            Path.GetTempPath(), playerDirectory: players);
+        IVegaPluginContext plugin = scope;
+        try
+        {
+            Assert.That(plugin.Players.TryGetConnectionSummary(player, out var summary), Is.True);
+            Assert.That(summary!.Platform, Is.EqualTo(ClientPlatformInfo.Unknown));
+            Assert.That(summary.ConnectionAge(now), Is.EqualTo(TimeSpan.FromMinutes(2)));
+            Assert.That(summary.ConnectionAge(now.AddMinutes(-3)), Is.EqualTo(TimeSpan.Zero));
+            Assert.That(plugin.Players.SnapshotPlatformCounts(world), Is.EqualTo(new[] { new PlayerPlatformCount(ClientPlatformKind.Unknown, 1) }));
+            Assert.That(plugin.Players.SnapshotPlatformCounts(WorldId.Primary), Is.Empty);
+            var replacementPlayer = player with { SessionId = PlayerSessionId.New(), Platform = new(ClientPlatformKind.GameCenter, 7) };
+            players.Current = replacementPlayer;
+            Assert.That(plugin.Players.TryGetConnectionSummary(player, out _), Is.False);
+            Assert.That(plugin.Players.TryGetConnectionSummary(replacementPlayer with { WorldId = WorldId.Primary }, out _), Is.False);
+            Assert.That(plugin.Players.TryGetConnectionSummary(replacementPlayer, out var replacement), Is.True);
+            Assert.That(replacement!.Platform.Kind, Is.EqualTo(ClientPlatformKind.GameCenter));
+            Assert.That(plugin.Players.SnapshotPlatformCounts(world).Single().Platform, Is.EqualTo(ClientPlatformKind.GameCenter));
+        }
+        finally { await scope.DisposeAsync(); }
+    }
+
+    [Test]
     public async Task SessionBoundMessageNeverFallsBackToReusedPlayerSlot()
     {
         var players = new RecordingPlayers();
@@ -577,22 +611,19 @@ public sealed class PluginSdkContextTests
         int applied = 0;
 
         for (int index = 0; index < 2000; index++)
-            scope.Tasks.RunIo("completed", _ => ValueTask.FromResult(1), _ => applied++);
-        Assert.That(applied, Is.EqualTo(2000));
-        Assert.That(scope.TrackedTaskCount, Is.Zero);
+            scope.Tasks.RunIo("completed", _ => ValueTask.FromResult(1), _ => Interlocked.Increment(ref applied));
+        await WaitUntilAsync(() => Volatile.Read(ref applied) == 2000 && scope.TrackedTaskCount == 0);
 
         scope.Tasks.RunIo("async-completed", _ => new ValueTask<int>(io.Task), _ => Interlocked.Increment(ref applied));
         Assert.That(scope.TrackedTaskCount, Is.EqualTo(1));
         io.SetResult(1);
-        await WaitUntilAsync(() =>
-        {
-            scope.Tasks.RunIo("prune", _ => ValueTask.FromResult(0), _ => { });
-            return scope.TrackedTaskCount == 0;
-        });
+        await WaitUntilAsync(() => scope.TrackedTaskCount == 0);
         Assert.That(applied, Is.EqualTo(2001));
 
         var active = new TaskCompletionSource<int>(TaskCreationOptions.RunContinuationsAsynchronously);
-        scope.Tasks.RunIo("active", _ => new ValueTask<int>(active.Task), _ => Interlocked.Increment(ref applied));
+        var started = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        scope.Tasks.RunIo("active", _ => { started.TrySetResult(); return new ValueTask<int>(active.Task); }, _ => Interlocked.Increment(ref applied));
+        await started.Task.WaitAsync(TimeSpan.FromSeconds(5));
         Task unload = scope.DisposeAsync().AsTask();
         Assert.That(unload.IsCompleted, Is.False);
         active.SetResult(1);
@@ -601,7 +632,7 @@ public sealed class PluginSdkContextTests
     }
 
     [Test]
-    public void CompletedFaultedTaskRemainsVisibleToUnload()
+    public async Task CompletedFaultedTaskRemainsVisibleToUnload()
     {
         string dataDirectory = Path.Combine(Path.GetTempPath(), "vega-plugin-task-fault-tests", Guid.NewGuid().ToString("N"));
         var scope = new HotModuleRegistrationScope(new RecordingCommandRegistry(), new FaultingIoLogger(),
@@ -610,9 +641,51 @@ public sealed class PluginSdkContextTests
         // an example of the remaining task fault that existing unload aggregation must retain.
         scope.Tasks.RunIo("fault", _ => ValueTask.FromException<int>(new InvalidOperationException("io")), _ => { });
         scope.Tasks.RunIo("completed", _ => ValueTask.FromResult(1), _ => { });
-        Assert.That(scope.TrackedTaskCount, Is.EqualTo(1));
+        await WaitUntilAsync(() => scope.Faults.Count == 1 && scope.TrackedTaskCount == 1);
         var failure = Assert.ThrowsAsync<AggregateException>(async () => await scope.DisposeAsync());
         Assert.That(failure!.InnerExceptions, Has.Some.TypeOf<IOException>());
+    }
+
+    [Test]
+    public async Task CpuLaneBoundsWorkAndNeverRunsComputeInlineWithScheduling()
+    {
+        string root = Path.Combine(Path.GetTempPath(), "vega-plugin-cpu-tests", Guid.NewGuid().ToString("N"));
+        var scope = new HotModuleRegistrationScope(new RecordingCommandRegistry(), new RecordingLogger(),
+            "Vega.Test.CpuLane", root, gameThread: new ImmediateDispatcher());
+        using var ready = new ManualResetEventSlim();
+        using var release = new ManualResetEventSlim();
+        int workerThread = 0, applied = 0;
+        try
+        {
+            int callerThread = Environment.CurrentManagedThreadId;
+            for (int i = 0; i < 4; i++)
+                Assert.That(scope.Tasks.TryRunCpu("cpu", token =>
+                {
+                    Interlocked.CompareExchange(ref workerThread, Environment.CurrentManagedThreadId, 0);
+                    ready.Set();
+                    release.Wait(token);
+                    return 1;
+                }, value => Interlocked.Add(ref applied, value)), Is.True);
+            Assert.That(ready.Wait(TimeSpan.FromSeconds(5)), Is.True);
+            Assert.That(workerThread, Is.Not.EqualTo(callerThread));
+            Assert.That(scope.Tasks.TryRunCpu("cpu-overflow", _ => 1, _ => { }), Is.False);
+            Assert.That(applied, Is.Zero);
+            release.Set();
+            await WaitUntilAsync(() => Volatile.Read(ref applied) == 4 && scope.TrackedTaskCount == 0);
+
+            var computeStarted = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+            Assert.That(scope.Tasks.TryRunCpu("cancel", token =>
+            {
+                computeStarted.SetResult();
+                token.WaitHandle.WaitOne();
+                return 100;
+            }, value => Interlocked.Add(ref applied, value)), Is.True);
+            await computeStarted.Task.WaitAsync(TimeSpan.FromSeconds(5));
+            await scope.DisposeAsync();
+            Assert.That(applied, Is.EqualTo(4));
+            Assert.That(scope.Tasks.TryRunCpu("retired", _ => 1, _ => { }), Is.False);
+        }
+        finally { release.Set(); await scope.DisposeAsync(); }
     }
 
     private static async Task WaitUntilAsync(Func<bool> condition)

@@ -122,6 +122,7 @@ internal sealed class NativeTcpConnection : ISocket, IBorrowedPacketSocket
     internal void FlushDeferredWake() => outbound.FlushDeferredWake();
 
     public bool TryReadCompletion(out NativeSendCompletion completion) => outbound.TryReadCompletion(out completion);
+    internal int ReadCompletions(Span<NativeSendCompletion> destination) => outbound.ReadCompletions(destination);
 
     public void AsyncReceive(byte[] data, int offset, int size, SocketReceiveCallback callback, object? state = null)
     {

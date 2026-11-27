@@ -34,6 +34,7 @@ internal sealed class PacedLoopbackTransport : IDisposable
 #if !TSHOCK_COMPARISON
         if (mode == "ordered")
             ordered = new NativeTcpTransportHost(new NativeTcpTransportOptions { MaxBatchRequests = 16, MeasureQueueAge = true,
+                CompletionDrainBatch = int.TryParse(Environment.GetEnvironmentVariable("VEGA_BENCH_COMPLETION_BATCH"), out int completionBatch) ? completionBatch : 1,
                 DeferWriterWake = Environment.GetEnvironmentVariable("VEGA_BENCH_DEFER_WAKE") == "1",
                 ProducerBatching = Environment.GetEnvironmentVariable("VEGA_BENCH_DEFER_WAKE") == "1" &&
                     Environment.GetEnvironmentVariable("VEGA_BENCH_PRODUCER_BATCHING") == "1",

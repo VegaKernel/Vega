@@ -15,6 +15,57 @@ public sealed class NativeTcpTransportTests
     private static readonly TimeSpan Timeout = TimeSpan.FromSeconds(5);
 
     [Test]
+    public async Task CompletionBurstPreservesPeerFifoFairnessCountAndRetirement()
+    {
+        await using var fixture = new Fixture(new NativeTcpTransportOptions
+        {
+            CompletionDrainBatch = 4, MaxCallbacksPerPass = 5, CallbackBudget = TimeSpan.FromSeconds(1)
+        });
+        var (firstPeer, first) = await fixture.ConnectAsync();
+        var (secondPeer, second) = await fixture.ConnectAsync();
+        using (firstPeer)
+        using (secondPeer)
+        {
+            fixture.Bind(1, first);
+            fixture.Bind(2, second);
+            List<int> delivered = [];
+            for (int i = 0; i < 6; i++)
+                first.AsyncSend([1], 0, 1, state => delivered.Add((int)state!), i);
+            second.AsyncSend([2], 0, 1, _ => { delivered.Add(10); second.Close(); });
+            second.AsyncSend([2], 0, 1, _ => delivered.Add(11));
+            await UntilAsync(() => first.OutboundSnapshot.PendingCompletions == 6 && second.OutboundSnapshot.PendingCompletions == 2);
+
+            Assert.That(fixture.Host.DrainCompletions(), Is.EqualTo(5));
+            Assert.That(delivered, Is.EqualTo(new[] { 0, 1, 2, 3, 10 }));
+            Assert.That(second.IsClosed, Is.True);
+            Assert.That(fixture.Host.DrainCompletions(), Is.EqualTo(2));
+            Assert.That(delivered, Is.EqualTo(new[] { 0, 1, 2, 3, 10, 4, 5 }));
+            Assert.That(fixture.Host.Retained, Is.EqualTo((0, 0L)));
+        }
+    }
+
+    [Test]
+    public async Task CompletionBurstSkipsAlreadyDequeuedCallbacksAfterPeerClose()
+    {
+        await using var fixture = new Fixture(new NativeTcpTransportOptions
+        {
+            CompletionDrainBatch = 4, CallbackBudget = TimeSpan.FromSeconds(1)
+        });
+        var (peer, connection) = await fixture.ConnectAsync();
+        using (peer)
+        {
+            fixture.Bind(1, connection);
+            int callbacks = 0;
+            connection.AsyncSend([1], 0, 1, _ => { callbacks++; connection.Close(); });
+            for (int i = 0; i < 3; i++) connection.AsyncSend([1], 0, 1, _ => callbacks++);
+            await UntilAsync(() => connection.OutboundSnapshot.PendingCompletions == 4);
+            Assert.That(fixture.Host.DrainCompletions(), Is.EqualTo(4));
+            Assert.That(callbacks, Is.EqualTo(1));
+            Assert.That(fixture.Host.Retained, Is.EqualTo((0, 0L)));
+        }
+    }
+
+    [Test]
     [NonParallelizable]
     public void ExplicitAttachSelectsCandidateFactoryAndDisposeRestoresPreviousFactory()
     {

@@ -15,6 +15,8 @@ internal sealed record NativeTcpTransportOptions
     public int MaxCallbacksPerPass { get; init; } = DefaultCallbacksPerPass;
     public bool MeasureQueueAge { get; init; }
     public TimeSpan CallbackBudget { get; init; } = TimeSpan.FromMilliseconds(2);
+    /// <summary>Bounded per-peer completion drain burst; a pass may finish at most this many callbacks after its last time check.</summary>
+    public int CompletionDrainBatch { get; init; } = 1;
     /// <summary>Experimental adjacent-send coalescing, disabled until measured.</summary>
     public int MaxBatchRequests { get; init; } = 1;
     /// <summary>Experimental producer-owned contiguous blocks, avoiding writer-side merge copies.</summary>
@@ -36,7 +38,7 @@ internal sealed record NativeTcpTransportOptions
         if (MaxConnections <= 0 || MaxOutstandingPerConnection <= 0 || MaxRetainedBytesPerConnection <= 0 ||
             MaxOutstandingPerWorld < MaxOutstandingPerConnection || MaxRetainedBytesPerWorld < MaxRetainedBytesPerConnection ||
             MaxSendBytes <= 0 || MaxSendBytes > MaxRetainedBytesPerConnection || MaxReceiveBytes <= 0 ||
-            MaxCallbacksPerPass <= 0 || CallbackBudget <= TimeSpan.Zero || MaxBatchRequests is < 1 or > NativeOutboundQueue.BatchRequestLimit ||
+            MaxCallbacksPerPass <= 0 || CallbackBudget <= TimeSpan.Zero || CompletionDrainBatch is < 1 or > 4 || MaxBatchRequests is < 1 or > NativeOutboundQueue.BatchRequestLimit ||
             (ProducerBatching && (!DeferWriterWake || MaxBatchRequests <= 1)) ||
             DeferredWakeFlushInterval <= TimeSpan.Zero || DeferredWakeFlushInterval > TimeSpan.FromMilliseconds(2))
             throw new ArgumentOutOfRangeException(nameof(NativeTcpTransportOptions), "Invalid native TCP transport limits.");

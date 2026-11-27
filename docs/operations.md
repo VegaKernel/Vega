@@ -101,6 +101,8 @@ An optional primary-world operations listener binds `127.0.0.1` only (`VEGA_REST
 
 | Route | Scope | Contract |
 | --- | --- | --- |
+| `GET /v1/players` | Read or maintenance | Online players include `platform` (reported kind) and `platformReported`; no device/OS verification or endpoint/UUID disclosure. |
+| `GET /v1/platforms` | Read or maintenance | Current-world counts by client-reported platform, retaining unknown and unrecognized categories. |
 | `GET /v1/world` | Read or maintenance | Current world dimensions, spawn, time, moon, weather, mode and hardmode; no world file identity, seed or file paths. |
 | `POST /v1/world/save` | Maintenance | Empty body; existing typed native save operation. |
 | `POST /v1/world/time` | Maintenance | JSON `{"isDaytime":true,"timeTicks":12000}`; both fields required, native day/night tick range. |
