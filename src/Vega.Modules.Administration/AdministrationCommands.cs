@@ -436,8 +436,8 @@ public sealed class UserInfoCommand(
             MessageDescriptor.Info("command.userinfo.summary")
                 .WithDefaultText(
                     $"{snapshot.Player.Name}: slot={snapshot.Player.Id.Slot}, world={snapshot.Player.WorldId}, " +
-                    $"platform={snapshot.Player.Platform.Kind}, endpoint={endpoint}, uuid={uuid}, " +
-                    $"inventoryRevision={snapshot.Inventory.Revision}."));
+                    $"endpoint={endpoint}, uuid={uuid}, inventoryRevision={snapshot.Inventory.Revision}."),
+            PlatformCommand.DescribePlayerPlatform(snapshot.Player));
     }
 
     private static CommandExecutionResult Failure(string code, string text) =>

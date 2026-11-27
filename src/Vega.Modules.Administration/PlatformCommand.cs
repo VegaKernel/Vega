@@ -40,13 +40,15 @@ public sealed class PlatformCommand(IPlayerDirectory players, bool summary = fal
         var player = invocation.Arguments.Count == 0 ? VitalTargets.Self(players, invocation) : VitalTargets.Find(players, invocation, invocation.Arguments[0]);
         return ValueTask.FromResult(player is null
             ? CommandExecutionResult.Failed("platform.player_not_found", Error("platform.player_not_found", "No matching current player session in this world."))
-            : CommandExecutionResult.WithMessages(player.Platform.Kind switch
-            {
-                ClientPlatformKind.Unknown => Info("platform.player.unknown", "{0}: client platform is unknown.", player.Name),
-                ClientPlatformKind.Unrecognized => Info("platform.player.unrecognized", "{0}: client reported an unrecognized platform.", player.Name),
-                _ => Info("platform.player.reported", "{0}: client-reported platform: {1}.", player.Name, Label(player.Platform.Kind))
-            }));
+            : CommandExecutionResult.WithMessages(DescribePlayerPlatform(player)));
     }
+
+    internal static MessageDescriptor DescribePlayerPlatform(PlayerSnapshot player) => player.Platform.Kind switch
+    {
+        ClientPlatformKind.Unknown => Info("platform.player.unknown", "{0}: client platform is unknown.", player.Name),
+        ClientPlatformKind.Unrecognized => Info("platform.player.unrecognized", "{0}: client reported an unrecognized platform.", player.Name),
+        _ => Info("platform.player.reported", "{0}: client-reported platform: {1}.", player.Name, Label(player.Platform.Kind))
+    };
 
     private static string Label(ClientPlatformKind kind) => kind switch
     {

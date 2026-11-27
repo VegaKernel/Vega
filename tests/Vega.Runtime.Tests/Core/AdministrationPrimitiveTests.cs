@@ -1,15 +1,20 @@
 using NUnit.Framework;
+using Vega.Contracts.Commands;
 using Vega.Contracts.Events;
+using Vega.Contracts.Localization;
 using Vega.Contracts.Messaging;
 using Vega.Contracts.Networking;
 using Vega.Contracts.Operations;
 using Vega.Contracts.Players;
 using Vega.Contracts.Worlds;
 using Vega.Core.Events;
+using Vega.Core.Commands;
+using Vega.Core.Localization;
 using Vega.Core.Messaging;
 using Vega.Core.Players;
 using Vega.Core.Worlds;
 using Vega.Modules.Mentions;
+using Vega.Modules.Administration;
 
 namespace Vega.Runtime.Tests.Core;
 
@@ -163,6 +168,44 @@ public sealed class AdministrationPrimitiveTests
         Assert.That(await service.CaptureAsync(alice), Is.Null);
     }
 
+    [TestCase(ClientPlatformKind.Pc, 6, "Alice: платформа по данным клиента: Steam / PC.")]
+    [TestCase(ClientPlatformKind.Switch, 5, "Alice: платформа по данным клиента: Nintendo Switch.")]
+    [TestCase(ClientPlatformKind.GameCenter, 7, "Alice: платформа по данным клиента: Game Center.")]
+    [TestCase(ClientPlatformKind.Unknown, -1, "Alice: платформа клиента неизвестна.")]
+    [TestCase(ClientPlatformKind.Unrecognized, 99, "Alice: клиент сообщил нераспознанную платформу.")]
+    public async Task UserInfoChatAliasDisplaysCurrentLocalizedPlatformWithoutSensitivePermission(
+        ClientPlatformKind platform, int reportedCode, string expected)
+    {
+        var alice = Player(1, "Alice") with
+        {
+            SessionId = PlayerSessionId.New(),
+            RemoteEndpoint = "203.0.113.1:7777",
+            Connection = new(new(1), "203.0.113.1:7777", "203.0.113.1:7777",
+                ConnectionForwardingProvenance.Direct, ClientPlatformInfo.Unknown, "uuid-secret", ConnectionLoginPhase.FullyConnected)
+        };
+        var current = new ClientPlatformInfo(platform, reportedCode < 0 ? null : (byte)reportedCode);
+        var directory = new StubPlayers(alice);
+        // The reported metadata may arrive while inventory inspection is pending.
+        var service = new PlayerInspectionService(directory, new StubInventory(alice.Id, () => directory.Current = alice with
+        {
+            Platform = current,
+            Connection = alice.Connection! with { Platform = current }
+        }));
+        var dispatcher = new CommandDispatcher([new UserInfoCommand(directory, service)]);
+        var localization = new LocalizationService("en-US");
+        using var catalog = PlatformCommand.RegisterRussianCatalog(localization);
+        var invocation = new CommandInvocation("ui", ["Alice"], new InspectPrincipal(), new SilentOutput());
+        foreach (string command in new[] { "ui", "userinfo" })
+        {
+            var result = await dispatcher.DispatchAsync(invocation with { Name = command });
+            Assert.That(result.Status, Is.EqualTo(CommandExecutionStatus.Success));
+            Assert.That(result.Messages, Has.Count.EqualTo(2));
+            string[] lines = result.Messages!.Select(message => localization.Format(message, new PlayerCulture("ru-RU"))).ToArray();
+            Assert.That(lines[1], Is.EqualTo(expected));
+            Assert.That(lines[0], Does.Contain("<redacted>").And.Not.Contain("203.0.113.1").And.Not.Contain("uuid-secret"));
+        }
+    }
+
     [Test]
     public async Task ChestPolicyCanRejectBeforeTransactionalBackendMutation()
     {
@@ -270,6 +313,21 @@ public sealed class AdministrationPrimitiveTests
             found = string.Equals(name, Current.Name, StringComparison.OrdinalIgnoreCase) ? Current : null;
             return found is not null;
         }
+    }
+
+    private sealed class InspectPrincipal : ICommandPrincipal
+    {
+        public string Name => "Inspector";
+        public bool IsServer => false;
+        public bool HasPermission(string permission) => permission == "vega.players.inspect";
+    }
+
+    private sealed class SilentOutput : ICommandOutput
+    {
+        public ValueTask InfoAsync(string message, CancellationToken cancellationToken = default) => ValueTask.CompletedTask;
+        public ValueTask SuccessAsync(string message, CancellationToken cancellationToken = default) => ValueTask.CompletedTask;
+        public ValueTask WarningAsync(string message, CancellationToken cancellationToken = default) => ValueTask.CompletedTask;
+        public ValueTask ErrorAsync(string message, CancellationToken cancellationToken = default) => ValueTask.CompletedTask;
     }
 
     private sealed class StubInventory(PlayerId playerId, Action? duringCapture = null) : IPlayerInventoryService
