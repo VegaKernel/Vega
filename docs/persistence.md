@@ -52,4 +52,4 @@ Back up before upgrading Vega across a released schema revision:
 
 Vega refuses to open a database whose schema is newer than the running binary. Restore the matching Vega version or restore a pre-upgrade backup; never edit `vega_schema_history` to force a downgrade.
 
-Real PostgreSQL/MySQL provider contract tests require disposable database services. The normal local suite always validates SQLite persistence and provider selection; CI/deployment validation should additionally exercise the chosen external engine.
+SQLite, MySQL and PostgreSQL run the same persistence and backup contract. CI also tests all six combinations of TShock SQLite/MySQL source and Vega SQLite/MySQL/PostgreSQL destination on isolated databases, with shared character/warp file-store behavior. The external contract uses disposable MySQL 8.4 and PostgreSQL 17 services. Changing the configured provider selects a different store; it does not automatically copy an existing Vega database. SSC, whitelist and warps remain in the normal shared/world-scoped file stores regardless of relational provider.

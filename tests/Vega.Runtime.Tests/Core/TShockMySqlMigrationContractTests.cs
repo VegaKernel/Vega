@@ -1,7 +1,9 @@
 extern alias LegacyBCrypt;
 
 using System.Globalization;
+using System.Data.Common;
 using System.Text.Json;
+using Microsoft.Data.Sqlite;
 using MySqlConnector;
 using NUnit.Framework;
 using Vega.Cluster.Scenarios.Bans;
@@ -108,6 +110,22 @@ public sealed class TShockMySqlMigrationContractTests
             return;
         }
 
+        await PopulateFixtureAsync(connection);
+    }
+
+    internal static async Task CreateSqliteFixtureAsync(string path)
+    {
+        if (File.Exists(path)) throw new InvalidDataException("The SQLite fixture path must be new.");
+        await using var connection = new SqliteConnection(new SqliteConnectionStringBuilder
+        {
+            DataSource = path, Mode = SqliteOpenMode.ReadWriteCreate, Pooling = false
+        }.ConnectionString);
+        await connection.OpenAsync();
+        await PopulateFixtureAsync(connection);
+    }
+
+    private static async Task PopulateFixtureAsync(DbConnection connection)
+    {
         // Literal columns/types mirror pinned TShock User/Ban/Region/Warp/Character
         // managers; especially TEXT LastAccessed/Private, BIGINT UTC ticks, signed
         // INT packed colors, and FLOAT voicePitchOffset. No ALTER/DROP/overwrite.
@@ -139,14 +157,22 @@ public sealed class TShockMySqlMigrationContractTests
             CREATE TABLE VegaMigrationFixture (marker VARCHAR(64) PRIMARY KEY);
             INSERT INTO VegaMigrationFixture VALUES (@marker);
             """;
-        command.Parameters.AddWithValue("@hash", LegacyBCrypt::BCrypt.Net.BCrypt.HashPassword(FixturePassword, 4));
-        command.Parameters.AddWithValue("@date", new DateTimeOffset(2020, 1, 1, 0, 0, 0, TimeSpan.Zero).UtcTicks);
-        command.Parameters.AddWithValue("@past", new DateTimeOffset(2021, 1, 1, 0, 0, 0, TimeSpan.Zero).UtcTicks);
-        command.Parameters.AddWithValue("@future", new DateTimeOffset(2099, 1, 1, 0, 0, 0, TimeSpan.Zero).UtcTicks);
-        command.Parameters.AddWithValue("@never", DateTime.MaxValue.Ticks);
-        command.Parameters.AddWithValue("@inventory", string.Join("~", Enumerable.Range(1, 350).Select(item => string.Create(CultureInfo.InvariantCulture, $"{item},1,0,0"))));
-        command.Parameters.AddWithValue("@color", unchecked((int)0xFF1E140A));
-        command.Parameters.AddWithValue("@marker", Marker);
+        Add("@hash", LegacyBCrypt::BCrypt.Net.BCrypt.HashPassword(FixturePassword, 4));
+        Add("@date", new DateTimeOffset(2020, 1, 1, 0, 0, 0, TimeSpan.Zero).UtcTicks);
+        Add("@past", new DateTimeOffset(2021, 1, 1, 0, 0, 0, TimeSpan.Zero).UtcTicks);
+        Add("@future", new DateTimeOffset(2099, 1, 1, 0, 0, 0, TimeSpan.Zero).UtcTicks);
+        Add("@never", DateTime.MaxValue.Ticks);
+        Add("@inventory", string.Join("~", Enumerable.Range(1, 350).Select(item => string.Create(CultureInfo.InvariantCulture, $"{item},1,0,0"))));
+        Add("@color", unchecked((int)0xFF1E140A));
+        Add("@marker", Marker);
         await command.ExecuteNonQueryAsync();
+
+        void Add(string name, object value)
+        {
+            DbParameter parameter = command.CreateParameter();
+            parameter.ParameterName = name;
+            parameter.Value = value;
+            command.Parameters.Add(parameter);
+        }
     }
 }

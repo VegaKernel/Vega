@@ -1,6 +1,8 @@
 using System.Text.Json;
+using System.Security.Cryptography;
 using Microsoft.Data.Sqlite;
 using MySqlConnector;
+using Npgsql;
 using NUnit.Framework;
 using Vega.Contracts.Sandboxes;
 using Vega.Contracts.Worlds;
@@ -17,36 +19,52 @@ namespace Vega.Runtime.Tests.Core;
 public sealed class TShockOfflineMigrationContractTests
 {
     private const string ReaderVariable = "VEGA_TEST_TSHOCK_MYSQL_READER";
-    private const string TargetVariable = "VEGA_TEST_VEGA_IMPORT_MYSQL";
     private const string RuntimeSourceVariable = "VEGA_TSHOCK_MYSQL_CONNECTION";
     private static readonly JsonSerializerOptions Json = new(JsonSerializerDefaults.Web);
 
-    [TestCase("sqlite")]
-    [TestCase("mysql")]
-    public async Task MySqlSourceImportsAllFamiliesThroughOfflineCommands(string destination)
+    [TestCase("sqlite", "sqlite")]
+    [TestCase("sqlite", "mysql")]
+    [TestCase("sqlite", "postgresql")]
+    [TestCase("mysql", "sqlite")]
+    [TestCase("mysql", "mysql")]
+    [TestCase("mysql", "postgresql")]
+    public async Task SourceImportsAllFamiliesThroughOfflineCommands(string sourceProvider, string destination)
     {
         string? creator = Environment.GetEnvironmentVariable(TShockMySqlMigrationContractTests.EnvironmentVariable);
-        if (string.IsNullOrWhiteSpace(creator)) Assert.Ignore("Disposable TShock MySQL source is not configured.");
-        string? target = Environment.GetEnvironmentVariable(TargetVariable);
-        if (destination == "mysql")
+        if (sourceProvider == "mysql" && string.IsNullOrWhiteSpace(creator)) Assert.Ignore("Disposable TShock MySQL source is not configured.");
+        string targetVariable = $"VEGA_TEST_VEGA_IMPORT_{destination.ToUpperInvariant()}" + (sourceProvider == "sqlite" ? "_FROM_SQLITE" : "");
+        if (destination != "sqlite")
         {
-            if (string.IsNullOrWhiteSpace(target)) Assert.Ignore("Disposable Vega MySQL target is not configured.");
-            if (!new MySqlConnectionStringBuilder(target).Database.StartsWith("vega_test_import", StringComparison.Ordinal))
-                Assert.Fail("The test target must be a dedicated vega_test_import schema.");
+            string? target = Environment.GetEnvironmentVariable(targetVariable);
+            if (string.IsNullOrWhiteSpace(target)) Assert.Ignore($"Disposable Vega {destination} target is not configured.");
+            string? databaseName = destination == "mysql" ? new MySqlConnectionStringBuilder(target).Database : new NpgsqlConnectionStringBuilder(target).Database;
+            if (databaseName is null || !databaseName.StartsWith("vega_test_import", StringComparison.Ordinal))
+                Assert.Fail("The test target must be a dedicated vega_test_import database.");
         }
-        await CreateFixtureAsync(creator!);
-        string source = Environment.GetEnvironmentVariable(ReaderVariable) ?? creator!;
         string? previousSource = Environment.GetEnvironmentVariable(RuntimeSourceVariable);
         string root = Path.Combine(Path.GetTempPath(), "vega-tshock-offline-contract", Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(Path.Combine(root, "config"));
         string map = Path.Combine(root, "mapping.json");
         await File.WriteAllTextAsync(map, GroupMappingJson);
-        var options = VegaDatabaseOptions.Default with { Provider = destination, ConnectionStringEnvironmentVariable = TargetVariable };
+        var options = VegaDatabaseOptions.Default with { Provider = destination, ConnectionStringEnvironmentVariable = targetVariable };
         await File.WriteAllTextAsync(Path.Combine(root, "config", "database.json"), JsonSerializer.Serialize(options, Json));
         Guid world = Guid.NewGuid();
         try
         {
-            Environment.SetEnvironmentVariable(RuntimeSourceVariable, source);
+            string sourceArgument;
+            byte[]? originalFingerprint = null;
+            if (sourceProvider == "mysql")
+            {
+                await CreateFixtureAsync(creator!);
+                Environment.SetEnvironmentVariable(RuntimeSourceVariable, Environment.GetEnvironmentVariable(ReaderVariable) ?? creator!);
+                sourceArgument = "@mysql";
+            }
+            else
+            {
+                sourceArgument = Path.Combine(root, "tshock.sqlite");
+                await CreateSqliteFixtureAsync(sourceArgument);
+                originalFingerprint = SHA256.HashData(await File.ReadAllBytesAsync(sourceArgument));
+            }
             Assert.That(Run("accounts", map), Is.Zero);
             Assert.That(Run("bans"), Is.Zero);
             Assert.That(Run("bans"), Is.Zero, "Repeat ban import must be insert-only.");
@@ -79,9 +97,9 @@ public sealed class TShockOfflineMigrationContractTests
             Assert.That(Run("accounts", map), Is.EqualTo(2));
             Assert.That(Run("regions", FixtureWorldId.ToString(), map), Is.EqualTo(2));
             Assert.That(Run("warps", FixtureWorldId.ToString(), world.ToString("D")), Is.EqualTo(2));
-            if (destination == "mysql")
+            if (destination != "sqlite")
             {
-                var backups = Directory.GetFiles(Path.Combine(root, "data", "migration-backups"), "*.sql", SearchOption.AllDirectories);
+                var backups = Directory.GetFiles(Path.Combine(root, "data", "migration-backups"), database.BackupFileName, SearchOption.AllDirectories);
                 Assert.That(backups.Length, Is.GreaterThanOrEqualTo(4));
                 Assert.That(backups.All(path => new FileInfo(path).Length > 0), Is.True);
             }
@@ -89,10 +107,14 @@ public sealed class TShockOfflineMigrationContractTests
             // Guard the same-source schema before initializing a Vega destination.
             string sameRoot = Path.Combine(root, "same-source");
             Directory.CreateDirectory(Path.Combine(sameRoot, "config"));
-            await File.WriteAllTextAsync(Path.Combine(sameRoot, "config", "database.json"), JsonSerializer.Serialize(
-                options with { Provider = "mysql", ConnectionStringEnvironmentVariable = RuntimeSourceVariable }, Json));
-            Assert.That(OfflineMigrationCommands.TryRun(["--vega-import-tshock-accounts", "@mysql", map], sameRoot), Is.EqualTo(2));
-            int? Run(string family, params string[] tail) => OfflineMigrationCommands.TryRun(["--vega-import-tshock-" + family, "@mysql", .. tail], root);
+            var sameOptions = sourceProvider == "mysql"
+                ? options with { Provider = "mysql", ConnectionStringEnvironmentVariable = RuntimeSourceVariable }
+                : options with { Provider = "sqlite", SqlitePath = sourceArgument };
+            await File.WriteAllTextAsync(Path.Combine(sameRoot, "config", "database.json"), JsonSerializer.Serialize(sameOptions, Json));
+            Assert.That(OfflineMigrationCommands.TryRun(["--vega-import-tshock-accounts", sourceArgument, map], sameRoot), Is.EqualTo(2));
+            if (originalFingerprint is not null)
+                Assert.That(SHA256.HashData(await File.ReadAllBytesAsync(sourceArgument)), Is.EqualTo(originalFingerprint));
+            int? Run(string family, params string[] tail) => OfflineMigrationCommands.TryRun(["--vega-import-tshock-" + family, sourceArgument, .. tail], root);
         }
         finally
         {

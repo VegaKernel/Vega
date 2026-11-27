@@ -1,6 +1,7 @@
 extern alias LegacyBCrypt;
 using NUnit.Framework;
 using System.Data.Common;
+using Microsoft.Data.Sqlite;
 using Vega.Contracts.Authorization;
 using Vega.Contracts.Cluster.Events;
 using Vega.Contracts.Moderation;
@@ -31,7 +32,28 @@ public sealed class ExternalVegaDatabaseContractTests
             Provider = provider,
             ConnectionString = connectionString
         };
-        IVegaDatabase first = VegaDatabaseFactory.Create(options, TestContext.CurrentContext.WorkDirectory);
+        await AssertProviderContractAsync(options, TestContext.CurrentContext.WorkDirectory);
+    }
+
+    [Test]
+    public async Task SqliteRunsTheSamePersistenceAndBackupContract()
+    {
+        string root = Path.Combine(Path.GetTempPath(), "vega-sqlite-provider-contract", Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(root);
+        try
+        {
+            await AssertProviderContractAsync(VegaDatabaseOptions.Default, root);
+        }
+        finally
+        {
+            SqliteConnection.ClearAllPools();
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
+    private static async Task AssertProviderContractAsync(VegaDatabaseOptions options, string baseDirectory)
+    {
+        IVegaDatabase first = VegaDatabaseFactory.Create(options, baseDirectory);
         await first.InitializeAsync();
         var created = await first.Authorization.CreateGroupAsync("builders", "default", "contract-test");
         Assert.That(created.Succeeded, Is.True);
@@ -57,7 +79,7 @@ public sealed class ExternalVegaDatabaseContractTests
         var renamed = await first.Regions.RenameAsync(WorldId.Primary, "build-zone", "new-zone", access.After!.Revision, "contract-test");
         Assert.That(renamed.Succeeded, Is.True);
 
-        IVegaDatabase reopened = VegaDatabaseFactory.Create(options, TestContext.CurrentContext.WorkDirectory);
+        IVegaDatabase reopened = VegaDatabaseFactory.Create(options, baseDirectory);
         await reopened.InitializeAsync();
         string directory = Path.Combine(Path.GetTempPath(), "vega-external-dump-tests", Guid.NewGuid().ToString("N"));
         string dump = Path.Combine(directory, reopened.BackupFileName);

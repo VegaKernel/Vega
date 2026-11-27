@@ -132,6 +132,9 @@ jobs:
       VEGA_TEST_TSHOCK_MYSQL: Server=127.0.0.1;Port=3306;Database=vega_test_tshock;User ID=vega;Password=vega_test_password
       VEGA_TEST_TSHOCK_MYSQL_READER: Server=127.0.0.1;Port=3306;Database=vega_test_tshock;User ID=vega_import_reader;Password=vega_reader_test_password
       VEGA_TEST_VEGA_IMPORT_MYSQL: Server=127.0.0.1;Port=3306;Database=vega_test_import;User ID=vega;Password=vega_test_password
+      VEGA_TEST_VEGA_IMPORT_MYSQL_FROM_SQLITE: Server=127.0.0.1;Port=3306;Database=vega_test_import_from_sqlite;User ID=vega;Password=vega_test_password
+      VEGA_TEST_VEGA_IMPORT_POSTGRESQL: Host=127.0.0.1;Port=5432;Database=vega_test_import_from_mysql;Username=vega;Password=vega_test_password
+      VEGA_TEST_VEGA_IMPORT_POSTGRESQL_FROM_SQLITE: Host=127.0.0.1;Port=5432;Database=vega_test_import_from_sqlite;Username=vega;Password=vega_test_password
     steps:
       - uses: actions/checkout@v6
       - name: Setup .NET
@@ -169,10 +172,16 @@ jobs:
           docker exec -i -e MYSQL_PWD=root_test_password "${{ job.services.mysql.id }}" mysql -uroot <<'SQL'
           CREATE DATABASE vega_test_tshock;
           CREATE DATABASE vega_test_import;
+          CREATE DATABASE vega_test_import_from_sqlite;
           GRANT ALL PRIVILEGES ON vega_test_tshock.* TO 'vega'@'%';
           GRANT ALL PRIVILEGES ON vega_test_import.* TO 'vega'@'%';
+          GRANT ALL PRIVILEGES ON vega_test_import_from_sqlite.* TO 'vega'@'%';
           CREATE USER 'vega_import_reader'@'%' IDENTIFIED BY 'vega_reader_test_password';
           GRANT SELECT ON vega_test_tshock.* TO 'vega_import_reader'@'%';
+          SQL
+          docker exec -i "${{ job.services.postgres.id }}" psql -U vega -d vega_test -v ON_ERROR_STOP=1 <<'SQL'
+          CREATE DATABASE vega_test_import_from_mysql;
+          CREATE DATABASE vega_test_import_from_sqlite;
           SQL
       - name: Run empty-provider and logical-dump contracts
         run: >-
