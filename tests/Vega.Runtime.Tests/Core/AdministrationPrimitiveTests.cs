@@ -30,6 +30,31 @@ public sealed class AdministrationPrimitiveTests
     }
 
     [Test]
+    public void PublicChatObservationExcludesCommandsRejectedMessagesAndMissingSessions()
+    {
+        PlayerSnapshot sender = Player(1, "Alice") with { SessionId = PlayerSessionId.New() };
+        PlayerSnapshot bob = Player(2, "Bob");
+        var pipeline = new ChatPipeline(transforms: [new PrefixTransform("prefix", 0)], renderers: [new MentionRenderer()]);
+        var observed = new List<PublicChatAcceptedObservation>();
+        pipeline.Accepted += _ => throw new InvalidOperationException("fixture fault");
+        pipeline.Accepted += observed.Add;
+        var context = new ChatMessageContext(WorldId.Primary, sender, "hello @Bob", [sender, bob]);
+        ChatPipelineResult result = pipeline.Process(context);
+        Assert.That(observed, Is.Empty); // native acceptance is a separate host action
+        pipeline.ObserveAccepted(context, result with { Allowed = false });
+        pipeline.ObserveAccepted(context with { Sender = sender with { SessionId = null } }, result);
+        pipeline.ObserveAccepted(context with { WorldId = new("other") }, result);
+        foreach (string command in new[] { "/login secret", ".login secret", "  /unknown", "." })
+        {
+            ChatMessageContext commandContext = context with { Content = command };
+            pipeline.ObserveAccepted(commandContext, pipeline.Process(commandContext));
+        }
+        pipeline.ObserveAccepted(context, result);
+        Assert.That(observed, Is.EqualTo(new[] { new PublicChatAcceptedObservation(WorldId.Primary, sender.Id,
+            sender.SessionId!.Value, "prefix hello @Bob", 2, true) }));
+    }
+
+    [Test]
     public void ChatPipelineAppliesOrderedContentBeforePerRecipientMentionRendering()
     {
         PlayerSnapshot sender = Player(1, "Alice");
@@ -53,6 +78,26 @@ public sealed class AdministrationPrimitiveTests
             Assert.That(result.Deliveries.Single(delivery => delivery.RecipientId == sender.Id).Content,
                 Is.EqualTo("Alice: second first hello @Bob"));
         });
+    }
+
+    [Test]
+    public void ChatGroupPresentationPreservesAudienceAndPerRecipientRendering()
+    {
+        PlayerSnapshot sender = Player(1, "Alice");
+        PlayerSnapshot bob = Player(2, "Bob");
+        int resolutions = 0;
+        var pipeline = new ChatPipeline(renderers: [new MentionRenderer()], presentation: _ =>
+        {
+            resolutions++;
+            return new Vega.Contracts.Authorization.GroupChatPresentation("[B] ", "!", "12AB34");
+        });
+        var result = pipeline.Process(new ChatMessageContext(WorldId.Primary, sender, "hello @Bob", [sender, bob]));
+        Assert.That(resolutions, Is.EqualTo(1));
+        Assert.That(result.RequiresCustomDelivery, Is.True);
+        Assert.That(result.Deliveries.Select(d => d.RecipientId), Is.EqualTo(new[] { sender.Id, bob.Id }));
+        Assert.That(result.Deliveries[0].Content, Is.EqualTo("[B] Alice!: hello @Bob"));
+        Assert.That(result.Deliveries[1].Content, Is.EqualTo("[B] Alice!: hello [MENTION @Bob]"));
+        Assert.That(result.Deliveries.All(d => d.Color == new ChatColor(0x12, 0xab, 0x34)), Is.True);
     }
 
     [Test]

@@ -27,6 +27,35 @@ public sealed class AdministrationCommandSurfaceTests
     }
 
     [Test]
+    public async Task GroupAliasesAndPresentationPersistWithoutExpandingDelegation()
+    {
+        SqliteVegaDatabase database = await SqliteVegaDatabase.OpenAsync(
+            new SqliteVegaDatabaseOptions(Path.Combine(directory, "vega.db")));
+        var dispatcher = new CommandDispatcher([new GroupCommand(database.Authorization)]);
+        async ValueTask<CommandExecutionResult> Group(string[] args, ICommandPrincipal? principal = null) =>
+            await dispatcher.DispatchAsync(new CommandInvocation("group", args, principal ?? ServerPrincipal.Instance, NullOutput.Instance));
+        Assert.That((await Group(["help"])).Status, Is.EqualTo(CommandExecutionStatus.Success));
+        Assert.That((await Group(["add", "ambiguous", "administrator"])).Status, Is.EqualTo(CommandExecutionStatus.InvalidUsage));
+        Assert.That(database.Authorization.TryGetGroup("ambiguous", out _), Is.False);
+        Assert.That((await Group(["add", "builders"])).Status, Is.EqualTo(CommandExecutionStatus.Success));
+        Assert.That((await Group(["addperm", "builders", "vega.world.build"])).Status, Is.EqualTo(CommandExecutionStatus.Success));
+        Assert.That((await Group(["addperm", "builders", "x", "y"])).Status, Is.EqualTo(CommandExecutionStatus.InvalidUsage));
+        Assert.That((await Group(["listperm", "builders"])).Status, Is.EqualTo(CommandExecutionStatus.Success));
+        Assert.That((await Group(["prefix", "builders", "[Builder] "])).Status, Is.EqualTo(CommandExecutionStatus.Success));
+        Assert.That((await Group(["suffix", "builders", " !"])).Status, Is.EqualTo(CommandExecutionStatus.Success));
+        Assert.That((await Group(["color", "builders", "12,34,56"])).Status, Is.EqualTo(CommandExecutionStatus.Success));
+        Assert.That((await Group(["color", "builders", "999,0,0"])).Status, Is.EqualTo(CommandExecutionStatus.InvalidUsage));
+        Assert.That((await Group(["prefix", "builders", "x"], new LimitedPrincipal())).ErrorCode,
+            Is.EqualTo("command.group.delegation-denied"));
+        Assert.That(database.Authorization.TryGetGroup("builders", out var group), Is.True);
+        Assert.That(group!.Presentation.Prefix, Is.EqualTo("[Builder] "));
+        Assert.That(group.Presentation.Suffix, Is.EqualTo(" !"));
+        Assert.That(group.Presentation.Color, Is.EqualTo("0C2238"));
+        Assert.That((await Group(["delperm", "builders", "vega.world.build"])).Status, Is.EqualTo(CommandExecutionStatus.Success));
+        Assert.That((await Group(["del", "builders"])).Status, Is.EqualTo(CommandExecutionStatus.Success));
+    }
+
+    [Test]
     public async Task DispatcherValidatesConfigAndPersistsGroupPermissionAndWorldRegion()
     {
         Directory.CreateDirectory(directory);
@@ -73,6 +102,13 @@ public sealed class AdministrationCommandSurfaceTests
         public string Name => "Server";
         public bool IsServer => true;
         public bool HasPermission(string permission) => true;
+    }
+
+    private sealed class LimitedPrincipal : ICommandPrincipal
+    {
+        public string Name => "Limited";
+        public bool IsServer => false;
+        public bool HasPermission(string permission) => permission == "vega.groups.manage";
     }
 
     private sealed class NullOutput : ICommandOutput

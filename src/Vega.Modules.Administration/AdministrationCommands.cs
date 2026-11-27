@@ -19,7 +19,7 @@ public sealed class AccountCommand(
         "account",
         ["user"],
         ["vega.accounts.manage"],
-        Syntax: "account list | show <name> | create <name> <password> [group] | delete <name> | group <name> <group> | password <name> <new-password> | temp <name> <group> <duration> | temp-clear <name> | temp-list");
+        Syntax: "account list | show <name> | create|add <name> <password> [group] | delete|del <name> | group <name> <group> | password <name> <new-password> | temp <name> <group> <duration> | temp-clear <name> | temp-list | help");
 
     public async ValueTask<CommandExecutionResult> ExecuteAsync(
         CommandInvocation invocation,
@@ -34,13 +34,14 @@ public sealed class AccountCommand(
         {
             "list" => List(),
             "show" => await ShowAsync(invocation, cancellationToken).ConfigureAwait(false),
-            "create" => await CreateAsync(invocation, cancellationToken).ConfigureAwait(false),
-            "delete" => await DeleteAsync(invocation, cancellationToken).ConfigureAwait(false),
+            "create" or "add" => await CreateAsync(invocation, cancellationToken).ConfigureAwait(false),
+            "delete" or "del" => await DeleteAsync(invocation, cancellationToken).ConfigureAwait(false),
             "group" => await SetGroupAsync(invocation, cancellationToken).ConfigureAwait(false),
             "password" => await SetPasswordAsync(invocation, cancellationToken).ConfigureAwait(false),
             "temp" => await GrantTemporaryGroupAsync(invocation, cancellationToken).ConfigureAwait(false),
             "temp-clear" => await RevokeTemporaryGroupAsync(invocation, cancellationToken).ConfigureAwait(false),
             "temp-list" => ListTemporaryGroups(),
+            "help" when invocation.Arguments.Count == 1 => Info("command.account.help", Descriptor.Syntax),
             _ => Usage()
         };
     }
@@ -390,7 +391,7 @@ public sealed class AccountCommand(
         CommandExecutionStatus.InvalidUsage,
         "command.account.usage",
         [MessageDescriptor.Error("command.account.usage")
-            .WithDefaultText("Usage: account list | show <name> | create <name> <password> [group] | delete <name> | group <name> <group> | password <name> <new-password> | temp <name> <group> <duration: 30m|2h|7d> | temp-clear <name> | temp-list.")]);
+            .WithDefaultText("Usage: account list | show <name> | create|add <name> <password> [group] | delete|del <name> | group <name> <group> | password <name> <new-password> | temp <name> <group> <duration: 30m|2h|7d> | temp-clear <name> | temp-list | help.")]);
 
     private static CommandExecutionResult Info(string key, string text) =>
         CommandExecutionResult.WithMessages(MessageDescriptor.Info(key).WithDefaultText(text));

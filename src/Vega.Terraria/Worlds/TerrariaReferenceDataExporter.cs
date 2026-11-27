@@ -1,6 +1,7 @@
 using System.Text.Json;
 using ReLogic.Reflection;
 using Terraria.ID;
+using Vega.Contracts.Items;
 using Vega.Contracts.Worlds;
 
 namespace Vega.Terraria.Worlds;
@@ -8,6 +9,42 @@ namespace Vega.Terraria.Worlds;
 /// <summary>Exports the native symbolic ID catalog, never world or character data.</summary>
 public sealed class TerrariaReferenceDataExporter(string runtimeDataRoot, WorldId worldId) : IWorldReferenceDataExporter
 {
+    public static int? ResolveContentName(RestrictedContentKind kind, string name)
+    {
+        IdDictionary? catalog = kind switch
+        {
+            RestrictedContentKind.Item => ItemID.Search,
+            RestrictedContentKind.Projectile => ProjectileID.Search,
+            RestrictedContentKind.Tile => TileID.Search,
+            _ => null
+        };
+        if (catalog is null || string.IsNullOrWhiteSpace(name) || name.Length > 128) return null;
+        string key = NormalizeName(name);
+        return UniqueId(catalog.Names.Where(candidate => NormalizeName(candidate).Equals(key, StringComparison.OrdinalIgnoreCase))
+            .Select(candidate => catalog.GetId(candidate)));
+    }
+
+    // PrefixID has native symbolic constants rather than an IdDictionary.
+    private static readonly Lazy<(string Name, int Id)[]> PrefixNames = new(() =>
+        typeof(PrefixID).GetFields(System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Static)
+            .Where(field => field.IsLiteral && field.Name != nameof(PrefixID.Count))
+            .Select(field => (field.Name, Convert.ToInt32(field.GetRawConstantValue(), System.Globalization.CultureInfo.InvariantCulture)))
+            .Where(value => value.Item2 > 0 && value.Item2 < PrefixID.Count).ToArray());
+
+    public static int? ResolvePrefixName(string name)
+    {
+        if (string.IsNullOrWhiteSpace(name) || name.Length > 128) return null;
+        string key = NormalizeName(name);
+        return UniqueId(PrefixNames.Value.Where(candidate => NormalizeName(candidate.Name).Equals(key, StringComparison.OrdinalIgnoreCase)).Select(candidate => candidate.Id));
+    }
+
+    private static string NormalizeName(string value) => string.Concat(value.Where(c => !char.IsWhiteSpace(c)));
+    private static int? UniqueId(IEnumerable<int> candidates)
+    {
+        int[] ids = candidates.Distinct().Take(2).ToArray();
+        return ids.Length == 1 ? ids[0] : null;
+    }
+
     private readonly string root = Path.GetFullPath(runtimeDataRoot);
     private readonly SemaphoreSlim gate = new(1, 1);
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web) { WriteIndented = true };

@@ -43,14 +43,51 @@ public sealed class SqliteVegaDatabaseTests
 
         Assert.Multiple(() =>
         {
-            Assert.That(first.SchemaVersion, Is.EqualTo(1));
-            Assert.That(second.SchemaVersion, Is.EqualTo(1));
+            Assert.That(first.SchemaVersion, Is.EqualTo(2));
+            Assert.That(second.SchemaVersion, Is.EqualTo(2));
             Assert.That(first.DatabasePath, Is.EqualTo(Path.GetFullPath(databasePath)));
             Assert.That(File.Exists(databasePath), Is.True);
-            Assert.That(ScalarInt64("SELECT COUNT(*) FROM vega_schema_history;"), Is.EqualTo(1));
+            Assert.That(ScalarInt64("SELECT COUNT(*) FROM vega_schema_history;"), Is.EqualTo(2));
             Assert.That(ScalarInt64("SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = 'global_bans';"), Is.EqualTo(1));
             Assert.That(ScalarInt64("SELECT COUNT(*) FROM vega_groups;"), Is.EqualTo(3));
         });
+    }
+
+    [Test]
+    public async Task ExistingSchemaOneUpgradesAndPresentationKeepsRevisionAuditAndPermissions()
+    {
+        SqliteVegaDatabase original = await OpenAsync();
+        var created = await original.Authorization.CreateGroupAsync("builders", "default", "Server");
+        Assert.That(created.Succeeded, Is.True);
+        // Reconstitute the previous schema layout in this test-owned database.
+        await using (var connection = new SqliteConnection($"Data Source={databasePath}"))
+        {
+            await connection.OpenAsync();
+            await using var command = connection.CreateCommand();
+            command.CommandText = "DROP TABLE vega_group_presentation; DELETE FROM vega_schema_history WHERE version = 2;";
+            await command.ExecuteNonQueryAsync();
+        }
+        var migrated = await OpenAsync();
+        Assert.That(migrated.SchemaVersion, Is.EqualTo(2));
+        Assert.That(migrated.Authorization.TryGetGroup("builders", out var before), Is.True);
+        Assert.That(before!.Presentation, Is.EqualTo(GroupChatPresentation.Default));
+        var style = new GroupChatPresentation("[Builder] ", "!", "12ab34");
+        var changed = await migrated.Authorization.SetPresentationAsync("builders", style, before.Revision, "Server");
+        Assert.That(changed.Succeeded, Is.True);
+        Assert.That(changed.After!.Revision, Is.EqualTo(before.Revision + 1));
+        Assert.That(changed.After.Permissions, Is.EqualTo(before.Permissions));
+        Assert.That(changed.After.ParentName, Is.EqualTo(before.ParentName));
+        Assert.That((await migrated.Authorization.SetPresentationAsync("builders", GroupChatPresentation.Default, before.Revision, "Server")).Code,
+            Is.EqualTo("group.revision-conflict"));
+        Assert.That((await migrated.Authorization.SetPresentationAsync("builders", new("bad\ntext"), changed.After.Revision, "Server")).Code,
+            Is.EqualTo("group.invalid-presentation"));
+        var reopened = await OpenAsync();
+        Assert.That(reopened.Authorization.TryGetGroup("builders", out var persisted), Is.True);
+        Assert.That(persisted!.Presentation, Is.EqualTo(style with { Color = "12AB34" }));
+        Assert.That(ScalarInt64("SELECT COUNT(*) FROM vega_group_presentation;"), Is.EqualTo(1));
+        Assert.That(ScalarInt64("SELECT COUNT(*) FROM vega_administration_audit WHERE operation = 'group.presentation';"), Is.EqualTo(1));
+        Assert.That((await reopened.Authorization.DeleteGroupAsync("builders", persisted.Revision, "Server")).Succeeded, Is.True);
+        Assert.That(ScalarInt64("SELECT COUNT(*) FROM vega_group_presentation;"), Is.Zero);
     }
 
     [Test]

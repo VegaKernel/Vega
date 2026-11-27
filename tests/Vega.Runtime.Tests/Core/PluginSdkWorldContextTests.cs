@@ -4,6 +4,7 @@ using Vega.Contracts.Commands;
 using Vega.Contracts.Modules;
 using Vega.Contracts.Operations;
 using Vega.Contracts.Players;
+using Vega.Contracts.Regions;
 using Vega.Contracts.Scenes;
 using Vega.Contracts.Threading;
 using Vega.Contracts.Worlds;
@@ -19,6 +20,49 @@ namespace Vega.Runtime.Tests.Core;
 [TestFixture]
 public sealed class PluginSdkWorldContextTests
 {
+    [Test]
+    [NonParallelizable]
+    public async Task RegionFacadeExposesOnlyDetachedSnapshotsFromHostedWorld()
+    {
+        WorldId world = new("regions");
+        var members = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "Alice" };
+        var groups = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "builders" };
+        var flags = new Dictionary<string, bool>(StringComparer.OrdinalIgnoreCase) { ["build"] = false };
+        var legitimate = new RegionSnapshot(1, "home", 0, 0, 10, 10, "Alice")
+        { WorldId = world, Members = members, Groups = groups, Flags = flags };
+        var foreign = legitimate with { Id = 2, WorldId = new("other") };
+        var service = new RegionReadFixture([legitimate, foreign], legitimate);
+        VegaPluginRuntime.Configure(new VegaPluginRuntimeServices(world, null, null, null, null, null, null, Regions: service));
+        await using var scope = new HotModuleRegistrationScope(new NullCommandRegistry(), new NullLogger(), "Plugin.Regions", Path.GetTempPath());
+        IVegaPluginContext plugin = scope;
+        var regions = plugin.World.Regions;
+        Assert.That(regions.IsAvailable, Is.True);
+        var snapshot = regions.Snapshot();
+        var top = regions.FindTop(1, 1)!;
+        Assert.That(service.LastWorld, Is.EqualTo(world));
+        Assert.That(snapshot.Select(region => region.Id), Is.EqualTo(new[] { legitimate.Id }));
+        members.Clear(); groups.Clear(); flags["build"] = true;
+        Assert.That(snapshot[0].Members.Contains("alice"), Is.True);
+        Assert.That(snapshot[0].Groups.Contains("BUILDERS"), Is.True);
+        Assert.That(top.Flags["BUILD"], Is.False);
+        service.Top = foreign;
+        Assert.That(regions.FindTop(1, 1), Is.Null);
+    }
+
+    private sealed class RegionReadFixture(IReadOnlyList<RegionSnapshot> snapshots, RegionSnapshot top) : IRegionService
+    {
+        public WorldId? LastWorld { get; private set; }
+        public RegionSnapshot Top { get; set; } = top;
+        public IReadOnlyList<RegionSnapshot> SnapshotRegions() => throw new NotSupportedException();
+        public RegionSnapshot? FindTopRegion(int x, int y) => throw new NotSupportedException();
+        public IReadOnlyList<RegionSnapshot> SnapshotRegions(WorldId worldId) { LastWorld = worldId; return snapshots; }
+        public RegionSnapshot? FindTopRegion(WorldId worldId, int x, int y) { LastWorld = worldId; return Top; }
+        public ValueTask<RegionMutationResult> CreateAsync(WorldId worldId, string name, int x, int y, int width, int height, int priority, string? owner, string actor, CancellationToken token = default) => throw new NotSupportedException();
+        public ValueTask<RegionMutationResult> DeleteAsync(WorldId worldId, string name, long revision, string actor, CancellationToken token = default) => throw new NotSupportedException();
+        public ValueTask<RegionMutationResult> UpdateAsync(WorldId worldId, string name, RegionUpdate update, long revision, string actor, CancellationToken token = default) => throw new NotSupportedException();
+        public ValueTask<RegionMutationResult> SetAccessAsync(WorldId worldId, string name, RegionAccessKind kind, string subject, bool enabled, long revision, string actor, CancellationToken token = default) => throw new NotSupportedException();
+    }
+
     [Test]
     [NonParallelizable]
     public async Task CustomNpcActorOwnsNativeGenerationMotionShopAndPluginLifetime()
@@ -153,13 +197,84 @@ public sealed class PluginSdkWorldContextTests
     private sealed class EventGameThread : IGameThreadDispatcher
     {
         public bool OnThread { get; set; } = true;
+        public bool RejectPosts { get; set; }
+        public int Posts { get; private set; }
         public bool IsGameThreadKnown => true;
         public bool IsGameThread => OnThread;
         public void AssertGameThread() { }
         private Action? pending;
-        public bool TryPost(string name, Action action) { pending = action; return true; }
+        public bool TryPost(string name, Action action) { Posts++; if (RejectPosts) return false; pending = action; return true; }
         public void RunPending() { OnThread = true; var action = pending; pending = null; action!(); OnThread = false; }
         public bool TrySchedule(string name, Func<bool> step) => throw new NotSupportedException();
+    }
+
+    [Test]
+    [NonParallelizable]
+    public async Task NativeTickAndSaveCompletionAreWorldLocalGuardedAndRetired()
+    {
+        var world = new WorldId("lifecycle-events");
+        var events = new WorldGameplayEventHub();
+        var dispatcher = new EventGameThread();
+        using var hooks = new NativeGameplayEventHooks(world, events, dispatcher, new NullLogger());
+        hooks.Attach();
+        await using var faulty = new HotModuleRegistrationScope(new NullCommandRegistry(), new NullLogger(),
+            "Plugin.FaultyLifecycle", Path.GetTempPath(), faultThreshold: 2, worldEvents: events);
+        await using var healthy = new HotModuleRegistrationScope(new NullCommandRegistry(), new NullLogger(),
+            "Plugin.HealthyLifecycle", Path.GetTempPath(), worldEvents: events);
+        bool previousDedicated = global::Terraria.Main.dedServ;
+        try
+        {
+            global::Terraria.Main.dedServ = true;
+            dispatcher.OnThread = false;
+            global::TerrariaRuntime.Hooks.Main.NotifyDedicatedWorldSaveCompleted(true, null);
+            Assert.That(dispatcher.Posts, Is.Zero, "No subscribers means no dispatch.");
+
+            var ticks = new List<WorldTickCompletedEvent>();
+            var saves = new List<WorldSaveCompletedEvent>();
+            int faults = 0;
+            faulty.WorldEvents.OnTickCompleted(_ => { faults++; throw new InvalidOperationException("plugin fault"); });
+            healthy.WorldEvents.OnTickCompleted(e => { Assert.That(dispatcher.IsGameThread, Is.True); ticks.Add(e); });
+            healthy.WorldEvents.OnSaveCompleted(e => { Assert.That(dispatcher.IsGameThread, Is.True); saves.Add(e); });
+
+            var timer = System.Diagnostics.Stopwatch.StartNew();
+            global::TerrariaRuntime.Hooks.Main.NotifyDedicatedTickCompleted(timer);
+            Assert.That(ticks, Is.Empty);
+            dispatcher.OnThread = true;
+            for (int i = 0; i < 3; i++) global::TerrariaRuntime.Hooks.Main.NotifyDedicatedTickCompleted(timer);
+            Assert.That(faults, Is.EqualTo(2));
+            Assert.That(faulty.Faults.Quarantined, Is.True);
+            Assert.That(ticks.Count, Is.EqualTo(3));
+            Assert.That(ticks.All(tick => tick.WorldId == world && tick.Duration >= TimeSpan.Zero), Is.True);
+            global::TerrariaRuntime.Hooks.Main.NotifyDedicatedWorldSaveCompleted(true, null);
+            Assert.That(saves, Is.EqualTo(new[] { new WorldSaveCompletedEvent(world, true, null) }));
+
+            dispatcher.OnThread = false;
+            global::TerrariaRuntime.Hooks.Main.NotifyDedicatedWorldSaveFailure(new IOException("not exposed to plugins"));
+            Assert.That(saves.Count, Is.EqualTo(1));
+            Assert.That(dispatcher.Posts, Is.EqualTo(1));
+            dispatcher.RunPending();
+            Assert.That(saves[1], Is.EqualTo(new WorldSaveCompletedEvent(world, false, nameof(IOException))));
+
+            dispatcher.RejectPosts = true;
+            global::TerrariaRuntime.Hooks.Main.NotifyDedicatedWorldSaveCompleted(false, null);
+            Assert.That(saves.Count, Is.EqualTo(2));
+            dispatcher.RejectPosts = false;
+            global::TerrariaRuntime.Hooks.Main.NotifyDedicatedWorldSaveCompleted(true, null);
+            // In-flight queued notification must not cross adapter retirement/reattachment.
+            hooks.Dispose();
+            hooks.Attach();
+            dispatcher.RunPending();
+            Assert.That(saves.Count, Is.EqualTo(2));
+
+            global::TerrariaRuntime.Hooks.Main.NotifyDedicatedWorldSaveCompleted(true, null);
+            await healthy.DisposeAsync();
+            await faulty.DisposeAsync();
+            Assert.That(events.HasSubscribers<WorldTickCompletedEvent>(), Is.False);
+            Assert.That(events.HasSubscribers<WorldSaveCompletedEvent>(), Is.False);
+            dispatcher.RunPending();
+            Assert.That(saves.Count, Is.EqualTo(2), "Pending save cannot invoke retired plugins.");
+        }
+        finally { global::Terraria.Main.dedServ = previousDedicated; }
     }
 
     [Test]

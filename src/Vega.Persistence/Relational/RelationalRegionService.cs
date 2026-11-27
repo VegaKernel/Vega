@@ -238,6 +238,22 @@ internal sealed class RelationalRegionService(
             cancellationToken: cancellationToken);
     }
 
+    public ValueTask<RegionMutationResult> RenameAsync(WorldId worldId, string name, string newName, long expectedRevision,
+        string actor, CancellationToken cancellationToken = default)
+    {
+        string normalizedNewName = Normalize(newName, nameof(newName));
+        return MutateAsync(worldId, name, expectedRevision, actor, "region.rename",
+            async (connection, transaction, before, token) =>
+            {
+                await using DbCommand command = CreateCommand(connection, transaction,
+                    "UPDATE vega_regions SET name = @new_name, revision = revision + 1 " +
+                    "WHERE world_id = @world AND name = @name AND revision = @revision;");
+                AddIdentityParameters(command, before);
+                command.AddParameter("@new_name", normalizedNewName);
+                return await command.ExecuteNonQueryAsync(token).ConfigureAwait(false);
+            }, cancellationToken: cancellationToken, renameTo: normalizedNewName);
+    }
+
     private async ValueTask<RegionMutationResult> MutateAsync(
         WorldId worldId,
         string name,
@@ -246,7 +262,8 @@ internal sealed class RelationalRegionService(
         string operation,
         Func<DbConnection, DbTransaction, RegionSnapshot, CancellationToken, ValueTask<int>> mutate,
         bool delete = false,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default,
+        string? renameTo = null)
     {
         ValidateWorld(worldId);
         string normalizedName = Normalize(name, nameof(name));
@@ -272,13 +289,22 @@ internal sealed class RelationalRegionService(
                     return new RegionMutationResult(false, "region.revision-conflict", before);
                 }
 
+                if (renameTo is not null)
+                {
+                    if (normalizedName.Equals(renameTo, StringComparison.OrdinalIgnoreCase))
+                        return new RegionMutationResult(false, "region.same-name", before);
+                    if (FindRegion(connection, transaction, worldId, renameTo) is not null)
+                        return new RegionMutationResult(false, "region.exists", before);
+                }
+
                 if (await mutate(connection, transaction, before, cancellationToken).ConfigureAwait(false) != 1)
                 {
                     return new RegionMutationResult(false, "region.revision-conflict", before);
                 }
 
-                RegionSnapshot? after = delete ? null : FindRegion(connection, transaction, worldId, normalizedName);
-                await WriteAuditAsync(connection, transaction, actor, operation, Target(worldId, normalizedName),
+                RegionSnapshot? after = delete ? null : FindRegion(connection, transaction, worldId, renameTo ?? normalizedName);
+                string target = renameTo is null ? Target(worldId, normalizedName) : $"{Target(worldId, normalizedName)} -> {renameTo}";
+                await WriteAuditAsync(connection, transaction, actor, operation, target,
                         before.Revision, after?.Revision ?? checked(before.Revision + 1), cancellationToken)
                     .ConfigureAwait(false);
                 await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);

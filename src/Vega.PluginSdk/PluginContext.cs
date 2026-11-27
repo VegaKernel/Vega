@@ -20,6 +20,8 @@ public interface IVegaPluginContext
     /// <summary>Game-thread notifications. Subscriptions detach automatically on unload.</summary>
     IPluginWorldEvents WorldEvents => throw new NotSupportedException("World gameplay events are unavailable in this host.");
 
+    IPluginActivity Activity => throw new NotSupportedException("Player activity observations are unavailable in this host.");
+
     IPluginTasks Tasks { get; }
     /// <summary>Plugin-owned disposable resources, retired with this activation.</summary>
     IPluginResources Resources => throw new NotSupportedException("Resource ownership is unavailable in this host.");
@@ -54,6 +56,8 @@ public interface IPluginPlayers
 
     /// <summary>Optimistic, game-thread-dispatched access to player inventory.</summary>
     IPluginPlayerInventory Inventory => VegaPluginRuntime.Inventory;
+
+    IPluginPlayerActions Actions => throw new NotSupportedException("Player actions are unavailable in this host.");
 
     bool TryGet(PlayerId id, out PlayerSnapshot? player);
 

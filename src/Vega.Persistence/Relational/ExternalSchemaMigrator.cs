@@ -17,7 +17,19 @@ internal sealed class ExternalSchemaInitializer(
     string regionSchemaSql,
     string moderationSchemaSql)
 {
-    private const int CurrentVersion = 1;
+    private const int CurrentVersion = 2;
+
+    // MySQL DDL implicitly commits. IF NOT EXISTS makes the migration recoverable
+    // if the table was created before its history row was durably inserted.
+    private static string GroupPresentationSql => """
+        CREATE TABLE IF NOT EXISTS vega_group_presentation (
+            group_name VARCHAR(255) NOT NULL PRIMARY KEY,
+            chat_prefix VARCHAR(64) NOT NULL,
+            chat_suffix VARCHAR(64) NOT NULL,
+            chat_color VARCHAR(6) NULL,
+            FOREIGN KEY (group_name) REFERENCES vega_groups(name) ON DELETE CASCADE
+        );
+        """;
 
     public async ValueTask<int> InitializeAsync(CancellationToken cancellationToken)
     {
@@ -60,11 +72,17 @@ internal sealed class ExternalSchemaInitializer(
                 await InsertHistoryAsync(
                         connection,
                         transaction,
-                        CurrentVersion,
+                        1,
                         "vega-1.0-baseline",
                         cancellationToken)
                     .ConfigureAwait(false);
-                version = CurrentVersion;
+                version = 1;
+            }
+            if (version == 1)
+            {
+                await ExecuteAsync(connection, transaction, GroupPresentationSql, cancellationToken).ConfigureAwait(false);
+                await InsertHistoryAsync(connection, transaction, 2, "group-chat-presentation", cancellationToken).ConfigureAwait(false);
+                version = 2;
             }
 
             await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
@@ -105,11 +123,19 @@ internal sealed class ExternalSchemaInitializer(
                 await InsertHistoryAsync(
                         connection,
                         null,
-                        CurrentVersion,
+                        1,
                         "vega-1.0-baseline",
                         cancellationToken)
                     .ConfigureAwait(false);
-                version = CurrentVersion;
+                version = 1;
+            }
+            if (version == 1)
+            {
+                // Use the same InnoDB engine as the referenced vega_groups table.
+                string mysqlPresentation = GroupPresentationSql.TrimEnd().TrimEnd(';') + " ENGINE=InnoDB;";
+                await ExecuteAsync(connection, null, mysqlPresentation, cancellationToken).ConfigureAwait(false);
+                await InsertHistoryAsync(connection, null, 2, "group-chat-presentation", cancellationToken).ConfigureAwait(false);
+                version = 2;
             }
 
             return version;

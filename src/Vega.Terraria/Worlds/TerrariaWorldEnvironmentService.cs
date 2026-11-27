@@ -62,6 +62,19 @@ public sealed class TerrariaWorldEnvironmentService(
             if (patch != new WorldEnvironmentPatch(NativeEvent: nativeEvent)) return Invalid("world.environment.combined_native_event");
             return ApplyNativeEvent(nativeEvent);
         }
+        if (patch.ClearAnglerPlayer is { } playerName)
+        {
+            if (patch != new WorldEnvironmentPatch(ClearAnglerPlayer: playerName) ||
+                string.IsNullOrWhiteSpace(playerName) || playerName.Length > 128 || playerName.Any(char.IsControl))
+                return Invalid("world.clearangler_invalid_player");
+            if (global::Terraria.Main.anglerWhoFinishedToday.RemoveAll(name => name.Equals(playerName, StringComparison.OrdinalIgnoreCase)) == 0)
+                return Invalid("world.clearangler_player_not_found");
+            if (global::Terraria.Main.netMode == 2)
+                for (int slot = 0; slot < global::Terraria.Main.maxPlayers; slot++)
+                    if (global::Terraria.Netplay.Clients[slot].State == 10 && global::Terraria.Main.player[slot] is { active: true } player &&
+                        player.name.Equals(playerName, StringComparison.OrdinalIgnoreCase)) global::Terraria.NetMessage.SendAnglerQuest(slot);
+            return new(WorldEnvironmentMutationStatus.Applied, Capture());
+        }
         bool targetDaytime = patch.IsDaytime ?? global::Terraria.Main.dayTime;
         double maxTime = targetDaytime ? 54000d : 32400d;
         if (patch.TimeTicks is double time && (!double.IsFinite(time) || time < 0d || time > maxTime))
@@ -191,6 +204,10 @@ public sealed class TerrariaWorldEnvironmentService(
         NativeWorldEvent.Sandstorm => global::Terraria.GameContent.Events.Sandstorm.Happening,
         NativeWorldEvent.PumpkinMoon => global::Terraria.Main.pumpkinMoon,
         NativeWorldEvent.FrostMoon => global::Terraria.Main.snowMoon,
+        NativeWorldEvent.Meteor => false, // one-shot native operation
+        NativeWorldEvent.LanternNight => global::Terraria.GameContent.Events.LanternNight.ManualLanterns,
+        NativeWorldEvent.MeteorShower => global::Terraria.WorldGen.meteorShowerCount > 0,
+        NativeWorldEvent.CoinRain => global::Terraria.Main.coinRain > 0,
         _ => global::Terraria.Main.invasionType == InvasionType(kind)
     };
 
@@ -206,6 +223,7 @@ public sealed class TerrariaWorldEnvironmentService(
     private WorldEnvironmentMutationResult ApplyNativeEvent(NativeWorldEventChange change)
     {
         if (!Enum.IsDefined(change.Event)) return Invalid("world.event.unknown");
+        if (change.Event == NativeWorldEvent.Meteor && !change.Enabled) return Invalid("world.event.meteor_start_only");
         bool active = IsNativeEventActive(change.Event);
         if (active == change.Enabled) return new(WorldEnvironmentMutationStatus.Applied, Capture());
         switch (change.Event)
@@ -217,6 +235,21 @@ public sealed class TerrariaWorldEnvironmentService(
             case NativeWorldEvent.Sandstorm:
                 if (change.Enabled) global::Terraria.GameContent.Events.Sandstorm.StartSandstorm();
                 else global::Terraria.GameContent.Events.Sandstorm.StopSandstorm();
+                break;
+            case NativeWorldEvent.Meteor:
+                if (!global::Terraria.WorldGen.dropMeteor()) return new(WorldEnvironmentMutationStatus.Failed, ErrorCode: "world.event.meteor_declined");
+                global::Terraria.WorldGen.spawnMeteor = false;
+                break;
+            case NativeWorldEvent.LanternNight:
+                global::Terraria.GameContent.Events.LanternNight.ToggleManualLanterns();
+                break;
+            case NativeWorldEvent.MeteorShower:
+                if (change.Enabled) global::Terraria.WorldGen.StartMeteorShower();
+                else global::Terraria.WorldGen.meteorShowerCount = 0;
+                break;
+            case NativeWorldEvent.CoinRain:
+                if (change.Enabled) global::Terraria.Main.StartRain(guaranteeCoinRain: true);
+                else global::Terraria.Main.StopRain();
                 break;
             case NativeWorldEvent.PumpkinMoon:
             case NativeWorldEvent.FrostMoon:
@@ -248,7 +281,7 @@ public sealed class TerrariaWorldEnvironmentService(
                 break;
         }
         if (global::Terraria.Main.netMode == 2) global::Terraria.NetMessage.SendData(MessageID.WorldData);
-        return IsNativeEventActive(change.Event) == change.Enabled
+        return change.Event == NativeWorldEvent.Meteor || IsNativeEventActive(change.Event) == change.Enabled
             ? new(WorldEnvironmentMutationStatus.Applied, Capture())
             : new(WorldEnvironmentMutationStatus.Failed, ErrorCode: "world.event.native_not_applied");
     }

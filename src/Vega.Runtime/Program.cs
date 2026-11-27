@@ -231,8 +231,8 @@ int Start()
     ];
     var commandDispatcher = new CommandDispatcher(commandHandlers);
     using IDisposable broadcastRegistration = commandDispatcher.Register(new BroadcastCommand(playerBoundary, playerBoundary));
-    using IDisposable giveCommandRegistration = commandDispatcher.Register(new ItemCommand(playerBoundary, playerBoundary, giveOthers: true));
-    using IDisposable itemCommandRegistration = commandDispatcher.Register(new ItemCommand(playerBoundary, playerBoundary));
+    using IDisposable giveCommandRegistration = commandDispatcher.Register(new ItemCommand(playerBoundary, playerBoundary, giveOthers: true, resolvePrefix: TerrariaReferenceDataExporter.ResolvePrefixName));
+    using IDisposable itemCommandRegistration = commandDispatcher.Register(new ItemCommand(playerBoundary, playerBoundary, resolvePrefix: TerrariaReferenceDataExporter.ResolvePrefixName));
     using IDisposable healCommandRegistration = commandDispatcher.Register(new HealCommand(playerBoundary, playerBoundary));
     using IDisposable buffCommandRegistration = commandDispatcher.Register(new BuffCommand(playerBoundary, playerBoundary));
     using IDisposable giveBuffCommandRegistration = commandDispatcher.Register(new BuffCommand(playerBoundary, playerBoundary, others: true));
@@ -293,9 +293,6 @@ int Start()
         }
         var restrictionPolicy = new ContentRestrictionPolicy(restrictions, playerAuthorization, playerBoundary);
         playerBoundary.ConfigureContentRestrictions(restrictionPolicy);
-        using IDisposable itemBanRegistration = commandDispatcher.Register(new RestrictionCommand(restrictions, RestrictedContentKind.Item));
-        using IDisposable projectileBanRegistration = commandDispatcher.Register(new RestrictionCommand(restrictions, RestrictedContentKind.Projectile));
-        using IDisposable tileBanRegistration = commandDispatcher.Register(new RestrictionCommand(restrictions, RestrictedContentKind.Tile));
         SandboxOptions sandboxOptions = SandboxOptionsStore.Load(
             Path.Combine(AppContext.BaseDirectory, "config", "sandboxes.json"));
         string sandboxDataRoot = Path.Combine(AppContext.BaseDirectory, "data", "sandboxes");
@@ -545,7 +542,9 @@ int Start()
             new InventoryCommand(playerBoundary, inventoryService));
         var chat = new ChatPipeline(
             moderation: [new MuteChatModerationRule(accountSessions, database.Mutes)],
-            renderers: [moduleRouter]);
+            renderers: [moduleRouter],
+            presentation: player => accountSessions.TryGetBinding(player, out var binding) &&
+                accountSessions.TryRunWithBinding(binding, () => playerAuthorization.GetChatPresentation(player.Id), out var style) ? style : null);
         using var chatCommands = new PlayerChatCommands(commandDispatcher, playerBoundary, playerBoundary, playerBoundary, chat);
 
         GameplayEnforcementOptions gameplayOptions = GameplayEnforcementOptionsStore.Load(
@@ -686,8 +685,14 @@ int Start()
         using IDisposable tempGroupRegistration = commandDispatcher.Register(new TempGroupCommand(accountCommand));
         using IDisposable groupCommandRegistration = commandDispatcher.Register(
             new GroupCommand(database.Authorization));
+        using IDisposable itemBanRegistration = commandDispatcher.Register(new RestrictionCommand(restrictions, RestrictedContentKind.Item,
+            name => TerrariaReferenceDataExporter.ResolveContentName(RestrictedContentKind.Item, name), database.Authorization));
+        using IDisposable projectileBanRegistration = commandDispatcher.Register(new RestrictionCommand(restrictions, RestrictedContentKind.Projectile,
+            name => TerrariaReferenceDataExporter.ResolveContentName(RestrictedContentKind.Projectile, name), database.Authorization));
+        using IDisposable tileBanRegistration = commandDispatcher.Register(new RestrictionCommand(restrictions, RestrictedContentKind.Tile,
+            name => TerrariaReferenceDataExporter.ResolveContentName(RestrictedContentKind.Tile, name), database.Authorization));
         using IDisposable regionCommandRegistration = commandDispatcher.Register(
-            new RegionCommand(database.Regions));
+            new RegionCommand(database.Regions, playerBoundary, playerBoundary, database.Accounts, database.Authorization, worldEnvironment, accountSessions));
         using var banEnforcer = new PersistentBanEnforcer(
             banService,
             playerBoundary,
@@ -751,7 +756,7 @@ int Start()
             worldNpcs,
             scenes,
             inventoryService,
-            visibility, worldSchematics, worldNpcActors));
+            visibility, worldSchematics, worldNpcActors, Regions: database.Regions));
         using var serverPlugins = new ServerPluginHotReloadHost(
             Path.Combine(AppContext.BaseDirectory, "ServerPlugins"),
             hotReloadOptions,
@@ -764,7 +769,8 @@ int Start()
             gameThread: gameThreadDispatcher,
             pluginDataRoot: Path.Combine(runtimeDataRoot, "plugins"),
             pluginConfigurationRoot: backendLaunch.IsBackend ? Path.Combine(runtimeDataRoot, "plugin-config") : null,
-            worldEvents: worldEvents);
+            worldEvents: worldEvents, activityWorldId: runtimeWorldId,
+            authentication: accountSessions, publicChat: chat);
         serverPlugins.Start();
         softRestart.SetProcessRestartGuard(() => serverPlugins.Read().IsRestartRequired
             ? "ServerPlugins contains a change or cleanup failure that requires a process restart."

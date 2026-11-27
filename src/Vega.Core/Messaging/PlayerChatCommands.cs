@@ -70,7 +70,7 @@ public sealed class PlayerChatCommands : IDisposable
         var result = chat.Process(new(sender.WorldId, sender, content, [partner]));
         if (!result.Allowed) return Failure("chat.rejected", result.RejectionReason ?? "Chat rejected.");
         if (result.Deliveries.SingleOrDefault(d => d.RecipientId == partner.Id) is not { } delivery ||
-            !(await messenger.SendMessageAsync(partner, $"[Whisper] {delivery.Content}", token).ConfigureAwait(false)).IsSuccess) return Unavailable();
+            !(await messenger.SendChatMessageAsync(partner, $"[Whisper] {delivery.Content}", delivery.Color, token).ConfigureAwait(false)).IsSuccess) return Unavailable();
         lock (sync)
         {
             if (IsCurrent(sender) && IsCurrent(partner))
@@ -113,10 +113,11 @@ public sealed class PlayerChatCommands : IDisposable
                 return Unavailable();
             if (!byId.TryGetValue(delivery.RecipientId, out var recipient) || !IsCurrent(recipient) ||
                 party && (!players.TryGet(recipient.Id, out var current) || current?.Team != sender.Team)) continue;
-            string prefix = $"{sender.Name}: ";
+            string displayName = delivery.SenderDisplayName ?? sender.Name;
+            string prefix = $"{displayName}: ";
             string message = party ? $"[Party] {delivery.Content}" : delivery.Content.StartsWith(prefix, StringComparison.Ordinal)
-                ? $"* {sender.Name} {delivery.Content[prefix.Length..]}" : $"* {delivery.Content}";
-            await messenger.SendMessageAsync(recipient, message, token).ConfigureAwait(false);
+                ? $"* {displayName} {delivery.Content[prefix.Length..]}" : $"* {delivery.Content}";
+            await messenger.SendChatMessageAsync(recipient, message, delivery.Color, token).ConfigureAwait(false);
         }
         return new(CommandExecutionStatus.Success);
     }

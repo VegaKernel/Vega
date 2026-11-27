@@ -34,6 +34,11 @@ public interface IAuthorizationService
         long expectedRevision,
         string actor,
         CancellationToken cancellationToken = default);
+
+    ValueTask<GroupMutationResult> SetPresentationAsync(
+        string name, GroupChatPresentation presentation, long expectedRevision, string actor,
+        CancellationToken cancellationToken = default) =>
+        ValueTask.FromResult(new GroupMutationResult(false, "group.presentation-unsupported"));
 }
 
 public enum PermissionEffect

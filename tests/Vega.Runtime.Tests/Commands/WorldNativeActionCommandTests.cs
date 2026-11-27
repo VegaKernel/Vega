@@ -30,6 +30,18 @@ public sealed class WorldNativeActionCommandTests
     }
 
     [Test]
+    public async Task CactusAndHerbSelectorsUseTheExistingNativeGrowthAuthority()
+    {
+        var fixture = new Fixture();
+        var dispatcher = new CommandDispatcher([new GrowCommand(fixture, fixture)]);
+        Assert.That((await dispatcher.DispatchAsync(fixture.Command("grow", ["cactus"], admin: false))).Status, Is.EqualTo(CommandExecutionStatus.Forbidden));
+        Assert.That((await dispatcher.DispatchAsync(fixture.Command("grow", ["cactus"], admin: true))).Status, Is.EqualTo(CommandExecutionStatus.Success));
+        Assert.That(fixture.GrowRequest?.Kind, Is.EqualTo(WorldGrowKind.Cactus));
+        Assert.That((await dispatcher.DispatchAsync(fixture.Command("grow", ["herb"], admin: true))).Status, Is.EqualTo(CommandExecutionStatus.Success));
+        Assert.That(fixture.GrowRequest?.Kind, Is.EqualTo(WorldGrowKind.Herb));
+    }
+
+    [Test]
     public async Task GrowthRequiresExplicitAdministratorBypassAndPreservesPlayerSession()
     {
         var fixture = new Fixture();

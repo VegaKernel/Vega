@@ -102,12 +102,16 @@ public sealed class ForceSeasonCommand(IWorldEnvironmentService world, bool hall
 
 public sealed class ClearAnglerCommand(IWorldEnvironmentService world) : ICommandHandler
 {
-    public CommandDescriptor Descriptor { get; } = new("clearangler", [], ["vega.world.clearangler"], Syntax: "clearangler");
+    public CommandDescriptor Descriptor { get; } = new("clearangler", [], ["vega.world.clearangler"], Syntax: "clearangler [player-name]");
     public async ValueTask<CommandExecutionResult> ExecuteAsync(CommandInvocation invocation, CancellationToken token)
     {
-        if (invocation.Arguments.Count != 0) return new(CommandExecutionStatus.InvalidUsage, "world.clearangler_usage");
-        var result = await world.PatchAsync(new(invocation.WorldId, new(ClearAnglerCompletion: true), invocation.Principal.Name), token).ConfigureAwait(false);
-        return result.IsSuccess ? CommandExecutionResult.WithMessages(MessageDescriptor.Success("world.clearangler").WithDefaultText("Today's angler completion list has been cleared."))
+        if (invocation.Arguments.Count > 1 || invocation.Arguments.Count == 1 && string.IsNullOrWhiteSpace(invocation.Arguments[0]))
+            return new(CommandExecutionStatus.InvalidUsage, "world.clearangler_usage");
+        string? player = invocation.Arguments.Count == 1 ? invocation.Arguments[0] : null;
+        var result = await world.PatchAsync(new(invocation.WorldId, player is null ? new(ClearAnglerCompletion: true) : new(ClearAnglerPlayer: player), invocation.Principal.Name), token).ConfigureAwait(false);
+        return result.IsSuccess ? CommandExecutionResult.WithMessages(player is null
+            ? MessageDescriptor.Success("world.clearangler").WithDefaultText("Today's angler completion list has been cleared.")
+            : MessageDescriptor.Success("world.clearangler.player", player).WithDefaultText("Today's angler completion has been cleared for {0}."))
             : CommandExecutionResult.Failed(result.ErrorCode ?? "world.clearangler_failed");
     }
 }

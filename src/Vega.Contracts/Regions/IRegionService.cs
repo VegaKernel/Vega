@@ -48,6 +48,11 @@ public interface IRegionService
         long expectedRevision,
         string actor,
         CancellationToken cancellationToken = default);
+
+    /// <summary>Rename within the same world without replacing the stable region identity or access records.</summary>
+    ValueTask<RegionMutationResult> RenameAsync(WorldId worldId, string name, string newName, long expectedRevision,
+        string actor, CancellationToken cancellationToken = default) =>
+        ValueTask.FromResult(new RegionMutationResult(false, "region.rename-unavailable"));
 }
 
 public sealed record RegionUpdate(

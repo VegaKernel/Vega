@@ -90,12 +90,18 @@ public sealed class ContentRestrictionPolicy(RestrictionStore store, IPlayerAuth
     : IPacketProcessor<PacketView>, IContentRestrictionPolicy
 {
     public bool IsAllowed(PlayerId player, RestrictedContentKind kind, int type) => !store.Contains(kind, type) ||
-        authorization.HasPermission(player, kind switch
-        {
-            RestrictedContentKind.Item => "vega.restrictions.bypass.item",
-            RestrictedContentKind.Projectile => "vega.restrictions.bypass.projectile",
-            _ => "vega.restrictions.bypass.tile"
-        });
+        authorization.HasPermission(player, BypassPermission(kind)) ||
+        authorization.HasPermission(player, ContentPermission(kind, type));
+
+    internal static string BypassPermission(RestrictedContentKind kind) => kind switch
+    {
+        RestrictedContentKind.Item => "vega.restrictions.bypass.item",
+        RestrictedContentKind.Projectile => "vega.restrictions.bypass.projectile",
+        _ => "vega.restrictions.bypass.tile"
+    };
+
+    internal static string ContentPermission(RestrictedContentKind kind, int type) =>
+        $"vega.restrictions.allow.{(kind == RestrictedContentKind.Item ? "item" : kind == RestrictedContentKind.Projectile ? "projectile" : "tile")}.{type.ToString(System.Globalization.CultureInfo.InvariantCulture)}";
 
     public PacketProcessingDecision Process(scoped in PacketProcessingContext<PacketView> context)
     {
@@ -128,12 +134,13 @@ public sealed class ContentRestrictionPolicy(RestrictionStore store, IPlayerAuth
     }
 }
 
-public sealed class RestrictionCommand(RestrictionStore store, RestrictedContentKind kind) : ICommandHandler
+public sealed class RestrictionCommand(RestrictionStore store, RestrictedContentKind kind,
+    Func<string, int?>? resolveName = null, IAuthorizationService? groups = null) : ICommandHandler
 {
     public CommandDescriptor Descriptor { get; } = new(kind switch
     {
         RestrictedContentKind.Item => "itemban", RestrictedContentKind.Projectile => "projban", _ => "tileban"
-    }, [], ["vega.restrictions.manage"], Syntax: "<command> list [page] | add <id> | del <id>");
+    }, [], ["vega.restrictions.manage"], Syntax: "<command> list [page] | add|del <id|name> | allow|disallow <id|name> <group> | help");
 
     public async ValueTask<CommandExecutionResult> ExecuteAsync(CommandInvocation invocation, CancellationToken token)
     {
@@ -149,7 +156,15 @@ public sealed class RestrictionCommand(RestrictionStore store, RestrictedContent
                 string.Join(", ", entries.Skip((page - 1) * 50).Take(50))).WithDefaultText("{0} restrictions ({1}/{2}): {3}"));
         }
         string action = args[0].ToLowerInvariant();
-        if (args.Count != 2 || action is not ("add" or "del") || !int.TryParse(args[1], out int type) || !store.IsValid(kind, type)) return Usage();
+        if (action == "help" && args.Count == 1)
+            return CommandExecutionResult.WithMessages(MessageDescriptor.Info("restriction.help", Descriptor.Syntax).WithDefaultText("{0}"));
+        bool groupAction = action is "allow" or "disallow";
+        if (args.Count != (groupAction ? 3 : 2) || action is not ("add" or "del" or "allow" or "disallow")) return Usage();
+        int? resolved = int.TryParse(args[1], System.Globalization.NumberStyles.Integer, System.Globalization.CultureInfo.InvariantCulture, out int parsed)
+            ? parsed : resolveName?.Invoke(args[1]);
+        if (resolved is not int type || !store.IsValid(kind, type)) return Usage();
+        if (groupAction)
+            return await SetGroupAllowanceAsync(invocation, type, action == "allow", token).ConfigureAwait(false);
         try
         {
             bool changed = await store.SetAsync(kind, type, action == "add", token).ConfigureAwait(false);
@@ -162,6 +177,25 @@ public sealed class RestrictionCommand(RestrictionStore store, RestrictedContent
         }
     }
 
+    // Group-specific allowances are ordinary durable group permissions, not a
+    // separate bypass store. Group deletion and inheritance therefore follow
+    // the authoritative authorization model, including explicit denies.
+    private async ValueTask<CommandExecutionResult> SetGroupAllowanceAsync(CommandInvocation invocation, int type, bool allow, CancellationToken token)
+    {
+        string permission = ContentRestrictionPolicy.ContentPermission(kind, type);
+        if (groups is null || !groups.TryGetGroup(invocation.Arguments[2], out var group) || group is null ||
+            (allow && !store.Contains(kind, type))) return CommandExecutionResult.Failed("restriction.group_or_content_missing");
+        if (!invocation.Principal.IsServer &&
+            (!invocation.Principal.HasPermission("vega.groups.manage") || !invocation.Principal.HasPermission(permission)))
+            return new(CommandExecutionStatus.Forbidden, "restriction.group_delegation_denied");
+        var result = await groups.SetPermissionAsync(group.Name, permission, allow ? PermissionEffect.Grant : PermissionEffect.Deny,
+            group.Revision, invocation.Principal.Name, token).ConfigureAwait(false);
+        return result.Succeeded
+            ? CommandExecutionResult.WithMessages(MessageDescriptor.Info("restriction.group_updated", group.Name, permission, allow)
+                .WithDefaultText("Group {0}: direct allowance {1} enabled={2}."))
+            : CommandExecutionResult.Failed("restriction.group_update_failed");
+    }
+
     private CommandExecutionResult Usage() => new(CommandExecutionStatus.InvalidUsage, "restriction.usage",
-        [MessageDescriptor.Error("restriction.usage", Descriptor.Name).WithDefaultText("Usage: {0} list [page] | add <id> | del <id>.")]);
+        [MessageDescriptor.Error("restriction.usage", Descriptor.Syntax).WithDefaultText("Usage: {0}.")]);
 }

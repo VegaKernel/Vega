@@ -35,7 +35,7 @@ public sealed class ClearCommand(IWorldEntityMaintenance entities, IWorldNpcServ
         var args = invocation.Arguments;
         if (args.Count is < 1 or > 2 || args.Count == 2 && !args[1].Equals("all", StringComparison.OrdinalIgnoreCase))
             return new(CommandExecutionStatus.InvalidUsage, "clear.usage");
-        string kind = args[0].ToLowerInvariant();
+        string kind = args[0].ToLowerInvariant() switch { "i" => "item", "n" => "npc", "p" or "proj" => "projectile", var value => value };
         bool all = args.Count == 2;
         if (kind is not ("item" or "items" or "projectile" or "projectiles" or "npc" or "npcs"))
             return new(CommandExecutionStatus.InvalidUsage, "clear.usage");

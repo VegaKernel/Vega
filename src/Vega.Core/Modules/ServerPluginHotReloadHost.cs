@@ -31,6 +31,9 @@ public sealed class ServerPluginHotReloadHost :
     private readonly IPlayerSessionLifecycle? playerLifecycle;
     private readonly IGameThreadDispatcher? gameThread;
     private readonly IWorldGameplayEvents? worldEvents;
+    private readonly WorldId? activityWorldId;
+    private readonly Vega.Contracts.Accounts.IPlayerAccountSessionService? authentication;
+    private readonly Vega.Contracts.Messaging.IPublicChatObservations? publicChat;
     private readonly string pluginDataRoot;
     private readonly string? pluginConfigurationRoot;
     private readonly Dictionary<string, LoadedPlugin> loaded = new(StringComparer.OrdinalIgnoreCase);
@@ -59,7 +62,10 @@ public sealed class ServerPluginHotReloadHost :
         IPlayerSessionLifecycle? playerLifecycle = null,
         IGameThreadDispatcher? gameThread = null,
         string? pluginDataRoot = null,
-        string? pluginConfigurationRoot = null, IWorldGameplayEvents? worldEvents = null)
+        string? pluginConfigurationRoot = null, IWorldGameplayEvents? worldEvents = null,
+        WorldId? activityWorldId = null,
+        Vega.Contracts.Accounts.IPlayerAccountSessionService? authentication = null,
+        Vega.Contracts.Messaging.IPublicChatObservations? publicChat = null)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(directory);
         this.directory = Path.GetFullPath(directory);
@@ -72,6 +78,9 @@ public sealed class ServerPluginHotReloadHost :
         this.playerLifecycle = playerLifecycle;
         this.gameThread = gameThread;
         this.worldEvents = worldEvents;
+        this.activityWorldId = activityWorldId;
+        this.authentication = authentication;
+        this.publicChat = publicChat;
         this.pluginDataRoot = Path.GetFullPath(pluginDataRoot ?? Path.Combine(this.directory, ".data"));
         this.pluginConfigurationRoot = pluginConfigurationRoot is null ? null : Path.GetFullPath(pluginConfigurationRoot);
     }
@@ -432,7 +441,8 @@ public sealed class ServerPluginHotReloadHost :
             pluginConfigurationRoot: pluginConfigurationRoot,
             activationId: activationId, faultThreshold: options.FaultThreshold,
             faultWindow: TimeSpan.FromSeconds(options.FaultWindowSeconds),
-            onQuarantine: () => QueueFaultRetirement(activationPath, activationId), worldEvents: worldEvents);
+            onQuarantine: () => QueueFaultRetirement(activationPath, activationId), worldEvents: worldEvents,
+            activityWorldId: activityWorldId, authentication: authentication, publicChat: publicChat);
         long startedAt = Stopwatch.GetTimestamp();
         string startupFailure;
         try

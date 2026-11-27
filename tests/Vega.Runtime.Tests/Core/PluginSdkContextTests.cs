@@ -1,11 +1,15 @@
 using NUnit.Framework;
+using Vega.Contracts.Accounts;
 using Vega.Contracts.Commands;
+using Vega.Contracts.Items;
 using Vega.Contracts.Messaging;
 using Vega.Contracts.Modules;
 using Vega.Contracts.Operations;
 using Vega.Contracts.Players;
 using Vega.Contracts.Threading;
+using Vega.Contracts.Worlds;
 using Vega.Core.Modules;
+using Vega.Core.Commands;
 using Vega.PluginSdk;
 
 namespace Vega.Runtime.Tests.Core;
@@ -13,6 +17,254 @@ namespace Vega.Runtime.Tests.Core;
 [TestFixture]
 public sealed class PluginSdkContextTests
 {
+    [Test]
+    public async Task PlayerActionsUseExactSnapshotNativeValidationAndActivationLifetime()
+    {
+        var world = new WorldId("actions");
+        var original = new PlayerSnapshot(new(1), "fixture", false, 100, 100, 20, 20, new(0, 0), false, 0)
+            { WorldId = world, SessionId = PlayerSessionId.New() };
+        var players = new RecordingPlayers { Current = original };
+        var native = new PlayerActionsFixture(players);
+        var scope = new HotModuleRegistrationScope(new RecordingCommandRegistry(), new RecordingLogger(), "Plugin.Actions",
+            Path.GetTempPath(), playerDirectory: players, playerOperations: native, activityWorldId: world);
+        IVegaPluginContext context = scope;
+        IPluginPlayerActions actions = context.Players.Actions;
+        try
+        {
+            Assert.That(actions.VitalsAvailable && actions.ItemDeliveryAvailable, Is.True);
+            Assert.That((await actions.HealAsync(original, 10)).IsSuccess, Is.True);
+            Assert.That((await actions.BuffAsync(original, "1", 10)).IsSuccess, Is.True);
+            Assert.That((await actions.KillAsync(original)).IsSuccess, Is.True);
+            Assert.That((await actions.SlapAsync(original, 1)).IsSuccess, Is.True);
+            Assert.That((await actions.RespawnAsync(original)).IsSuccess, Is.True);
+            Assert.That((await actions.GiveAsync(original, "1", 2, 0)).IsSuccess, Is.True);
+            Assert.That((await actions.GiveAsync(original, "1", -1)).ErrorCode, Is.EqualTo("item.invalid_request"));
+            Assert.That(native.Delivered, Is.EqualTo(new[] { "heal:10", "buff:1:10", "kill", "slap:1", "respawn", "give:1:2:0" }));
+            int accepted = native.Accepted;
+            Assert.That((await actions.HealAsync(original with { SessionId = null }, 1)).Status, Is.EqualTo(PlayerOperationStatus.PlayerNotFound));
+            Assert.That((await actions.HealAsync(original with { WorldId = new("other") }, 1)).Status, Is.EqualTo(PlayerOperationStatus.PlayerNotFound));
+            using (var cancelled = new CancellationTokenSource())
+            {
+                cancelled.Cancel();
+                Assert.That((await actions.HealAsync(original, 1, cancelled.Token)).Status, Is.EqualTo(PlayerOperationStatus.Cancelled));
+            }
+            Assert.That(native.Accepted, Is.EqualTo(accepted));
+
+            native.Defer = true;
+            Task<PlayerOperationResult> queued = actions.GiveAsync(original, "1").AsTask();
+            var replacement = original with { SessionId = PlayerSessionId.New() };
+            players.Current = replacement;
+            native.Flush();
+            Assert.That((await queued).Status, Is.EqualTo(PlayerOperationStatus.PlayerNotFound));
+            Assert.That((await actions.HealAsync(original, 1)).Status, Is.EqualTo(PlayerOperationStatus.PlayerNotFound));
+
+            Task<PlayerOperationResult> committed = actions.HealAsync(replacement, 15).AsTask();
+            native.Flush(); // service already applied this operation, even if its continuation is still pending
+            using var caller = new CancellationTokenSource();
+            Task<PlayerOperationResult> pending = actions.HealAsync(replacement, 20).AsTask();
+            Task<PlayerOperationResult> linkedPending = actions.GiveAsync(replacement, "1", cancellationToken: caller.Token).AsTask();
+            Task retirement = scope.DrainForRetirementAsync(CancellationToken.None);
+            Assert.That((await actions.GiveAsync(replacement, "1")).Status, Is.EqualTo(PlayerOperationStatus.Cancelled));
+            Assert.That(retirement.IsCompleted, Is.False);
+            native.Flush();
+            Assert.That((await pending).Status, Is.EqualTo(PlayerOperationStatus.Cancelled));
+            Assert.That((await linkedPending).Status, Is.EqualTo(PlayerOperationStatus.Cancelled));
+            Assert.That((await committed).Status, Is.EqualTo(PlayerOperationStatus.Applied));
+            await retirement;
+            Assert.That(native.Delivered, Has.Count.EqualTo(7));
+        }
+        finally { native.Flush(); await scope.DisposeAsync(); }
+        Assert.That((await actions.HealAsync(original, 1)).Status, Is.EqualTo(PlayerOperationStatus.Cancelled));
+    }
+
+    [Test]
+    public async Task PlayerActionCapabilityDoesNotFallBackToNumericSlotOperations()
+    {
+        var players = new RecordingPlayers();
+        var player = new PlayerSnapshot(new(1), "fixture", false, 100, 100, 20, 20, new(0, 0), false, 0)
+            { SessionId = PlayerSessionId.New() };
+        players.Current = player;
+        await using var scope = new HotModuleRegistrationScope(new RecordingCommandRegistry(), new RecordingLogger(), "Plugin.NoActions",
+            Path.GetTempPath(), playerDirectory: players, playerOperations: players);
+        var actions = scope.Players.Actions;
+        Assert.That(actions.VitalsAvailable || actions.ItemDeliveryAvailable, Is.False);
+        Assert.That((await actions.HealAsync(player, 1)).Status, Is.EqualTo(PlayerOperationStatus.DispatcherUnavailable));
+        Assert.That((await actions.GiveAsync(player, "1")).Status, Is.EqualTo(PlayerOperationStatus.DispatcherUnavailable));
+    }
+
+    private sealed class PlayerActionsFixture(RecordingPlayers players) : IPlayerOperations, IPlayerVitalOperations, IPlayerItemDelivery
+    {
+        public bool Defer { get; set; }
+        public int Accepted { get; private set; }
+        public List<string> Delivered { get; } = [];
+        private readonly Queue<Action> pending = new();
+        public void Flush() { while (pending.TryDequeue(out Action? deliver)) deliver(); }
+        private ValueTask<PlayerOperationResult> Deliver(PlayerSnapshot player, string name, CancellationToken token, bool valid = true)
+        {
+            Accepted++;
+            PlayerOperationResult Apply()
+            {
+                if (token.IsCancellationRequested) return PlayerOperationResult.Cancelled();
+                if (players.Current?.SessionId != player.SessionId || players.Current?.WorldId != player.WorldId) return PlayerOperationResult.NotFound();
+                if (!valid) return PlayerOperationResult.Failed("item.invalid_request");
+                Delivered.Add(name);
+                return PlayerOperationResult.Applied();
+            }
+            if (!Defer) return ValueTask.FromResult(Apply());
+            var completion = new TaskCompletionSource<PlayerOperationResult>(TaskCreationOptions.RunContinuationsAsynchronously);
+            pending.Enqueue(() => completion.TrySetResult(Apply()));
+            return new(completion.Task);
+        }
+        public ValueTask<PlayerOperationResult> HealAsync(PlayerSnapshot p, int amount, CancellationToken t = default) => Deliver(p, $"heal:{amount}", t);
+        public ValueTask<PlayerOperationResult> BuffAsync(PlayerSnapshot p, string buff, int seconds, CancellationToken t = default) => Deliver(p, $"buff:{buff}:{seconds}", t);
+        public ValueTask<PlayerOperationResult> KillAsync(PlayerSnapshot p, CancellationToken t = default) => Deliver(p, "kill", t);
+        public ValueTask<PlayerOperationResult> SlapAsync(PlayerSnapshot p, int damage, CancellationToken t = default) => Deliver(p, $"slap:{damage}", t);
+        public ValueTask<PlayerOperationResult> RespawnAsync(PlayerSnapshot p, CancellationToken t = default) => Deliver(p, "respawn", t);
+        public ValueTask<PlayerOperationResult> GiveAsync(PlayerSnapshot p, string item, int stack, int prefix, CancellationToken t = default) => Deliver(p, $"give:{item}:{stack}:{prefix}", t, stack > 0);
+        public ValueTask<PlayerOperationResult> KickAsync(PlayerId player, string reason, CancellationToken t = default) => throw new NotSupportedException();
+        public ValueTask<PlayerOperationResult> TeleportAsync(PlayerId player, PlayerPosition destination, CancellationToken t = default) => throw new NotSupportedException();
+    }
+
+    [Test]
+    public async Task CommandCompletionObserverRetainsOnlyExactInvocationSessionAndGuardedStatus()
+    {
+        var world = new WorldId("fixture");
+        var handler = new DeferredCommand();
+        var commands = new CommandDispatcher([handler]);
+        var dispatcher = new QueuedDispatcher();
+        await using var scope = new HotModuleRegistrationScope(commands, new RecordingLogger(), "Plugin.CommandActivity",
+            Path.GetTempPath(), gameThread: dispatcher, activityWorldId: world);
+        Assert.That(scope.Activity.CommandCompletionAvailable, Is.True);
+        var observed = new List<CommandCompletedObservation>();
+        scope.Activity.OnCommandCompleted(observed.Add);
+        var principal = new ActivityPrincipal(new PlayerId(4), PlayerSessionId.New());
+        var invocation = new CommandInvocation("deferred", ["private"], principal, Output.Instance) { WorldId = world };
+        Task<CommandExecutionResult> execution = commands.DispatchAsync(invocation).AsTask();
+        dispatcher.Drain();
+        Assert.That(observed, Is.Empty);
+        handler.Complete();
+        Assert.That((await execution).Status, Is.EqualTo(CommandExecutionStatus.Failed));
+        await commands.DispatchAsync(invocation with { WorldId = new("other") });
+        dispatcher.Drain();
+        Assert.That(observed, Is.EqualTo(new[] { new CommandCompletedObservation(world, "deferred", principal.PlayerId,
+            principal.SessionId, false, CommandExecutionStatus.Failed) }));
+        await scope.DisposeAsync();
+        await commands.DispatchAsync(invocation);
+        dispatcher.Drain();
+        Assert.That(observed, Has.Count.EqualTo(1));
+    }
+
+    private sealed class ActivityPrincipal(PlayerId playerId, PlayerSessionId sessionId) : IPlayerCommandPrincipal
+    {
+        public PlayerId PlayerId => playerId;
+        public PlayerSessionId? SessionId => sessionId;
+        public string PlayerName => "fixture";
+        public string? AccountName => null;
+        public string Name => PlayerName;
+        public string CultureSubjectId => "fixture";
+        public bool IsServer => false;
+        public bool HasPermission(string permission) => true;
+    }
+
+    private sealed class DeferredCommand : ICommandHandler
+    {
+        private readonly TaskCompletionSource<CommandExecutionResult> completion = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        public CommandDescriptor Descriptor { get; } = new("deferred", [], []);
+        public ValueTask<CommandExecutionResult> ExecuteAsync(CommandInvocation invocation, CancellationToken token) => new(completion.Task);
+        public void Complete() => completion.SetResult(CommandExecutionResult.Failed("fixture"));
+    }
+
+    [Test]
+    public async Task ActivityObserversAreWorldScopedExactSessionGuardedAndAutomaticallyRetired()
+    {
+        var world = new WorldId("fixture");
+        var player = new PlayerSnapshot(new(1), "fixture", false, 100, 100, 20, 20, new(0, 0), false, 0)
+            { WorldId = world, SessionId = PlayerSessionId.New() };
+        var players = new RecordingPlayers { Current = player };
+        var auth = new ActivityAuth();
+        var chat = new ActivityChat();
+        var dispatcher = new QueuedDispatcher();
+        var scope = new HotModuleRegistrationScope(new RecordingCommandRegistry(), new RecordingLogger(), "Plugin.Activity",
+            Path.GetTempPath(), playerDirectory: players, gameThread: dispatcher, activityWorldId: world,
+            authentication: auth, publicChat: chat);
+        IVegaPluginContext plugin = scope;
+        Assert.That(plugin.Activity.AuthenticationAvailable, Is.True);
+        Assert.That(plugin.Activity.PublicChatAvailable, Is.True);
+        Assert.That(plugin.Activity.CommandCompletionAvailable, Is.False);
+        var established = new List<PlayerAccountBinding>();
+        var ended = new List<PlayerAuthenticationEnded>();
+        var observed = new List<PublicChatAcceptedObservation>();
+        plugin.Activity.OnAuthenticationEstablished(established.Add);
+        plugin.Activity.OnAuthenticationEnded(ended.Add);
+        plugin.Activity.OnPublicChatAccepted(_ => throw new InvalidOperationException("fixture callback fault"));
+        plugin.Activity.OnPublicChatAccepted(observed.Add);
+        var old = new PlayerAccountBinding(player.Id, player.SessionId!.Value, new(7), Guid.NewGuid());
+        auth.Establish(old);
+        Assert.That(plugin.Activity.TryGetAuthentication(player, out var current), Is.True);
+        Assert.That(current, Is.EqualTo(old));
+        auth.End(old);
+        var next = player with { SessionId = PlayerSessionId.New() };
+        players.Current = next;
+        var active = old with { SessionId = next.SessionId!.Value, AuthenticationId = Guid.NewGuid() };
+        auth.Establish(active);
+        var message = new PublicChatAcceptedObservation(world, next.Id, next.SessionId!.Value, "hi", 1, false);
+        chat.Publish(message with { WorldId = new("other") });
+        chat.Publish(message);
+        Assert.That(established, Is.Empty);
+        Assert.That(plugin.Activity.TryGetAuthentication(player, out _), Is.False);
+        dispatcher.Drain();
+        Assert.That(established, Is.EqualTo(new[] { active }));
+        Assert.That(ended, Is.EqualTo(new[] { new PlayerAuthenticationEnded(old, PlayerAuthenticationEndReason.Disconnected) }));
+        Assert.That(observed, Is.EqualTo(new[] { message }));
+        Assert.That(scope.Faults.Count, Is.EqualTo(1));
+        chat.Publish(message);
+        await scope.DisposeAsync();
+        dispatcher.Drain();
+        Assert.That(auth.Subscribers + chat.Subscribers, Is.Zero);
+        Assert.That(observed, Has.Count.EqualTo(1));
+        Assert.That(plugin.Activity.TryGetAuthentication(next, out _), Is.False);
+    }
+
+    private sealed class ActivityAuth : IPlayerAccountSessionService
+    {
+        public event Action<PlayerAccountBinding>? BindingEstablished;
+        public event Action<PlayerAuthenticationEnded>? AuthenticationEnded;
+        private PlayerAccountBinding? binding;
+        public int Subscribers => (BindingEstablished?.GetInvocationList().Length ?? 0) + (AuthenticationEnded?.GetInvocationList().Length ?? 0);
+        public void Establish(PlayerAccountBinding value) { binding = value; BindingEstablished?.Invoke(value); }
+        public void End(PlayerAccountBinding value) { binding = null; AuthenticationEnded?.Invoke(new(value, PlayerAuthenticationEndReason.Disconnected)); }
+        public bool TryGetBinding(PlayerSnapshot player, out PlayerAccountBinding current)
+        {
+            current = binding.GetValueOrDefault();
+            return binding.HasValue && current.PlayerId == player.Id && current.SessionId == player.SessionId;
+        }
+        public bool TryRunWithBinding<T>(PlayerAccountBinding expected, Func<T> action, out T result)
+        {
+            if (binding != expected) { result = default!; return false; }
+            result = action(); return true;
+        }
+        public bool TryGetAccount(PlayerId playerId, out AccountSnapshot? account) { account = null; return false; }
+        public ValueTask<bool> SetCultureAsync(PlayerId playerId, string? culture, CancellationToken cancellationToken = default) => ValueTask.FromResult(false);
+    }
+
+    private sealed class ActivityChat : IPublicChatObservations
+    {
+        public event Action<PublicChatAcceptedObservation>? Accepted;
+        public int Subscribers => Accepted?.GetInvocationList().Length ?? 0;
+        public void Publish(PublicChatAcceptedObservation value) => Accepted?.Invoke(value);
+    }
+
+    private sealed class QueuedDispatcher : IGameThreadDispatcher
+    {
+        private readonly Queue<Action> pending = new();
+        public bool IsGameThreadKnown => true;
+        public bool IsGameThread => false;
+        public void AssertGameThread() => throw new NotSupportedException();
+        public bool TryPost(string name, Action action) { pending.Enqueue(action); return true; }
+        public bool TrySchedule(string name, Func<bool> step) => throw new NotSupportedException();
+        public void Drain() { while (pending.TryDequeue(out Action? action)) action(); }
+    }
+
     [Test]
     public async Task NativeEntryAndClosingEventsAreGuardedAndOwnedResourcesRetireInReverseOrder()
     {

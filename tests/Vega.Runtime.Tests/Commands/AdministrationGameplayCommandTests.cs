@@ -15,6 +15,19 @@ public sealed class AdministrationGameplayCommandTests
     private static readonly WorldId World = new("test");
 
     [Test]
+    public async Task NamedPrefixAndLegacyClearSelectorReuseExistingOperations()
+    {
+        var fixture = new Fixture();
+        var dispatcher = new CommandDispatcher([new ItemCommand(fixture, fixture, resolvePrefix: name => name == "Legendary" ? 81 : null),
+            new ClearCommand(fixture, fixture, fixture)]);
+        Assert.That((await dispatcher.DispatchAsync(fixture.Command("i", ["Sword", "1", "Legendary"]))).Status, Is.EqualTo(CommandExecutionStatus.Success));
+        Assert.That(fixture.Last, Is.EqualTo("item:Alice:Sword:1:81"));
+        Assert.That((await dispatcher.DispatchAsync(fixture.Command("i", ["Sword", "1", "unknown"]))).Status, Is.EqualTo(CommandExecutionStatus.InvalidUsage));
+        Assert.That((await dispatcher.DispatchAsync(fixture.Command("clear", ["proj"]))).Status, Is.EqualTo(CommandExecutionStatus.Success));
+        Assert.That(fixture.Removal?.Projectiles, Is.EqualTo(new[] { new WorldProjectileCleanupHandle(2, 20) }));
+    }
+
+    [Test]
     public async Task ItemHealAndBuffUseSessionBoundTargetsAndValidatedArguments()
     {
         var fixture = new Fixture();

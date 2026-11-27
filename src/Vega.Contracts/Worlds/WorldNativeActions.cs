@@ -5,7 +5,7 @@ namespace Vega.Contracts.Worlds;
 public enum WorldGrowKind
 {
     Basic, Boreal, Mahogany, Sakura, Willow, Shadewood, Ebonwood, Pearlwood,
-    Palm, HallowPalm, CrimsonPalm, CorruptPalm, Topaz, Amethyst, Sapphire, Emerald, Ruby, Diamond, Amber, Mushroom
+    Palm, HallowPalm, CrimsonPalm, CorruptPalm, Topaz, Amethyst, Sapphire, Emerald, Ruby, Diamond, Amber, Mushroom, Cactus, Herb
 }
 
 public enum WorldNativeActionStatus { Applied, AlreadyActive, Invalid, Unavailable, Cancelled, Failed }

@@ -51,6 +51,25 @@ public sealed class WorldCommandTests
     }
 
     [Test]
+    public async Task LegacyWorldEventSelectorsMapToCanonicalNativeActions()
+    {
+        var world = new RecordingWorld();
+        var dispatcher = new CommandDispatcher([new WorldEventCommand(world)]);
+        var call = Invocation("worldevent", "meteor");
+        foreach (var (arguments, expected) in new (string[], NativeWorldEvent)[]
+        {
+            (["meteor"], NativeWorldEvent.Meteor), (["lanterns"], NativeWorldEvent.LanternNight),
+            (["meteorshower"], NativeWorldEvent.MeteorShower), (["rain", "coin"], NativeWorldEvent.CoinRain),
+            (["rain", "slime"], NativeWorldEvent.SlimeRain), (["invade", "goblins"], NativeWorldEvent.GoblinArmy)
+        })
+        {
+            Assert.That((await dispatcher.DispatchAsync(call with { Arguments = arguments })).Status, Is.EqualTo(CommandExecutionStatus.Success));
+            Assert.That(world.Request?.Patch.NativeEvent, Is.EqualTo(new NativeWorldEventChange(expected, true)));
+        }
+        Assert.That((await dispatcher.DispatchAsync(call with { Arguments = ["meteor", "off"] })).Status, Is.EqualTo(CommandExecutionStatus.InvalidUsage));
+    }
+
+    [Test]
     public async Task WorldEventSelectsCorrectPhaseAndRequiresEventPermission()
     {
         var world = new RecordingWorld();
@@ -111,6 +130,8 @@ public sealed class WorldCommandTests
         Assert.That(world.Request?.Patch.ForceChristmas, Is.False);
         Assert.That((await dispatcher.DispatchAsync(Invocation("clearangler", "") with { Arguments = [] })).Status, Is.EqualTo(CommandExecutionStatus.Success));
         Assert.That(world.Request?.Patch.ClearAnglerCompletion, Is.True);
+        Assert.That((await dispatcher.DispatchAsync(Invocation("clearangler", "Alice"))).Status, Is.EqualTo(CommandExecutionStatus.Success));
+        Assert.That(world.Request?.Patch.ClearAnglerPlayer, Is.EqualTo("Alice"));
     }
 
     [Test]

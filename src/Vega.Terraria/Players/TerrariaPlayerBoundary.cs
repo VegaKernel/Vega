@@ -178,7 +178,13 @@ public sealed partial class TerrariaPlayerBoundary :
 	public ValueTask<PlayerOperationResult> SendMessageAsync(PlayerSnapshot player, string message, CancellationToken cancellationToken = default) =>
 		SendMessageCoreAsync(player.Id, player, message, cancellationToken);
 
-	private ValueTask<PlayerOperationResult> SendMessageCoreAsync(PlayerId id, PlayerSnapshot? expected, string message, CancellationToken cancellationToken)
+	public ValueTask<PlayerOperationResult> SendChatMessageAsync(PlayerSnapshot player, string message,
+		Vega.Contracts.Messaging.ChatColor? color, CancellationToken cancellationToken = default) =>
+		SendMessageCoreAsync(player.Id, player, message, cancellationToken,
+			color is { } rgb ? new Color(rgb.Red, rgb.Green, rgb.Blue) : Color.White);
+
+	private ValueTask<PlayerOperationResult> SendMessageCoreAsync(PlayerId id, PlayerSnapshot? expected, string message, CancellationToken cancellationToken,
+		Color? color = null)
 	{
 		ArgumentNullException.ThrowIfNull(message);
 
@@ -195,7 +201,7 @@ public sealed partial class TerrariaPlayerBoundary :
 				{
 					ChatHelper.SendChatMessageToClient(
 						NetworkText.FromLiteral(line),
-						Color.White,
+						color ?? Color.White,
 						id.Slot);
 				}
 

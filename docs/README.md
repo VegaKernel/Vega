@@ -10,6 +10,7 @@ This directory contains Vega's project documentation, implementation notes, road
 - `ru/project-guide.md` — полное русское руководство по архитектуре, сборке, запуску, модулям, упаковке и релизам.
 - `architecture.md` — target architecture and subsystem boundaries.
 - `roadmap.md` — staged implementation plan and completed validation.
+- [TShock functional parity audit](tshock-parity-2026-11-27.md) — concrete command branch, native hook and public SDK gaps; [95-command live/source inventory](tshock-command-parity-2026-11-27.md).
 - `net11-dependency-audit.md` — resolved package assets, upgrades, known MonoMod exception, and clean-consumer validation for Phase 18.
 - `releasing.md` — versioning, automatic tagged releases, and manual server publication.
 

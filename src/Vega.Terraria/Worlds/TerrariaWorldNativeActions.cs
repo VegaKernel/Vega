@@ -50,6 +50,30 @@ public sealed class TerrariaWorldNativeActions(IGameThreadDispatcher dispatcher,
         if (x < 40 || y < 40 || x >= global::Terraria.Main.maxTilesX - 40 || y >= global::Terraria.Main.maxTilesY - 40)
             return Invalid("grow.outside_world");
 
+        if (request.Kind == WorldGrowKind.Cactus)
+        {
+            if (!global::Terraria.Main.tile[x, y].active() || global::Terraria.Main.tile[x, y].type != TileID.Sand ||
+                global::Terraria.Main.tile[x, y - 1].active()) return Invalid("grow.incompatible_ground");
+            global::Terraria.WorldGen.GrowCactus(x, y);
+            var cactus = global::Terraria.Main.tile[x, y - 1];
+            return cactus.active() && cactus.type == TileID.Cactus
+                ? new(WorldNativeActionStatus.Applied, Position: position)
+                : new(WorldNativeActionStatus.Failed, "grow.native_declined");
+        }
+        if (request.Kind == WorldGrowKind.Herb)
+        {
+            // Grow an existing plant instead of replacing unrelated terrain.
+            if (request.Player is not null && (!global::Terraria.Main.tile[x, y].active() ||
+                global::Terraria.Main.tile[x, y].type != TileID.ImmatureHerbs)) y--;
+            var herb = global::Terraria.Main.tile[x, y];
+            if (!herb.active() || herb.type != TileID.ImmatureHerbs) return Invalid("grow.incompatible_ground");
+            global::Terraria.WorldGen.GrowAlch(x, y);
+            herb = global::Terraria.Main.tile[x, y];
+            return herb.active() && herb.type is TileID.MatureHerbs or TileID.BloomingHerbs
+                ? new(WorldNativeActionStatus.Applied, Position: new(x, y))
+                : new(WorldNativeActionStatus.Failed, "grow.native_declined");
+        }
+
         int requiredGround = request.Kind switch
         {
             WorldGrowKind.Basic or WorldGrowKind.Sakura or WorldGrowKind.Willow => TileID.Grass,

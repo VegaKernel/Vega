@@ -1,6 +1,8 @@
 using System.Runtime.CompilerServices;
+using System.Collections.Frozen;
 using Vega.Contracts.Modules;
 using Vega.Contracts.Players;
+using Vega.Contracts.Regions;
 using Vega.Contracts.Scenes;
 using Vega.Contracts.Worlds;
 
@@ -17,6 +19,15 @@ public interface IPluginWorld
     IPluginWorldScenes Scenes { get; }
     IPluginWorldSchematics Schematics => throw new NotSupportedException("World schematic capture is unavailable in this host.");
     IPluginFakeProvider FakeProvider => throw new NotSupportedException("FakeProvider is unavailable in this host.");
+    IPluginRegions Regions => throw new NotSupportedException("Region snapshots are unavailable in this host.");
+}
+
+/// <summary>Detached, read-only region snapshots from the current world only.</summary>
+public interface IPluginRegions
+{
+    bool IsAvailable { get; }
+    IReadOnlyList<RegionSnapshot> Snapshot();
+    RegionSnapshot? FindTop(int tileX, int tileY);
 }
 
 public interface IPluginWorldEnvironment
@@ -116,7 +127,8 @@ internal sealed record VegaPluginRuntimeServices(
     IPlayerInventoryService? Inventory,
     ISceneVisibilityRuntime? Visibility = null,
     IWorldSchematicService? Schematics = null,
-    IWorldNpcActorService? NpcActors = null)
+    IWorldNpcActorService? NpcActors = null,
+    IRegionService? Regions = null)
 {
     public static VegaPluginRuntimeServices Empty { get; } = new(
         WorldId.Primary,
@@ -169,6 +181,35 @@ internal static partial class VegaPluginRuntime
         public IPluginWorldScenes Scenes { get; } = new PluginScenes(context);
         public IPluginWorldSchematics Schematics { get; } = new PluginSchematics();
         public IPluginFakeProvider FakeProvider { get; } = new PluginFakeProvider(context);
+        public IPluginRegions Regions { get; } = new PluginRegions();
+    }
+
+    private sealed class PluginRegions : IPluginRegions
+    {
+        public bool IsAvailable => Services.Regions is not null;
+
+        public IReadOnlyList<RegionSnapshot> Snapshot()
+        {
+            VegaPluginRuntimeServices current = Services;
+            IRegionService regions = current.Regions ?? throw new NotSupportedException("Region snapshots are unavailable in this host.");
+            return Array.AsReadOnly(regions.SnapshotRegions(current.WorldId)
+                .Where(region => region.WorldId == current.WorldId).Select(Detach).ToArray());
+        }
+
+        public RegionSnapshot? FindTop(int tileX, int tileY)
+        {
+            VegaPluginRuntimeServices current = Services;
+            IRegionService regions = current.Regions ?? throw new NotSupportedException("Region snapshots are unavailable in this host.");
+            RegionSnapshot? region = regions.FindTopRegion(current.WorldId, tileX, tileY);
+            return region is not null && region.WorldId == current.WorldId ? Detach(region) : null;
+        }
+
+        private static RegionSnapshot Detach(RegionSnapshot region) => region with
+        {
+            Members = region.Members.ToFrozenSet(StringComparer.OrdinalIgnoreCase),
+            Groups = region.Groups.ToFrozenSet(StringComparer.OrdinalIgnoreCase),
+            Flags = region.Flags.ToFrozenDictionary(StringComparer.OrdinalIgnoreCase)
+        };
     }
 
     private sealed class PluginSchematics : IPluginWorldSchematics

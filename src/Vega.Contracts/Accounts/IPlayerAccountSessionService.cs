@@ -15,6 +15,9 @@ public interface IPlayerAccountSessionService
     /// <summary>After explicit logout removes authentication. Consumers must verify no newer binding exists before acting.</summary>
     event Action<PlayerAccountBinding>? BindingEnded { add { } remove { } }
 
+    /// <summary>Observational end of an exact authentication tenure, including disconnect and replacement.</summary>
+    event Action<PlayerAuthenticationEnded>? AuthenticationEnded { add { } remove { } }
+
     /// <summary>Identifies one authenticated tenure, distinct even after logout and relogin on the same connection.</summary>
     bool TryGetBinding(PlayerSnapshot player, out PlayerAccountBinding binding)
     {
@@ -52,3 +55,7 @@ public interface IPlayerAccountSessionService
 }
 
 public readonly record struct PlayerAccountBinding(PlayerId PlayerId, PlayerSessionId SessionId, AccountId AccountId, Guid AuthenticationId);
+
+public enum PlayerAuthenticationEndReason { Logout, Disconnected, SessionReplaced }
+
+public readonly record struct PlayerAuthenticationEnded(PlayerAccountBinding Binding, PlayerAuthenticationEndReason Reason);

@@ -10,7 +10,7 @@ using Vega.PluginSdk;
 
 namespace Vega.Core.Modules;
 
-internal sealed class HotModuleRegistrationScope : IHotModuleContext, IVegaPluginContext, IAsyncDisposable
+internal sealed partial class HotModuleRegistrationScope : IHotModuleContext, IVegaPluginContext, IAsyncDisposable
 {
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web)
     {
@@ -43,7 +43,10 @@ internal sealed class HotModuleRegistrationScope : IHotModuleContext, IVegaPlugi
         IVegaDebugContext? debug = null,
         string? pluginConfigurationRoot = null,
         Guid? activationId = null, int faultThreshold = 5, TimeSpan? faultWindow = null,
-        Action? onQuarantine = null, IWorldGameplayEvents? worldEvents = null)
+        Action? onQuarantine = null, IWorldGameplayEvents? worldEvents = null,
+        WorldId? activityWorldId = null,
+        Vega.Contracts.Accounts.IPlayerAccountSessionService? authentication = null,
+        Vega.Contracts.Messaging.IPublicChatObservations? publicChat = null)
     {
         ArgumentNullException.ThrowIfNull(commands);
         this.logger = logger ?? throw new ArgumentNullException(nameof(logger));
@@ -68,8 +71,10 @@ internal sealed class HotModuleRegistrationScope : IHotModuleContext, IVegaPlugi
         if (sandboxControl is not null) VegaDebugProcess.RegisterRoot("sandbox-control", sandboxControl);
 
         Commands = new PluginCommands(this, commands);
-        Players = new PluginPlayers(this, playerDirectory, messenger, playerOperations, playerLifecycle);
+        Players = new PluginPlayers(this, playerDirectory, messenger, playerOperations, playerLifecycle, activityWorldId);
         WorldEvents = new PluginWorldEvents(this, worldEvents);
+        Activity = new PluginActivity(this, activityWorldId, playerDirectory, gameThread,
+            authentication, publicChat, commands as ICommandCompletionObservations);
         Tasks = new PluginTasks(this, gameThread);
         Resources = new PluginResources(this);
         Configuration = new PluginConfiguration(this, pluginName, configurationDirectory);
@@ -86,6 +91,7 @@ internal sealed class HotModuleRegistrationScope : IHotModuleContext, IVegaPlugi
     public IPluginCommands Commands { get; }
     public IPluginPlayers Players { get; }
     public IPluginWorldEvents WorldEvents { get; }
+    public IPluginActivity Activity { get; }
     public IPluginTasks Tasks { get; }
     public IPluginResources Resources { get; }
     public IPluginConfiguration Configuration { get; }
@@ -101,7 +107,7 @@ internal sealed class HotModuleRegistrationScope : IHotModuleContext, IVegaPlugi
         // All retirement attempts share the original cancellation operation. A timeout
         // must not allow a retry to skip an outstanding non-cooperative cancel callback.
         Task cancellation;
-        lock (sync) cancellation = retirementCancellation ??= lifetime.CancelAsync();
+        lock (sync) cancellation = BeginRetirementCancellationLocked();
         try { await cancellation.WaitAsync(token).ConfigureAwait(false); }
         catch (Exception ex) when (!token.IsCancellationRequested) { earlyCancellationFailure = ex; }
         await executionGuard.WaitForIdleAsync(token).ConfigureAwait(false);
@@ -139,6 +145,7 @@ internal sealed class HotModuleRegistrationScope : IHotModuleContext, IVegaPlugi
         executionGuard.StopAcceptingCallbacks();
         IDisposable[] owned;
         Task[] running;
+        Task cancellation;
         lock (sync)
         {
             if (disposed)
@@ -147,6 +154,7 @@ internal sealed class HotModuleRegistrationScope : IHotModuleContext, IVegaPlugi
             }
 
             disposed = true;
+            cancellation = BeginRetirementCancellationLocked();
             owned = registrations.ToArray();
             running = tasks.ToArray();
             registrations.Clear();
@@ -154,8 +162,8 @@ internal sealed class HotModuleRegistrationScope : IHotModuleContext, IVegaPlugi
         }
 
         List<Exception>? failures = earlyCancellationFailure is { } prior ? [prior] : null;
-        try { lifetime.Cancel(); }
-        catch (Exception ex) { (failures ??= []).Add(ex); }
+        try { await cancellation.ConfigureAwait(false); }
+        catch (Exception ex) { if (earlyCancellationFailure is null) (failures ??= []).Add(ex); }
         try
         {
             await Task.WhenAll(running).ConfigureAwait(false);
@@ -251,9 +259,11 @@ internal sealed class HotModuleRegistrationScope : IHotModuleContext, IVegaPlugi
         IPlayerDirectory? directory,
         IPlayerMessenger? messenger,
         IPlayerOperations? operations,
-        IPlayerSessionLifecycle? lifecycle) : IPluginPlayers
+        IPlayerSessionLifecycle? lifecycle, WorldId? worldId) : IPluginPlayers
     {
         public IReadOnlyList<PlayerSnapshot> Online => directory?.SnapshotOnlinePlayers() ?? [];
+        public IPluginPlayerActions Actions { get; } = new PluginPlayerActions(owner, directory, worldId,
+            operations as IPlayerVitalOperations, operations as Vega.Contracts.Items.IPlayerItemDelivery);
 
         public bool TryGet(PlayerId id, out PlayerSnapshot? player)
         {
@@ -415,6 +425,8 @@ internal sealed class HotModuleRegistrationScope : IHotModuleContext, IVegaPlugi
 
     private sealed class PluginWorldEvents(HotModuleRegistrationScope owner, IWorldGameplayEvents? events) : IPluginWorldEvents
     {
+        public void OnTickCompleted(Action<WorldTickCompletedEvent> handler) => Register("world.tick.completed", handler);
+        public void OnSaveCompleted(Action<WorldSaveCompletedEvent> handler) => Register("world.save.completed", handler);
         public void OnNpcCreating(Action<NpcCreatingEvent> handler) => Register("world.npc.creating", handler);
         public void OnNpcKilled(Action<NpcKilledEvent> handler) => Register("world.npc.killed", handler);
         public void OnNpcTransforming(Action<NpcTransformingEvent> handler) => Register("world.npc.transforming", handler);

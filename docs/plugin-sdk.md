@@ -51,6 +51,7 @@ The fixed context exposes these discoverable facets:
 - `Players` provides immutable online snapshots, lookup, messaging, kick/teleport operations, join/leave/world-entry/pre-reset hooks and optimistic inventory access;
 - `World` exposes the active world through immutable environment, tile, chest and NPC snapshots plus plugin-owned scenes;
 - `WorldEvents` registers world-local gameplay notifications and narrowly scoped NPC transformation/loot policies;
+- `Activity` observes exact authentication tenures, accepted ordinary public chat and completed authorized commands without obtaining credentials or command arguments;
 - `Tasks` posts to the game thread, schedules repeating game-thread work and runs async I/O with a game-thread apply callback;
 - `Resources` owns explicitly transferred disposable or asynchronous resources and cleanup actions for this activation;
 - `Configuration` owns typed, validated and reloadable operator settings under `config/plugins/<plugin-name>/`;
@@ -65,6 +66,47 @@ The host owns every command, event subscription, repeating task and async operat
 `Players.OnClosing` runs before the native character is reset, while the old session still exists;
 `OnLeft` remains the subsequent session removal notification. These callbacks are notifications, not
 cancellation policies, and all use the same per-plugin fault guard and automatic detachment as join/leave.
+
+`plugin.Players.Actions` provides typed native player operations: `HealAsync`,
+`BuffAsync`, `KillAsync`, `SlapAsync`, `RespawnAsync`, and `GiveAsync` (ordinary
+native item delivery). Check `VitalsAvailable` / `ItemDeliveryAvailable` on hosts
+that omit these services. Each method requires an exact current `PlayerSnapshot`
+with a session ID; a stale snapshot or different world is rejected, never
+redirected to a later occupant of a slot. Native services validate
+item/buff identifiers, duration, stack/prefix and current character state, and
+apply existing content restrictions to item delivery. The host links operations
+to the activation lifetime, tracks pending work during retirement and cancels
+not-yet-delivered requests on unload. `Applied` means the native operation was
+issued; death, hurt and respawn requests do not by themselves acknowledge the
+client's eventual game-state transition. No raw item/packet overrides are exposed.
+
+### Read-only player activity and regions
+
+Check `plugin.Activity.AuthenticationAvailable`, `PublicChatAvailable` and
+`CommandCompletionAvailable` before subscribing on hosts that omit these services.
+`OnAuthenticationEstablished` reports an account ID, player/session ID and exact
+authentication tenure ID; use `TryGetAuthentication(playerSnapshot, out binding)`
+to check the current tenure. `OnAuthenticationEnded` reports that same historical
+tenure with `Logout`, `Disconnected` or `SessionReplaced`. Neither exposes credentials.
+Obsolete queued establishments are dropped. An ended tenure must never be treated as
+authentication for a newer connection on the same slot.
+
+`OnPublicChatAccepted` reports common transformed text, exact sender session,
+world and audience count after the chat pipeline accepts an ordinary public
+message, before recipient-specific rendering/delivery is confirmed. It excludes
+rejected messages and slash/dot command-like input. `OnCommandCompleted` reports
+the canonical command name, world, exact player session (or server console) and
+returned status, not arguments, output, or credential data. Dispatch-level
+rejections, exceptions and commands lacking an exact player session are omitted.
+Both are historical observations rather than authorization grants or delivery
+receipts. The events queue bounded game-thread work; under queue saturation
+observations can be dropped. All subscriptions are guarded and detached on unload.
+
+`plugin.World.Regions.IsAvailable` indicates read-only region support.
+`Snapshot()` returns detached regions of the current world; `FindTop(tileX, tileY)`
+uses the host's existing region priority/ranking. ACL members, groups and flags
+are copied into immutable collections. Region mutation and change notifications
+are intentionally not exposed by this read-only snapshot capability.
 
 For extra resources created by a plugin, register ownership once with `plugin.Resources.Own(resource)`
 (`IDisposable`), `OwnAsync(resource)` (`IAsyncDisposable`) or `OnCleanup(action)`. The host drains callbacks
@@ -83,6 +125,8 @@ unload timeout. Do not register the same resource twice or rely on an unbounded 
 plugin.WorldEvents.OnNpcKilled(e =>
     plugin.Log.Write(OperationsLogLevel.Information,
         $"NPC {e.Npc.Type} generation {e.Npc.Generation} died in {e.Npc.WorldId}."));
+plugin.WorldEvents.OnTickCompleted(e => RecordTickDuration(e.Duration));
+plugin.WorldEvents.OnSaveCompleted(e => RecordSaveResult(e.Succeeded, e.FailureType));
 plugin.WorldEvents.AllowNpcTransform(e => e.RequestedType != restrictedType);
 plugin.WorldEvents.AllowNpcLoot(e => e.Stack <= configuredStackLimit);
 ```
@@ -101,7 +145,18 @@ boundary, only when subscribed. Keep callbacks short and post follow-up
 mutations through `Tasks.Post` rather than re-entering an in-progress native
 operation. A policy returning `false` vetoes the requested operation; a faulting
 policy is isolated and does not veto. The existing per-plugin circuit breaker
-and automatic registration cleanup cover all eight new delegate surfaces.
+and automatic registration cleanup cover these delegate surfaces.
+
+`OnTickCompleted` reports elapsed native update work before the server tick's
+pacing sleep; it is not a scheduler deadline or an invitation to perform expensive
+work each tick. `OnSaveCompleted` reports the native save result, with only an
+exception type name when available. Neither notification can cancel the completed
+operation. Both are world-local and execute on the owning game thread.
+Worker-thread save completions are posted to the existing bounded dispatcher;
+notifications can be dropped when it is full or the adapter is stopping. Subscribers
+are resolved when that queued notification is delivered, and retired registrations
+cannot be invoked. With no subscribers, no event snapshot or queued dispatch is
+created. Startup-ready and stopping callbacks are not exposed by this facade yet.
 
 ### Portable schematics
 

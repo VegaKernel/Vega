@@ -15,4 +15,8 @@ public interface IPlayerMessenger
 
     ValueTask<PlayerOperationResult> SendMessageAsync(PlayerSnapshot player, string message, CancellationToken cancellationToken = default) =>
         SendMessageAsync(player.Id, message, cancellationToken);
+
+    ValueTask<PlayerOperationResult> SendChatMessageAsync(PlayerSnapshot player, string message,
+        Messaging.ChatColor? color, CancellationToken cancellationToken = default) =>
+        SendMessageAsync(player, message, cancellationToken);
 }

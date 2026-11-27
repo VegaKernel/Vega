@@ -42,6 +42,16 @@ FakeProvider added exact-session native sign presentation/refresh, read-only wea
 
 ## 27 November follow-up
 
+The [functional parity audit](tshock-parity-2026-11-27.md) checks official
+TShock 6.2.1, all 95 command registrations, 48 TSAPI collections, 21 TShock
+domain hooks and 53 typed gameplay handler lists against the current native
+Vega deployment and ordinary plugin SDK. It identifies specific remaining
+P0/P1 implementation gaps; the 93/95 command names are not semantic parity.
+The implementation follow-up records the newly closed group/region/account/ban,
+content-restriction and world-event subbranches, player action APIs, activity
+notifications, immutable region reads, and native tick/save completion hooks.
+The pinned comparison is retained rather than silently redefining the baseline.
+
 - **P0 native gameplay load:** real native world counter now verifies a 255-slot
   mixed fixture, including boss AI, movement, chat and native background traffic.
   Ordered loopback completed all 1,800 updates and 24.8 million sends with exact

@@ -378,6 +378,35 @@ internal sealed class RelationalIdentityService(
             delete: true,
             cancellationToken: cancellationToken);
 
+    public ValueTask<GroupMutationResult> SetPresentationAsync(string name,
+        GroupChatPresentation presentation, long expectedRevision, string actor,
+        CancellationToken cancellationToken = default)
+    {
+        if (presentation is null || !presentation.IsValid)
+            return ValueTask.FromResult(new GroupMutationResult(false, "group.invalid-presentation"));
+        return MutateGroupAsync(name, expectedRevision, actor, "group.presentation",
+            static command => command.CommandText =
+                "UPDATE vega_groups SET revision = revision + 1 WHERE name = @name AND revision = @revision;",
+            cancellationToken: cancellationToken,
+            afterUpdate: async (connection, transaction, normalized, token) =>
+            {
+                await using (DbCommand delete = CreateCommand(connection, transaction,
+                    "DELETE FROM vega_group_presentation WHERE group_name = @name;"))
+                {
+                    delete.AddParameter("@name", normalized);
+                    await delete.ExecuteNonQueryAsync(token).ConfigureAwait(false);
+                }
+                if (presentation == GroupChatPresentation.Default) return;
+                await using DbCommand insert = CreateCommand(connection, transaction,
+                    "INSERT INTO vega_group_presentation (group_name, chat_prefix, chat_suffix, chat_color) VALUES (@name, @prefix, @suffix, @color);");
+                insert.AddParameter("@name", normalized);
+                insert.AddParameter("@prefix", presentation.Prefix);
+                insert.AddParameter("@suffix", presentation.Suffix);
+                insert.AddParameter("@color", presentation.Color?.ToUpperInvariant());
+                await insert.ExecuteNonQueryAsync(token).ConfigureAwait(false);
+            });
+    }
+
     public ValueTask<GroupMutationResult> SetParentAsync(
         string name,
         string? parentName,
@@ -564,7 +593,8 @@ internal sealed class RelationalIdentityService(
         Action<DbCommand> configure,
         string? requiredParent = null,
         bool delete = false,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default,
+        Func<DbConnection, DbTransaction, string, CancellationToken, ValueTask>? afterUpdate = null)
     {
         string normalized = NormalizeName(name, nameof(name));
         ValidateRevision(expectedRevision);
@@ -627,6 +657,8 @@ internal sealed class RelationalIdentityService(
                     return new GroupMutationResult(false, "group.revision-conflict", before);
                 }
 
+                if (afterUpdate is not null)
+                    await afterUpdate(connection, transaction, normalized, cancellationToken).ConfigureAwait(false);
                 GroupSnapshot? after = delete ? null :
                     await FindGroupAsync(connection, transaction, normalized, cancellationToken).ConfigureAwait(false);
                 await WriteAuditAsync(connection, transaction, actor, operation, normalized,
@@ -653,7 +685,8 @@ internal sealed class RelationalIdentityService(
         DbTransaction? transaction = null)
     {
         using DbCommand groupsCommand = CreateCommand(connection, transaction,
-            "SELECT name, parent_name, revision FROM vega_groups ORDER BY name;");
+            "SELECT g.name, g.parent_name, g.revision, p.chat_prefix, p.chat_suffix, p.chat_color " +
+            "FROM vega_groups g LEFT JOIN vega_group_presentation p ON p.group_name = g.name ORDER BY g.name;");
         using DbDataReader groupsReader = groupsCommand.ExecuteReader();
         var groups = new Dictionary<string, GroupSnapshot>(StringComparer.OrdinalIgnoreCase);
         while (groupsReader.Read())
@@ -665,7 +698,11 @@ internal sealed class RelationalIdentityService(
                 new HashSet<string>(StringComparer.OrdinalIgnoreCase))
             {
                 DeniedPermissions = new HashSet<string>(StringComparer.OrdinalIgnoreCase),
-                Revision = Convert.ToInt64(groupsReader.GetValue(2), CultureInfo.InvariantCulture)
+                Revision = Convert.ToInt64(groupsReader.GetValue(2), CultureInfo.InvariantCulture),
+                Presentation = new GroupChatPresentation(
+                    groupsReader.IsDBNull(3) ? "" : groupsReader.GetString(3),
+                    groupsReader.IsDBNull(4) ? "" : groupsReader.GetString(4),
+                    groupsReader.IsDBNull(5) ? null : groupsReader.GetString(5))
             };
         }
 

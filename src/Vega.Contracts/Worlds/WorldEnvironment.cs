@@ -48,9 +48,10 @@ public sealed record WorldEnvironmentPatch(
     bool? ForceChristmas = null,
     bool ClearAnglerCompletion = false,
     NativeWorldEventChange? NativeEvent = null,
-    bool StartHardmode = false);
+    bool StartHardmode = false,
+    string? ClearAnglerPlayer = null);
 
-public enum NativeWorldEvent { SlimeRain, Sandstorm, PumpkinMoon, FrostMoon, GoblinArmy, SnowLegion, PirateInvasion, MartianMadness }
+public enum NativeWorldEvent { SlimeRain, Sandstorm, PumpkinMoon, FrostMoon, GoblinArmy, SnowLegion, PirateInvasion, MartianMadness, Meteor, LanternNight, MeteorShower, CoinRain }
 public sealed record NativeWorldEventChange(NativeWorldEvent Event, bool Enabled);
 
 public sealed record WorldEnvironmentMutationRequest(

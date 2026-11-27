@@ -5,6 +5,10 @@ namespace Vega.PluginSdk;
 /// <summary>Read-only, world-local gameplay notifications owned by the plugin lifetime.</summary>
 public interface IPluginWorldEvents
 {
+    /// <summary>Runs after native update work on the owning game thread. Keep callbacks short.</summary>
+    void OnTickCompleted(Action<WorldTickCompletedEvent> handler);
+    /// <summary>Read-only native save result, delivered on the owning game thread. Off-thread save notifications use bounded dispatch.</summary>
+    void OnSaveCompleted(Action<WorldSaveCompletedEvent> handler);
     void OnNpcCreating(Action<NpcCreatingEvent> handler);
     void OnNpcKilled(Action<NpcKilledEvent> handler);
     void OnNpcTransforming(Action<NpcTransformingEvent> handler);

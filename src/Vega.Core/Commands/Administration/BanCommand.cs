@@ -21,7 +21,7 @@ public sealed class BanCommand(
         "ban",
         ["unban"],
         [BanPermission],
-        Syntax: "ban <player> [reason] | ban add <name|account|uuid|ip|cidr> <value> <duration|permanent> [reason] | ban list | ban show <id> | unban <id>");
+        Syntax: "ban <player> [reason] | ban add <name|account|uuid|ip|cidr> <value> <duration|permanent> [reason] | ban list | ban show|details <id> | ban del <id> | unban <id> | ban help|identifiers|examples");
 
     public async ValueTask<CommandExecutionResult> ExecuteAsync(
         CommandInvocation invocation,
@@ -50,17 +50,28 @@ public sealed class BanCommand(
             return List(invocation);
         }
 
-        if (action == "show")
+        if (action is "show" or "details")
         {
             return Show(invocation);
         }
 
-        if (action is "revoke" or "remove")
+        if (action is "revoke" or "remove" or "del")
         {
             return await RevokeAsync(invocation with
             {
                 Arguments = invocation.Arguments.Skip(1).ToArray()
             }, cancellationToken).ConfigureAwait(false);
+        }
+
+        if (invocation.Arguments.Count == 1 && (action is "help" or "identifiers" or "examples"))
+        {
+            string text = action switch
+            {
+                "identifiers" => "Ban subject types: name, account, uuid, ip, cidr.",
+                "examples" => "ban add name ExamplePlayer 2h reason | ban list | ban del <id>",
+                _ => Descriptor.Syntax
+            };
+            return CommandExecutionResult.WithMessages(MessageDescriptor.Info("command.ban.help", text).WithDefaultText("{0}"));
         }
 
         IReadOnlyList<PlayerSnapshot> matches = FindPlayers(invocation.Arguments[0], invocation.WorldId);

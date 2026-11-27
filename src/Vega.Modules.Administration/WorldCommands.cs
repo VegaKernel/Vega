@@ -96,23 +96,40 @@ public sealed class WorldInfoCommand(IWorldEnvironmentService world) : ICommandH
 public sealed class WorldEventCommand(IWorldEnvironmentService world) : ICommandHandler
 {
     public CommandDescriptor Descriptor { get; } = new("worldevent", [], ["vega.world.events"],
-        Syntax: "worldevent <rain|bloodmoon|eclipse|fullmoon|slimerain|sandstorm|pumpkinmoon|frostmoon|goblinarmy|snowlegion|pirateinvasion|martianmadness> [on|off]");
+        Syntax: "worldevent <rain|bloodmoon|eclipse|fullmoon|slimerain|sandstorm|pumpkinmoon|frostmoon|goblinarmy|snowlegion|pirateinvasion|martianmadness|meteor|lanterns|meteorshower|coinrain> [on|off] | worldevent invade <type> | worldevent rain <slime|coin>");
 
     public async ValueTask<CommandExecutionResult> ExecuteAsync(CommandInvocation invocation, CancellationToken cancellationToken)
     {
         var args = invocation.Arguments;
         if (args.Count is < 1 or > 2) return Usage();
-        string kind = args[0].ToLowerInvariant();
+        string kind = args[0].ToLowerInvariant() switch { "full moon" => "fullmoon", "blood moon" => "bloodmoon", "lanterns" or "lanternsnight" => "lanternnight", var value => value };
+        string? action = args.Count == 2 ? args[1].ToLowerInvariant() : null;
+        if (kind is "invade" or "invasion")
+        {
+            kind = action switch
+            {
+                "goblin" or "goblins" => "goblinarmy", "snowman" or "snowmen" => "snowlegion",
+                "pirate" or "pirates" => "pirateinvasion", "pumpkin" or "pumpkinmoon" => "pumpkinmoon",
+                "frost" or "frostmoon" => "frostmoon", "martian" or "martians" => "martianmadness", _ => ""
+            };
+            action = "on";
+        }
+        else if (kind == "rain" && (action is "slime" or "coin"))
+        {
+            kind = action == "slime" ? "slimerain" : "coinrain";
+            action = null;
+        }
         NativeWorldEvent? native = kind switch
         {
             "slimerain" => NativeWorldEvent.SlimeRain, "sandstorm" => NativeWorldEvent.Sandstorm,
             "pumpkinmoon" => NativeWorldEvent.PumpkinMoon, "frostmoon" => NativeWorldEvent.FrostMoon,
             "goblinarmy" => NativeWorldEvent.GoblinArmy, "snowlegion" => NativeWorldEvent.SnowLegion,
-            "pirateinvasion" => NativeWorldEvent.PirateInvasion, "martianmadness" => NativeWorldEvent.MartianMadness, _ => null
+            "pirateinvasion" => NativeWorldEvent.PirateInvasion, "martianmadness" => NativeWorldEvent.MartianMadness,
+            "meteor" => NativeWorldEvent.Meteor, "lanternnight" => NativeWorldEvent.LanternNight,
+            "meteorshower" => NativeWorldEvent.MeteorShower, "coinrain" => NativeWorldEvent.CoinRain, _ => null
         };
         if (native is null && kind is not ("rain" or "bloodmoon" or "eclipse" or "fullmoon")) return Usage();
-        string? action = args.Count == 2 ? args[1].ToLowerInvariant() : null;
-        if (action is not (null or "on" or "off") || kind == "fullmoon" && action == "off") return Usage();
+        if (action is not (null or "on" or "off") || (kind is "fullmoon" or "meteor") && action == "off") return Usage();
         if (!invocation.Principal.HasPermission($"vega.world.events.{kind}")) return new(CommandExecutionStatus.Forbidden,
             "command.permission_denied", [MessageDescriptor.Error("command.permission_denied").WithDefaultText("Permission denied.")]);
         WorldEnvironmentSnapshot? state = await world.CaptureAsync(invocation.WorldId, cancellationToken).ConfigureAwait(false);

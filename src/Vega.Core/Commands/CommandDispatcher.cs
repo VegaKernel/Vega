@@ -3,8 +3,9 @@ using Vega.Contracts.Messaging;
 
 namespace Vega.Core.Commands;
 
-public sealed class CommandDispatcher : ICommandDispatcher, ICommandRegistry, ICommandCatalog
+public sealed class CommandDispatcher : ICommandDispatcher, ICommandRegistry, ICommandCatalog, ICommandCompletionObservations
 {
+    public event Action<CommandCompletedObservation>? Completed;
     private readonly object sync = new();
     private IReadOnlyDictionary<string, ICommandHandler> handlers;
 
@@ -84,7 +85,35 @@ public sealed class CommandDispatcher : ICommandDispatcher, ICommandRegistry, IC
                 "You do not have permission to use this command."));
         }
 
-        return handler.ExecuteAsync(invocation, cancellationToken);
+        if (Completed is null) return handler.ExecuteAsync(invocation, cancellationToken);
+        var player = invocation.Principal as IPlayerCommandPrincipal;
+        if (!invocation.Principal.IsServer && player?.SessionId is null)
+            return handler.ExecuteAsync(invocation, cancellationToken);
+        var observation = new CommandCompletedObservation(invocation.WorldId, descriptor.Name,
+            player?.PlayerId, player?.SessionId, invocation.Principal.IsServer, default);
+        ValueTask<CommandExecutionResult> pending = handler.ExecuteAsync(invocation, cancellationToken);
+        if (!pending.IsCompletedSuccessfully) return ObserveCompletionAsync(pending, observation);
+        CommandExecutionResult result = pending.Result;
+        NotifyCompleted(observation with { Status = result.Status });
+        return ValueTask.FromResult(result);
+    }
+
+    private async ValueTask<CommandExecutionResult> ObserveCompletionAsync(ValueTask<CommandExecutionResult> pending,
+        CommandCompletedObservation observation)
+    {
+        CommandExecutionResult result = await pending.ConfigureAwait(false);
+        NotifyCompleted(observation with { Status = result.Status });
+        return result;
+    }
+
+    private void NotifyCompleted(CommandCompletedObservation observation)
+    {
+        if (Completed is not { } handlers) return;
+        foreach (Action<CommandCompletedObservation> handler in handlers.GetInvocationList())
+        {
+            try { handler(observation); }
+            catch (Exception) { global::System.Diagnostics.Trace.TraceWarning("Command observation callback failed."); }
+        }
     }
 
     private static CommandExecutionResult CreateFailure(

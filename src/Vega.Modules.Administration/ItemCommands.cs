@@ -6,11 +6,12 @@ using Vega.Contracts.Players;
 
 namespace Vega.Modules.Administration;
 
-public sealed class ItemCommand(IPlayerDirectory players, IPlayerItemDelivery delivery, bool giveOthers = false) : ICommandHandler
+public sealed class ItemCommand(IPlayerDirectory players, IPlayerItemDelivery delivery, bool giveOthers = false,
+    Func<string, int?>? resolvePrefix = null) : ICommandHandler
 {
     public CommandDescriptor Descriptor { get; } = giveOthers
-        ? new("give", ["g"], ["vega.items.give"], Syntax: "give <item> <player> [stack] [prefix-id]")
-        : new("item", ["i"], ["vega.items.self"], AllowServer: false, Syntax: "item <item> [stack] [prefix-id]");
+        ? new("give", ["g"], ["vega.items.give"], Syntax: "give <item> <player> [stack] [prefix-id|name]")
+        : new("item", ["i"], ["vega.items.self"], AllowServer: false, Syntax: "item <item> [stack] [prefix-id|name]");
 
     public async ValueTask<CommandExecutionResult> ExecuteAsync(CommandInvocation invocation, CancellationToken token)
     {
@@ -18,9 +19,14 @@ public sealed class ItemCommand(IPlayerDirectory players, IPlayerItemDelivery de
         int required = giveOthers ? 2 : 1;
         int stack = 1, prefix = 0;
         if (args.Count < required || args.Count > required + 2 ||
-            args.Count > required && (!int.TryParse(args[required], NumberStyles.None, CultureInfo.InvariantCulture, out stack) || stack <= 0) ||
-            args.Count > required + 1 && !int.TryParse(args[required + 1], NumberStyles.None, CultureInfo.InvariantCulture, out prefix))
+            args.Count > required && (!int.TryParse(args[required], NumberStyles.None, CultureInfo.InvariantCulture, out stack) || stack <= 0))
             return new(CommandExecutionStatus.InvalidUsage, "item.usage", [MessageDescriptor.Error("item.usage", Descriptor.Syntax).WithDefaultText("Usage: {0}.")]);
+        if (args.Count > required + 1 && !int.TryParse(args[required + 1], NumberStyles.None, CultureInfo.InvariantCulture, out prefix))
+        {
+            if (resolvePrefix?.Invoke(args[required + 1]) is not int resolved || resolved <= 0)
+                return new(CommandExecutionStatus.InvalidUsage, "item.prefix_not_unique");
+            prefix = resolved;
+        }
 
         PlayerSnapshot? target = giveOthers ? VitalTargets.Find(players, invocation, args[1]) : VitalTargets.Self(players, invocation);
         if (target is null)

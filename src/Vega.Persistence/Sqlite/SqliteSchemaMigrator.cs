@@ -5,7 +5,7 @@ namespace Vega.Persistence.Sqlite;
 
 internal static class SqliteSchemaInitializer
 {
-    private const int CurrentVersion = 1;
+    private const int CurrentVersion = 2;
 
     private static readonly SchemaSection[] BaselineSections =
     [
@@ -184,9 +184,24 @@ internal static class SqliteSchemaInitializer
                         .ConfigureAwait(false);
                 }
 
-                await InsertBaselineHistoryAsync(connection, transaction, cancellationToken)
+                await InsertHistoryAsync(connection, transaction, 1, "vega-1.0-baseline", cancellationToken)
                     .ConfigureAwait(false);
-                version = CurrentVersion;
+                version = 1;
+            }
+
+            if (version == 1)
+            {
+                await ExecuteSchemaSectionAsync(connection, transaction, new SchemaSection(
+                    """
+                    CREATE TABLE vega_group_presentation (
+                        group_name TEXT NOT NULL COLLATE NOCASE PRIMARY KEY REFERENCES vega_groups(name) ON DELETE CASCADE,
+                        chat_prefix TEXT NOT NULL,
+                        chat_suffix TEXT NOT NULL,
+                        chat_color TEXT NULL
+                    );
+                    """), cancellationToken).ConfigureAwait(false);
+                await InsertHistoryAsync(connection, transaction, 2, "group-chat-presentation", cancellationToken).ConfigureAwait(false);
+                version = 2;
             }
 
             await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
@@ -250,9 +265,11 @@ internal static class SqliteSchemaInitializer
         await schema.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
     }
 
-    private static async ValueTask InsertBaselineHistoryAsync(
+    private static async ValueTask InsertHistoryAsync(
         SqliteConnection connection,
         SqliteTransaction transaction,
+        int version,
+        string name,
         CancellationToken cancellationToken)
     {
         await using SqliteCommand history = connection.CreateCommand();
@@ -262,8 +279,8 @@ internal static class SqliteSchemaInitializer
             INSERT INTO vega_schema_history (version, name, applied_at_utc)
             VALUES ($version, $name, $appliedAt);
             """;
-        history.Parameters.AddWithValue("$version", CurrentVersion);
-        history.Parameters.AddWithValue("$name", "vega-1.0-baseline");
+        history.Parameters.AddWithValue("$version", version);
+        history.Parameters.AddWithValue("$name", name);
         history.Parameters.AddWithValue(
             "$appliedAt",
             DateTimeOffset.UtcNow.ToString("O", CultureInfo.InvariantCulture));

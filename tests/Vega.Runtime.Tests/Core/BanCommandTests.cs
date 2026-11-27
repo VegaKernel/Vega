@@ -13,6 +13,21 @@ namespace Vega.Runtime.Tests.Core;
 public sealed class BanCommandTests
 {
     [Test]
+    public async Task LegacyBanDetailsAndDelUseExistingRevisionedBanService()
+    {
+        var replica = new FakeBans();
+        var command = new BanCommand(new FakeDirectory([]), new FakeOperations(), new GlobalBanService(replica));
+        Assert.That((await command.ExecuteAsync(Invocation(["help"]), default)).Status, Is.EqualTo(CommandExecutionStatus.Success));
+        Assert.That((await command.ExecuteAsync(Invocation(["identifiers"]), default)).Status, Is.EqualTo(CommandExecutionStatus.Success));
+        Assert.That((await command.ExecuteAsync(Invocation(["examples"]), default)).Status, Is.EqualTo(CommandExecutionStatus.Success));
+        Assert.That((await command.ExecuteAsync(Invocation(["add", "name", "Example", "permanent"]), default)).Status, Is.EqualTo(CommandExecutionStatus.Success));
+        string id = replica.Created.Single().BanId.Value.ToString("D");
+        Assert.That((await command.ExecuteAsync(Invocation(["details", id]), default)).Status, Is.EqualTo(CommandExecutionStatus.Success));
+        Assert.That((await command.ExecuteAsync(Invocation(["del", id]), default)).Status, Is.EqualTo(CommandExecutionStatus.Success));
+        Assert.That((await command.ExecuteAsync(Invocation(["details", id]), default)).Status, Is.EqualTo(CommandExecutionStatus.Failed));
+    }
+
+    [Test]
     public async Task PersistsNameAndIpAndDisconnectsPlayer()
     {
         PlayerSnapshot target = Player(4, "Trouble") with { RemoteEndpoint = "203.0.113.7:7777" };

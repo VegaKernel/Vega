@@ -9,6 +9,22 @@ namespace Vega.Runtime.Tests.Core;
 public sealed class CommandDispatcherTests
 {
     [Test]
+    public async Task CompletionObservationUsesCanonicalNameAndContainsNoCommandArguments()
+    {
+        var dispatcher = new CommandDispatcher([new FakeHandler(new CommandDescriptor("alpha", ["a"], ["admin"]))]);
+        var observed = new List<CommandCompletedObservation>();
+        dispatcher.Completed += _ => throw new InvalidOperationException("fixture fault");
+        dispatcher.Completed += observed.Add;
+        var world = new WorldId("fixture");
+        var authorized = new FakePrincipal("server", true, ["admin"]);
+        var denied = new FakePrincipal("server", true, []);
+        await dispatcher.DispatchAsync(CreateInvocation("a", denied));
+        await dispatcher.DispatchAsync(CreateInvocation("unknown", authorized));
+        await dispatcher.DispatchAsync(CreateInvocation("a", authorized) with { WorldId = world, Arguments = ["private"] });
+        Assert.That(observed, Is.EqualTo(new[] { new CommandCompletedObservation(world, "alpha", null, null, true, CommandExecutionStatus.Success) }));
+    }
+
+    [Test]
     public async Task DispatchesAliasToHandler()
     {
         var handler = new FakeHandler(new CommandDescriptor("alpha", ["a"], []));

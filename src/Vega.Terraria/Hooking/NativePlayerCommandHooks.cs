@@ -115,11 +115,12 @@ internal sealed class NativePlayerCommandHooks : IDisposable
         }
 
         var audience = players.SnapshotOnlinePlayers().Where(recipient => recipient.WorldId == player.WorldId).ToArray();
-        ChatPipelineResult chatResult = chat.Process(new ChatMessageContext(
+        var chatContext = new ChatMessageContext(
             player.WorldId,
             player,
             messageText,
-            audience));
+            audience);
+        ChatPipelineResult chatResult = chat.Process(chatContext);
         if (!chatResult.Allowed)
         {
             args.Result = HookResult.Cancel;
@@ -137,6 +138,9 @@ internal sealed class NativePlayerCommandHooks : IDisposable
             args.Result = HookResult.Cancel;
             _ = DeliverChatAsync(chatResult.Deliveries, audience);
         }
+
+        if (chat is IPublicChatObservationSink observationSink)
+            observationSink.ObserveAccepted(chatContext, chatResult);
 
         logger.Log(
             OperationsLogLevel.Information,
@@ -267,7 +271,7 @@ internal sealed class NativePlayerCommandHooks : IDisposable
             try
             {
                 if (!recipients.TryGetValue(delivery.RecipientId, out var recipient)) continue;
-                _ = await messenger.SendMessageAsync(recipient, delivery.Content)
+                _ = await messenger.SendChatMessageAsync(recipient, delivery.Content, delivery.Color)
                     .ConfigureAwait(false);
             }
             catch (Exception ex)

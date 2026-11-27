@@ -26,6 +26,22 @@ public sealed class AccountCommandTests
     }
 
     [Test]
+    public async Task LegacyUserAddDelAndHelpReuseExistingAccountAuthority()
+    {
+        var database = await SqliteVegaDatabase.OpenAsync(new SqliteVegaDatabaseOptions(Path.Combine(directory, "vega.db")));
+        var command = new AccountCommand(database.Accounts, database.Authorization);
+        var dispatcher = new CommandDispatcher([command]);
+        var create = new CommandInvocation("user", ["add", "Alice", "correct horse battery staple", "default"], ServerPrincipal.Instance, NullOutput.Instance);
+        Assert.That((await dispatcher.DispatchAsync(create)).Status, Is.EqualTo(CommandExecutionStatus.Success));
+        Assert.That(await database.Accounts.FindByNameAsync("Alice"), Is.Not.Null);
+        Assert.That((await dispatcher.DispatchAsync(create with { Arguments = ["help"] })).Status, Is.EqualTo(CommandExecutionStatus.Success));
+        Assert.That((await dispatcher.DispatchAsync(create with { Arguments = ["del", "Alice"], Principal = new InspectorPrincipal() })).Status,
+            Is.EqualTo(CommandExecutionStatus.Forbidden));
+        Assert.That((await dispatcher.DispatchAsync(create with { Arguments = ["del", "Alice"] })).Status, Is.EqualTo(CommandExecutionStatus.Success));
+        Assert.That(await database.Accounts.FindByNameAsync("Alice"), Is.Null);
+    }
+
+    [Test]
     public async Task TemporaryGroupCommandsGrantListAndRevokePersistentLeaseFromModule()
     {
         DateTimeOffset now = DateTimeOffset.Parse("2026-08-23T12:00:00Z");

@@ -10,7 +10,7 @@ public sealed class GroupCommand(IAuthorizationService authorization) : ICommand
         "group",
         ["groups"],
         ["vega.groups.manage"],
-        Syntax: "group list | show <name> | create <name> [parent] | delete <name> | parent <name> <parent|none> | grant|deny|revoke <name> <permission>");
+        Syntax: "group help | list | show|listperm <name> | create <name> [parent] | add <name> | delete|del <name> | parent <name> <parent|none> | grant|addperm|deny|revoke|delperm <name> <permission> | prefix|suffix|color <name> <value|none>");
 
     public async ValueTask<CommandExecutionResult> ExecuteAsync(
         CommandInvocation invocation,
@@ -22,14 +22,40 @@ public sealed class GroupCommand(IAuthorizationService authorization) : ICommand
         }
 
         string action = invocation.Arguments[0].ToLowerInvariant();
+        // TShock's trailing add arguments are permissions, not a parent name.
+        // Do not reinterpret a legacy permission as inherited authority.
+        if (action == "add" && invocation.Arguments.Count != 2) return Usage();
+        action = action switch { "add" => "create", "del" => "delete", "addperm" => "grant", "delperm" => "revoke", _ => action };
+        if (action == "help" && invocation.Arguments.Count == 1)
+            return CommandExecutionResult.WithMessages(MessageDescriptor.Info("command.group.help")
+                .WithDefaultText(Descriptor.Syntax!));
         if (action == "list")
         {
             return List();
         }
 
-        if (action == "show")
+        if (action is "show" or "listperm")
         {
             return Show(invocation);
+        }
+
+        if ((action is "prefix" or "suffix" or "color") && invocation.Arguments.Count >= 3)
+        {
+            if (!authorization.TryGetGroup(invocation.Arguments[1], out GroupSnapshot? group) || group is null)
+                return NotFound();
+            if (!CanDelegate(invocation.Principal, group.Name))
+                return DelegationDenied();
+            string value = string.Join(' ', invocation.Arguments.Skip(2));
+            bool clear = value.Equals("none", StringComparison.OrdinalIgnoreCase);
+            GroupChatPresentation presentation = group.Presentation;
+            if (action == "prefix") presentation = presentation with { Prefix = clear ? "" : value };
+            else if (action == "suffix") presentation = presentation with { Suffix = clear ? "" : value };
+            else if (clear) presentation = presentation with { Color = null };
+            else if (TryParseColor(value, out string? color)) presentation = presentation with { Color = color };
+            else return Usage();
+            if (!presentation.IsValid) return Usage();
+            return Mutation(await authorization.SetPresentationAsync(group.Name, presentation, group.Revision,
+                invocation.Principal.Name, cancellationToken).ConfigureAwait(false));
         }
 
         if (action == "create" && invocation.Arguments.Count is 2 or 3)
@@ -140,7 +166,25 @@ public sealed class GroupCommand(IAuthorizationService authorization) : ICommand
                     group.Permissions.Count == 0 ? "none" : string.Join(", ", group.Permissions),
                     group.DeniedPermissions.Count == 0 ? "none" : string.Join(", ", group.DeniedPermissions),
                     group.Revision)
-                .WithDefaultText("{0} | parent {1} | grants {2} | denies {3} | revision {4}"));
+                .WithDefaultText("{0} | parent {1} | grants {2} | denies {3} | revision {4}"),
+            MessageDescriptor.Info("command.group.presentation", group.Presentation.Prefix, group.Presentation.Suffix,
+                group.Presentation.Color ?? "default").WithDefaultText("Prefix: {0} | suffix: {1} | color: {2}"));
+    }
+
+    private static bool TryParseColor(string value, out string? color)
+    {
+        color = null;
+        string hex = value.TrimStart('#');
+        if (hex.Length == 6 && hex.All(Uri.IsHexDigit))
+        {
+            color = hex.ToUpperInvariant();
+            return true;
+        }
+        string[] parts = value.Split(',');
+        if (parts.Length != 3 || !byte.TryParse(parts[0], out byte red) ||
+            !byte.TryParse(parts[1], out byte green) || !byte.TryParse(parts[2], out byte blue)) return false;
+        color = $"{red:X2}{green:X2}{blue:X2}";
+        return true;
     }
 
     private bool CanDelegate(ICommandPrincipal principal, string groupName)
@@ -193,5 +237,5 @@ public sealed class GroupCommand(IAuthorizationService authorization) : ICommand
         CommandExecutionStatus.InvalidUsage,
         "command.group.usage",
         [MessageDescriptor.Error("command.group.usage")
-            .WithDefaultText("Usage: group list | show <name> | create <name> [parent] | delete <name> | parent <name> <parent|none> | grant|deny|revoke <name> <permission>.")]);
+            .WithDefaultText("Usage: group help | list | show|listperm <name> | create <name> [parent] | add <name> | delete|del <name> | parent <name> <parent|none> | grant|addperm|deny|revoke|delperm <name> <permission> | prefix|suffix|color <name> <value|none>.")]);
 }

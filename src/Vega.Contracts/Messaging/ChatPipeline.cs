@@ -20,13 +20,38 @@ public readonly record struct ChatModerationDecision(bool Allowed, string? Reaso
 
 public readonly record struct ChatRecipientRenderResult(string Content, bool Changed = false);
 
-public sealed record ChatDelivery(PlayerId RecipientId, string Content);
+public readonly record struct ChatColor(byte Red, byte Green, byte Blue);
+
+public sealed record ChatDelivery(PlayerId RecipientId, string Content)
+{
+    public ChatColor? Color { get; init; }
+    public string? SenderDisplayName { get; init; }
+}
 
 public sealed record ChatPipelineResult(
     bool Allowed,
     bool RequiresCustomDelivery,
     IReadOnlyList<ChatDelivery> Deliveries,
-    string? RejectionReason = null);
+    string? RejectionReason = null)
+{
+    /// <summary>Accepted common text before any recipient-specific rendering.</summary>
+    public string? PublicContent { get; init; }
+}
+
+/// <summary>Accepted ordinary public chat; this is not a delivery acknowledgement.</summary>
+public readonly record struct PublicChatAcceptedObservation(WorldId WorldId, PlayerId PlayerId,
+    PlayerSessionId SessionId, string Content, int RecipientCount, bool RequiresCustomDelivery);
+
+public interface IPublicChatObservations
+{
+    event Action<PublicChatAcceptedObservation>? Accepted;
+}
+
+/// <summary>Host-only notification after the native public chat hook accepts a message.</summary>
+public interface IPublicChatObservationSink
+{
+    void ObserveAccepted(ChatMessageContext context, ChatPipelineResult result);
+}
 
 public interface IChatContentTransform
 {

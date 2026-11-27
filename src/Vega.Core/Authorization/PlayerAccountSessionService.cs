@@ -23,6 +23,7 @@ public sealed class PlayerAccountSessionService : IPlayerAccountSessionService, 
 
     public event Action<PlayerAccountBinding>? BindingClosing;
     public event Action<PlayerAccountBinding>? BindingEstablished;
+    public event Action<PlayerAuthenticationEnded>? AuthenticationEnded;
     public event Action<PlayerAccountBinding>? BindingEnded;
 
     public PlayerAccountSessionService(
@@ -279,7 +280,11 @@ public sealed class PlayerAccountSessionService : IPlayerAccountSessionService, 
             playerAuthorization.Replace(playerId, []);
             cultures.ResetSession(CultureSubject(playerId));
         }
-        if (endedBinding is { } ended) NotifyBinding(BindingEnded, ended, "ended");
+        if (endedBinding is { } ended)
+        {
+            NotifyBinding(BindingEnded, ended, "ended");
+            NotifyAuthenticationEnded(ended, PlayerAuthenticationEndReason.Logout);
+        }
         return PlayerAccountSessionResult.Success(account);
     }
 
@@ -426,11 +431,13 @@ public sealed class PlayerAccountSessionService : IPlayerAccountSessionService, 
 
     private void OnClosed(PlayerSessionClosed closed)
     {
+        PlayerAccountBinding? ended = null;
         lock (sync)
         {
             if (!disposed)
             {
                 if (sessionStamps.GetValueOrDefault(closed.PlayerId)?.Id is { } id && id != closed.SessionId) return;
+                ended = CaptureBindingLocked(closed.PlayerId);
                 sessionStamps[closed.PlayerId] = new SessionStamp(null);
                 authenticated.Remove(closed.PlayerId);
                 authenticationIds.Remove(closed.PlayerId);
@@ -438,18 +445,38 @@ public sealed class PlayerAccountSessionService : IPlayerAccountSessionService, 
                 cultures.RemoveSession(CultureSubject(closed.PlayerId));
             }
         }
+        if (ended is { } binding) NotifyAuthenticationEnded(binding, PlayerAuthenticationEndReason.Disconnected);
     }
 
     private void OnOpened(PlayerSessionOpened opened)
     {
+        PlayerAccountBinding? ended;
         lock (sync)
         {
             if (disposed) return;
+            ended = CaptureBindingLocked(opened.PlayerId);
             sessionStamps[opened.PlayerId] = new SessionStamp(opened.SessionId);
             authenticated.Remove(opened.PlayerId);
             authenticationIds.Remove(opened.PlayerId);
             playerAuthorization.Replace(opened.PlayerId, []);
             cultures.RemoveSession(CultureSubject(opened.PlayerId));
+        }
+        if (ended is { } binding) NotifyAuthenticationEnded(binding, PlayerAuthenticationEndReason.SessionReplaced);
+    }
+
+    private PlayerAccountBinding? CaptureBindingLocked(PlayerId playerId) =>
+        sessionStamps.GetValueOrDefault(playerId)?.Id is { } sessionId &&
+        authenticated.TryGetValue(playerId, out AccountSnapshot? account) &&
+        authenticationIds.TryGetValue(playerId, out Guid authenticationId)
+            ? new PlayerAccountBinding(playerId, sessionId, account.Id, authenticationId) : null;
+
+    private void NotifyAuthenticationEnded(PlayerAccountBinding binding, PlayerAuthenticationEndReason reason)
+    {
+        if (AuthenticationEnded is not { } handlers) return;
+        foreach (Action<PlayerAuthenticationEnded> handler in handlers.GetInvocationList())
+        {
+            try { handler(new(binding, reason)); }
+            catch (Exception) { System.Diagnostics.Trace.TraceWarning("Account observation callback failed."); }
         }
     }
 

@@ -20,6 +20,13 @@ public readonly record struct ProjectileEventSnapshot(WorldId WorldId, int Slot,
 public readonly record struct ProjectileSynchronizedEvent(PlayerId Sender, ProjectileEventSnapshot Projectile);
 public readonly record struct ProjectileRemovedEvent(PlayerId Sender, ProjectileEventSnapshot Projectile);
 
+/// <summary>Elapsed native dedicated update work observed at its completion hook, before server pacing sleep.</summary>
+public readonly record struct WorldTickCompletedEvent(WorldId WorldId, TimeSpan Duration);
+
+/// <summary>Observed native save result; not a before-save policy or a guarantee of backup completion.
+/// FailureType contains only the exception type name when available, never a mutable exception or stack trace.</summary>
+public readonly record struct WorldSaveCompletedEvent(WorldId WorldId, bool Succeeded, string? FailureType);
+
 /// <summary>Host-owned event transport; plugins receive only the curated registration facade.</summary>
 public interface IWorldGameplayEvents
 {

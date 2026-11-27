@@ -40,7 +40,7 @@ jobs:
 
       - name: Run clean deployment smoke
         shell: pwsh
-        run: ./scripts/Test-DeployableServer.ps1 -ServerRoot artifacts/server -TestSandboxIsolation
+        run: ./scripts/Test-DeployableServer.ps1 -ServerRoot artifacts/server -TestSandboxIsolation -TestParityCommands
 
       - name: Run opt-in Ordered TCP deployment smoke
         shell: pwsh

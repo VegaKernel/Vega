@@ -11,31 +11,72 @@ internal sealed class NativeGameplayEventHooks(WorldId world, IWorldGameplayEven
     IGameThreadDispatcher dispatcher, IOperationsLogger logger) : IDisposable
 {
     private bool attached;
+    private int attachmentEpoch;
     public void Attach()
     {
         if (attached) return;
+        Interlocked.Increment(ref attachmentEpoch);
         Hooks.NPC.Create += Creating;
         Hooks.NPC.Killed += Killed;
         Hooks.NPC.Transforming += Transforming;
         Hooks.NPC.DropLoot += Loot;
         Hooks.MessageBuffer.ServerProjectileSynced += ProjectileSynced;
         Hooks.MessageBuffer.ServerProjectileRemoved += ProjectileRemoved;
-        attached = true;
+        Hooks.Main.DedicatedTickCompleted += TickCompleted;
+        Hooks.Main.DedicatedWorldSaveCompleted += SaveCompleted;
+        Volatile.Write(ref attached, true);
     }
 
     public void Dispose()
     {
         if (!attached) return;
+        Volatile.Write(ref attached, false);
+        Interlocked.Increment(ref attachmentEpoch);
         Hooks.NPC.Create -= Creating;
         Hooks.NPC.Killed -= Killed;
         Hooks.NPC.Transforming -= Transforming;
         Hooks.NPC.DropLoot -= Loot;
         Hooks.MessageBuffer.ServerProjectileSynced -= ProjectileSynced;
         Hooks.MessageBuffer.ServerProjectileRemoved -= ProjectileRemoved;
-        attached = false;
+        Hooks.Main.DedicatedTickCompleted -= TickCompleted;
+        Hooks.Main.DedicatedWorldSaveCompleted -= SaveCompleted;
     }
 
     private bool Observed<T>() where T : struct => dispatcher.IsGameThread && events.HasSubscribers<T>();
+
+    private void TickCompleted(TimeSpan duration)
+    {
+        if (Volatile.Read(ref attached) && events.HasSubscribers<WorldTickCompletedEvent>() && dispatcher.IsGameThread)
+            Publish(new WorldTickCompletedEvent(world, duration));
+    }
+
+    private void SaveCompleted(bool success, Exception? error)
+    {
+        // Native autosave can finish on a worker. Never call plugin code there,
+        // and never retain the native exception object across the thread boundary.
+        if (!Volatile.Read(ref attached) || !events.HasSubscribers<WorldSaveCompletedEvent>()) return;
+        int epoch = Volatile.Read(ref attachmentEpoch);
+        var value = new WorldSaveCompletedEvent(world, success, error?.GetType().Name);
+        if (dispatcher.IsGameThread)
+        {
+            Publish(value);
+            return;
+        }
+        try
+        {
+            if (!dispatcher.TryPost("world.save.completed", () =>
+            {
+                if (Volatile.Read(ref attached) && Volatile.Read(ref attachmentEpoch) == epoch &&
+                    dispatcher.IsGameThread && events.HasSubscribers<WorldSaveCompletedEvent>())
+                    Publish(value);
+            }))
+                logger.Log(OperationsLogLevel.Warning, "world-events", "World save notification dropped: game-thread queue unavailable.");
+        }
+        catch (Exception ex)
+        {
+            logger.Log(OperationsLogLevel.Error, "world-events", "World save notification dispatch failed.", ex);
+        }
+    }
 
     private void Creating(object? sender, Hooks.NPC.CreateEventArgs args)
     {

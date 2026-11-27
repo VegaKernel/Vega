@@ -18,8 +18,11 @@ public sealed class PluginCallbackBoundaryTests
         Assert.That(callbackMethods, Is.EquivalentTo(new[]
         {
             "IPluginPlayers.OnJoined", "IPluginPlayers.OnLeft", "IPluginPlayers.OnEnteredWorld", "IPluginPlayers.OnClosing",
+            "IPluginActivity.OnAuthenticationEstablished", "IPluginActivity.OnAuthenticationEnded",
+            "IPluginActivity.OnPublicChatAccepted", "IPluginActivity.OnCommandCompleted",
             "IPluginResources.OnCleanup", "IPluginTasks.Post", "IPluginTasks.Every",
             "IPluginTasks.RunIo", "IPluginConfiguration.Use", "IPluginStorage.LoadJson",
+            "IPluginWorldEvents.OnTickCompleted", "IPluginWorldEvents.OnSaveCompleted",
             "IPluginWorldEvents.OnNpcCreating", "IPluginWorldEvents.OnNpcKilled", "IPluginWorldEvents.OnNpcTransforming",
             "IPluginWorldEvents.OnNpcLootDropped", "IPluginWorldEvents.OnProjectileSynchronized", "IPluginWorldEvents.OnProjectileRemoved",
             "IPluginWorldEvents.AllowNpcTransform", "IPluginWorldEvents.AllowNpcLoot", "IPluginWorldEvents.OnNpcActorInteracted",
@@ -33,6 +36,7 @@ public sealed class PluginCallbackBoundaryTests
         while (root is not null && !File.Exists(Path.Combine(root.FullName, "src", "Vega.sln"))) root = root.Parent;
         Assert.That(root, Is.Not.Null);
         string scope = File.ReadAllText(Path.Combine(root!.FullName, "src", "Vega.Core", "Modules", "HotModuleRegistrationScope.cs"));
+        string activity = File.ReadAllText(Path.Combine(root.FullName, "src", "Vega.Core", "Modules", "HotModuleRegistrationScope.Activity.cs"));
         Assert.Multiple(() =>
         {
             Assert.That(scope, Does.Contain("commands.Register(new GuardedCommandHandler(owner, handler))"));
@@ -49,6 +53,8 @@ public sealed class PluginCallbackBoundaryTests
             Assert.That(scope, Does.Contain("owner.executionGuard.TryInvoke(operation, handler, value)"));
             Assert.That(scope, Does.Contain("owner.executionGuard.Allows(operation, allow, value)"));
             Assert.That(scope, Does.Contain("owner.Track(events.SubscribePolicy<T>"));
+            Assert.That(activity, Does.Contain("owner.executionGuard.TryInvoke(operation, liveHandler, value)"));
+            Assert.That(activity, Does.Contain("Interlocked.Exchange(ref activeHandler, null)"));
         });
     }
 }

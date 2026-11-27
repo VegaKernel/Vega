@@ -30,6 +30,7 @@ public sealed class PlayerSessionAuthorizationServiceTests
             Assert.That(service.HasPermission(playerId, "vega.moderate"), Is.True);
             Assert.That(service.HasPermission(playerId, "vega.play"), Is.False);
             Assert.That(service.HasPermission(playerId, "vega.group.moderator"), Is.True);
+            Assert.That(service.GetChatPresentation(playerId)?.Prefix, Is.EqualTo("[Mod] "));
         });
 
         time.UtcNow = now.AddMinutes(11);
@@ -39,6 +40,7 @@ public sealed class PlayerSessionAuthorizationServiceTests
             Assert.That(service.HasPermission(playerId, "vega.moderate"), Is.False);
             Assert.That(service.HasPermission(playerId, "vega.play"), Is.True);
             Assert.That(service.HasPermission(playerId, "vega.group.default"), Is.True);
+            Assert.That(service.GetChatPresentation(playerId), Is.EqualTo(GroupChatPresentation.Default));
         });
     }
 
@@ -69,6 +71,7 @@ public sealed class PlayerSessionAuthorizationServiceTests
         [
             new("default", null, new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "vega.play" }),
             new("moderator", null, new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "vega.moderate" })
+            { Presentation = new("[Mod] ") }
         ];
 
         public bool HasPermission(string groupName, string permission) => groups.Any(group =>

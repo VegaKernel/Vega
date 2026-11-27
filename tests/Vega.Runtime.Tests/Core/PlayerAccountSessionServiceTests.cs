@@ -162,6 +162,44 @@ public sealed class PlayerAccountSessionServiceTests
     }
 
     [Test]
+    public async Task AuthenticationObservationSeparatesLogoutDisconnectAndReplacement()
+    {
+        var database = await OpenAsync();
+        await database.Accounts.CreateAsync("alice", "fixture password", "default", "Server");
+        var lifecycle = new FakeLifecycle();
+        using var permissions = new PlayerSessionAuthorizationService(lifecycle);
+        using var sessions = new PlayerAccountSessionService(database.Accounts, database.Authorization, permissions,
+            new LocalizationService("en-US"), lifecycle);
+        var player = new PlayerId(4);
+        var established = new List<PlayerAccountBinding>();
+        var ended = new List<PlayerAuthenticationEnded>();
+        var explicitEnds = new List<PlayerAccountBinding>();
+        sessions.BindingEstablished += established.Add;
+        sessions.AuthenticationEnded += _ => throw new InvalidOperationException("fixture fault");
+        sessions.AuthenticationEnded += ended.Add;
+        sessions.BindingEnded += explicitEnds.Add;
+        var first = lifecycle.Open(player);
+        Assert.That((await sessions.LoginAsync(player, "alice", "fixture password", expectedSession: first)).Succeeded, Is.True);
+        Assert.That(sessions.Logout(player, first).Succeeded, Is.True);
+        Assert.That((await sessions.LoginAsync(player, "alice", "fixture password", expectedSession: first)).Succeeded, Is.True);
+        var second = lifecycle.Open(player);
+        lifecycle.Close(player, first); // delayed old close must not revoke a new session
+        Assert.That((await sessions.LoginAsync(player, "alice", "fixture password", expectedSession: second)).Succeeded, Is.True);
+        lifecycle.Close(player, first);
+        Assert.That(ended, Has.Count.EqualTo(2));
+        lifecycle.Close(player, second);
+        lifecycle.Close(player, second);
+        Assert.That(ended, Is.EqualTo(new[]
+        {
+            new PlayerAuthenticationEnded(established[0], PlayerAuthenticationEndReason.Logout),
+            new PlayerAuthenticationEnded(established[1], PlayerAuthenticationEndReason.SessionReplaced),
+            new PlayerAuthenticationEnded(established[2], PlayerAuthenticationEndReason.Disconnected)
+        }));
+        Assert.That(explicitEnds, Is.EqualTo(new[] { established[0] }));
+        Assert.That(established.Select(binding => binding.AuthenticationId).Distinct().Count(), Is.EqualTo(3));
+    }
+
+    [Test]
     public async Task AccountBindingChangesOnSameSocketReloginAndRejectsRetiredOperations()
     {
         var database = await OpenAsync();

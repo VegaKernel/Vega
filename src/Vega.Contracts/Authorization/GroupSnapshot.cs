@@ -8,4 +8,5 @@ public sealed record GroupSnapshot(
     public IReadOnlySet<string> DeniedPermissions { get; init; } = new HashSet<string>();
 
     public long Revision { get; init; }
+    public GroupChatPresentation Presentation { get; init; } = GroupChatPresentation.Default;
 }

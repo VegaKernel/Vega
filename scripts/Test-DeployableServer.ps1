@@ -6,10 +6,13 @@ param(
     [switch] $TestSandboxIsolation,
     [switch] $TestOrderedTransport,
     [switch] $TestDeferredWake,
-    [switch] $TestProducerBatching
+    [switch] $TestProducerBatching,
+    [switch] $TestParityCommands,
+    [switch] $KeepFixtureOnFailure
 )
 
 $ErrorActionPreference = 'Stop'
+$smokePassed = $false
 if ($TestProducerBatching) { $TestDeferredWake = $true }
 if ($TestDeferredWake) { $TestOrderedTransport = $true }
 $source = (Resolve-Path -LiteralPath $ServerRoot).Path
@@ -197,10 +200,14 @@ try {
         Send-SmokeCommand 'antibuild on'
         $buildPolicy = Join-Path $deploy 'data/build-protection.json'
         Wait-SmokeText $buildPolicy '"globalDisabled": true'
+        # File publication precedes release of the asynchronous mutation gate.
+        Start-Sleep -Milliseconds 500
         Send-SmokeCommand 'protectspawn radius 30'
         Wait-SmokeText $buildPolicy '"spawnRadius": 30'
+        Start-Sleep -Milliseconds 500
         Send-SmokeCommand 'protectspawn on'
         Wait-SmokeText $buildPolicy '"spawnProtected": true'
+        Start-Sleep -Milliseconds 500
         $backendPort = Get-LoopbackPort
         Send-SmokeCommand "sandbox create arena Arena $quotedWorld persistent 4 disabled $backendPort"
         Wait-SmokeText $operationsLog 'action=create arena.*outcome=Success'
@@ -239,6 +246,19 @@ try {
     }
 
     # Vanilla uses UTF-16LE for console input on Windows and UTF-8 elsewhere.
+    if ($TestParityCommands) {
+        # All changes target this disposable copied world and its local database.
+        foreach ($command in @('group add paritygroup', 'group prefix paritygroup "[P]"',
+            'group suffix paritygroup "!"', 'group color paritygroup 00ff00', 'group show paritygroup',
+            'region create parityzone 100 100 10 10', 'region expand parityzone r 5',
+            'region rename parityzone parityrenamed', 'region info parityrenamed',
+            'itemban add Torch', 'itemban allow Torch paritygroup', 'itemban disallow Torch paritygroup',
+            'worldevent lanterns on', 'worldevent lanterns off', 'worldevent meteorshower on', 'worldevent meteorshower off',
+            'worldevent rain off', 'worldevent coinrain on', 'worldevent coinrain off')) {
+            Send-SmokeCommand $command
+            Start-Sleep -Milliseconds 500
+        }
+    }
     foreach ($command in @('spawnrate 300', 'maxspawns 20', 'forcehalloween on', 'forcehalloween off', 'clearangler',
         'worldmode expert', 'time noon', 'wind -20', 'shutdown deployment smoke')) {
         Send-SmokeCommand $command
@@ -258,6 +278,20 @@ try {
         $standardOutput.Result -notmatch "Schematic 'smoke-region' loaded as provider 'smoke-preview'") {
         throw "Native console hook did not execute Vega world commands:`n$($standardOutput.Result)`n$($standardError.Result)"
     }
+    if ($TestParityCommands) {
+        foreach ($expected in @('Prefix: \[P\] \| suffix: ! \| color: 00FF00', 'parityrenamed \| world',
+            'X: 100; Y: 100; W: 15; H: 10', 'Item restriction 8 updated=True',
+            'vega\.restrictions\.allow\.item\.8 enabled=True', 'vega\.restrictions\.allow\.item\.8 enabled=False',
+            'World event lanternnight: enabled=True', 'World event lanternnight: enabled=False',
+            'World event meteorshower: enabled=True', 'World event meteorshower: enabled=False',
+            'World event coinrain: enabled=True', 'World event coinrain: enabled=False')) {
+            if ($standardOutput.Result -notmatch $expected) {
+                throw "Native parity command result missing ($expected):`n$($standardOutput.Result)`n$($standardError.Result)"
+            }
+        }
+        Write-Output 'Native TShock-compatible group, region, content restriction and world-event command smoke passed.'
+    }
+    $smokePassed = $true
 }
 finally {
     if ($null -ne $process) {
@@ -265,11 +299,18 @@ finally {
             try { $process.Kill($true) } catch { $process.Kill() }
             $process.WaitForExit()
         }
+        if ($KeepFixtureOnFailure -and -not $smokePassed) {
+            if ($standardOutput) { $standardOutput.Result | Set-Content -LiteralPath (Join-Path $smokeRoot 'stdout.log') }
+            if ($standardError) { $standardError.Result | Set-Content -LiteralPath (Join-Path $smokeRoot 'stderr.log') }
+        }
         $process.Dispose()
     }
     $resolvedSmokeRoot = [IO.Path]::GetFullPath($smokeRoot)
     $expectedTempRoot = [IO.Path]::GetFullPath([IO.Path]::GetTempPath())
-    if ($resolvedSmokeRoot.StartsWith($expectedTempRoot, [StringComparison]::OrdinalIgnoreCase)) {
+    if ($KeepFixtureOnFailure -and -not $smokePassed) {
+        Write-Output "Preserved failed disposable fixture: $resolvedSmokeRoot"
+    }
+    elseif ($resolvedSmokeRoot.StartsWith($expectedTempRoot, [StringComparison]::OrdinalIgnoreCase)) {
         Remove-Item -LiteralPath $resolvedSmokeRoot -Recurse -Force -ErrorAction SilentlyContinue
     }
 }

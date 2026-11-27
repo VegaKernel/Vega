@@ -55,6 +55,20 @@ public sealed class PlayerSessionAuthorizationService :
 		}
 	}
 
+	/// <summary>Presentation of the same current effective group used by permission resolution.</summary>
+	public GroupChatPresentation? GetChatPresentation(PlayerId playerId)
+	{
+		lock (sync)
+		{
+			if (disposed || !permissions.TryGetValue(playerId, out SessionPermissions? session) ||
+				session.Authorization is null || session.GroupName is null) return null;
+			string effectiveGroup = session.AccountId is { } accountId && session.RoleLeases is not null
+				? session.RoleLeases.FindActive(accountId, timeProvider.GetUtcNow())?.GroupName ?? session.GroupName
+				: session.GroupName;
+			return session.Authorization.TryGetGroup(effectiveGroup, out GroupSnapshot? group) ? group?.Presentation : null;
+		}
+	}
+
 	public void Replace(PlayerId playerId, IEnumerable<string> grantedPermissions)
 		=> Replace(playerId, grantedPermissions, []);
 
