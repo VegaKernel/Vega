@@ -24,6 +24,7 @@ public interface IVegaPluginContext
     IPluginActivity Activity => throw new NotSupportedException("Player activity observations are unavailable in this host.");
 
     IPluginIdentity Identity => throw new NotSupportedException("Identity queries are unavailable in this host.");
+    IPluginStatistics Statistics => throw new NotSupportedException("Player statistics are unavailable in this host.");
     IPluginWarps Warps => throw new NotSupportedException("Warp queries are unavailable in this host.");
 
     IPluginTasks Tasks { get; }

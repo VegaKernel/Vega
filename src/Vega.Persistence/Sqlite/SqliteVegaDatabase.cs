@@ -5,6 +5,7 @@ using Vega.Contracts.Authorization;
 using Vega.Contracts.Moderation;
 using Vega.Contracts.Regions;
 using Vega.Contracts.Worlds;
+using Vega.Contracts.Players;
 using Vega.Persistence.Relational;
 
 namespace Vega.Persistence.Sqlite;
@@ -45,6 +46,8 @@ public sealed class SqliteVegaDatabase : IVegaDatabase, IVegaOfflineImport
             connections.Open,
             async cancellationToken => await connections.OpenAsync(cancellationToken).ConfigureAwait(false),
             EnsureReady);
+        Playtime = new RelationalPlaytimeStore(
+            async cancellationToken => await connections.OpenAsync(cancellationToken).ConfigureAwait(false), EnsureReady);
         offlineImport = new(
             async cancellationToken => await connections.OpenAsync(cancellationToken).ConfigureAwait(false),
             EnsureReady, () => ((RelationalRegionService)Regions).Invalidate(WorldId.Primary));
@@ -73,6 +76,7 @@ public sealed class SqliteVegaDatabase : IVegaDatabase, IVegaOfflineImport
     public IMuteService Mutes { get; }
 
     public IRegionService Regions { get; }
+    public IPlayerPlaytimeStore Playtime { get; }
 
     /// <summary>Offline, transactional insert-only ban migration; existing and revoked IDs are preserved.</summary>
     public ValueTask<int> ImportBansAsync(IReadOnlyList<GlobalBanCreated> bans, CancellationToken token = default) =>

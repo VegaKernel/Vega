@@ -38,6 +38,7 @@ public sealed class ServerPluginHotReloadHost :
     private readonly Vega.Contracts.Authorization.IAuthorizationService? groups;
     private readonly Vega.Contracts.Authorization.IPlayerAuthorizationService? playerPermissions;
     private readonly IWorldPublicWarpReader? warps;
+    private readonly IPlayerPlaytimeSessionReader? playtime;
     private readonly string pluginDataRoot;
     private readonly string? pluginConfigurationRoot;
     private readonly Dictionary<string, LoadedPlugin> loaded = new(StringComparer.OrdinalIgnoreCase);
@@ -73,7 +74,8 @@ public sealed class ServerPluginHotReloadHost :
         Vega.Contracts.Accounts.IAccountService? accounts = null,
         Vega.Contracts.Authorization.IAuthorizationService? groups = null,
         Vega.Contracts.Authorization.IPlayerAuthorizationService? playerPermissions = null,
-        IWorldPublicWarpReader? warps = null)
+        IWorldPublicWarpReader? warps = null,
+        IPlayerPlaytimeSessionReader? playtime = null)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(directory);
         this.directory = Path.GetFullPath(directory);
@@ -93,6 +95,7 @@ public sealed class ServerPluginHotReloadHost :
         this.groups = groups;
         this.playerPermissions = playerPermissions;
         this.warps = warps;
+        this.playtime = playtime;
         this.pluginDataRoot = Path.GetFullPath(pluginDataRoot ?? Path.Combine(this.directory, ".data"));
         this.pluginConfigurationRoot = pluginConfigurationRoot is null ? null : Path.GetFullPath(pluginConfigurationRoot);
     }
@@ -455,7 +458,7 @@ public sealed class ServerPluginHotReloadHost :
             faultWindow: TimeSpan.FromSeconds(options.FaultWindowSeconds),
             onQuarantine: () => QueueFaultRetirement(activationPath, activationId), worldEvents: worldEvents,
             activityWorldId: activityWorldId, authentication: authentication, publicChat: publicChat,
-            accounts: accounts, groups: groups, playerPermissions: playerPermissions, warps: warps);
+            accounts: accounts, groups: groups, playerPermissions: playerPermissions, warps: warps, playtime: playtime);
         long startedAt = Stopwatch.GetTimestamp();
         string startupFailure;
         try

@@ -7,6 +7,7 @@ using Vega.Contracts.Cluster.Events;
 using Vega.Contracts.Moderation;
 using Vega.Contracts.Regions;
 using Vega.Contracts.Worlds;
+using Vega.Contracts.Players;
 using Vega.Persistence;
 using Vega.Persistence.Sqlite;
 
@@ -79,8 +80,22 @@ public sealed class ExternalVegaDatabaseContractTests
         var renamed = await first.Regions.RenameAsync(WorldId.Primary, "build-zone", "new-zone", access.After!.Revision, "contract-test");
         Assert.That(renamed.Succeeded, Is.True);
 
+        var accountId = first.Accounts.SnapshotAccounts().Single().Id;
+        var tenure = new PlayerPlaytimeCheckpoint(Guid.NewGuid(), accountId, PlayerSessionId.New(), WorldId.Primary,
+            now, TimeSpan.FromSeconds(40), false);
+        var arena = tenure with { AuthenticationId = Guid.NewGuid(), SessionId = PlayerSessionId.New(), WorldId = new("Arena"),
+            Elapsed = TimeSpan.FromSeconds(80), Ended = true };
+        await first.Playtime.WriteAsync([tenure, arena]);
+        await first.Playtime.WriteAsync([tenure with { Elapsed = TimeSpan.FromSeconds(70) }, tenure]);
+        await first.Playtime.WriteAsync([tenure with { Elapsed = TimeSpan.FromSeconds(90), Ended = true }]);
+        await first.Playtime.WriteAsync([tenure with { Elapsed = TimeSpan.FromSeconds(120) }, arena, arena with { WorldId = new("foreign") }]);
+
         IVegaDatabase reopened = VegaDatabaseFactory.Create(options, baseDirectory);
         await reopened.InitializeAsync();
+        Assert.That(await reopened.Playtime.ReadAsync(accountId, WorldId.Primary), Is.EqualTo(new PlayerPlaytimeSummary(
+            accountId, WorldId.Primary, TimeSpan.FromSeconds(170), TimeSpan.FromSeconds(90), 2, 1)));
+        Assert.That((await reopened.Playtime.ReadAsync(accountId, new("arena"))).InWorld, Is.EqualTo(TimeSpan.Zero));
+        Assert.That((await reopened.Playtime.ReadAsync(accountId, new("Arena"))).InWorld, Is.EqualTo(TimeSpan.FromSeconds(80)));
         string directory = Path.Combine(Path.GetTempPath(), "vega-external-dump-tests", Guid.NewGuid().ToString("N"));
         string dump = Path.Combine(directory, reopened.BackupFileName);
         try
@@ -88,8 +103,8 @@ public sealed class ExternalVegaDatabaseContractTests
             await reopened.WriteBackupAsync(dump);
             Assert.Multiple(() =>
             {
-                Assert.That(first.SchemaVersion, Is.EqualTo(2));
-                Assert.That(reopened.SchemaVersion, Is.EqualTo(2));
+                Assert.That(first.SchemaVersion, Is.EqualTo(3));
+                Assert.That(reopened.SchemaVersion, Is.EqualTo(3));
                 Assert.That(created.Succeeded, Is.True);
                 Assert.That(reopened.Authorization.SnapshotGroups().Any(group => group.Name == "builders"), Is.True);
                 Assert.That(reopened.Authorization.SnapshotGroups().Single(group => group.Name == "builders").Presentation, Is.EqualTo(style));

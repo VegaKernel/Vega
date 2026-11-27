@@ -43,11 +43,11 @@ public sealed class SqliteVegaDatabaseTests
 
         Assert.Multiple(() =>
         {
-            Assert.That(first.SchemaVersion, Is.EqualTo(2));
-            Assert.That(second.SchemaVersion, Is.EqualTo(2));
+            Assert.That(first.SchemaVersion, Is.EqualTo(3));
+            Assert.That(second.SchemaVersion, Is.EqualTo(3));
             Assert.That(first.DatabasePath, Is.EqualTo(Path.GetFullPath(databasePath)));
             Assert.That(File.Exists(databasePath), Is.True);
-            Assert.That(ScalarInt64("SELECT COUNT(*) FROM vega_schema_history;"), Is.EqualTo(2));
+            Assert.That(ScalarInt64("SELECT COUNT(*) FROM vega_schema_history;"), Is.EqualTo(3));
             Assert.That(ScalarInt64("SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = 'global_bans';"), Is.EqualTo(1));
             Assert.That(ScalarInt64("SELECT COUNT(*) FROM vega_groups;"), Is.EqualTo(3));
         });
@@ -72,11 +72,11 @@ public sealed class SqliteVegaDatabaseTests
         {
             await connection.OpenAsync();
             await using var command = connection.CreateCommand();
-            command.CommandText = "DROP TABLE vega_group_presentation; DELETE FROM vega_schema_history WHERE version = 2;";
+            command.CommandText = "DROP TABLE vega_play_sessions; DROP TABLE vega_group_presentation; DELETE FROM vega_schema_history WHERE version >= 2;";
             await command.ExecuteNonQueryAsync();
         }
         var migrated = await OpenAsync();
-        Assert.That(migrated.SchemaVersion, Is.EqualTo(2));
+        Assert.That(migrated.SchemaVersion, Is.EqualTo(3));
         Assert.That(migrated.Authorization.TryGetGroup("builders", out var before), Is.True);
         Assert.That(before!.Presentation, Is.EqualTo(GroupChatPresentation.Default));
         var style = new GroupChatPresentation("[Builder] ", "!", "12ab34");

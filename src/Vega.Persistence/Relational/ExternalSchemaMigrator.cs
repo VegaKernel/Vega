@@ -17,7 +17,7 @@ internal sealed class ExternalSchemaInitializer(
     string regionSchemaSql,
     string moderationSchemaSql)
 {
-    private const int CurrentVersion = 2;
+    private const int CurrentVersion = 3;
 
     // MySQL DDL implicitly commits. IF NOT EXISTS makes the migration recoverable
     // if the table was created before its history row was durably inserted.
@@ -85,6 +85,14 @@ internal sealed class ExternalSchemaInitializer(
                 version = 2;
             }
 
+            if (version == 2)
+            {
+                await ExecuteAsync(connection, transaction, RelationalPlaytimeStore.SchemaSql + ";", cancellationToken).ConfigureAwait(false);
+                await ExecuteAsync(connection, transaction, RelationalPlaytimeStore.AccountIndexSql, cancellationToken).ConfigureAwait(false);
+                await InsertHistoryAsync(connection, transaction, 3, "authenticated-playtime", cancellationToken).ConfigureAwait(false);
+                version = 3;
+            }
+
             await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
             return version;
         }
@@ -136,6 +144,16 @@ internal sealed class ExternalSchemaInitializer(
                 await ExecuteAsync(connection, null, mysqlPresentation, cancellationToken).ConfigureAwait(false);
                 await InsertHistoryAsync(connection, null, 2, "group-chat-presentation", cancellationToken).ConfigureAwait(false);
                 version = 2;
+            }
+
+            if (version == 2)
+            {
+                // InnoDB indexes the account foreign key. The idempotent CREATE also permits recovery after implicit DDL commit.
+                string schema = RelationalPlaytimeStore.SchemaSql.Replace("world_id VARCHAR(255)",
+                    "world_id VARCHAR(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_bin", StringComparison.Ordinal);
+                await ExecuteAsync(connection, null, schema + " ENGINE=InnoDB;", cancellationToken).ConfigureAwait(false);
+                await InsertHistoryAsync(connection, null, 3, "authenticated-playtime", cancellationToken).ConfigureAwait(false);
+                version = 3;
             }
 
             return version;

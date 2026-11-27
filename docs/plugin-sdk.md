@@ -53,6 +53,7 @@ The fixed context exposes these discoverable facets:
 - `WorldEvents` registers world-local gameplay notifications and narrowly scoped NPC transformation/loot policies;
 - `Activity` observes exact authentication tenures, accepted ordinary public chat and completed authorized commands without obtaining credentials or command arguments;
 - `Identity` provides read-only minimal account identity, group snapshots and exact authenticated effective permission queries;
+- `Statistics.ReadPlaytimeAsync(player)` reads authenticated entered-world playtime for the exact current player; unavailable or replaced sessions cannot expose another account's data;
 - `Warps` reads public navigation points in the hosted persistent world, not hidden warps or other worlds;
 - `Tasks` posts to the game thread, schedules repeating game-thread work and runs async I/O with a game-thread apply callback;
 - `Resources` owns explicitly transferred disposable or asynchronous resources and cleanup actions for this activation;

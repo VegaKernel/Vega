@@ -141,6 +141,7 @@ public static class TerrariaServerHost
             }, null, TimeSpan.FromSeconds(1), TimeSpan.FromSeconds(1)) : null;
         using var connectionLifecycleHooks = new NativeConnectionLifecycleHooks(connectionMetadata);
         using var worldDecisionHooks = new NativeWorldDecisionHooks(hardmodeStarting);
+        using var npcCombatAuthority = new NativeNpcCombatAuthorityHooks(networkMetrics);
         Func<Vega.Contracts.Players.PlayerSnapshot, bool>? validatedReadiness = primaryGameplayReadiness is null ? null : player =>
             gameThreadDispatcher.IsGameThread && NativeGameplayReadinessHooks.IsFullyConnected(player.Id.Slot) &&
             playerBoundary.TryGetSessionPlayer(player, out _) && primaryGameplayReadiness(player);
@@ -220,6 +221,7 @@ public static class TerrariaServerHost
             worldMaintenance.Attach();
             worldClockSynchronizer.Attach();
             worldDecisionHooks.Attach();
+            npcCombatAuthority.Attach();
             gameplayReadinessHooks?.Attach();
             playerPacketSecurityHooks.Attach();
             consoleCommandHooks.Attach();

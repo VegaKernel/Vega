@@ -526,6 +526,9 @@ int Start()
             playerBoundary,
             banService,
             database.RoleLeases);
+        using var playtime = new PlayerPlaytimeService(playerBoundary, playerBoundary, playerBoundary,
+            accountSessions, database.Playtime, runtimeWorldId, logger);
+        using IDisposable playtimeRegistration = commandDispatcher.Register(new PlaytimeCommand(playerBoundary, playtime));
         using IDisposable rocketRegistration = commandDispatcher.Register(new RocketCommand(playerBoundary,
             (player, token) => playerBoundary.RocketAsync(player, accountSessions, token)));
         using IDisposable registerAccountCommandRegistration = commandDispatcher.Register(
@@ -776,7 +779,7 @@ int Start()
             worldEvents: worldEvents, activityWorldId: runtimeWorldId,
             authentication: accountSessions, publicChat: chat,
             accounts: database.Accounts, groups: database.Authorization, playerPermissions: playerAuthorization,
-            warps: new WorldPublicWarpReader(worldEnvironment, warpStore));
+            warps: new WorldPublicWarpReader(worldEnvironment, warpStore), playtime: playtime);
         serverPlugins.Start();
         softRestart.SetProcessRestartGuard(() => serverPlugins.Read().IsRestartRequired
             ? "ServerPlugins contains a change or cleanup failure that requires a process restart."

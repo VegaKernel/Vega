@@ -50,7 +50,8 @@ internal sealed partial class HotModuleRegistrationScope : IHotModuleContext, IV
         Vega.Contracts.Accounts.IAccountService? accounts = null,
         Vega.Contracts.Authorization.IAuthorizationService? groups = null,
         Vega.Contracts.Authorization.IPlayerAuthorizationService? playerPermissions = null,
-        IWorldPublicWarpReader? warps = null)
+        IWorldPublicWarpReader? warps = null,
+        IPlayerPlaytimeSessionReader? playtime = null)
     {
         ArgumentNullException.ThrowIfNull(commands);
         this.logger = logger ?? throw new ArgumentNullException(nameof(logger));
@@ -80,6 +81,7 @@ internal sealed partial class HotModuleRegistrationScope : IHotModuleContext, IV
         Activity = new PluginActivity(this, activityWorldId, playerDirectory, gameThread,
             authentication, publicChat, commands as ICommandCompletionObservations);
         Identity = new PluginIdentity(this, activityWorldId, playerDirectory, authentication, accounts, groups, playerPermissions);
+        Statistics = new PluginStatistics(this, activityWorldId, playerDirectory, playtime);
         Warps = new PluginWarps(this, activityWorldId, warps);
         Tasks = new PluginTasks(this, gameThread);
         Resources = new PluginResources(this);
@@ -99,6 +101,7 @@ internal sealed partial class HotModuleRegistrationScope : IHotModuleContext, IV
     public IPluginWorldEvents WorldEvents { get; }
     public IPluginActivity Activity { get; }
     public IPluginIdentity Identity { get; }
+    public IPluginStatistics Statistics { get; }
     public IPluginWarps Warps { get; }
     public IPluginTasks Tasks { get; }
     public IPluginResources Resources { get; }

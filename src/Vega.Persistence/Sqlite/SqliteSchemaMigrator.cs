@@ -1,11 +1,12 @@
 using System.Globalization;
 using Microsoft.Data.Sqlite;
+using Vega.Persistence.Relational;
 
 namespace Vega.Persistence.Sqlite;
 
 internal static class SqliteSchemaInitializer
 {
-    private const int CurrentVersion = 2;
+    private const int CurrentVersion = 3;
 
     private static readonly SchemaSection[] BaselineSections =
     [
@@ -202,6 +203,14 @@ internal static class SqliteSchemaInitializer
                     """), cancellationToken).ConfigureAwait(false);
                 await InsertHistoryAsync(connection, transaction, 2, "group-chat-presentation", cancellationToken).ConfigureAwait(false);
                 version = 2;
+            }
+
+            if (version == 2)
+            {
+                await ExecuteSchemaSectionAsync(connection, transaction, new SchemaSection(RelationalPlaytimeStore.SchemaSql + ";"), cancellationToken).ConfigureAwait(false);
+                await ExecuteSchemaSectionAsync(connection, transaction, new SchemaSection(RelationalPlaytimeStore.AccountIndexSql), cancellationToken).ConfigureAwait(false);
+                await InsertHistoryAsync(connection, transaction, 3, "authenticated-playtime", cancellationToken).ConfigureAwait(false);
+                version = 3;
             }
 
             await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
