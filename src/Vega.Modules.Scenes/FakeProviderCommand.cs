@@ -55,7 +55,8 @@ public sealed class FakeProviderCommand(FakeProviderService providers, IPlayerDi
                 var document = SchematicFile.Load(path);
                 cancellationToken.ThrowIfCancellationRequested();
                 var definition = SchematicSceneProjection.Create(document, args[1], x, y, SceneObserverScope.Global);
-                return (Definition: definition, Summary: $"{definition.VirtualItemFrames.Count} read-only virtual item frames; {document.Npcs.Length} NPCs, {document.WorldItems.Length} world items, {document.TileEntities.Length - definition.VirtualItemFrames.Count} other tile entities remain in the source file and were not spawned.");
+                int displayed = definition.VirtualItemFrames.Count + definition.VirtualDisplays.Count;
+                return (Definition: definition, Summary: $"{displayed} read-only virtual display entities; {document.Npcs.Length} NPCs, {document.WorldItems.Length} world items, {document.TileEntities.Length - displayed} other tile entities remain in the source file and were not spawned.");
             }, cancellationToken).ConfigureAwait(false);
             return await DispatchAsync(() =>
             {

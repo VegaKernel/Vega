@@ -12,3 +12,8 @@ public interface IWorldInteractionState
 
     bool TryGetTileEntityPosition(int tileEntityId, out WorldTilePosition position);
 }
+
+public interface IWorldSignState
+{
+    bool TryGetSignPosition(int signId, out WorldTilePosition position);
+}

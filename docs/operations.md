@@ -123,4 +123,52 @@ from the latest `GET /v1/players`. A stale session, reused slot or player in ano
 the native game-thread operation revalidates the same session at delivery. Messages and reasons cannot
 contain control characters. Neither the session selector nor text is copied into the REST outcome audit.
 
+## Typed administration
+
+All `/v1/admin/...` routes require a separately configured **administration token**
+(`VEGA_REST_ADMIN_TOKEN_SHA256`), even for reads. It must be distinct from read and maintenance
+token fingerprints. Existing maintenance token privileges are unchanged; only the explicitly
+configured administration token can access account identities, authorization, moderation or
+sandbox administration. The administration token also permits ordinary read/maintenance actions.
+`GET /v1/admin/{accounts|groups|regions|bans|mutes|sandboxes}` returns the first page; append `/0`,
+`/1`, etc. for a page of up to 100 records with `page`, `nextPage` (or `null`) and `items`.
+Account records never include passwords or password hashes. Sandbox records exclude source/instance
+file paths and private endpoints. Regions are local to the listener's world; accounts, bans and mutes
+use the existing shared persistence services. Catalogs are live snapshots, not stable export cursors.
+
+Typed JSON `POST` routes (prefix `/v1/admin/`):
+
+| Route | Required JSON fields |
+| --- | --- |
+| `accounts/create` | `name`, `password`, `group` |
+| `accounts/delete` | `name`, `revision` |
+| `accounts/group` | `name`, `revision`, `group` |
+| `accounts/password` | `name`, `revision`, `password` |
+| `accounts/culture` | `name`, `revision`, `culture` (nullable) |
+| `groups/create` | `name`, `parent` (nullable) |
+| `groups/delete` | `name`, `revision` |
+| `groups/parent` | `name`, `revision`, `parent` (nullable) |
+| `groups/permission` | `name`, `revision`, `permission`, `effect` (`grant`, `deny`, `revoke`) |
+| `regions/create` | `name`, `x`, `y`, `width`, `height`, `priority`, `owner` (nullable) |
+| `regions/delete` | `name`, `revision` |
+| `regions/resize` | `name`, `revision`, `x`, `y`, `width`, `height` |
+| `regions/priority` | `name`, `revision`, `priority` |
+| `regions/owner` | `name`, `revision`, `owner` (nullable) |
+| `regions/flag` | `name`, `revision`, `flag`, `enabled` |
+| `regions/access` | `name`, `revision`, `kind` (`member`, `group`), `subject`, `enabled` |
+| `bans/add` | `kind` (`name`, `account`, `uuid`, `ip`, `cidr`), `value`, `reason`, `durationSeconds` (`null` for permanent) |
+| `bans/revoke` | `id` (GUID), `revision` |
+| `mutes/add` | `kind` (`name`, `account`), `value`, `reason`, `durationSeconds` |
+| `mutes/revoke` | `id` (GUID), `revision` |
+| `sandboxes/start`, `sandboxes/stop`, `sandboxes/restart` | `worldId` |
+
+Revisions come from the latest catalog; stale writes return 409. Finite moderation durations
+must be between one second and 366 days. Unknown/duplicate fields, wrong types, missing fields and
+invalid values are rejected; all mutated records use the fixed actor `rest:administration` and normal
+domain validation/audit. Success returns 204, missing targets 404, invalid input 400, conflicts 409,
+unavailable worlds 503 and timeout/cancellation 504. Sandbox operations use their existing typed
+lifecycle authority and a 120-second operation deadline; they do not accept world paths or arbitrary
+commands. Template-based create/reset/destroy remain console operations. The HTTP body, account
+passwords, ban identities and moderation reasons are not copied into the REST outcome log.
+
 `scripts/Measure-LiveVegaServer.ps1` samples readiness, actual connected-player count, p50/p95/p99 tick duration, GC/process/network counters and scheduler depth into a timestamped CSV through the local read API. Supply the read bearer token in `VEGA_REST_READ_TOKEN` in the measurement process. Its `-MinimumPlayers` gate fails qualification if any measured sample falls below the requested connected-player count; loopback transport peers alone do not count as in-game players.

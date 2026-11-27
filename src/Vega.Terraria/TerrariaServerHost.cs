@@ -123,7 +123,9 @@ public static class TerrariaServerHost
             {
                 MaxCallbacksPerPass = networkLimits.OrderedCallbacksPerPass,
                 MeasureQueueAge = networkLimits.OrderedQueueDiagnostics,
-                MaxBatchRequests = networkLimits.OrderedBatchRequests
+                MaxBatchRequests = networkLimits.OrderedBatchRequests,
+                DeferWriterWake = networkLimits.OrderedDeferredWake,
+                DeferredWakeFlushInterval = TimeSpan.FromMilliseconds(networkLimits.OrderedDeferredWakeMilliseconds)
             },
                 onSendRejected: (generation, reason) => logger.Log(OperationsLogLevel.Warning, "network",
                     $"Ordered TCP connection {generation} closed: outbound queue rejected a send ({reason}).")) : null;
@@ -186,47 +188,8 @@ public static class TerrariaServerHost
             runtimeWorldId);
         using var worldClockSynchronizer = new TerrariaWorldClockSynchronizer(worldClock, logger, runtimeWorldId);
 
-        void OnBeforeWorldData(int slot, global::Terraria.Net.Sockets.ISocket socket)
-        {
-            earlyJoinCharacters!.ObserveCharacterReceived(slot, socket);
-            if (authoritativeCharacters && !earlyJoinCharacters.PrepareAuthoritativeJoin(slot, socket))
-                TerminatePendingCharacter(slot, socket);
-        }
-
-        void OnEnteringWorld(int slot, global::Terraria.Net.Sockets.ISocket socket)
-        {
-            try
-            {
-                if (!earlyJoinCharacters!.SynchronizePendingJoin(slot, socket)) TerminatePendingCharacter(slot, socket);
-            }
-            catch (Exception ex)
-            {
-                logger.Log(OperationsLogLevel.Error, "ssc", "Could not synchronize pending server character.", ex);
-                TerminatePendingCharacter(slot, socket);
-            }
-        }
-
-        void TerminatePendingCharacter(int slot, global::Terraria.Net.Sockets.ISocket socket)
-        {
-            if ((uint)slot >= (uint)global::Terraria.Netplay.Clients.Length ||
-                global::Terraria.Netplay.Clients[slot] is not { } client || !ReferenceEquals(client.Socket, socket)) return;
-            logger.Log(OperationsLogLevel.Warning, "ssc", "Pending server character initialization failed; connection is closing.");
-            client.RequestTermination("Server character initialization failed.");
-        }
-
-        void OnBindingEnded(PlayerAccountBinding binding)
-        {
-            void Reset()
-            {
-                if (!playerBoundary.TryGet(binding.PlayerId, out var player) || player?.SessionId != binding.SessionId ||
-                    accountSessions.TryGetBinding(player, out _) || !playerBoundary.TryGetSessionPlayer(player, out _)) return;
-                if (!earlyJoinCharacters!.ResetPendingCharacter(player))
-                    logger.Log(OperationsLogLevel.Warning, "ssc", "Could not clear the pending character after logout; gameplay remains gated.");
-            }
-            if (gameThreadDispatcher.IsGameThread) Reset();
-            else if (!gameThreadDispatcher.TryPost("ssc.logout.reset", Reset))
-                logger.Log(OperationsLogLevel.Warning, "ssc", "Character reset could not enter the game-thread queue; gameplay remains gated.");
-        }
+        using var sscLifecycleHooks = earlyJoinCharacters is null ? null : new NativeSscLifecycleHooks(
+            earlyJoinCharacters, playerBoundary, accountSessions, gameThreadDispatcher, logger, authoritativeCharacters);
 
         try
         {
@@ -242,17 +205,7 @@ public static class TerrariaServerHost
             operationsState.Attach();
             networkBudgetHooks.Attach();
             connectionLifecycleHooks.Attach();
-            if (earlyJoinCharacters is not null)
-            {
-                TerrariaRuntime.Hooks.Netplay.ServerPlayerBeforeWorldData += OnBeforeWorldData;
-                TerrariaRuntime.Hooks.Netplay.ServerConnectionClosing += earlyJoinCharacters.ForgetCharacterReceived;
-                TerrariaRuntime.Hooks.Netplay.ServerConnectionClosed += earlyJoinCharacters.ForgetCharacterReceived;
-            }
-            if (authoritativeCharacters)
-            {
-                TerrariaRuntime.Hooks.Netplay.ServerPlayerEnteringWorld += OnEnteringWorld;
-                accountSessions.BindingEnded += OnBindingEnded;
-            }
+            sscLifecycleHooks?.Attach();
             if (orderedTransport is not null)
             {
                 orderedTransport.Attach();
@@ -294,17 +247,7 @@ public static class TerrariaServerHost
         }
         finally
         {
-            if (earlyJoinCharacters is not null)
-            {
-                TerrariaRuntime.Hooks.Netplay.ServerPlayerBeforeWorldData -= OnBeforeWorldData;
-                TerrariaRuntime.Hooks.Netplay.ServerConnectionClosing -= earlyJoinCharacters.ForgetCharacterReceived;
-                TerrariaRuntime.Hooks.Netplay.ServerConnectionClosed -= earlyJoinCharacters.ForgetCharacterReceived;
-            }
-            if (authoritativeCharacters)
-            {
-                TerrariaRuntime.Hooks.Netplay.ServerPlayerEnteringWorld -= OnEnteringWorld;
-                accountSessions.BindingEnded -= OnBindingEnded;
-            }
+            sscLifecycleHooks?.Dispose();
             if (orderedTransport is not null)
             {
                 using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(2));

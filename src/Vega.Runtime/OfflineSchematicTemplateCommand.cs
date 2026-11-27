@@ -29,9 +29,8 @@ internal static class OfflineSchematicTemplateCommand
                 throw new InvalidDataException("A bounded existing base world, schematic and a new destination directory are required.");
 
             SchematicDocument document = SchematicFile.Load(schematic);
-            if (document.Tiles.Length > WorldTileOperationLimits.MaximumTiles || document.WorldItems.Length != 0 ||
-                document.TileEntities.Any(static entity => entity is SchematicLogicSensorTileEntity or SchematicTeleportationPylonTileEntity))
-                throw new SchematicFormatException("Schematic exceeds the native placement limit or contains unsupported entity records.");
+            if (document.Tiles.Length > WorldTileOperationLimits.MaximumTiles || document.WorldItems.Length != 0)
+                throw new SchematicFormatException("Schematic exceeds the native placement limit or contains dropped world items, which native .wld saves do not persist.");
             var projection = SchematicSceneProjection.Create(document, "materialization", x, y, SceneObserverScope.Global);
             string drive = Path.GetPathRoot(destination)!;
             long required = checked(new FileInfo(source).Length * 2 + 64L * 1024 * 1024);

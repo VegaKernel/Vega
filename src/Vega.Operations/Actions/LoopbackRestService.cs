@@ -22,7 +22,8 @@ public sealed class LoopbackRestService(
     IRuntimeMetricsReader? runtimeMetrics = null,
     Func<GameThreadQueueSnapshot>? queueMetrics = null,
     IWorldEnvironmentService? environment = null,
-    IOperationsLogger? logger = null) : IDisposable, ICommandHandler
+    IOperationsLogger? logger = null,
+    RestAdministration? administration = null) : IDisposable, ICommandHandler
 {
     private const int MaximumMutationBytes = 4096;
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
@@ -36,7 +37,7 @@ public sealed class LoopbackRestService(
     public CommandDescriptor Descriptor { get; } = new("rest", [], ["vega.operations.rest.manage"],
         Syntax: "rest status | listusers | destroytokens");
 
-    public void Start(int listenPort, string expectedTokenSha256, string? maintenanceTokenSha256 = null)
+    public void Start(int listenPort, string expectedTokenSha256, string? maintenanceTokenSha256 = null, string? adminTokenSha256 = null)
     {
         ObjectDisposedException.ThrowIf(Volatile.Read(ref disposed) != 0, this);
         if (listener is not null) throw new InvalidOperationException("REST listener already started.");
@@ -44,10 +45,14 @@ public sealed class LoopbackRestService(
             throw new InvalidDataException("REST requires a valid port and SHA-256 token fingerprint.");
         byte[] hash = ParseFingerprint(expectedTokenSha256);
         byte[]? writerHash = maintenanceTokenSha256 is null ? null : ParseFingerprint(maintenanceTokenSha256);
+        byte[]? adminHash = adminTokenSha256 is null ? null : ParseFingerprint(adminTokenSha256);
         if (writerHash is not null && ((maintenance is null && environment is null &&
             players is not IPlayerOperations { SupportsSessionBoundKicks: true } &&
             players is not IPlayerMessenger { SupportsSessionBoundMessages: true }) || CryptographicOperations.FixedTimeEquals(hash, writerHash)))
             throw new InvalidDataException("REST maintenance requires a distinct token and an available maintenance service.");
+        if (adminHash is not null && (administration is null || CryptographicOperations.FixedTimeEquals(hash, adminHash) ||
+            writerHash is not null && CryptographicOperations.FixedTimeEquals(writerHash, adminHash)))
+            throw new InvalidDataException("REST administration requires its own distinct token and available administration services.");
 
         var next = new HttpListener();
         try
@@ -58,7 +63,7 @@ public sealed class LoopbackRestService(
         catch { next.Close(); throw; }
 
         port = listenPort;
-        Volatile.Write(ref tokens, new TokenHashes(hash, writerHash));
+        Volatile.Write(ref tokens, new TokenHashes(hash, writerHash, adminHash));
         listener = next;
         serveTask = ServeAsync(next);
     }
@@ -86,9 +91,33 @@ public sealed class LoopbackRestService(
                     continue;
                 }
                 if (request.Url is not { Query.Length: 0 } url) { response.StatusCode = 400; continue; }
+                if (url.AbsolutePath.StartsWith("/v1/admin/", StringComparison.Ordinal))
+                {
+                    if (access != Access.Administration) { response.StatusCode = 403; continue; }
+                    if (administration is null) { response.StatusCode = 404; continue; }
+                    if (!WorldReady()) { response.StatusCode = 503; continue; }
+                    string route = url.AbsolutePath["/v1/admin/".Length..];
+                    if (request.HttpMethod == "GET")
+                    {
+                        try
+                        {
+                            object? page = administration.Read(route);
+                            if (page is null) response.StatusCode = 404;
+                            else await WriteJsonAsync(response, page).ConfigureAwait(false);
+                        }
+                        catch (Exception) { response.StatusCode = 500; }
+                    }
+                    else if (request.HttpMethod == "POST")
+                    {
+                        if (!RestAdministration.IsMutationRoute(route)) response.StatusCode = 404;
+                        else await ApplyAdministrationAsync(request, response, route).ConfigureAwait(false);
+                    }
+                    else response.StatusCode = 405;
+                    continue;
+                }
                 if (request.HttpMethod == "POST" && url.AbsolutePath == "/v1/world/save")
                 {
-                    if (access != Access.Maintenance || maintenance is null) { response.StatusCode = 403; continue; }
+                    if (!CanMaintain(access) || maintenance is null) { response.StatusCode = 403; continue; }
                     if (request.HasEntityBody) { response.StatusCode = 400; continue; }
                     if (!WorldReady())
                     { response.StatusCode = 503; continue; }
@@ -106,14 +135,14 @@ public sealed class LoopbackRestService(
                 }
                 if (request.HttpMethod == "POST" && url.AbsolutePath is "/v1/world/time" or "/v1/world/weather")
                 {
-                    if (access != Access.Maintenance) { response.StatusCode = 403; continue; }
+                    if (!CanMaintain(access)) { response.StatusCode = 403; continue; }
                     if (environment is null) { response.StatusCode = 404; continue; }
                     await ApplyWorldPatchAsync(request, response, url.AbsolutePath == "/v1/world/time").ConfigureAwait(false);
                     continue;
                 }
                 if (request.HttpMethod == "POST" && url.AbsolutePath is "/v1/players/kick" or "/v1/players/message")
                 {
-                    if (access != Access.Maintenance) { response.StatusCode = 403; continue; }
+                    if (!CanMaintain(access)) { response.StatusCode = 403; continue; }
                     await ApplyPlayerActionAsync(request, response, url.AbsolutePath == "/v1/players/kick").ConfigureAwait(false);
                     continue;
                 }
@@ -185,7 +214,7 @@ public sealed class LoopbackRestService(
         catch (Exception ex) when (ex is IOException or JsonException) { response.StatusCode = 400; return; }
         if (patch is null) { response.StatusCode = 400; return; }
         // A token revoked while the body was arriving must not start a new mutation.
-        if (Authenticate(request.Headers["Authorization"]) != Access.Maintenance) { response.StatusCode = 401; return; }
+        if (!CanMaintain(Authenticate(request.Headers["Authorization"]))) { response.StatusCode = 401; return; }
         if (!WorldReady()) { response.StatusCode = 503; return; }
 
         deadline.CancelAfter(TimeSpan.FromSeconds(30));
@@ -224,7 +253,7 @@ public sealed class LoopbackRestService(
         catch (OperationCanceledException) { response.StatusCode = 504; return; }
         catch (Exception ex) when (ex is IOException or JsonException) { response.StatusCode = 400; return; }
         if (action is null) { response.StatusCode = 400; return; }
-        if (Authenticate(request.Headers["Authorization"]) != Access.Maintenance) { response.StatusCode = 401; return; }
+        if (!CanMaintain(Authenticate(request.Headers["Authorization"]))) { response.StatusCode = 401; return; }
         if (!WorldReady()) { response.StatusCode = 503; return; }
         deadline.CancelAfter(TimeSpan.FromSeconds(30));
         try
@@ -249,6 +278,27 @@ public sealed class LoopbackRestService(
         catch (OperationCanceledException) { response.StatusCode = 504; }
         catch (Exception) { response.StatusCode = 500; }
         AuditMaintenance(kick ? "player.kick" : "player.message", response.StatusCode);
+    }
+
+    private async Task ApplyAdministrationAsync(HttpListenerRequest request, HttpListenerResponse response, string route)
+    {
+        using var deadline = CancellationTokenSource.CreateLinkedTokenSource(stopping.Token);
+        deadline.CancelAfter(TimeSpan.FromSeconds(5));
+        try
+        {
+            byte[]? body = await ReadMutationBodyAsync(request, response, deadline.Token).ConfigureAwait(false);
+            if (body is null) return;
+            using JsonDocument payload = JsonDocument.Parse(body);
+            if (Authenticate(request.Headers["Authorization"]) != Access.Administration) { response.StatusCode = 401; return; }
+            if (!WorldReady()) { response.StatusCode = 503; return; }
+            // Sandbox lifecycle operations may take longer than ordinary persistence mutations.
+            deadline.CancelAfter(TimeSpan.FromSeconds(route.StartsWith("sandboxes/", StringComparison.Ordinal) ? 120 : 30));
+            response.StatusCode = await administration!.WriteAsync(route, payload.RootElement, deadline.Token).ConfigureAwait(false);
+        }
+        catch (OperationCanceledException) { response.StatusCode = 504; }
+        catch (Exception ex) when (ex is IOException or JsonException) { response.StatusCode = 400; }
+        catch (Exception) { response.StatusCode = 500; }
+        AuditMaintenance("admin." + route.Replace('/', '.'), response.StatusCode);
     }
 
     private static async Task<byte[]?> ReadMutationBodyAsync(HttpListenerRequest request, HttpListenerResponse response, CancellationToken token)
@@ -374,6 +424,7 @@ public sealed class LoopbackRestService(
         Span<byte> input = stackalloc byte[32];
         SHA256.HashData(encoded[..length], input);
         CryptographicOperations.ZeroMemory(encoded[..length]);
+        if (current.Administration is { } admin && CryptographicOperations.FixedTimeEquals(admin, input)) return Access.Administration;
         if (current.Maintenance is { } writer && CryptographicOperations.FixedTimeEquals(writer, input)) return Access.Maintenance;
         return CryptographicOperations.FixedTimeEquals(current.Reader, input) ? Access.Read : Access.None;
     }
@@ -393,7 +444,7 @@ public sealed class LoopbackRestService(
         }
         bool active = listener?.IsListening == true && serveTask?.IsCompleted == false;
         TokenHashes? current = Volatile.Read(ref tokens);
-        int count = !active || current is null ? 0 : current.Maintenance is null ? 1 : 2;
+        int count = !active || current is null ? 0 : 1 + (current.Maintenance is null ? 0 : 1) + (current.Administration is null ? 0 : 1);
         return ValueTask.FromResult(CommandExecutionResult.WithMessages(action == "listusers"
             ? MessageDescriptor.Info("rest.users", count).WithDefaultText("Active configured operator tokens: {0}.")
             : MessageDescriptor.Info("rest.status", active, port, count).WithDefaultText("Loopback REST listening={0}; port={1}; active tokens={2}.")));
@@ -414,6 +465,7 @@ public sealed class LoopbackRestService(
         stopping.Dispose();
     }
 
-    private enum Access { None, Read, Maintenance }
-    private sealed record TokenHashes(byte[] Reader, byte[]? Maintenance);
+    private static bool CanMaintain(Access access) => access is Access.Maintenance or Access.Administration;
+    private enum Access { None, Read, Maintenance, Administration }
+    private sealed record TokenHashes(byte[] Reader, byte[]? Maintenance, byte[]? Administration);
 }

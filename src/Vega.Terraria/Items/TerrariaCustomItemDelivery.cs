@@ -66,7 +66,8 @@ public sealed class TerrariaCustomItemDelivery(IGameThreadDispatcher dispatcher)
 					definition))
 			{
 				byte[] data = CustomItemPacketFactory.Serialize(packet);
-				client.Socket.AsyncSend(data, 0, data.Length, client.ServerWriteCallBack);
+				// This direct packet bypasses NetMessage's native send counter reservation.
+				client.Socket.AsyncSend(data, 0, data.Length, static _ => { });
 			}
 
 			return PlayerOperationResult.Applied();

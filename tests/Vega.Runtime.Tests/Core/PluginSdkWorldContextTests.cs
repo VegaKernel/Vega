@@ -236,7 +236,7 @@ public sealed class PluginSdkWorldContextTests
     }
 
     [Test]
-    public async Task SchematicPlacementRefusesUnsupportedSectionsAndDoesNotDispatchThemToNativeWorld()
+    public async Task SchematicPlacementDispatchesSupportedRecordsButRefusesUnrepresentableTiles()
     {
         var world = new WorldId("arena");
         var dispatcher = new EventGameThread();
@@ -247,12 +247,14 @@ public sealed class PluginSdkWorldContextTests
                 placed++;
                 Assert.That(bounds, Is.EqualTo(new SceneBounds(50, 60, 2, 2)));
                 Assert.That(document.Npcs.Single().NpcType, Is.EqualTo(22));
+                Assert.That(document.WorldItems.Single().Item, Is.EqualTo(new SchematicItemStack(8, 1)));
                 return new(WorldSchematicPlacementStatus.Applied, document.Npcs.Length);
             });
         byte[] Encode(bool unsupported) => SchematicBinary.Serialize(new SchematicDocument
         {
-            ContentVersion = 279, Width = 2, Height = 2, Tiles = new SchematicTile[4], Npcs = [new(22, 16, 16)],
-            WorldItems = unsupported ? [new(new(8, 1), 0, 0)] : []
+            ContentVersion = 279, Width = 2, Height = 2,
+            Tiles = [default(SchematicTile) with { Shape = unsupported ? (byte)6 : (byte)0 }, default, default, default],
+            Npcs = [new(22, 16, 16)], WorldItems = [new(new(8, 1), 0, 0)]
         });
         Assert.That((await service.PlaceAsync(WorldId.Primary, Encode(false), 50, 60)).Status, Is.EqualTo(WorldSchematicPlacementStatus.Unavailable));
         Assert.That((await service.PlaceAsync(world, Encode(true), 50, 60)).Status, Is.EqualTo(WorldSchematicPlacementStatus.Invalid));

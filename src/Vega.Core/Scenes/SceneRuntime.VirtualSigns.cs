@@ -106,11 +106,17 @@ public sealed partial class SceneRuntime
     }
 
     public bool TryRequestVirtualSignEdit(PlayerSnapshot player, int tileX, int tileY, string text)
+        => TryRequestVirtualSignEditCore(player, tileX, tileY, text, presented: false);
+
+    private bool TryRequestVirtualSignEditCore(PlayerSnapshot player, int tileX, int tileY, string text, bool presented)
     {
         if (!SceneVirtualSignDefinition.IsValidText(text) || !TryGetInteractionObserver(player, tileX, tileY, out var observer)) return false;
         lock (sync)
         {
             var key = (player.WorldId, player.Id);
+            if (!presented && virtualSignPresentations.TryGetValue(key, out var presentation) && presentation.Active is { } active &&
+                tileX >= active.Sign.Position.X && tileX < active.Sign.Position.X + 2 && tileY >= active.Sign.Position.Y && tileY < active.Sign.Position.Y + 2)
+                return false;
             if (!virtualSignEditors.TryGetValue(key, out var read) || read.Observer != observer ||
                 DateTimeOffset.UtcNow - read.RequestedAt > VirtualSignEditorLifetime ||
                 !TryResolveVirtualSignLocked(player.WorldId, observer, tileX, tileY, out var resolved) ||

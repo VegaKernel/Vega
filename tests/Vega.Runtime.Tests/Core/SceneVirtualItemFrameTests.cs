@@ -82,6 +82,34 @@ public sealed class SceneVirtualItemFrameTests
         Assert.DoesNotThrow(() => scene.AddOverlay(projected));
     }
 
+    [TestCase(SceneVirtualDisplayKind.WeaponsRack)]
+    [TestCase(SceneVirtualDisplayKind.DisplayDoll)]
+    [TestCase(SceneVirtualDisplayKind.HatRack)]
+    [TestCase(SceneVirtualDisplayKind.FoodPlatter)]
+    public void ReadOnlyFurnitureRequiresItsFullNativeFootprint(SceneVirtualDisplayKind kind)
+    {
+        var display = new SceneVirtualDisplayDefinition(VirtualDisplayId.New(),kind,0,0,[new(9,1)],[],1);
+        var area = SceneTileArea.Create(display.Width,display.Height,display,static (tiles, value) =>
+        {
+            for(int y=0;y<value.Height;y++) for(int x=0;x<value.Width;x++)
+                tiles[y*value.Width+x] = new(value.TileType,FrameX:(short)(18*x),FrameY:(short)(18*y),Flags:SceneTileFlags.Active);
+        });
+        var runtime = new SceneRuntime();
+        var opened = new PlayerSessionOpened(PlayerSessionId.New(),new(1),"viewer",DateTimeOffset.UtcNow);
+        runtime.OpenSession(WorldId.Primary,opened);
+        using var scene = runtime.CreateScene(WorldId.Primary,"furniture","test");
+        var bounds = new SceneBounds(100,100,display.Width,display.Height);
+        var definition = new SceneOverlayDefinition(default,"furniture",bounds,1,SceneObserverScope.Global,area) { VirtualDisplays = [display] };
+        Assert.Throws<ArgumentException>(() => scene.AddOverlay(definition with { Tiles = SceneTileArea.Fill(display.Width,display.Height,SceneTile.Air) }));
+        scene.AddOverlay(definition);
+        var corner = new SceneBounds(bounds.Right-1,bounds.Bottom-1,1,1);
+        var observer = SceneSessionObserver.From(opened);
+        Assert.That(runtime.SnapshotVisibleVirtualDisplays(WorldId.Primary,observer,corner).Single().Definition,Is.SameAs(display));
+        using var cover = runtime.CreateScene(WorldId.Primary,"cover","test");
+        cover.AddOverlay(new(default,"cover",corner,5,SceneObserverScope.Global,SceneTileArea.Fill(1,1,SceneTile.Air)));
+        Assert.That(runtime.SnapshotVisibleVirtualDisplays(WorldId.Primary,observer,corner),Is.Empty);
+    }
+
     private sealed class RecordingSink : ISceneRenderSink
     {
         public List<SceneRenderRequest> Requests { get; } = [];

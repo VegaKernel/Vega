@@ -53,15 +53,21 @@ full-world metadata or replace the native `.wld` format.
 Native `schematic place` is now available from the console of an isolated sandbox
 with no connected clients. `plugin.World.Schematics.PlaceAsync` exposes the same
 operation with encoded data. The materializer supports tiles, NPCs (relative
-position, direction, name, home and life), native 40-slot chests, signs and six
-typed tile entities: training dummy, item frame, display doll, weapons rack,
-hat rack and food platter. Each object requires a complete matching standard
+position, direction, name, home and life), native 40-slot chests, signs and all
+eight typed v1 tile entities: training dummy, item frame, logic sensor, display
+doll, weapons rack, hat rack, food platter and teleportation pylon. It also
+materializes dropped world items through the native allocator for an idle
+running sandbox. Each registered object requires a complete matching standard
 18-pixel framed footprint within the document; unsupported frame layouts,
 missing records, overlaps or invalid native inventory items are rejected.
 Native chest/sign registrations and tile entity IDs are assigned by the actual
-game APIs, not reconstructed from source-world slot IDs. Logic sensors,
-teleportation pylons, dropped world items and unsupported native entity kinds
-still reject placement rather than silently losing records. Marker and metadata
+game APIs, not reconstructed from source-world slot IDs. Logic sensor record
+type/state must match its native tile frame; the native subsequent simulation
+may recalculate its state. Pylon types must be valid and unique across the
+target world and document. Dropped items require vacant reusable native item
+slots; native `.wld` files do not save dropped items, so automatic immutable
+template creation refuses documents containing them before copying a base.
+Unsupported native entity kinds still reject rather than silently losing records. Marker and metadata
 values remain informational in the original document. Placement requires an
 area without registered native objects or active entities, checks native slot
 capacity and tile field limits, and uses the normal native NPC allocator. The
@@ -78,9 +84,11 @@ not involve joined players. Fixture and raw files are in the local
 `artifacts/placement-native-smoke-*` and `artifacts/schematic-placement-fixture`
 directories. The managed regression separately injects an allocation failure
 and verifies tile restoration and owned NPC retirement. A separate headless
-native fixture uses actual chest, sign and tile-entity registries, captures and
-round-trips their represented data through the codec, and injects a later NPC
-allocation failure to verify rollback of every newly registered object.
+native fixture uses actual chest, sign, all eight tile-entity registries, pylon
+system and world-item allocator, captures and round-trips their represented
+data through the codec, and injects a later NPC allocation failure to verify
+rollback of every newly registered object and the exact previous world-item
+slot references/cooldowns.
 
 The native `create-schematic` Windows integration smoke then built a separate
 `.wld` from a 20x10 region, started its managed backend to signed readiness,
@@ -93,14 +101,24 @@ still subject to the ordinary `.wld` save format. Local raw evidence is under
 `artifacts/bootstrap-isolated-477ee9ca/control-native-bb3302` and
 `artifacts/bootstrap-isolated-477ee9ca/reloaded-native-baa2db`.
 
+The expanded native persistence fixture repeats create/start/stop/reset and
+canonical reload with a teleportation pylon at (12,5) and PlayerAbove logic
+sensor at (16,8), both restored with their native registration/state along
+with the chest, sign, item frame and NPC. Raw local evidence:
+`artifacts/bootstrap-isolated-477ee9ca/control-entities-642f3b` and
+`artifacts/bootstrap-isolated-477ee9ca/reloaded-entities-be6570`.
+
 One file operation per world process is admitted at a time (import, export or
 inspect), bounding simultaneous detached document and codec buffers. Full game
 simulation and mutable native objects remain on the owning world thread.
 
 ## Next integration boundaries
 
-Remaining native materialization work includes expanded chest capacities and
-non-standard object frames not represented by the current materializer, logic
-sensors, teleportation pylons, dropped world items and comprehensive persistent
-world qualification. PlayerBots are deferred by the
-operator.
+TerraRuntime `.trschem` v1 has a forty-item chest limit and no chest-capacity
+field. Vega refuses expanded/nonstandard native chest capacities on capture,
+rather than truncating them; use native `.wld` for those worlds, or a future
+versioned shared codec. Noncanonical object frame layouts not covered by the
+verified native top-left/footprint checks are also rejected pending additional
+native fixtures. Comprehensive persistent-world qualification remains open.
+Dropped world items remain ephemeral under vanilla `.wld` persistence.
+PlayerBots are deferred by the operator.

@@ -54,9 +54,6 @@ public sealed class SchematicSnapshotService(WorldId worldId, ISchematicCaptureS
                 var document = load();
                 if (document.Tiles.Length > WorldTileOperationLimits.MaximumTiles)
                     throw new SchematicFormatException("Schematic exceeds the native region operation limit.");
-                if (document.WorldItems.Length != 0 || document.TileEntities.Any(static entity =>
-                    entity is SchematicLogicSensorTileEntity or SchematicTeleportationPylonTileEntity))
-                    throw new SchematicFormatException("Native placement does not support dropped world items, logic sensors or teleportation pylons yet.");
                 var projection = SchematicSceneProjection.Create(document, "materialization", x, y, SceneObserverScope.Global);
                 return (Document: document, projection.Tiles, projection.Bounds);
             }, cancellationToken).ConfigureAwait(false);

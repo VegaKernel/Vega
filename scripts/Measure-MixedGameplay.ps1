@@ -6,6 +6,8 @@ param(
     [ValidateRange(120,3600)][int]$Ticks = 1800,
     [ValidateSet('legacy','optimized')][string[]]$Modes = @('legacy','optimized','optimized','legacy'),
     [ValidateSet('recording','native','ordered')][string[]]$TransportModes = @('recording'),
+    [switch]$DeferredWake,
+    [ValidateRange(0.25,2)][double]$DeferredWakeMilliseconds = 1,
     [int]$TimeoutSeconds = 300
 )
 $ErrorActionPreference = 'Stop'
@@ -64,6 +66,10 @@ for ($i = 0; $i -lt $runs.Count; $i++) {
     $start.RedirectStandardOutput = $true
     $start.RedirectStandardError = $true
     $start.EnvironmentVariables['VEGA_SYNTHETIC_BENCHMARK'] = '1'
+    if ($DeferredWake) {
+        $start.EnvironmentVariables['VEGA_BENCH_DEFER_WAKE'] = '1'
+        $start.EnvironmentVariables['VEGA_BENCH_DEFER_MS'] = $DeferredWakeMilliseconds.ToString([Globalization.CultureInfo]::InvariantCulture)
+    }
     $password = [Guid]::NewGuid().ToString('N')
     $start.Arguments = "--vega-ui=plain -world `"$world`" -ip 127.0.0.1 -port $port -maxplayers 255 -password $password -noupnp"
     $process = [Diagnostics.Process]::new()

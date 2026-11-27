@@ -40,13 +40,18 @@ internal sealed class NativeSceneNetworkHooks(
 
     private void OnSendData(object? sender, Hooks.NetMessage.SendDataEventArgs args)
     {
-        if (args.Result == HookResult.Cancel || !scenes.HasActiveOverlays)
+        if (args.Result == HookResult.Cancel) return;
+        if (args.MsgType == (int)PacketTypes.SignNew && args.Event == HookEvent.After && dispatcher.IsGameThread && args.RemoteClient >= 0 &&
+            (uint)args.Number < (uint)global::Terraria.Main.sign.Length && global::Terraria.Main.sign[args.Number] is { } canonical &&
+            players.TryGet(new PlayerId(args.RemoteClient), out var reader) && reader is not null && reader.WorldId == worldId)
+            scenes.ObserveCanonicalSignPresented(reader, checked((short)args.Number), canonical.x, canonical.y);
+        if (!scenes.HasActiveOverlays)
         {
             return;
         }
 
         if (args.MsgType == (int)PacketTypes.UpdateTileEntity && args.Event == HookEvent.After && dispatcher.IsGameThread &&
-            scenes.HasVirtualItemFrames(worldId) && global::Terraria.DataStructures.TileEntity.ByID.TryGetValue(args.Number, out var entity))
+            (scenes.HasVirtualItemFrames(worldId) || scenes.HasVirtualDisplays(worldId)) && global::Terraria.DataStructures.TileEntity.ByID.TryGetValue(args.Number, out var entity))
         {
             // A canonical entity can appear at a previously projected position. Reconcile
             // after its native update without altering canonical registration or delivery.

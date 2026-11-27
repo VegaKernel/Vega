@@ -85,8 +85,10 @@ the new managed instance. Normal `start` loads the instance without replaying
 the schematic. Normal `reset <id> confirm` copies the generated template, not
 the original base. The source base and `.trschem` file are unchanged. Destroy
 removes only the instance; generated templates remain available for reset of
-other instances or operator recovery. See [schematics](schematics.md) for
-supported object types and placement constraints.
+other instances or operator recovery. Native `.wld` saves do not persist
+dropped world items, so `create-schematic` refuses such input; they can be
+materialized separately into a ready idle sandbox. See [schematics](schematics.md)
+for supported object types and placement constraints.
 
 Temporary backends stop after their idle TTL. Persistent instance files are retained;
 controller shutdown stops processes but does not remove world data. Rolling update

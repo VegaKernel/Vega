@@ -28,7 +28,8 @@ public sealed class NativeVirtualItemFrameTests
         var updateEnd = typeof(TileEntity).GetField("_UpdateEnd", BindingFlags.Static | BindingFlags.NonPublic)!;
         object? oldStart = updateStart.GetValue(null), oldEnd = updateEnd.GetValue(null);
         int oldNextId = TileEntity.TileEntitiesNextID;
-        byte oldFrame = TEItemFrame.EntityTypeID, oldDummy = TETrainingDummy.EntityTypeID;
+        byte oldFrame = TEItemFrame.EntityTypeID, oldDummy = TETrainingDummy.EntityTypeID, oldDoll = TEDisplayDoll.EntityTypeID,
+            oldRack = TEWeaponsRack.EntityTypeID, oldHat = TEHatRack.EntityTypeID, oldFood = TEFoodPlatter.EntityTypeID;
         int oldMode = global::Terraria.Main.netMode;
         bool oldDedicated = global::Terraria.Main.dedServ;
         var oldConnection = global::Terraria.Netplay.Connection;
@@ -38,6 +39,10 @@ public sealed class NativeVirtualItemFrameTests
             TileEntity.manager = new TileEntitiesManager();
             TileEntity.manager.Register(new TETrainingDummy());
             TileEntity.manager.Register(new TEItemFrame());
+            TileEntity.manager.Register(new TEDisplayDoll());
+            TileEntity.manager.Register(new TEWeaponsRack());
+            TileEntity.manager.Register(new TEHatRack());
+            TileEntity.manager.Register(new TEFoodPlatter());
             TileEntity.ByID = [];
             TileEntity.ByPosition = [];
             TileEntity.UpdateEntities = [];
@@ -47,7 +52,7 @@ public sealed class NativeVirtualItemFrameTests
             var observer = new SceneSessionObserver(new PlayerId(1), PlayerSessionId.New());
             var other = new SceneSessionObserver(new PlayerId(2), PlayerSessionId.New());
             var socket = new NoSocket();
-            var projection = new SceneItemFrameProjection();
+            var projection = new SceneDisplayProjection();
             var item = new SceneVirtualItemFrameDefinition(VirtualItemFrameId.New(), 0, 0, ItemID.Torch, 1, 0, 1);
             var snapshot = new SceneVirtualItemFrameSnapshot(SceneId.New(), OverlayId.New(), WorldId.Primary,new(10,10),item);
             var region = new SceneBounds(10,10,2,2);
@@ -97,6 +102,21 @@ public sealed class NativeVirtualItemFrameTests
             Assert.That(TileEntity.ByPosition.Values.Single(),Is.SameAs(canonical));
             var canonicalRestore = output.ToArray();
 
+            SceneVirtualDisplaySnapshot Display(SceneVirtualDisplayKind kind,int x,IReadOnlyList<SceneDisplayItem> items,IReadOnlyList<SceneDisplayItem> dyes) =>
+                new(SceneId.New(),OverlayId.New(),WorldId.Primary,new(x,20),new(VirtualDisplayId.New(),kind,0,0,items,dyes,1));
+            var displays = new[]
+            {
+                Display(SceneVirtualDisplayKind.WeaponsRack,20,[new(ItemID.CopperShortsword,1,PrefixID.Large)],[]),
+                Display(SceneVirtualDisplayKind.DisplayDoll,24,[new(ItemID.CopperHelmet,1)],[new(ItemID.RedDye,1)]),
+                Display(SceneVirtualDisplayKind.HatRack,28,[new(ItemID.CopperHelmet,1)],[new(ItemID.RedDye,1)]),
+                Display(SceneVirtualDisplayKind.FoodPlatter,32,[new(ItemID.Apple,1)],[])
+            };
+            output.Clear();
+            projection.Reconcile(observer,socket,new(20,20,14,4),[],displays,output.Add);
+            Assert.That(output,Has.Count.EqualTo(4));
+            Assert.That(TileEntity.ByID.Values.Single(),Is.SameAs(canonical));
+            var displayPackets = output.ToArray();
+
             // The actual native client decoder consumes the three ordinary packets, without
             // connecting to a network or constructing a graphical client.
             TileEntity.ByID = [];
@@ -128,6 +148,18 @@ public sealed class NativeVirtualItemFrameTests
             Decode(canonicalRestore[1]);
             Assert.That(TileEntity.ByID.Keys,Is.EqualTo(new[] { canonical.ID }));
             Assert.That(TileEntity.ByPosition.Values.Single().ID,Is.EqualTo(canonical.ID));
+            foreach (byte[] packet in displayPackets) Decode(packet);
+            var rack = TileEntity.ByID.Values.OfType<TEWeaponsRack>().Single();
+            var doll = TileEntity.ByID.Values.OfType<TEDisplayDoll>().Single();
+            var hat = TileEntity.ByID.Values.OfType<TEHatRack>().Single();
+            var food = TileEntity.ByID.Values.OfType<TEFoodPlatter>().Single();
+            Assert.That(rack.item.type,Is.EqualTo(ItemID.CopperShortsword));
+            Assert.That(rack.item.prefix,Is.EqualTo(PrefixID.Large));
+            Assert.That(doll._equip[0].type,Is.EqualTo(ItemID.CopperHelmet));
+            Assert.That(doll._dyes[0].type,Is.EqualTo(ItemID.RedDye));
+            Assert.That(hat._items[0].type,Is.EqualTo(ItemID.CopperHelmet));
+            Assert.That(hat._dyes[0].type,Is.EqualTo(ItemID.RedDye));
+            Assert.That(food.item.type,Is.EqualTo(ItemID.Apple));
         }
         finally
         {
@@ -140,6 +172,10 @@ public sealed class NativeVirtualItemFrameTests
             TileEntity.TileEntitiesNextID = oldNextId;
             TEItemFrame.EntityTypeID = oldFrame;
             TETrainingDummy.EntityTypeID = oldDummy;
+            TEDisplayDoll.EntityTypeID = oldDoll;
+            TEWeaponsRack.EntityTypeID = oldRack;
+            TEHatRack.EntityTypeID = oldHat;
+            TEFoodPlatter.EntityTypeID = oldFood;
             global::Terraria.Main.netMode = oldMode;
             global::Terraria.Main.dedServ = oldDedicated;
             global::Terraria.Netplay.Connection = oldConnection;

@@ -13,6 +13,9 @@ public sealed class NetworkSchedulingTests
     public void OrderedCompletionCeilingIsProductionSizedButBoundedIndependentlyOfTimeBudget()
     {
         Assert.That(new ServerNetworkOptions().UseOrderedTcp, Is.False);
+        Assert.That(new ServerNetworkOptions().OrderedDeferredWake, Is.False);
+        Assert.That(ServerNetworkOptions.Normalize(new() { OrderedDeferredWakeMilliseconds = 99 }).OrderedDeferredWakeMilliseconds, Is.EqualTo(2));
+        Assert.That(ServerNetworkOptions.Normalize(new() { OrderedDeferredWakeMilliseconds = double.NaN }).OrderedDeferredWakeMilliseconds, Is.EqualTo(1));
         Assert.That(new ServerNetworkOptions().OrderedCallbacksPerPass, Is.EqualTo(8192));
         Assert.That(ServerNetworkOptions.Normalize(new() { OrderedCallbacksPerPass = int.MaxValue }).OrderedCallbacksPerPass, Is.EqualTo(8192));
         Assert.That(ServerNetworkOptions.Normalize(new() { OrderedCallbacksPerPass = 1 }).OrderedCallbacksPerPass, Is.EqualTo(1));

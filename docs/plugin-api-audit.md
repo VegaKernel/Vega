@@ -23,7 +23,7 @@ The maintained Vega template requires one plugin class, one `Configure` override
 
 The representative sample covers command permissions/aliases/replies, join and leave hooks, player lookup/messaging, validated JSON configuration, persistent JSON state, repeating work, async file I/O with game-thread apply, and deterministic unload. Cancellable build/gameplay hooks and the advanced typed-packet sample remain open; they must be added only with real authoritative hook ownership, not as unused abstractions.
 
-The SDK is still a development surface. Its assembly version follows the repository's `1.0.0` baseline, but a frozen API compatibility baseline remains a separate gate before public stability is declared.
+The SDK is still a development surface. Its assembly version follows the repository's `1.0.0` baseline; the optional `VegaPluginApiGenerationAttribute` preflights the declared source/API generation before activation, not a frozen binary ABI. The expanded ordinary SDK includes native world-entry/pre-reset player notifications and explicit activation-owned disposable/async resources. Notifications use the per-activation execution guard; cleanup runs after drain, is included in bounded retirement and must surface failures. The architecture delegate inventory and `PluginSdkContextTests` cover these ownership boundaries.
 
 ## Facade baseline
 

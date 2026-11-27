@@ -5,23 +5,117 @@ using System.Net.Sockets;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
+using Microsoft.Data.Sqlite;
 using NUnit.Framework;
 using Vega.Contracts.Commands;
 using Vega.Contracts.Operations;
 using Vega.Contracts.Players;
 using Vega.Contracts.Runtime;
+using Vega.Contracts.Sandboxes;
 using Vega.Contracts.Worlds;
 using Vega.Core.Commands;
+using Vega.Core.Bans;
 using Vega.Core.Operations;
 using Vega.Operations;
 using Vega.Operations.Actions;
 using Vega.Operations.Metrics;
+using Vega.Persistence.Sqlite;
 
 namespace Vega.Runtime.Tests.Operations;
 
 [TestFixture]
 public sealed class LoopbackRestServiceTests
 {
+    [Test]
+    public async Task AdministrativeRestUsesRealPersistenceAndWorldScopedTypedMutations()
+    {
+        string root = Path.Combine(Path.GetTempPath(), "vega-rest-admin", Guid.NewGuid().ToString("N"));
+        try
+        {
+            var database = await SqliteVegaDatabase.OpenAsync(new SqliteVegaDatabaseOptions(Path.Combine(root, "vega.db")));
+            var world = new WorldId("rest-arena");
+            var bans = new GlobalBanService(database.GlobalBans);
+            using var sandbox = new SandboxProbe();
+            var admin = new RestAdministration(world, database.Accounts, database.Authorization, database.Regions,
+                bans, database.Mutes, sandbox, sandbox);
+            var lifetime = new RuntimeLifecycleTracker(Stopwatch.GetTimestamp());
+            var logger = new RecordingLogger();
+            using var listener = new TcpListener(IPAddress.Loopback, 0);
+            listener.Start(); int port = ((IPEndPoint)listener.LocalEndpoint).Port; listener.Stop();
+            string reader = Convert.ToHexString(RandomNumberGenerator.GetBytes(32)), writer = Convert.ToHexString(RandomNumberGenerator.GetBytes(32)),
+                administrator = Convert.ToHexString(RandomNumberGenerator.GetBytes(32));
+            static string Fingerprint(string token) => Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(token)));
+            using var service = new LoopbackRestService(world, lifetime, new State(), new Players([]), new NetworkMetricsCounter(),
+                maintenance: new Maintenance(), logger: logger, administration: admin);
+            Assert.Throws<InvalidDataException>(() => service.Start(port, Fingerprint(reader), Fingerprint(writer), Fingerprint(writer)));
+            service.Start(port, Fingerprint(reader), Fingerprint(writer), Fingerprint(administrator));
+            using var http = new HttpClient { BaseAddress = new Uri($"http://127.0.0.1:{port}/"), Timeout = TimeSpan.FromSeconds(10) };
+            async Task<HttpStatusCode> Post(string route, string payload)
+            {
+                using var content = new StringContent(payload, Encoding.UTF8, "application/json");
+                using var response = await http.PostAsync("v1/admin/" + route, content);
+                return response.StatusCode;
+            }
+            async Task<JsonDocument> Read(string route) => JsonDocument.Parse(await http.GetStringAsync("v1/admin/" + route));
+            http.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", reader);
+            using (var denied = await http.GetAsync("v1/admin/accounts")) Assert.That(denied.StatusCode, Is.EqualTo(HttpStatusCode.Forbidden));
+            Assert.That(await Post("groups/create", "{}"), Is.EqualTo(HttpStatusCode.Forbidden));
+            http.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", writer);
+            using (var denied = await http.GetAsync("v1/admin/accounts")) Assert.That(denied.StatusCode, Is.EqualTo(HttpStatusCode.Forbidden));
+            Assert.That(await Post("groups/create", "{}"), Is.EqualTo(HttpStatusCode.Forbidden));
+            http.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", administrator);
+            using (var pending = await http.GetAsync("v1/admin/accounts")) Assert.That(pending.StatusCode, Is.EqualTo(HttpStatusCode.ServiceUnavailable));
+            for (int stage = 1; stage <= (int)RuntimeLifecycleStage.NetworkReady; stage++) lifetime.Advance((RuntimeLifecycleStage)stage);
+            Assert.That(await Post("groups/create", "{\"name\":\"builders\",\"parent\":\"default\"}"), Is.EqualTo(HttpStatusCode.NoContent));
+            Assert.That(await Post("groups/permission", "{\"name\":\"builders\",\"revision\":1,\"permission\":\"vega.build\",\"effect\":\"grant\"}"), Is.EqualTo(HttpStatusCode.NoContent));
+            Assert.That(await Post("groups/permission", "{\"name\":\"builders\",\"revision\":1,\"permission\":\"vega.build\",\"effect\":\"deny\"}"), Is.EqualTo(HttpStatusCode.Conflict));
+            Assert.That(database.Authorization.HasPermission("builders", "vega.build"), Is.True);
+            Assert.That(await Post("accounts/create", "{\"name\":\"rest-user\",\"password\":\"fixture-password\",\"group\":\"builders\"}"), Is.EqualTo(HttpStatusCode.NoContent));
+            Assert.That(await database.Accounts.VerifyPasswordAsync("rest-user", "fixture-password"), Is.True);
+            using (var page = await Read("accounts/0"))
+            {
+                Assert.That(page.RootElement.GetProperty("items")[0].GetProperty("name").GetString(), Is.EqualTo("rest-user"));
+                Assert.That(page.RootElement.ToString(), Does.Not.Contain("password"));
+                Assert.That(page.RootElement.GetProperty("nextPage").ValueKind, Is.EqualTo(JsonValueKind.Null));
+            }
+            foreach (string bad in new[] { "{\"name\":\"rest-user\",\"revision\":\"1\",\"group\":\"default\"}",
+                "{\"name\":\"rest-user\",\"revision\":1,\"group\":\"default\",\"actor\":\"forged\"}",
+                "{\"name\":\"rest-user\",\"revision\":1,\"revision\":2,\"group\":\"default\"}" })
+                Assert.That(await Post("accounts/group", bad), Is.EqualTo(HttpStatusCode.BadRequest));
+            Assert.That(await Post("accounts/group", "{\"name\":\"rest-user\",\"revision\":1,\"group\":\"default\"}"), Is.EqualTo(HttpStatusCode.NoContent));
+            Assert.That(await Post("accounts/group", "{\"name\":\"rest-user\",\"revision\":1,\"group\":\"builders\"}"), Is.EqualTo(HttpStatusCode.Conflict));
+            Assert.That(await Post("regions/create", "{\"name\":\"rest-zone\",\"x\":5,\"y\":6,\"width\":10,\"height\":12,\"priority\":0,\"owner\":null}"), Is.EqualTo(HttpStatusCode.NoContent));
+            await database.Regions.CreateAsync(WorldId.Primary, "other-zone", 1, 1, 2, 2, 0, null, "test");
+            using (var page = await Read("regions"))
+            {
+                Assert.That(page.RootElement.GetProperty("items").GetArrayLength(), Is.EqualTo(1));
+                Assert.That(page.RootElement.GetProperty("items")[0].GetProperty("world").GetString(), Is.EqualTo(world.Value));
+            }
+            Assert.That(await Post("regions/resize", "{\"name\":\"rest-zone\",\"revision\":1,\"x\":8,\"y\":6,\"width\":12,\"height\":14}"), Is.EqualTo(HttpStatusCode.NoContent));
+            Assert.That(await Post("regions/delete", "{\"name\":\"other-zone\",\"revision\":1}"), Is.EqualTo(HttpStatusCode.NotFound));
+            Assert.That(await Post("bans/add", "{\"kind\":\"name\",\"value\":\"fixture-name\",\"reason\":\"fixture moderation\",\"durationSeconds\":60}"), Is.EqualTo(HttpStatusCode.NoContent));
+            Guid banId = bans.SnapshotActive(DateTimeOffset.UtcNow).Single().Id.Value;
+            Assert.That(await Post("bans/revoke", $$"""{"id":"{{banId}}","revision":0}"""), Is.EqualTo(HttpStatusCode.Conflict));
+            Assert.That(await Post("bans/revoke", $$"""{"id":"{{banId}}","revision":1}"""), Is.EqualTo(HttpStatusCode.NoContent));
+            Assert.That(bans.SnapshotActive(DateTimeOffset.UtcNow), Is.Empty);
+            Assert.That(await Post("mutes/add", "{\"kind\":\"account\",\"value\":\"rest-user\",\"reason\":\"fixture\",\"durationSeconds\":60}"), Is.EqualTo(HttpStatusCode.NoContent));
+            Guid muteId = database.Mutes.SnapshotActive(DateTimeOffset.UtcNow).Single().Id.Value;
+            Assert.That(await Post("mutes/revoke", $$"""{"id":"{{muteId}}","revision":1}"""), Is.EqualTo(HttpStatusCode.NoContent));
+            Assert.That(database.Mutes.SnapshotActive(DateTimeOffset.UtcNow), Is.Empty);
+            using (var page = await Read("sandboxes")) Assert.That(page.RootElement.ToString(), Does.Not.Contain("private-path"));
+            Assert.That(await Post("sandboxes/start", "{\"worldId\":\"arena\"}"), Is.EqualTo(HttpStatusCode.NoContent));
+            Assert.That(await Post("sandboxes/stop", "{\"worldId\":\"primary\"}"), Is.EqualTo(HttpStatusCode.BadRequest));
+            Assert.That(sandbox.Actions, Is.EqualTo(new[] { "start:arena" }));
+            Assert.That(logger.Entries.Any(e => e.Contains("action=admin.accounts.create status=204")), Is.True);
+            Assert.That(logger.Entries.Any(e => e.Contains("fixture-password") || e.Contains("rest-user")), Is.False);
+        }
+        finally
+        {
+            SqliteConnection.ClearAllPools();
+            if (Directory.Exists(root)) Directory.Delete(root, true);
+        }
+    }
+
     [Test]
     public async Task PlayerMaintenanceRequiresExactWorldSessionAndNeverFallsBackToSlotOnlyMutation()
     {
@@ -227,6 +321,23 @@ public sealed class LoopbackRestServiceTests
         public int Saves { get; private set; }
         public ValueTask SaveAsync(CancellationToken cancellationToken = default) { Saves++; return ValueTask.CompletedTask; }
         public ValueTask ShutdownAsync(string reason, CancellationToken cancellationToken = default) => throw new NotSupportedException();
+    }
+
+    private sealed class SandboxProbe : ISandboxControlService
+    {
+        public List<string> Actions { get; } = [];
+        public IReadOnlyList<SandboxStatus> Snapshot() => [new(new(new("arena"), "Arena", "private-path", "private-path",
+            SandboxPersistenceMode.Persistent, 8, new(SandboxAccessMode.Public), null, SandboxSscMode.Isolated,
+            new HashSet<string>(), 7778, 1, DateTimeOffset.UtcNow, "test"), SandboxLifecycleState.Stopped, null, null, null, null, null,
+            0, 60, new(0, 0, 0), 0, null, false)];
+        public ValueTask<SandboxOperationResult> StartAsync(WorldId worldId, CancellationToken cancellationToken = default)
+        { Actions.Add("start:" + worldId.Value); return ValueTask.FromResult(new SandboxOperationResult(SandboxOperationStatus.Applied)); }
+        public ValueTask<SandboxOperationResult> StopAsync(WorldId worldId, CancellationToken cancellationToken = default) => throw new NotSupportedException();
+        public ValueTask<SandboxOperationResult> RestartAsync(WorldId worldId, CancellationToken cancellationToken = default) => throw new NotSupportedException();
+        public ValueTask<SandboxOperationResult> CreateAsync(SandboxCreateRequest request, CancellationToken cancellationToken = default) => throw new NotSupportedException();
+        public ValueTask<SandboxOperationResult> ResetAsync(WorldId worldId, string? replacementSource = null, CancellationToken cancellationToken = default) => throw new NotSupportedException();
+        public ValueTask<SandboxOperationResult> DestroyAsync(WorldId worldId, CancellationToken cancellationToken = default) => throw new NotSupportedException();
+        public void Dispose() { }
     }
 
     private sealed class RecordingEnvironment(WorldId world) : IWorldEnvironmentService

@@ -26,8 +26,8 @@ if (creation.Actor is { } merchant)
 `NpcActorDefinition` is reusable; each created lease has a distinct GUID,
 native slot, object identity and native generation. It can be renamed,
 teleported, assigned an immutable replacement catalog or given a movement
-intent (`Vanilla`, `Stop`, horizontal `MoveTo`, or exact-session
-`FollowPlayer`). Controlled movement replaces only the native AI call;
+intent (`Vanilla`, `Stop`, horizontal `MoveTo`, exact-session
+`FollowPlayer`, or bounded `Patrol`). Controlled movement replaces only the native AI call;
 Terraria retains gravity, collision and motion integration. It is not a
 pathfinding or vertical-navigation implementation. Custom actors use a
 vanilla presentation; new sprites, client-local dialogue/buttons and arbitrary
@@ -57,7 +57,10 @@ item/prefix combination and a stack no larger than that item's maximum. An
 invalid replacement leaves the active catalog and revision unchanged. The
 serialized 40-slot presentation is cached per actor revision, shared on
 repeated sends, and invalidated when the catalog changes or stock is consumed;
-older in-flight buffers remain immutable. The result `Sent` is not
+older in-flight buffers remain immutable. Direct encoded catalog sends use a
+no-op completion because they bypass native `SendData`'s spam counter
+increment; the native decrementing callback would corrupt that counter.
+The result `Sent` is not
 acknowledgement that the player opened a shop window.
 
 The pinned Terraria 1.4.6.1 `Main.OpenShop` implementation calls client-local
@@ -83,15 +86,54 @@ Failed preparations leave the inventory untouched. Every changed native slot
 is sent directly to the purchasing client, then broadcast to other clients.
 `BuyOnce` in this lane
 means one globally available offer per actor catalog, with a new revision on
-consumption. The purchase lane uses vanilla coins from the main inventory and
-coin slots; banks, custom currencies, persistent stock and transaction retry
-IDs are not implemented. It is separate from the stock client UI purchase:
+consumption. Coin offers use vanilla coins from the main inventory and coin
+slots. Alternatively, `NpcShopOffer.ItemPrice` specifies an exact item type,
+prefix and quantity in the main inventory; debit and reward use the same
+atomic native exchange. Item-priced offers are deliberately hidden from the
+stock coin-price shop UI and are purchased through plugin actions/commands.
+Banks, external economy providers, persistent stock and transaction retry IDs
+are not implemented. This lane is separate from the stock client UI purchase:
 do not automatically debit coins again merely because a client changed its
 inventory. The native snapshot/commit checks are not a claim of full
 authoritative client inventory custody without the existing SSC qualification.
 
+## Dialogue, quests and behavior
+
+`NpcDialogueDefinition` is an immutable bounded node graph. A plugin assigns it
+on the actor definition or with `SetDialogueAsync`, then calls
+`BeginDialogueAsync(player)` after a confirmed native conversation. It gets a
+detached text and choices view to present via chat or a compatible plugin UI;
+`ChooseDialogueAsync(player, view.Revision, choiceId)` validates the exact actor,
+session, nearby conversation and offered revision. Selecting a choice advances
+or closes the graph and publishes `OnNpcActorDialogueChoice` after the state
+transition. Closing or changing the vanilla conversation invalidates the old
+menu. Stale or replacement-session choices cannot be replayed. A stock client
+generates its NPC dialogue buttons/text locally; this API does not pretend to
+replace those controls.
+
+`NpcQuestCatalog` provides up to 64 item hand-in quests per actor. Each quest
+has a required exact native item amount, one native item reward stack, title,
+description and repeatable flag. `GetQuestsAsync`, `AcceptQuestAsync` and
+`TurnInQuestAsync` expose the nearby player's current state and check the
+catalog revision. Turn-in consumes the required main-inventory items and adds
+the reward in the same native atomic transaction used by shops. Insufficient
+items, inventory capacity or non-authoritative SSC leave the quest accepted
+and the inventory unchanged. An already completed non-repeatable quest cannot
+be completed twice. Quest state is bounded to each actor and exact connected
+player session; reconnecting, replacing the catalog or unloading the actor
+does not restore previous progress. Plugins may subscribe to the guarded
+`OnNpcActorQuest` event and own persistent account progression themselves.
+
+`Patrol` accepts 2–32 detached world-space waypoints and cycles horizontally,
+retaining native collision and gravity. `OnNpcActorThink` supplies a guarded
+world-local actor snapshot once per 60 native AI visits; plugin code may update
+the actor's intent on the game thread. This is a bounded programming surface,
+not a replacement for Terraria pathfinding or an unrestricted AI callback.
+
 The sample plugin includes `samplemerchant create <pixelX> <pixelY>`, `info`,
-`move <pixelX>`, `remove`, `present` and `buy <offer>` (permission
+`move <pixelX>`, `patrol <leftX> <rightX>`, `remove`, `present`, `buy <offer>`,
+`talk`, `choose <revision> <choice>`, `quests`, `accept <quest>` and
+`turnin <quest>` (permission
 `vega.samples.world`). Its presentation and explicit purchase commands require
 the interacting player, not the server console. Native shop flows require a
 real stock-client qualification; tests use an isolated normal conversation

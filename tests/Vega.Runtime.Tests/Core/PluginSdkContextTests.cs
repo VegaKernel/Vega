@@ -14,6 +14,41 @@ namespace Vega.Runtime.Tests.Core;
 public sealed class PluginSdkContextTests
 {
     [Test]
+    public async Task NativeEntryAndClosingEventsAreGuardedAndOwnedResourcesRetireInReverseOrder()
+    {
+        var players = new RecordingPlayers
+        {
+            Current = new PlayerSnapshot(new(1), "fixture", false, 100, 100, 20, 20, new(0, 0), false, 0)
+                { SessionId = PlayerSessionId.New() }
+        };
+        var logger = new RecordingLogger();
+        var scope = new HotModuleRegistrationScope(new RecordingCommandRegistry(), logger, "Plugin.Resources",
+            Path.GetTempPath(), playerDirectory: players, playerLifecycle: players);
+        IVegaPluginContext plugin = scope;
+        int entered = 0, closing = 0;
+        plugin.Players.OnEnteredWorld(player => { Assert.That(player.SessionId, Is.EqualTo(players.Current!.SessionId)); entered++; });
+        plugin.Players.OnClosing(_ => throw new InvalidOperationException("fixture callback failure"));
+        plugin.Players.OnClosing(_ => closing++);
+        Assert.DoesNotThrow(players.RaiseEntered);
+        Assert.DoesNotThrow(players.RaiseClosing);
+        Assert.That(entered, Is.EqualTo(1)); Assert.That(closing, Is.EqualTo(1));
+        Assert.That(scope.Faults.Count, Is.EqualTo(1));
+        Assert.That(scope.Faults.Operation, Is.EqualTo("players.closing"));
+
+        var order = new List<string>();
+        var resource = new DisposableProbe(() => order.Add("sync"));
+        Assert.That(plugin.Resources.Own(resource), Is.SameAs(resource));
+        plugin.Resources.OwnAsync(new AsyncDisposableProbe(() => order.Add("async")));
+        plugin.Resources.OnCleanup(() => { order.Add("cleanup"); throw new InvalidOperationException("fixture cleanup fault"); });
+        var error = Assert.ThrowsAsync<AggregateException>(async () => await scope.DisposeAsync());
+        Assert.That(error!.Flatten().InnerExceptions.Any(ex => ex.Message == "fixture cleanup fault"), Is.True);
+        Assert.That(order, Is.EqualTo(new[] { "cleanup", "async", "sync" }));
+        players.RaiseEntered(); players.RaiseClosing();
+        Assert.That(entered, Is.EqualTo(1)); Assert.That(closing, Is.EqualTo(1));
+        Assert.That(players.EnteredSubscribers + players.ClosingSubscribers, Is.Zero);
+    }
+
+    [Test]
     public async Task SessionBoundMessageNeverFallsBackToReusedPlayerSlot()
     {
         var players = new RecordingPlayers();
@@ -354,13 +389,19 @@ public sealed class PluginSdkContextTests
         IPlayerDirectory,
         IPlayerMessenger,
         IPlayerOperations,
-        IPlayerSessionLifecycle
+        IPlayerSessionLifecycle, IPlayerSessionEnteredWorld, IPlayerSessionClosing
     {
         public event Action<PlayerSessionOpened>? Opened;
         public event Action<PlayerSessionClosed>? Closed;
+        public event Action<PlayerSnapshot>? EnteredWorld;
+        public event Action<PlayerSessionClosed>? Closing;
 
         public int OpenedSubscribers => Opened?.GetInvocationList().Length ?? 0;
         public int ClosedSubscribers => Closed?.GetInvocationList().Length ?? 0;
+        public int EnteredSubscribers => EnteredWorld?.GetInvocationList().Length ?? 0;
+        public int ClosingSubscribers => Closing?.GetInvocationList().Length ?? 0;
+        public void RaiseEntered() { if (Current is { } player) EnteredWorld?.Invoke(player); }
+        public void RaiseClosing() { if (Current is { SessionId: { } session } player) Closing?.Invoke(new(session, player.Id, player.Name, DateTimeOffset.UtcNow)); }
 
         public PlayerSnapshot? Current { get; set; }
         public bool SupportsSessionBoundMessages { get; set; } = true;
@@ -419,6 +460,10 @@ public sealed class PluginSdkContextTests
             "player",
             DateTimeOffset.UtcNow));
     }
+
+    private sealed class DisposableProbe(Action dispose) : IDisposable { public void Dispose() => dispose(); }
+    private sealed class AsyncDisposableProbe(Action dispose) : IAsyncDisposable
+    { public async ValueTask DisposeAsync() { await Task.Yield(); dispose(); } }
 
     private sealed class ImmediateDispatcher : IGameThreadDispatcher
     {

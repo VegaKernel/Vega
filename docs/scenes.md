@@ -141,30 +141,41 @@ read-only display example.
 `TryTakeReadRequest` returns the latest, exact-session read intent. The same
 visibility, active-footprint, world, reach, expiry and unload rules apply as for
 logical chests. A provider supports up to 256 combined virtual objects; their
-footprints cannot overlap. Chests, signs and item frames share one optional metadata reference
+footprints cannot overlap. Chests, signs and display entities share one optional metadata reference
 on the overlay, so ordinary tile-only providers do not gain a field for every kind.
 
 The ordinary sign-read interaction is observed by the plugin, and sign reads/edits
 in virtual terrain do not reach canonical sign state. Existing signs outside an
 overlay remain native. Text is owned by the plugin, not written to the `.wld` or
-assigned a native sign index. `SupportsVirtualSignEdits` advertises the opt-in
+registered into the native server sign table. `SupportsVirtualSignEdits` advertises the opt-in
 `CreateVirtualSign(..., allowEdits: true)` overload. A sign read opens a bounded
 two-minute edit observation window for that exact sign and connection; one
 matching text edit produces a five-second `TryTakeEditRequest` intent. The plugin
 may authorize it by calling `TryAcceptEdit(request)`, which rechecks the live
 session, world, reach, visibility and original immutable revision before publishing
 text. Read-only signs remain the default; text never mutates in the packet path.
-This is not the vanilla sign editor or a native tile-entity implementation; native
-UI presentation and stock-client qualification remain open. See
-`samples/Vega.PluginSamples/VirtualSignPreviewCommand.cs`
-(`samplesign`), which displays text through chat from a tracked game-thread task.
+`SupportsVirtualSignUi` and `TryPresentRead(request)` additionally send a stock
+native sign-opening response from the game thread for the exact live observer,
+without registering a canonical sign. The presentation requires a complete native
+sign-shaped footprint. The bounded per-session index binding survives provider
+movement/removal so a stale virtual edit cannot become a canonical edit; an actual
+canonical read/response may reclaim the index. `TryRefreshEdit(request)` sends the
+current logical text without reopening the window (e.g. after rejection).
+`TryAcceptEdit` also attempts this refresh after committing the new revision.
+The stock sign protocol permits local editing even on read-only presentations;
+the server ignores it and a subsequent read restores authoritative text. Native
+metadata decoding and the opening-response framing are tested headlessly;
+graphical editor interaction still requires stock-client qualification.
+`samples/Vega.PluginSamples/VirtualSignPreviewCommand.cs` (`samplesign`) presents
+the native response when available with chat fallback; `--edit` explicitly opts
+the sample personal sign into accepting its observer's edits.
 Both virtual-object samples use `plugin.Players.Message(playerSnapshot, text)`;
 the snapshot overload checks the observed session/world and preserves the exact
 native target when dispatching the tracked message operation. Hosts without an
 explicit session-bound messenger capability return unavailable rather than
 falling back to a reusable numeric slot.
 
-### Read-only virtual item-frame presentation
+### Read-only virtual display furniture
 
 `SupportsVirtualItemFrames` advertises `CreateVirtualItemFrame(localX, localY,
 itemType, stack, prefix)` and a revisioned `IPluginVirtualItemFrame.TryReplace`.
@@ -172,19 +183,28 @@ The caller supplies the actual 2×2 native item-frame tiles (tile type 395, comp
 18-pixel frames). Item updates schedule a redraw; the SDK lease follows provider
 movement, observer visibility, and plugin unload. Portable `.trschem` item-frame
 records are imported as the same non-canonical metadata by `/fake schematic`
-and `/pfake schematic`; other tile-entity kinds are not spawned by that path.
+and `/pfake schematic`. `SupportsVirtualDisplays` and `CreateVirtualDisplay(kind,
+localX, localY, items, dyes)` additionally support weapon racks, mannequins, hat
+racks and food platters, with kind-specific native footprints and capacities.
+These kinds also import from `.trschem`, while unsupported tile entities remain
+in the source document. A display's `TryReplace` uses its current revision.
+Items/dyes are detached slot-ordered lists (one item for racks/platters, up to
+nine equip/dye entries for mannequins, up to two each for hat racks). The native
+adapter validates supported item IDs, stack limits and prefixes before sending a
+display; incompatible metadata is not projected into a native entity.
 
 After redrawing the tiles, the native renderer sends standard tile-entity metadata
 to the exact observing connection. It reserves IDs via the native allocator but
 does not insert entities into server `TileEntity.ByID` or `ByPosition`. The
-presentation is bounded to 256 active frames per observer; hidden/removed frames
+presentation is bounded to 256 active display entities (including frames) per observer; hidden/removed displays
 receive a removal packet when the affected tiles are redrawn. A canonical tile
 entity already at that position suppresses the virtual projection; a canonical
 collision detected during redraw removes the virtual ID and restores canonical
-metadata. Ordinary placement into a phantom frame remains blocked, with no native
-inventory transfer. There is no graphical client UI qualification, independent
-simulation, or guarantee of confidentiality of canonical section data. This slice
-does not implement mannequins, racks, pylons, sensors or interactive tile entities.
+metadata. Ordinary placement into phantom displays and interactions with canonical
+tile entities hidden by overlays remain blocked. This is read-only presentation,
+not native inventory transfer. There is no graphical client UI qualification,
+independent simulation, or guarantee of confidentiality of canonical section data.
+Pylons, sensors and interactive tile-entity inventories remain outside this scope.
 
 Personal providers can enable `FillOutsideWithAir` with `pfake air <name> on`,
 `IPluginFakeProvider.CreatePersonal(..., fillOutsideWithAir: true)`, or

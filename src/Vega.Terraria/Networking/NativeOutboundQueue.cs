@@ -54,6 +54,7 @@ internal sealed class NativeOutboundQueue
     private long inFlightSince;
     private bool writerStarted;
     private bool writerWaiting;
+    private bool writerWakeDeferred;
     // Published under gate with the queue; a concurrent publication after an empty read
     // remains eligible for the next pump probe. Never read Queue<T>.Count outside gate.
     private bool hasCompletions;
@@ -111,7 +112,15 @@ internal sealed class NativeOutboundQueue
     {
         ArgumentNullException.ThrowIfNull(source);
         ArgumentOutOfRangeException.ThrowIfNegativeOrZero(length);
-        ReadOnlySpan<byte> bytes = source.AsSpan(offset, length);
+        return TryEnqueue(source.AsSpan(offset, length), generation, callback, callbackState);
+    }
+
+    /// <summary>Copies a synchronous borrowed packet into the connection-owned FIFO.</summary>
+    public NativeOutboundEnqueueResult TryEnqueue(ReadOnlySpan<byte> bytes, long generation,
+        SocketSendCallback? callback = null, object? callbackState = null, bool deferWake = false)
+    {
+        int length = bytes.Length;
+        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(length);
         NativeOutboundEnqueueResult result;
         lock (gate)
         {
@@ -138,7 +147,9 @@ internal sealed class NativeOutboundQueue
                     { EnqueuedAt = measureAge ? Stopwatch.GetTimestamp() : 0 }));
                     retainedBytes += owned.Length;
                     outstanding++;
-                    WakeWriterLocked();
+                    if (deferWake && edgeTriggeredWake && writerWaiting)
+                        Volatile.Write(ref writerWakeDeferred, true);
+                    else WakeWriterLocked();
                     return NativeOutboundEnqueueResult.Accepted;
                 }
             }
@@ -356,6 +367,7 @@ internal sealed class NativeOutboundQueue
 
     private void WakeWriterLocked()
     {
+        if (writerWakeDeferred) Volatile.Write(ref writerWakeDeferred, false);
         if (!edgeTriggeredWake) available.Release();
         else if (writerWaiting)
         {
@@ -363,6 +375,17 @@ internal sealed class NativeOutboundQueue
             available.Release();
         }
     }
+
+    public void FlushDeferredWake()
+    {
+        if (!Volatile.Read(ref writerWakeDeferred)) return;
+        lock (gate)
+        {
+            if (writerWakeDeferred) WakeWriterLocked();
+        }
+    }
+
+    internal bool IsWriterWaiting { get { lock (gate) return writerWaiting; } }
 
     private Task WaitForSignalAsync(CancellationToken token) => singleCancellationWake
         ? available.WaitAsync() : available.WaitAsync(token);

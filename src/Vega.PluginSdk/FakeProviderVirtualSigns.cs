@@ -13,6 +13,10 @@ public interface IPluginVirtualSign : IDisposable
     bool TryTakeEditRequest(out SceneVirtualSignEditRequest? request) { request = null; return false; }
     /// <summary>Accept an opted-in edit after the plugin authorizes the intent. Revalidates the current observer, visibility, reach and revision.</summary>
     bool TryAcceptEdit(SceneVirtualSignEditRequest request) => false;
+    /// <summary>Open the stock sign response for this exact read on the authoritative game thread.</summary>
+    bool TryPresentRead(SceneVirtualSignReadRequest request) => false;
+    /// <summary>Refresh logical text without opening the UI (e.g. an explicitly rejected edit).</summary>
+    bool TryRefreshEdit(SceneVirtualSignEditRequest request) => false;
 }
 
 internal static partial class VegaPluginRuntime
@@ -97,8 +101,17 @@ internal static partial class VegaPluginRuntime
                     !sceneRuntime.TryApplyVirtualSignEdit(player, request, out var updated)) return false;
                 var signs = definition.VirtualSigns.Select(sign => sign.Id == id ? updated! : sign).ToArray();
                 definition = definition with { VirtualSigns = Array.AsReadOnly(signs) };
+                sceneRuntime.TryRefreshVirtualSign(player, request);
                 return true;
             });
+
+            private bool PresentSignRead(VirtualSignId id, SceneVirtualSignReadRequest request) => Read(() =>
+                request.Sign.SceneId == Scene.Id && request.Sign.OverlayId == Id && request.Sign.Definition?.Id == id &&
+                Owner.TryGetEditor(request.Observer.Player, out var player) && player is not null && sceneRuntime.TryPresentVirtualSign(player, request));
+
+            private bool RefreshSignEdit(VirtualSignId id, SceneVirtualSignEditRequest request) => Read(() =>
+                request.Sign.SceneId == Scene.Id && request.Sign.OverlayId == Id && request.Sign.Definition?.Id == id &&
+                Owner.TryGetEditor(request.Observer.Player, out var player) && player is not null && sceneRuntime.TryRefreshVirtualSign(player, request));
 
             private sealed class VirtualSign(TileProvider provider, VirtualSignId id) : IPluginVirtualSign
             {
@@ -128,6 +141,16 @@ internal static partial class VegaPluginRuntime
                 {
                     AssertOpen();
                     return provider.AcceptSignEdit(id, request);
+                }
+                public bool TryPresentRead(SceneVirtualSignReadRequest request)
+                {
+                    AssertOpen();
+                    return provider.PresentSignRead(id, request);
+                }
+                public bool TryRefreshEdit(SceneVirtualSignEditRequest request)
+                {
+                    AssertOpen();
+                    return provider.RefreshSignEdit(id, request);
                 }
                 public void Dispose()
                 {

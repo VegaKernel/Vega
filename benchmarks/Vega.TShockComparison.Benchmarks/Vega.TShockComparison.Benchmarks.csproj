@@ -1,0 +1,19 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net9.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <IsPackable>false</IsPackable>
+    <DefineConstants>$(DefineConstants);TSHOCK_COMPARISON</DefineConstants>
+  </PropertyGroup>
+  <ItemGroup>
+    <Reference Include="OTAPI" HintPath="$(TShockRoot)/bin/OTAPI.dll" Private="false" />
+    <Reference Include="OTAPI.Runtime" HintPath="$(TShockRoot)/bin/OTAPI.Runtime.dll" Private="false" />
+    <Reference Include="TerrariaServer" HintPath="$(TShockRoot)/bin/TerrariaServer.dll" Private="false" />
+    <Reference Include="TShockAPI" HintPath="$(TShockRoot)/ServerPlugins/TShockAPI.dll" Private="false" />
+    <Compile Include="../Vega.MixedGameplay.Benchmarks/PacedLoopbackTransport.cs" Link="PacedLoopbackTransport.cs" />
+  </ItemGroup>
+  <Target Name="RequireComparisonPackage" BeforeTargets="PrepareForBuild">
+    <Error Condition="!Exists('$(TShockRoot)/bin/OTAPI.dll')" Text="Set TShockRoot to an extracted official TShock 6.2.1 release." />
+  </Target>
+</Project>

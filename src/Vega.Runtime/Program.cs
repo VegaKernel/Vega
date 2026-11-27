@@ -363,24 +363,6 @@ int Start()
             Path.Combine(AppContext.BaseDirectory, "config", "world-clock.json"), logger);
         var worldClock = new MonotonicWorldClock(worldClockOptions);
         var worldEnvironment = new TerrariaWorldEnvironmentService(gameThreadDispatcher, runtimeWorldId, worldClock);
-        using var rest = new LoopbackRestService(runtimeWorldId, lifecycle, operationsState, playerBoundary, networkMetrics, serverControl,
-            runtimeMetrics, gameThreadDispatcher.ReadQueueMetrics, worldEnvironment, logger);
-        using IDisposable restRegistration = commandDispatcher.Register(rest);
-        if (!backendLaunch.IsBackend && Environment.GetEnvironmentVariable("VEGA_REST_PORT") is { Length: > 0 } restPort)
-        {
-            try
-            {
-                if (!int.TryParse(restPort, out int port)) throw new InvalidDataException("Invalid REST port.");
-                rest.Start(port, Environment.GetEnvironmentVariable("VEGA_REST_TOKEN_SHA256") ?? "",
-                    Environment.GetEnvironmentVariable("VEGA_REST_MAINTENANCE_TOKEN_SHA256"));
-                logger.Log(OperationsLogLevel.Information, "rest", $"Scoped REST available on loopback port {port}.");
-            }
-            catch (Exception ex) when (ex is IOException or InvalidDataException or System.Net.HttpListenerException or UnauthorizedAccessException or ArgumentException)
-            {
-                logger.Log(OperationsLogLevel.Critical, "rest", "Could not start configured loopback REST listener.", ex);
-                return 2;
-            }
-        }
         var regionReset = new BindableWorldResetParticipant("regions");
         using var worldReset = new WorldResetOrchestrator(
             new FileWorldResetBackend(),
@@ -710,6 +692,27 @@ int Start()
             logger,
             accounts: accountSessions,
             dispatcher: gameThreadDispatcher);
+        var restAdministration = new RestAdministration(runtimeWorldId, database.Accounts, database.Authorization,
+            database.Regions, banService, database.Mutes, sandboxDirectory, sandboxControl);
+        using var rest = new LoopbackRestService(runtimeWorldId, lifecycle, operationsState, playerBoundary, networkMetrics, serverControl,
+            runtimeMetrics, gameThreadDispatcher.ReadQueueMetrics, worldEnvironment, logger, restAdministration);
+        using IDisposable restRegistration = commandDispatcher.Register(rest);
+        if (!backendLaunch.IsBackend && Environment.GetEnvironmentVariable("VEGA_REST_PORT") is { Length: > 0 } restPort)
+        {
+            try
+            {
+                if (!int.TryParse(restPort, out int port)) throw new InvalidDataException("Invalid REST port.");
+                rest.Start(port, Environment.GetEnvironmentVariable("VEGA_REST_TOKEN_SHA256") ?? "",
+                    Environment.GetEnvironmentVariable("VEGA_REST_MAINTENANCE_TOKEN_SHA256"),
+                    Environment.GetEnvironmentVariable("VEGA_REST_ADMIN_TOKEN_SHA256"));
+                logger.Log(OperationsLogLevel.Information, "rest", $"Scoped REST available on loopback port {port}.");
+            }
+            catch (Exception ex) when (ex is IOException or InvalidDataException or System.Net.HttpListenerException or UnauthorizedAccessException or ArgumentException)
+            {
+                logger.Log(OperationsLogLevel.Critical, "rest", "Could not start configured loopback REST listener.", ex);
+                return 2;
+            }
+        }
         using var worldImages = new TerrariaWorldImageService(logger, lifecycle, worldImageOptions.Enabled);
         var backupBarrier = new TerrariaBackupConsistencyBarrier(serverControl, worldImages);
         BackupOptions backupOptions = BackupOptionsStore.Load(

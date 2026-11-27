@@ -13,7 +13,7 @@ public sealed partial class SceneRuntime : IVirtualChestTransferAuthority
     private readonly Dictionary<(WorldId World, PlayerId Player), SceneVirtualChestOpenRequest> pendingVirtualChestOpens = [];
     public bool SupportsVirtualChests => true;
 
-    private static bool HasVirtualObjects(SceneOverlayDefinition definition) => definition.VirtualChests.Count != 0 || definition.VirtualSigns.Count != 0 || definition.VirtualItemFrames.Count != 0;
+    private static bool HasVirtualObjects(SceneOverlayDefinition definition) => definition.VirtualChests.Count != 0 || definition.VirtualSigns.Count != 0 || definition.VirtualItemFrames.Count != 0 || definition.VirtualDisplays.Count != 0;
 
     private static SceneOverlayDefinition FreezeVirtualObjects(SceneOverlayDefinition definition)
     {
@@ -21,20 +21,23 @@ public sealed partial class SceneRuntime : IVirtualChestTransferAuthority
         var chests = definition.VirtualChests;
         var signs = definition.VirtualSigns;
         var frames = definition.VirtualItemFrames;
-        if (chests.Count == 0 && signs.Count == 0 && frames.Count == 0)
+        var displays = definition.VirtualDisplays;
+        if (chests.Count == 0 && signs.Count == 0 && frames.Count == 0 && displays.Count == 0)
             return ReferenceEquals(chests, Array.Empty<SceneVirtualChestDefinition>()) && ReferenceEquals(signs, Array.Empty<SceneVirtualSignDefinition>()) &&
-                ReferenceEquals(frames, Array.Empty<SceneVirtualItemFrameDefinition>())
-                ? definition : definition with { VirtualChests = Array.Empty<SceneVirtualChestDefinition>(), VirtualSigns = Array.Empty<SceneVirtualSignDefinition>(), VirtualItemFrames = Array.Empty<SceneVirtualItemFrameDefinition>() };
-        if ((long)chests.Count + signs.Count + frames.Count > MaximumVirtualObjectsPerOverlay || definition.Bounds.Width < 2 || definition.Bounds.Height < 2)
+                ReferenceEquals(frames, Array.Empty<SceneVirtualItemFrameDefinition>()) && ReferenceEquals(displays, Array.Empty<SceneVirtualDisplayDefinition>())
+                ? definition : definition with { VirtualChests = Array.Empty<SceneVirtualChestDefinition>(), VirtualSigns = Array.Empty<SceneVirtualSignDefinition>(), VirtualItemFrames = Array.Empty<SceneVirtualItemFrameDefinition>(), VirtualDisplays = Array.Empty<SceneVirtualDisplayDefinition>() };
+        if ((long)chests.Count + signs.Count + frames.Count + displays.Count > MaximumVirtualObjectsPerOverlay)
             throw new ArgumentException("Too many virtual objects or invalid provider bounds.", nameof(definition));
         var frozenChests = chests.ToArray();
         var frozenSigns = signs.ToArray();
         var frozenFrames = frames.ToArray();
-        if ((long)frozenChests.Length + frozenSigns.Length + frozenFrames.Length > MaximumVirtualObjectsPerOverlay)
+        var frozenDisplays = displays.ToArray();
+        if ((long)frozenChests.Length + frozenSigns.Length + frozenFrames.Length + frozenDisplays.Length > MaximumVirtualObjectsPerOverlay)
             throw new ArgumentException("Too many virtual objects in one provider.", nameof(definition));
         var chestIds = new HashSet<VirtualChestId>();
         var signIds = new HashSet<VirtualSignId>();
         HashSet<VirtualItemFrameId>? frameIds = null;
+        HashSet<VirtualDisplayId>? displayIds = null;
         var occupied = new HashSet<(int X, int Y)>();
         foreach (var chest in frozenChests)
         {
@@ -53,27 +56,35 @@ public sealed partial class SceneRuntime : IVirtualChestTransferAuthority
             if (!ValidItemFrameTiles(definition.Tiles, frame.LocalX, frame.LocalY))
                 throw new ArgumentException("Virtual item frames require a complete native item-frame tile footprint.", nameof(definition));
         }
+        foreach (var display in frozenDisplays)
+        {
+            if (display is null || !(displayIds ??= []).Add(display.Id)) throw new ArgumentException("Virtual display identity must be unique.", nameof(definition));
+            ValidateFootprint(definition.Bounds, display.LocalX, display.LocalY, occupied, display.Width, display.Height);
+            if (!ValidDisplayTiles(definition.Tiles, display.LocalX, display.LocalY, display.TileType, display.Width, display.Height))
+                throw new ArgumentException("Virtual displays require a complete native furniture footprint.", nameof(definition));
+        }
         return definition with
         {
             VirtualChests = frozenChests.Length == 0 ? Array.Empty<SceneVirtualChestDefinition>() : Array.AsReadOnly(frozenChests),
             VirtualSigns = frozenSigns.Length == 0 ? Array.Empty<SceneVirtualSignDefinition>() : Array.AsReadOnly(frozenSigns),
-            VirtualItemFrames = frozenFrames.Length == 0 ? Array.Empty<SceneVirtualItemFrameDefinition>() : Array.AsReadOnly(frozenFrames)
+            VirtualItemFrames = frozenFrames.Length == 0 ? Array.Empty<SceneVirtualItemFrameDefinition>() : Array.AsReadOnly(frozenFrames),
+            VirtualDisplays = frozenDisplays.Length == 0 ? Array.Empty<SceneVirtualDisplayDefinition>() : Array.AsReadOnly(frozenDisplays)
         };
     }
 
-    private static void ValidateFootprint(SceneBounds bounds, int localX, int localY, HashSet<(int X, int Y)> occupied)
+    private static void ValidateFootprint(SceneBounds bounds, int localX, int localY, HashSet<(int X, int Y)> occupied, int width = 2, int height = 2)
     {
-        if (localX > bounds.Width - 2 || localY > bounds.Height - 2)
+        if (localX > bounds.Width - width || localY > bounds.Height - height)
             throw new ArgumentException("Virtual object footprint must fit inside its provider.");
-        for (int x = localX; x < localX + 2; x++)
-        for (int y = localY; y < localY + 2; y++)
+        for (int x = localX; x < localX + width; x++)
+        for (int y = localY; y < localY + height; y++)
             if (!occupied.Add((x, y))) throw new ArgumentException("Virtual object footprints cannot overlap.");
     }
 
     private static bool SameVisualProvider(SceneOverlayDefinition a, SceneOverlayDefinition b) =>
         a.Bounds == b.Bounds && a.Order == b.Order && a.Enabled == b.Enabled && a.FillOutsideWithAir == b.FillOutsideWithAir &&
         ReferenceEquals(a.Tiles, b.Tiles) && a.Observers.IsGlobal == b.Observers.IsGlobal &&
-        a.Observers.Players.SetEquals(b.Observers.Players) && a.VirtualItemFrames.SequenceEqual(b.VirtualItemFrames);
+        a.Observers.Players.SetEquals(b.Observers.Players) && a.VirtualItemFrames.SequenceEqual(b.VirtualItemFrames) && a.VirtualDisplays.SequenceEqual(b.VirtualDisplays);
 
     public bool TryResolveVirtualChest(WorldId worldId, SceneSessionObserver observer, int tileX, int tileY,
         out SceneVirtualChestSnapshot? chest)
@@ -102,11 +113,11 @@ public sealed partial class SceneRuntime : IVirtualChestTransferAuthority
         return false;
     }
 
-    private static bool FootprintVisible(WorldLookup world, PlayerId observer, SceneOverlayDefinition definition, int localX, int localY)
+    private static bool FootprintVisible(WorldLookup world, PlayerId observer, SceneOverlayDefinition definition, int localX, int localY, int width = 2, int height = 2)
     {
         int x = definition.Bounds.X + localX, y = definition.Bounds.Y + localY;
-        for (int dx = 0; dx < 2; dx++)
-        for (int dy = 0; dy < 2; dy++)
+        for (int dx = 0; dx < width; dx++)
+        for (int dy = 0; dy < height; dy++)
             if (!ReferenceEquals(VisibleProvider(world, observer, x + dx, y + dy), definition) ||
                 (definition.Tiles[localX + dx, localY + dy].Flags & SceneTileFlags.Active) == 0) return false;
         return true;

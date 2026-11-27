@@ -498,17 +498,20 @@ public sealed class RuntimeDependencyTests
             repositoryRoot, "src", "Vega.Runtime", "Vega.Runtime.csproj"));
         string playerBoundary = File.ReadAllText(Path.Combine(repositoryRoot, "src", "Vega.Terraria", "Players", "TerrariaPlayerBoundary.cs"));
         string nativeHost = File.ReadAllText(Path.Combine(repositoryRoot, "src", "Vega.Terraria", "TerrariaServerHost.cs"));
+        string sscHooks = File.ReadAllText(Path.Combine(repositoryRoot, "src", "Vega.Terraria", "Hooking", "NativeSscLifecycleHooks.cs"));
 
         Assert.Multiple(() =>
         {
-            Assert.That(terrariaProject, Does.Contain("PackageReference Include=\"TerrariaRuntime\" Version=\"1.1.6\""));
+            Assert.That(terrariaProject, Does.Contain("PackageReference Include=\"TerrariaRuntime\" Version=\"1.1.7\""));
             Assert.That(terrariaProject, Does.Not.Contain("TerrariaRuntime.Upcoming"));
             Assert.That(runtimeProject, Does.Not.Contain("ModFramework"));
             Assert.That(playerBoundary, Does.Contain("Hooks.Netplay.ServerConnectionClosing += OnConnectionClosing"));
             Assert.That(playerBoundary, Does.Contain("Hooks.Netplay.ServerPlayerEnteringWorld += OnPlayerEnteringWorld"));
-            Assert.That(nativeHost, Does.Contain("Hooks.Netplay.ServerPlayerBeforeWorldData += OnBeforeWorldData"));
-            Assert.That(nativeHost, Does.Contain("earlyJoinCharacters!.ObserveCharacterReceived(slot, socket)"));
-            Assert.That(nativeHost, Does.Contain("Hooks.Netplay.ServerPlayerEnteringWorld += OnEnteringWorld"));
+            Assert.That(nativeHost, Does.Contain("new NativeSscLifecycleHooks("));
+            Assert.That(nativeHost, Does.Contain("sscLifecycleHooks?.Attach()"));
+            Assert.That(sscHooks, Does.Contain("Hooks.Netplay.ServerPlayerBeforeWorldData += OnBeforeWorldData"));
+            Assert.That(sscHooks, Does.Contain("characters.ObserveCharacterReceived(slot, socket)"));
+            Assert.That(sscHooks, Does.Contain("Hooks.Netplay.ServerPlayerEnteringWorld += OnEnteringWorld"));
             Assert.That(playerBoundary, Does.Not.Contain("HookEvents.Terraria.RemoteClient.Reset"));
         });
     }

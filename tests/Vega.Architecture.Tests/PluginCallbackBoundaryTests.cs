@@ -17,12 +17,14 @@ public sealed class PluginCallbackBoundaryTests
             .ToArray();
         Assert.That(callbackMethods, Is.EquivalentTo(new[]
         {
-            "IPluginPlayers.OnJoined", "IPluginPlayers.OnLeft", "IPluginTasks.Post", "IPluginTasks.Every",
+            "IPluginPlayers.OnJoined", "IPluginPlayers.OnLeft", "IPluginPlayers.OnEnteredWorld", "IPluginPlayers.OnClosing",
+            "IPluginResources.OnCleanup", "IPluginTasks.Post", "IPluginTasks.Every",
             "IPluginTasks.RunIo", "IPluginConfiguration.Use", "IPluginStorage.LoadJson",
             "IPluginWorldEvents.OnNpcCreating", "IPluginWorldEvents.OnNpcKilled", "IPluginWorldEvents.OnNpcTransforming",
             "IPluginWorldEvents.OnNpcLootDropped", "IPluginWorldEvents.OnProjectileSynchronized", "IPluginWorldEvents.OnProjectileRemoved",
             "IPluginWorldEvents.AllowNpcTransform", "IPluginWorldEvents.AllowNpcLoot", "IPluginWorldEvents.OnNpcActorInteracted",
-            "IPluginWorldEvents.OnNpcActorPurchased"
+            "IPluginWorldEvents.OnNpcActorPurchased", "IPluginWorldEvents.OnNpcActorDialogueChoice",
+            "IPluginWorldEvents.OnNpcActorQuest", "IPluginWorldEvents.OnNpcActorThink"
         }), "A new ordinary SDK delegate surface requires a fault-boundary audit and regression.");
         // Storage defaults/validation run synchronously at the direct plugin call site and are
         // not retained as host callbacks. Managed configuration diagnostics are retained and guarded below.
@@ -37,6 +39,10 @@ public sealed class PluginCallbackBoundaryTests
             Assert.That(scope, Does.Contain("owner.executionGuard.InvokeCommandAsync("));
             Assert.That(scope, Does.Contain("owner.executionGuard.TryInvoke(\"players.joined\""));
             Assert.That(scope, Does.Contain("owner.executionGuard.TryInvoke(\"players.left\""));
+            Assert.That(scope, Does.Contain("owner.executionGuard.TryInvoke(\"players.entered-world\""));
+            Assert.That(scope, Does.Contain("owner.executionGuard.TryInvoke(\"players.closing\""));
+            // Cleanup callbacks run after guard drain; their failures must surface as failed retirement, not be swallowed by the closed guard.
+            Assert.That(scope, Does.Contain("owner.RegisterCleanup(cleanup)"));
             Assert.That(scope, Does.Contain("owner.executionGuard.TryInvoke($\"task:{name}\""));
             Assert.That(scope, Does.Contain("owner.executionGuard.Record($\"io:{name}\""));
             Assert.That(scope, Does.Contain("InvokeDiagnostic($\"config:{logicalName}:validate\""));

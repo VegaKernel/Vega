@@ -25,11 +25,27 @@ public static class SchematicSceneProjection
         var signs = document.Signs.Select(sign => new SceneVirtualSignDefinition(VirtualSignId.New(), sign.X, sign.Y, sign.Text, 1)).ToArray();
         var frames = document.TileEntities.OfType<SchematicItemFrameTileEntity>().Select(frame =>
             new SceneVirtualItemFrameDefinition(VirtualItemFrameId.New(), frame.X, frame.Y, frame.Item.ItemType, frame.Item.Stack, frame.Item.Prefix, 1)).ToArray();
+        var displays = document.TileEntities.Select(ToDisplay).Where(display => display is not null).Select(display => display!).ToArray();
         return new SceneOverlayDefinition(default, name.Trim(), new(x, y, document.Width, document.Height), layer, observers, tiles)
         {
             VirtualChests = Array.AsReadOnly(chests),
             VirtualSigns = Array.AsReadOnly(signs),
-            VirtualItemFrames = Array.AsReadOnly(frames)
+            VirtualItemFrames = Array.AsReadOnly(frames),
+            VirtualDisplays = Array.AsReadOnly(displays)
+        };
+    }
+
+    private static SceneVirtualDisplayDefinition? ToDisplay(SchematicTileEntity entity)
+    {
+        static SceneDisplayItem Item(SchematicItemStack item) => new(item.ItemType, item.Stack, item.Prefix);
+        static SceneDisplayItem[] Items(SchematicItemStack[] items) => items.Select(Item).ToArray();
+        return entity switch
+        {
+            SchematicWeaponsRackTileEntity rack => new(VirtualDisplayId.New(), SceneVirtualDisplayKind.WeaponsRack, rack.X, rack.Y, [Item(rack.Item)], [], 1),
+            SchematicDisplayDollTileEntity doll => new(VirtualDisplayId.New(), SceneVirtualDisplayKind.DisplayDoll, doll.X, doll.Y, Items(doll.Items), Items(doll.Dyes), 1),
+            SchematicHatRackTileEntity hat => new(VirtualDisplayId.New(), SceneVirtualDisplayKind.HatRack, hat.X, hat.Y, Items(hat.Items), Items(hat.Dyes), 1),
+            SchematicFoodPlatterTileEntity food => new(VirtualDisplayId.New(), SceneVirtualDisplayKind.FoodPlatter, food.X, food.Y, [Item(food.Item)], [], 1),
+            _ => null
         };
     }
 

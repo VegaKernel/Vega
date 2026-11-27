@@ -22,6 +22,7 @@ internal sealed class NativeTcpTransportHost : IDisposable
     private readonly bool activeSlotSnapshot;
     private readonly Func<ISocket> listenerFactory;
     private readonly Action afterEnqueue;
+    private readonly Func<bool> shouldDeferWake;
     private readonly Action<long, NativeOutboundEnqueueResult>? onSendRejected;
     private readonly int pressureThreshold;
     private readonly int sendsBetweenPressureChecks;
@@ -30,6 +31,8 @@ internal sealed class NativeTcpTransportHost : IDisposable
     private int nextSlot;
     private int worldThreadId;
     private int sendsSincePressureCheck;
+    private int sendsSinceWakeCheck;
+    private long lastWakeFlush;
     private bool pumping;
     private bool attached;
     private bool stopped;
@@ -44,6 +47,7 @@ internal sealed class NativeTcpTransportHost : IDisposable
         this.activeSlotSnapshot = activeSlotSnapshot;
         this.onSendRejected = onSendRejected;
         afterEnqueue = DrainDuringSendBurst;
+        shouldDeferWake = () => options.DeferWriterWake && !pumping && Environment.CurrentManagedThreadId == Volatile.Read(ref worldThreadId);
         pressureThreshold = Math.Max(1, options.MaxOutstandingPerConnection / 2);
         sendsBetweenPressureChecks = Math.Clamp(pressureThreshold / 8, 1, 512);
         budget = new NativeOutboundBudget(options.MaxOutstandingPerWorld, options.MaxRetainedBytesPerWorld);
@@ -81,6 +85,7 @@ internal sealed class NativeTcpTransportHost : IDisposable
             Hooks.Netplay.ServerConnectionClosing += UnbindClosing;
             Hooks.Netplay.ServerConnectionClosed += UnbindClosed;
             HookEvents.Terraria.Netplay.UpdateServerInMainThread += OnNativePacketPass;
+            if (options.DeferWriterWake) Hooks.Main.DedicatedTickCompleted += OnTickCompleted;
             attached = true;
         }
     }
@@ -92,7 +97,7 @@ internal sealed class NativeTcpTransportHost : IDisposable
         {
             if (stopped || connections.Count >= options.MaxConnections) return null;
             connection = new NativeTcpConnection(socket, ++generation, options, budget,
-                afterEnqueue: afterEnqueue, onSendRejected: onSendRejected);
+                afterEnqueue: afterEnqueue, onSendRejected: onSendRejected, shouldDeferWake: shouldDeferWake);
             connections.Add(connection);
         }
         _ = RetireWhenFinishedAsync(connection);
@@ -107,6 +112,7 @@ internal sealed class NativeTcpTransportHost : IDisposable
         {
             if (stopped || !connections.Contains(connection) || connection.IsClosed) return;
             previous = Interlocked.Exchange(ref slots[slot], connection);
+            connection.SetDeferredWakeBound(options.DeferWriterWake);
         }
         if (previous is not null && !ReferenceEquals(previous, connection)) previous.Close();
     }
@@ -114,7 +120,10 @@ internal sealed class NativeTcpTransportHost : IDisposable
     internal void UnbindClosing(int slot, ISocket socket)
     {
         if ((uint)slot < (uint)slots.Length && socket is NativeTcpConnection connection)
+        {
             Interlocked.CompareExchange(ref slots[slot], null, connection);
+            connection.SetDeferredWakeBound(false);
+        }
         // This notification is before native reset; do not close its socket before other pre-reset observers.
     }
 
@@ -125,11 +134,28 @@ internal sealed class NativeTcpTransportHost : IDisposable
     }
 
     private void OnNativePacketPass(object? sender, HookEvents.Terraria.Netplay.UpdateServerInMainThreadEventArgs args) => DrainCompletions();
+    private void OnTickCompleted(TimeSpan _) => FlushDeferredWriters();
+
+    // Dense sequential native broadcasts can fill each idle per-client FIFO before
+    // scheduling its writer. Flush during a burst and at every tick boundary; no
+    // socket worker or non-bound connection may defer its own wake.
+    internal void FlushDeferredWriters()
+    {
+        if (!options.DeferWriterWake) return;
+        for (int slot = 0; slot < slots.Length; slot++) Volatile.Read(ref slots[slot])?.FlushDeferredWake();
+        lastWakeFlush = Stopwatch.GetTimestamp();
+        sendsSinceWakeCheck = 0;
+    }
 
     private void DrainDuringSendBurst()
     {
-        if (Environment.CurrentManagedThreadId != Volatile.Read(ref worldThreadId) || pumping ||
-            ++sendsSincePressureCheck < sendsBetweenPressureChecks) return;
+        if (Environment.CurrentManagedThreadId != Volatile.Read(ref worldThreadId) || pumping) return;
+        if (options.DeferWriterWake && ++sendsSinceWakeCheck >= 256)
+        {
+            sendsSinceWakeCheck = 0;
+            if (Stopwatch.GetElapsedTime(lastWakeFlush) >= options.DeferredWakeFlushInterval) FlushDeferredWriters();
+        }
+        if (++sendsSincePressureCheck < sendsBetweenPressureChecks) return;
         sendsSincePressureCheck = 0;
         if (budget.Snapshot.Entries >= pressureThreshold)
             DrainCompletions();
@@ -140,6 +166,7 @@ internal sealed class NativeTcpTransportHost : IDisposable
     {
         if (pumping) return 0;
         Volatile.Write(ref worldThreadId, Environment.CurrentManagedThreadId);
+        FlushDeferredWriters();
         pumping = true;
         try { return DrainCompletionsCore(); }
         finally { pumping = false; }
@@ -226,6 +253,7 @@ internal sealed class NativeTcpTransportHost : IDisposable
                 Hooks.Netplay.ServerConnectionClosing -= UnbindClosing;
                 Hooks.Netplay.ServerConnectionClosed -= UnbindClosed;
                 HookEvents.Terraria.Netplay.UpdateServerInMainThread -= OnNativePacketPass;
+                if (options.DeferWriterWake) Hooks.Main.DedicatedTickCompleted -= OnTickCompleted;
                 attached = false;
             }
             snapshot = connections.ToArray();

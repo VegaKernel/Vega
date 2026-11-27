@@ -3,6 +3,8 @@
   "framesPerSlotPerPass": 32,
   "useOrderedTcp": false,
   "orderedQueueDiagnostics": false,
+  "orderedDeferredWake": false,
+  "orderedDeferredWakeMilliseconds": 1,
   "distantMovementUpdatesPerSecond": 0,
   "orderedCallbacksPerPass": 8192,
   "orderedBatchRequests": 16

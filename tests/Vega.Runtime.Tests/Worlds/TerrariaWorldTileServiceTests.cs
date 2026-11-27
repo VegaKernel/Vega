@@ -1,6 +1,7 @@
 using NUnit.Framework;
 using System.Reflection;
 using Terraria.DataStructures;
+using Terraria.GameContent;
 using Terraria.GameContent.Tile_Entities;
 using Terraria.ID;
 using TerraRuntime.Schematics;
@@ -27,6 +28,10 @@ public sealed class TerrariaWorldTileServiceTests
         var oldChestCoords = global::Terraria.Chest._chestsByCoords;
         var oldSigns = global::Terraria.Main.sign;
         var oldNpc = global::Terraria.Main.npc[0];
+        var oldItems = global::Terraria.Main.item;
+        var oldItemCooldowns = global::Terraria.Main.timeItemSlotCannotBeReusedFor;
+        var oldPylons = global::Terraria.Main.PylonSystem;
+        var oldRandom = global::Terraria.Main.rand;
         bool oldSignType = global::Terraria.Main.tileSign[TileID.Signs];
         var oldManager = TileEntity.manager;
         var oldById = TileEntity.ByID;
@@ -37,7 +42,8 @@ public sealed class TerrariaWorldTileServiceTests
         var updateEnd = typeof(TileEntity).GetField("_UpdateEnd", BindingFlags.Static | BindingFlags.NonPublic)!;
         object? oldStart = updateStart.GetValue(null), oldEnd = updateEnd.GetValue(null);
         byte oldDummy = TETrainingDummy.EntityTypeID, oldFrame = TEItemFrame.EntityTypeID, oldDoll = TEDisplayDoll.EntityTypeID,
-            oldWeapon = TEWeaponsRack.EntityTypeID, oldHat = TEHatRack.EntityTypeID, oldPlatter = TEFoodPlatter.EntityTypeID;
+            oldWeapon = TEWeaponsRack.EntityTypeID, oldHat = TEHatRack.EntityTypeID, oldPlatter = TEFoodPlatter.EntityTypeID,
+            oldSensor = TELogicSensor.EntityTypeID, oldPylon = TETeleportationPylon.EntityTypeID;
         try
         {
             global::Terraria.Main.gameMenu = false;
@@ -51,6 +57,11 @@ public sealed class TerrariaWorldTileServiceTests
             global::Terraria.Main.sign = new global::Terraria.Sign[oldSigns.Length];
             global::Terraria.Main.tileSign[TileID.Signs] = true;
             global::Terraria.Main.npc[0] = new global::Terraria.NPC();
+            global::Terraria.Main.item = Enumerable.Range(0, oldItems.Length).Select(i => new global::Terraria.WorldItem { whoAmI = i }).ToArray();
+            global::Terraria.Main.timeItemSlotCannotBeReusedFor = new int[oldItemCooldowns.Length];
+            global::Terraria.Main.PylonSystem = new TeleportPylonsSystem();
+            global::Terraria.Main.rand = new global::Terraria.Utilities.UnifiedRandom(123);
+            var initialItems = global::Terraria.Main.item.ToArray();
             TileEntity.manager = new TileEntitiesManager();
             TileEntity.ByID = [];
             TileEntity.ByPosition = [];
@@ -62,6 +73,8 @@ public sealed class TerrariaWorldTileServiceTests
             TileEntity.manager.Register(new TEWeaponsRack());
             TileEntity.manager.Register(new TEHatRack());
             TileEntity.manager.Register(new TEFoodPlatter());
+            TileEntity.manager.Register(new TELogicSensor());
+            TileEntity.manager.Register(new TETeleportationPylon());
 
             var bounds = new SceneBounds(4, 4, 20, 12);
             var source = new SceneTile[bounds.Width * bounds.Height];
@@ -79,10 +92,12 @@ public sealed class TerrariaWorldTileServiceTests
             AddObject(17, 0, 1, 1, TileID.FoodPlatter);
             AddObject(0, 5, 2, 3, TileID.TargetDummy);
             AddObject(3, 5, 2, 3, TileID.DisplayDoll);
+            AddObject(8, 5, 3, 4, TileID.TeleportationPylon);
+            source[5 * bounds.Width + 12] = new SceneTile(TileID.LogicSensor, FrameX: 18, FrameY: 18, Flags: SceneTileFlags.Active);
             var area = new SceneTileArea(bounds.Width, bounds.Height, source);
             var items = new[] { new SchematicItemStack(ItemID.Torch, 4) };
             var sword = new SchematicItemStack(ItemID.CopperShortsword, 1, PrefixID.Large);
-            SchematicDocument Document(bool failNpc = false, bool omitFrame = false) => new()
+            SchematicDocument Document(bool failNpc = false, bool omitFrame = false, bool duplicatePylon = false, bool badSensor = false) => new()
             {
                 ContentVersion = 279, Width = bounds.Width, Height = bounds.Height,
                 Tiles = source.Select(TerrariaSchematicCapture.ToSchematicTile).ToArray(),
@@ -93,14 +108,18 @@ public sealed class TerrariaWorldTileServiceTests
                     new SchematicHatRackTileEntity(13, 0, [new(ItemID.CopperHelmet, 1)], []),
                     new SchematicFoodPlatterTileEntity(17, 0, new(ItemID.Apple, 1)),
                     new SchematicTrainingDummyTileEntity(0, 5),
-                    new SchematicDisplayDollTileEntity(3, 5, [new(ItemID.CopperHelmet, 1)], [])
-                }.Where(entity => !omitFrame || entity is not SchematicItemFrameTileEntity).ToArray(),
-                Npcs = failNpc ? [new(22, 160, 120)] : []
+                    new SchematicDisplayDollTileEntity(3, 5, [new(ItemID.CopperHelmet, 1)], []),
+                    new SchematicTeleportationPylonTileEntity(8, 5), new SchematicLogicSensorTileEntity(12, 5, 2, !badSensor)
+                }.Where(entity => !omitFrame || entity is not SchematicItemFrameTileEntity)
+                    .Concat(duplicatePylon ? [new SchematicTeleportationPylonTileEntity(8, 5)] : []).ToArray(),
+                Npcs = failNpc ? [new(22, 160, 120)] : [], WorldItems = [new(new(ItemID.Torch, 3), 240, 128)]
             };
             var placement = new TerrariaSchematicPlacement(new InlineGameThread(), new WorldId("arena"))
             { SpawnNpc = (_, _, _) => global::Terraria.Main.maxNPCs };
             var original = TerrariaWorldTileService.CaptureArea(global::Terraria.Main.tile, bounds).Area;
             Assert.That(placement.Place(Document(omitFrame: true), area, bounds).Status, Is.EqualTo(WorldSchematicPlacementStatus.Invalid));
+            Assert.That(placement.Place(Document(duplicatePylon: true), area, bounds).Status, Is.EqualTo(WorldSchematicPlacementStatus.Invalid));
+            Assert.That(placement.Place(Document(badSensor: true), area, bounds).Status, Is.EqualTo(WorldSchematicPlacementStatus.Invalid));
             Assert.That(TerrariaWorldTileService.CaptureArea(global::Terraria.Main.tile, bounds).Area.Tiles, Is.EqualTo(original.Tiles));
             var failure = placement.Place(Document(failNpc: true), area, bounds);
             Assert.That(failure.Status, Is.EqualTo(WorldSchematicPlacementStatus.Failed), failure.Error);
@@ -110,13 +129,17 @@ public sealed class TerrariaWorldTileServiceTests
             Assert.That(TileEntity.ByPosition, Is.Empty);
             Assert.That(TileEntity.ByID, Is.Empty);
             Assert.That(TileEntity.UpdateEntities, Is.Empty);
+            Assert.That(global::Terraria.Main.PylonSystem.HasPylonOfType(TeleportPylonType.SurfacePurity), Is.False);
+            Assert.That(global::Terraria.Main.item, Is.EqualTo(initialItems));
+            Assert.That(global::Terraria.Main.timeItemSlotCannotBeReusedFor.All(value => value == 0), Is.True);
             Assert.That(TerrariaWorldTileService.CaptureArea(global::Terraria.Main.tile, bounds).Area.Tiles, Is.EqualTo(original.Tiles));
 
             var placed = placement.Place(Document(), area, bounds);
             Assert.That(placed.Status, Is.EqualTo(WorldSchematicPlacementStatus.Applied), placed.Error);
             Assert.That(global::Terraria.Chest.FindChest(bounds.X, bounds.Y), Is.GreaterThanOrEqualTo(0));
             Assert.That(global::Terraria.Sign.ReadSign(bounds.X + 3, bounds.Y, false), Is.GreaterThanOrEqualTo(0));
-            Assert.That(TileEntity.ByID.Count, Is.EqualTo(6));
+            Assert.That(TileEntity.ByID.Count, Is.EqualTo(8));
+            Assert.That(global::Terraria.Main.PylonSystem.HasPylonOfType(TeleportPylonType.SurfacePurity), Is.True);
             var captured = new TerrariaSchematicCapture(new InlineGameThread()).Capture(new SchematicBounds(bounds.X, bounds.Y, bounds.Width, bounds.Height));
             captured = SchematicBinary.Deserialize(SchematicBinary.Serialize(captured));
             Assert.That(captured.Chests.Single().Name, Is.EqualTo("Loot"));
@@ -128,6 +151,13 @@ public sealed class TerrariaWorldTileServiceTests
             Assert.That(captured.TileEntities.OfType<SchematicFoodPlatterTileEntity>().Single().Item.ItemType, Is.EqualTo(ItemID.Apple));
             Assert.That(captured.TileEntities.OfType<SchematicDisplayDollTileEntity>().Single().Items[0].ItemType, Is.EqualTo(ItemID.CopperHelmet));
             Assert.That(captured.TileEntities.OfType<SchematicTrainingDummyTileEntity>().Count(), Is.EqualTo(1));
+            Assert.That(captured.TileEntities.OfType<SchematicTeleportationPylonTileEntity>().Single(), Is.EqualTo(new SchematicTeleportationPylonTileEntity(8, 5)));
+            Assert.That(captured.TileEntities.OfType<SchematicLogicSensorTileEntity>().Single(), Is.EqualTo(new SchematicLogicSensorTileEntity(12, 5, 2, true)));
+            Assert.That(captured.WorldItems.Single(), Is.EqualTo(new SchematicWorldItem(new(ItemID.Torch, 3), 240, 128)));
+            int expandedChest = global::Terraria.Chest.FindChest(bounds.X, bounds.Y);
+            global::Terraria.Main.chest[expandedChest].Resize(80);
+            Assert.That(() => new TerrariaSchematicCapture(new InlineGameThread()).Capture(new SchematicBounds(bounds.X, bounds.Y, bounds.Width, bounds.Height)),
+                Throws.TypeOf<SchematicFormatException>().With.Message.Contains("capacity"));
         }
         finally
         {
@@ -141,6 +171,10 @@ public sealed class TerrariaWorldTileServiceTests
             global::Terraria.Chest._chestsByCoords = oldChestCoords;
             global::Terraria.Main.sign = oldSigns;
             global::Terraria.Main.npc[0] = oldNpc;
+            global::Terraria.Main.item = oldItems;
+            global::Terraria.Main.timeItemSlotCannotBeReusedFor = oldItemCooldowns;
+            global::Terraria.Main.PylonSystem = oldPylons;
+            global::Terraria.Main.rand = oldRandom;
             global::Terraria.Main.tileSign[TileID.Signs] = oldSignType;
             TileEntity.manager = oldManager;
             TileEntity.ByID = oldById;
@@ -155,6 +189,8 @@ public sealed class TerrariaWorldTileServiceTests
             TEWeaponsRack.EntityTypeID = oldWeapon;
             TEHatRack.EntityTypeID = oldHat;
             TEFoodPlatter.EntityTypeID = oldPlatter;
+            TELogicSensor.EntityTypeID = oldSensor;
+            TETeleportationPylon.EntityTypeID = oldPylon;
         }
     }
 

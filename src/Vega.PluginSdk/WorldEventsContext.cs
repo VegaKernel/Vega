@@ -13,6 +13,9 @@ public interface IPluginWorldEvents
     void OnProjectileRemoved(Action<ProjectileRemovedEvent> handler);
     void OnNpcActorInteracted(Action<NpcActorInteractedEvent> handler);
     void OnNpcActorPurchased(Action<NpcActorPurchasedEvent> handler);
+    void OnNpcActorDialogueChoice(Action<NpcActorDialogueChoiceEvent> handler);
+    void OnNpcActorQuest(Action<NpcActorQuestEvent> handler);
+    void OnNpcActorThink(Action<NpcActorThinkEvent> handler);
     /// <summary>Return false to prevent the requested native transformation. Faulting callbacks do not veto.</summary>
     void AllowNpcTransform(Func<NpcTransformingEvent, bool> allow);
     /// <summary>Return false to suppress a requested NPC loot drop. Faulting callbacks do not veto.</summary>

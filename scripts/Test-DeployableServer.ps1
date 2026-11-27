@@ -4,10 +4,12 @@ param(
     [int] $TimeoutSeconds = 180,
     [string] $WorldFile,
     [switch] $TestSandboxIsolation,
-    [switch] $TestOrderedTransport
+    [switch] $TestOrderedTransport,
+    [switch] $TestDeferredWake
 )
 
 $ErrorActionPreference = 'Stop'
+if ($TestDeferredWake) { $TestOrderedTransport = $true }
 $source = (Resolve-Path -LiteralPath $ServerRoot).Path
 $onWindows = [Environment]::OSVersion.Platform -eq [PlatformID]::Win32NT
 $serverHost = if ($onWindows) { 'Vega.Server.exe' } else { 'Vega.Server' }
@@ -76,13 +78,17 @@ try {
         $generated = Join-Path $deploy $relative
         if ([IO.Directory]::Exists($generated)) { [IO.Directory]::Delete($generated, $true) }
     }
-    if ($TestOrderedTransport) {
+    if ($TestOrderedTransport -or $TestDeferredWake) {
         # Change only the disposable deployment copy, never the source package.
         $networkPath = Join-Path $deploy 'config/network.json'
         $network = Get-Content -LiteralPath $networkPath -Raw | ConvertFrom-Json
         $network.useOrderedTcp = $true
         $network.orderedQueueDiagnostics = $true
         $network.orderedBatchRequests = 16
+        if ($TestDeferredWake) {
+            $network.orderedDeferredWake = $true
+            $network.orderedDeferredWakeMilliseconds = 2
+        }
         $network | ConvertTo-Json -Depth 8 | Set-Content -LiteralPath $networkPath -Encoding UTF8
     }
     $world = Join-Path $deploy 'worlds/smoke.wld'

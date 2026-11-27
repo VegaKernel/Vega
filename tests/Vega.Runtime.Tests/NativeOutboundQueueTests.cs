@@ -13,6 +13,56 @@ public sealed class NativeOutboundQueueTests
 
     [TestCase(false)]
     [TestCase(true)]
+    public async Task BorrowedDeferredWakeCopiesBeforeReturnAndFlushesInOrder(bool normalSendReleasesWake)
+    {
+        var pool = new TrackingPool();
+        var queue = new NativeOutboundQueue(8, 128, 16, pool, maxBatchRequests: 4);
+        var received = new List<byte>();
+        var writer = queue.RunWriterAsync((bytes, _) =>
+        {
+            received.AddRange(bytes.ToArray());
+            return ValueTask.FromResult(bytes.Length);
+        });
+        try
+        {
+            Assert.That(SpinWait.SpinUntil(() => queue.IsWriterWaiting, Timeout), Is.True);
+            byte[] reusable = [1, 2, 3];
+            Assert.That(queue.TryEnqueue(reusable.AsSpan(), 7, deferWake: true), Is.EqualTo(NativeOutboundEnqueueResult.Accepted));
+            Array.Fill(reusable, (byte)99);
+            Assert.That(queue.Snapshot.PendingRequests, Is.EqualTo(1));
+            Assert.That(queue.IsWriterWaiting, Is.True);
+            Assert.That(queue.TryEnqueue(new byte[] { 4, 5 }.AsSpan(), 7, deferWake: !normalSendReleasesWake), Is.EqualTo(NativeOutboundEnqueueResult.Accepted));
+            if (!normalSendReleasesWake) queue.FlushDeferredWake();
+            queue.Complete();
+            Assert.That((await writer.WaitAsync(Timeout)).Status, Is.EqualTo(NativeOutboundWriterStatus.Completed));
+            Assert.That(received, Is.EqualTo(new byte[] { 1, 2, 3, 4, 5 }));
+            Assert.That(queue.TryReadCompletion(out var first) && first.Sequence == 1, Is.True);
+            Assert.That(queue.TryReadCompletion(out var second) && second.Sequence == 2, Is.True);
+            Assert.That(pool.Retained, Is.Zero);
+        }
+        finally { queue.Abort(); await writer.WaitAsync(Timeout); }
+    }
+
+    [Test]
+    public async Task AbortRetiresDeferredRequestsAndReleasesSleepingWriter()
+    {
+        var pool = new TrackingPool();
+        var queue = new NativeOutboundQueue(8, 128, 16, pool);
+        var writer = queue.RunWriterAsync((_, _) => throw new InvalidOperationException("Deferred request must not write."));
+        try
+        {
+            Assert.That(SpinWait.SpinUntil(() => queue.IsWriterWaiting, Timeout), Is.True);
+            Assert.That(queue.TryEnqueue(new byte[] { 1 }.AsSpan(), 7, deferWake: true), Is.EqualTo(NativeOutboundEnqueueResult.Accepted));
+            queue.Abort();
+            Assert.That((await writer.WaitAsync(Timeout)).Status, Is.EqualTo(NativeOutboundWriterStatus.Aborted));
+            Assert.That(queue.TryReadCompletion(out _), Is.False);
+            Assert.That(pool.Retained, Is.Zero);
+        }
+        finally { queue.Abort(); await writer.WaitAsync(Timeout); }
+    }
+
+    [TestCase(false)]
+    [TestCase(true)]
     public async Task QueueAgeTracksPendingWriteAndUndeliveredCompletionOnlyWhenEnabled(bool measureAge)
     {
         var queue = new NativeOutboundQueue(4, 64, 16, new TrackingPool(), measureAge: measureAge);

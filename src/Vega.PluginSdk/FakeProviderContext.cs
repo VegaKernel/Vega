@@ -12,7 +12,9 @@ public interface IPluginFakeProvider
     bool SupportsVirtualChestTransfers => false;
     bool SupportsVirtualSigns => false;
     bool SupportsVirtualSignEdits => false;
+    bool SupportsVirtualSignUi => false;
     bool SupportsVirtualItemFrames => false;
+    bool SupportsVirtualDisplays => false;
     IPluginTileProvider CreateGlobal(string name, SceneBounds bounds, SceneTileArea tiles, int layer = 0);
     IPluginTileProvider CreatePersonal(string name, SceneBounds bounds, SceneTileArea tiles,
         IEnumerable<SceneSessionObserver> observers, int layer = 0);
@@ -45,6 +47,8 @@ public interface IPluginTileProvider : IDisposable
         allowEdits ? throw new NotSupportedException("Virtual sign edits are unavailable.") : CreateVirtualSign(localX, localY, text);
     IPluginVirtualItemFrame CreateVirtualItemFrame(int localX, int localY, int itemType, int stack, byte prefix = 0) =>
         throw new NotSupportedException("Virtual item frames are unavailable.");
+    IPluginVirtualDisplay CreateVirtualDisplay(SceneVirtualDisplayKind kind, int localX, int localY,
+        IReadOnlyList<SceneDisplayItem> items, IReadOnlyList<SceneDisplayItem> dyes) => throw new NotSupportedException("Virtual displays are unavailable.");
 }
 
 /// <summary>Logical container owned by its provider. Explicit transfers use native inventory on the game thread.</summary>
@@ -86,7 +90,9 @@ internal static partial class VegaPluginRuntime
         public bool SupportsVirtualChestTransfers { get { lock (sync) return !disposed && Services.Scenes is IVirtualChestTransferAuthority && Services.Inventory is IVirtualChestInventoryTransfer; } }
         public bool SupportsVirtualSigns { get { lock (sync) return !disposed && Services.Scenes?.SupportsVirtualSigns == true; } }
         public bool SupportsVirtualSignEdits { get { lock (sync) return !disposed && Services.Scenes?.SupportsVirtualSignEdits == true; } }
+        public bool SupportsVirtualSignUi { get { lock (sync) return !disposed && Services.Scenes?.SupportsVirtualSignUi == true; } }
         public bool SupportsVirtualItemFrames { get { lock (sync) return !disposed && Services.Scenes?.SupportsVirtualItemFrames == true; } }
+        public bool SupportsVirtualDisplays { get { lock (sync) return !disposed && Services.Scenes?.SupportsVirtualDisplays == true; } }
 
         public IPluginTileProvider CreateGlobal(string name, SceneBounds bounds, SceneTileArea tiles, int layer = 0) =>
             Create(name, bounds, tiles, SceneObserverScope.Global, layer);

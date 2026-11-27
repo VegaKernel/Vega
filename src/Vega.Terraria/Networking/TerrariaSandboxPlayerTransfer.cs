@@ -123,7 +123,8 @@ public sealed class TerrariaSandboxPlayerTransfer(
         }
 
         byte[] data = DimensionsTransferPacket.Create(endpoint);
-        client.Socket.AsyncSend(data, 0, data.Length, client.ServerWriteCallBack);
+        // Direct transfer packets do not reserve a native NetMessage send counter.
+        client.Socket.AsyncSend(data, 0, data.Length, static _ => { });
         return new SandboxPlayerTransferResult(true);
     }
 }

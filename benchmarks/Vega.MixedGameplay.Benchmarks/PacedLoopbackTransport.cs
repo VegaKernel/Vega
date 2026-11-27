@@ -3,7 +3,10 @@ using System.Net;
 using System.Net.Sockets;
 using System.Reflection;
 using Terraria.Net.Sockets;
+#if !TSHOCK_COMPARISON
 using Vega.Terraria.Networking;
+using TerrariaRuntime;
+#endif
 
 namespace Vega.MixedGameplay.Benchmarks;
 
@@ -14,21 +17,31 @@ namespace Vega.MixedGameplay.Benchmarks;
 internal sealed class PacedLoopbackTransport : IDisposable
 {
     private readonly Peer?[] peers;
+#if !TSHOCK_COMPARISON
     private readonly NativeTcpTransportHost? ordered;
+#endif
     private readonly CancellationTokenSource lifetime = new();
     private long nextTick;
     private int overruns;
     private int peakEntries;
     private long peakBytes;
     private double peakSendAgeMs, peakCompletionAgeMs;
+    private long initialSocketWrites;
 
     public PacedLoopbackTransport(string mode, int count)
     {
         peers = new Peer[count];
+#if !TSHOCK_COMPARISON
         if (mode == "ordered")
-            ordered = new NativeTcpTransportHost(new NativeTcpTransportOptions { MaxBatchRequests = 16, MeasureQueueAge = true },
+            ordered = new NativeTcpTransportHost(new NativeTcpTransportOptions { MaxBatchRequests = 16, MeasureQueueAge = true,
+                DeferWriterWake = Environment.GetEnvironmentVariable("VEGA_BENCH_DEFER_WAKE") == "1",
+                DeferredWakeFlushInterval = TimeSpan.FromMilliseconds(double.TryParse(Environment.GetEnvironmentVariable("VEGA_BENCH_DEFER_MS"),
+                    System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out double interval) ? interval : 1) },
                 currentSocket: slot => (uint)slot < peers.Length ? peers[slot]?.Socket : null);
         else if (mode != "native") throw new ArgumentOutOfRangeException(nameof(mode));
+#else
+        if (mode != "native") throw new ArgumentOutOfRangeException(nameof(mode));
+#endif
 
         try
         {
@@ -46,14 +59,19 @@ internal sealed class PacedLoopbackTransport : IDisposable
                     receiver.ConnectAsync(IPAddress.Loopback, port, setup.Token).AsTask().GetAwaiter().GetResult();
                     accepted = listener.AcceptTcpClientAsync(setup.Token).AsTask().GetAwaiter().GetResult();
                     accepted.NoDelay = true;
-                    socket = ordered is null
-                        ? (ISocket)Activator.CreateInstance(typeof(TcpSocket), BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic,
-                            null, [accepted], null)!
-                        : ordered.CreateAccepted(accepted.Client) ?? throw new InvalidOperationException("Fixture socket was rejected.");
+#if !TSHOCK_COMPARISON
+                    if (ordered is not null)
+                        socket = ordered.CreateAccepted(accepted.Client) ?? throw new InvalidOperationException("Fixture socket was rejected.");
+                    else
+#endif
+                        socket = (ISocket)Activator.CreateInstance(typeof(TcpSocket), BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic,
+                            null, [accepted], null)!;
                     // The native socket owns the accepted TCP connection from here.
                     accepted = null;
                     peers[i] = new Peer(socket, receiver, lifetime.Token);
+#if !TSHOCK_COMPARISON
                     ordered?.BindActivated(i, socket);
+#endif
                 }
                 catch
                 {
@@ -75,6 +93,7 @@ internal sealed class PacedLoopbackTransport : IDisposable
         overruns = peakEntries = 0;
         peakBytes = 0;
         peakSendAgeMs = peakCompletionAgeMs = 0;
+        initialSocketWrites = ReadSocketWrites();
         nextTick = Stopwatch.GetTimestamp();
     }
 
@@ -82,7 +101,11 @@ internal sealed class PacedLoopbackTransport : IDisposable
     {
         ValidateConnected();
         Sample();
+#if !TSHOCK_COMPARISON
         int processed = ordered?.DrainCompletions() ?? 0;
+#else
+        int processed = 0;
+#endif
         Sample();
         return processed;
     }
@@ -97,10 +120,21 @@ internal sealed class PacedLoopbackTransport : IDisposable
         {
             double remaining = (target - Stopwatch.GetTimestamp()) * 1000d / Stopwatch.Frequency;
             if (remaining <= 0) break;
-            if (remaining > 1) Thread.Sleep(Math.Max(1, (int)remaining - 1));
-            else Thread.Yield();
+            // The Windows scheduler can round a nominal 1 ms sleep to an entire
+            // timer period. Yield for the short 60-Hz remainder instead; pacing
+            // CPU is included in process CPU, busy tick timing excludes the wait.
+            if (remaining > 20) Thread.Sleep((int)remaining - 16);
+            else if (remaining > 0.2) Thread.Sleep(0);
+            else Thread.SpinWait(32);
         }
         nextTick = Stopwatch.GetTimestamp();
+    }
+
+    public void FlushTick()
+    {
+#if !TSHOCK_COMPARISON
+        ordered?.FlushDeferredWriters();
+#endif
     }
 
     public Result Finish()
@@ -110,7 +144,15 @@ internal sealed class PacedLoopbackTransport : IDisposable
         return new(peers.Sum(p => p!.MeasuredSends), peers.Sum(p => p!.MeasuredBytes),
             peers.Sum(p => p!.MeasuredCallbacks), peers.Sum(p => p!.MeasuredReceivedBytes), peers.Length,
             true, overruns, peakEntries, peakBytes, peakSendAgeMs, peakCompletionAgeMs,
-            Stopwatch.GetElapsedTime(started).TotalMilliseconds);
+            Stopwatch.GetElapsedTime(started).TotalMilliseconds, ReadSocketWrites() - initialSocketWrites);
+    }
+
+    private long ReadSocketWrites()
+    {
+#if !TSHOCK_COMPARISON
+        if (ordered is not null) return peers.Sum(p => ((NativeTcpConnection)p!.Socket).SocketWriteCalls);
+#endif
+        return 0;
     }
 
     private void Drain()
@@ -135,6 +177,7 @@ internal sealed class PacedLoopbackTransport : IDisposable
 
     private void Sample()
     {
+#if !TSHOCK_COMPARISON
         if (ordered is null) return;
         var retained = ordered.Retained;
         peakEntries = Math.Max(peakEntries, retained.Entries);
@@ -142,6 +185,7 @@ internal sealed class PacedLoopbackTransport : IDisposable
         var ages = ordered.ReadQueueAges();
         peakSendAgeMs = Math.Max(peakSendAgeMs, ages.Send.TotalMilliseconds);
         peakCompletionAgeMs = Math.Max(peakCompletionAgeMs, ages.Completion.TotalMilliseconds);
+#endif
     }
 
     public void Dispose()
@@ -154,13 +198,15 @@ internal sealed class PacedLoopbackTransport : IDisposable
         }
         using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(15));
         Task.WhenAll(peers.Where(p => p is not null).Select(p => p!.Reader)).WaitAsync(timeout.Token).GetAwaiter().GetResult();
+#if !TSHOCK_COMPARISON
         ordered?.StopAsync(timeout.Token).GetAwaiter().GetResult();
+#endif
         lifetime.Dispose();
     }
 
     public sealed record Result(long ScheduledCallbacks, long SentBytes, long CompletedCallbacks, long ReceivedBytes,
         int ValidatedPeers, bool PayloadHashVerified, int TickOverruns, int PeakRetainedEntries, long PeakRetainedBytes,
-        double PeakSendQueueAgeMs, double PeakCompletionQueueAgeMs, double FinalDrainMs);
+        double PeakSendQueueAgeMs, double PeakCompletionQueueAgeMs, double FinalDrainMs, long SocketWriteCalls);
 
     internal sealed class Peer
     {
@@ -198,9 +244,23 @@ internal sealed class PacedLoopbackTransport : IDisposable
 
         public void Send(byte[] data, int offset, int size, SocketSendCallback callback, object? state)
         {
+            Socket.AsyncSend(data, offset, size, PrepareSend(data.AsSpan(offset, size), callback), state);
+        }
+
+#if !TSHOCK_COMPARISON
+        public void SendBorrowed(ReadOnlySpan<byte> packet, SocketSendCallback callback, object? state)
+        {
+            var wrapper = PrepareSend(packet, callback);
+            if (Socket is IBorrowedPacketSocket borrowed) borrowed.SendBorrowed(packet, wrapper, state);
+            else Socket.AsyncSend(packet.ToArray(), 0, packet.Length, wrapper, state);
+        }
+#endif
+
+        private SocketSendCallback PrepareSend(ReadOnlySpan<byte> packet, SocketSendCallback callback)
+        {
             Sends++;
-            Bytes += size;
-            expectedHash = Append(expectedHash, data.AsSpan(offset, size));
+            Bytes += packet.Length;
+            expectedHash = Append(expectedHash, packet);
             // Use value identity to avoid allocating a per-send closure even on a
             // legacy native build creating an equivalent callback delegate every send.
             if (!Equals(lastNativeCallback, callback))
@@ -212,7 +272,7 @@ internal sealed class PacedLoopbackTransport : IDisposable
                 }
                 lastNativeCallback = callback;
             }
-            Socket.AsyncSend(data, offset, size, lastWrapper!, state);
+            return lastWrapper!;
         }
 
         private SocketSendCallback CreateWrapper(SocketSendCallback callback) => value =>

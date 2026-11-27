@@ -26,7 +26,7 @@ public sealed class TerrariaSchematicCapture(IGameThreadDispatcher dispatcher) :
         float left = region.X * 16f, top = region.Y * 16f, right = region.Right * 16f, bottom = region.Bottom * 16f;
         bool ContainsPixel(float x, float y) => x >= left && y >= top && x < right && y < bottom;
         SchematicChest[] chests = global::Terraria.Main.chest.Where(chest => chest is not null && Contains(chest.x, chest.y))
-            .Select(chest => new SchematicChest(chest.x - region.X, chest.y - region.Y, chest.name ?? "", Items(chest.item))).ToArray();
+            .Select(chest => CaptureChest(chest, region)).ToArray();
         SchematicSign[] signs = global::Terraria.Main.sign.Where(sign => sign is not null && Contains(sign.x, sign.y))
             .Select(sign => new SchematicSign(sign.x - region.X, sign.y - region.Y, sign.text ?? "")).ToArray();
         SchematicNpc[] npcs = global::Terraria.Main.npc.Take(global::Terraria.Main.maxNPCs)
@@ -49,6 +49,15 @@ public sealed class TerrariaSchematicCapture(IGameThreadDispatcher dispatcher) :
             ContentVersion = global::Terraria.Main.curRelease, Width = region.Width, Height = region.Height,
             Tiles = tiles, Chests = chests, Signs = signs, Npcs = npcs, WorldItems = items, TileEntities = entities
         };
+    }
+
+    private static SchematicChest CaptureChest(global::Terraria.Chest chest, SceneBounds bounds)
+    {
+        // Native Terraria supports larger containers, but TerraRuntime .trschem v1
+        // stores only up to forty slots and does not encode chest capacity.
+        if (chest.maxItems != global::Terraria.Chest.DefaultMaxItems || chest.item.Length < chest.maxItems)
+            throw new SchematicFormatException("Expanded or nonstandard native chest capacity cannot be represented by .trschem v1; use a native .wld.");
+        return new(chest.x - bounds.X, chest.y - bounds.Y, chest.name ?? "", chest.item.Take(chest.maxItems).Select(Item).ToArray());
     }
 
     private static SchematicTileEntity CaptureEntity(TileEntity entity, SceneBounds bounds)

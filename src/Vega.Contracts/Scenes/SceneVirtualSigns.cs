@@ -1,4 +1,5 @@
 using Vega.Contracts.Worlds;
+using Vega.Contracts.Players;
 
 namespace Vega.Contracts.Scenes;
 
@@ -49,3 +50,10 @@ public readonly record struct SceneVirtualSignReadRequest(SceneVirtualSignSnapsh
 /// <summary>Observed edit of an opted-in logical sign after a read by the same session. Never forwarded to native sign storage.</summary>
 public readonly record struct SceneVirtualSignEditRequest(SceneVirtualSignSnapshot Sign, SceneSessionObserver Observer,
     string Text, DateTimeOffset RequestedAt);
+
+/// <summary>Native host adapter for a session-owned sign response. Never registers a canonical sign.</summary>
+public interface ISceneVirtualSignUiSink
+{
+    bool TryGetVirtualSignIndex(PlayerSnapshot player, SceneVirtualSignReadRequest read, out short index);
+    bool TrySendVirtualSign(PlayerSnapshot player, SceneVirtualSignSnapshot sign, short index, bool open);
+}

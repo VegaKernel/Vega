@@ -8,6 +8,7 @@ using Terraria.ID;
 using Terraria.Localization;
 using Terraria.Net;
 using Terraria.Net.Sockets;
+using TerrariaRuntime;
 using Vega.Contracts.Commands;
 using Vega.Contracts.Messaging;
 using Vega.Contracts.Modules;
@@ -174,6 +175,7 @@ public sealed class MixedGameplayBenchmark : VegaPlugin
                     deliverMs += Stopwatch.GetElapsedTime(cd).TotalMilliseconds;
                     if (tick >= 0) { messages++; if (mention) mentions++; rendered += result.Deliveries.Count; }
                 }
+                loopback?.FlushTick();
                 if (tick >= 0)
                 {
                     completionPump[tick] = Stopwatch.GetElapsedTime(t0, movementStarted).TotalMilliseconds;
@@ -206,7 +208,7 @@ public sealed class MixedGameplayBenchmark : VegaPlugin
                 Messages = messages, Mentions = mentions, RenderedRecipients = rendered, ChatAllocatedBytes = chatAllocated,
                 MovementAllocatedBytes = movementAllocated, CombatAllocatedBytes = combatAllocated, ChatDeliveryAllocatedBytes = deliveryAllocated,
                 Sends = sends, MovementSends = movementSends, OutputBytes = outputBytes,
-                CallbackChanges = sockets.Sum(s => s.CallbackChanges),
+                CallbackChanges = sockets.Sum(s => s.CallbackChanges), BorrowedSends = sockets.Sum(s => s.BorrowedSends),
                 Loopback = transportResult, CompletionPump = Stats(completionPump),
                 Total = Stats(total), Movement = Stats(movement), Combat = Stats(combat), ChatRendering = Stats(chat), ChatDelivery = Stats(delivery)
             };
@@ -233,11 +235,11 @@ public sealed class MixedGameplayBenchmark : VegaPlugin
         return new { MeanMs = values.Average(), P50Ms = P(.5), P95Ms = P(.95), P99Ms = P(.99), MaxMs = values[^1] };
     }
 
-    private sealed class RecordingSocket(PacedLoopbackTransport.Peer? peer) : ISocket
+    private sealed class RecordingSocket(PacedLoopbackTransport.Peer? peer) : ISocket, IBorrowedPacketSocket
     {
-        public long Sends, Bytes, Movement, CallbackChanges;
+        public long Sends, Bytes, Movement, CallbackChanges, BorrowedSends;
         private SocketSendCallback? previousCallback;
-        public void Reset() => Sends = Bytes = Movement = CallbackChanges = 0;
+        public void Reset() => Sends = Bytes = Movement = CallbackChanges = BorrowedSends = 0;
         public void Close() => peer?.Socket.Close();
         public bool IsConnected() => peer?.Socket.IsConnected() ?? true;
         public bool IsDataAvailable() => false;
@@ -248,15 +250,26 @@ public sealed class MixedGameplayBenchmark : VegaPlugin
         public void AsyncReceive(byte[] data, int offset, int size, SocketReceiveCallback callback, object? state = null) => throw new NotSupportedException();
         public void AsyncSend(byte[] data, int offset, int size, SocketSendCallback callback, object? state = null)
         {
-            Sends++; Bytes += size;
+            Record(data.AsSpan(offset, size), callback);
+            if (peer is null) callback(state);
+            else peer.Send(data, offset, size, callback, state);
+        }
+        public void SendBorrowed(ReadOnlySpan<byte> packet, SocketSendCallback callback, object? state)
+        {
+            BorrowedSends++;
+            Record(packet, callback);
+            if (peer is null) callback(state);
+            else peer.SendBorrowed(packet, callback, state);
+        }
+        private void Record(ReadOnlySpan<byte> packet, SocketSendCallback callback)
+        {
+            Sends++; Bytes += packet.Length;
             if (!ReferenceEquals(previousCallback, callback))
             {
                 CallbackChanges++;
                 previousCallback = callback;
             }
-            if (size >= 3 && data[offset + 2] == MessageID.PlayerControls) Movement++;
-            if (peer is null) callback(state);
-            else peer.Send(data, offset, size, callback, state);
+            if (packet.Length >= 3 && packet[2] == MessageID.PlayerControls) Movement++;
         }
     }
 

@@ -5,12 +5,32 @@ using Vega.Contracts.Worlds;
 using Vega.Sandboxes;
 using Vega.Terraria.Networking;
 using Multiplicity.Packets;
+using TerraRuntime.Schematics;
 
 namespace Vega.Runtime.Tests.Core;
 
 [TestFixture]
 public sealed class SandboxControlTests
 {
+    [Test]
+    public void OfflineNativeTemplateRefusesDroppedItemsBeforeCopyingBase()
+    {
+        string root = Path.Combine(Path.GetTempPath(), "vega-schematic-ephemeral", Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(root);
+        string source = Path.Combine(root, "base.wld"), schema = Path.Combine(root, "items.trschem"), output = Path.Combine(root, "generated");
+        File.WriteAllBytes(source, [1, 2, 3]);
+        SchematicFile.Save(schema, new SchematicDocument { ContentVersion = 279, Width = 1, Height = 1, Tiles = [default],
+            WorldItems = [new(new(8, 1), 0, 0)] });
+        try
+        {
+            Assert.That(global::Vega.Runtime.OfflineSchematicTemplateCommand.TryRun(["--vega-build-schematic-template",
+                source, schema, output, "10", "10", "67108864"]), Is.EqualTo(1));
+            Assert.That(Directory.Exists(output), Is.False);
+            Assert.That(File.ReadAllBytes(source), Is.EqualTo(new byte[] { 1, 2, 3 }));
+        }
+        finally { Directory.Delete(root, true); }
+    }
+
     [Test]
     public async Task SchematicCreationPublishesOnlyCompletedFreshTemplateAndResetUsesIt()
     {

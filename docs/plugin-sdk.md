@@ -48,10 +48,11 @@ public sealed class HelloPlugin : VegaPlugin
 The fixed context exposes these discoverable facets:
 
 - `Commands` registers typed command handlers;
-- `Players` provides immutable online snapshots, lookup, messaging, kick/teleport operations, join/leave hooks and optimistic inventory access;
+- `Players` provides immutable online snapshots, lookup, messaging, kick/teleport operations, join/leave/world-entry/pre-reset hooks and optimistic inventory access;
 - `World` exposes the active world through immutable environment, tile, chest and NPC snapshots plus plugin-owned scenes;
 - `WorldEvents` registers world-local gameplay notifications and narrowly scoped NPC transformation/loot policies;
 - `Tasks` posts to the game thread, schedules repeating game-thread work and runs async I/O with a game-thread apply callback;
+- `Resources` owns explicitly transferred disposable or asynchronous resources and cleanup actions for this activation;
 - `Configuration` owns typed, validated and reloadable operator settings under `config/plugins/<plugin-name>/`;
 - `Storage` stores arbitrary plugin-owned JSON beneath `data/plugins/<plugin-name>/`;
 - `Log` writes structured records under the plugin's own source name;
@@ -59,6 +60,18 @@ The fixed context exposes these discoverable facets:
 - `Debug` is a separately gated process-internal diagnostic surface for explicitly trusted tooling plugins.
 
 The host owns every command, event subscription, repeating task and async operation created through these facets. Unload first cancels and joins background work, then removes registrations before releasing the collectible context. Ordinary plugins do not keep registration leases or reverse-registration lists.
+
+`Players.OnEnteredWorld` emits the native game-thread world-entry snapshot with its exact session ID.
+`Players.OnClosing` runs before the native character is reset, while the old session still exists;
+`OnLeft` remains the subsequent session removal notification. These callbacks are notifications, not
+cancellation policies, and all use the same per-plugin fault guard and automatic detachment as join/leave.
+
+For extra resources created by a plugin, register ownership once with `plugin.Resources.Own(resource)`
+(`IDisposable`), `OwnAsync(resource)` (`IAsyncDisposable`) or `OnCleanup(action)`. The host drains callbacks
+and lifetime work first, then retires resources in reverse registration order together with existing
+registrations. Cleanup runs on the retirement path rather than the game thread; failures are reported as
+incomplete retirement, but do not skip the remaining resources. Awaitable disposal participates in the
+unload timeout. Do not register the same resource twice or rely on an unbounded background task to stop.
 
 ## World capabilities
 
@@ -105,8 +118,9 @@ if (result.Status == WorldSchematicCaptureStatus.Captured)
 Use a host-owned async task for long-lived background operations. The SDK shares
 the world process's bounded schematic lane with operator commands and returns
 `Busy` rather than admitting unlimited snapshots. `PlaceAsync` currently
-materializes tiles, NPCs, supported native containers/signs and six typed tile
-entities in an idle, isolated sandbox only. Unsupported records are refused;
+materializes tiles, NPCs, supported native containers/signs, all eight v1 typed
+tile entities and ephemeral dropped world items in an idle, isolated sandbox
+only. Unsupported records are refused;
 keep the supplied encoded memory unchanged until completion.
 See [schematics](schematics.md) for exact placement constraints and support.
 
@@ -114,7 +128,9 @@ See [schematics](schematics.md) for exact placement constraints and support.
 
 `plugin.World.Npcs.CreateActorAsync` produces a tracked native NPC actor lease.
 Its reusable definition selects a vanilla presentation, name, friendliness,
-immortality, movement mode and optional shop catalog. See
+immortality, movement mode and optional shop, dialogue and item-quest catalogs.
+Read-only guarded actor events and bounded patrol intents provide programmatic
+behavior without replacing native motion. See
 [custom NPCs and shops](custom-npcs.md) for actor commands, conversation events,
 stock shop presentation and explicit server inventory purchases.
 
@@ -258,4 +274,4 @@ Ordinary managed exceptions from commands, player lifecycle callbacks, posted ga
 
 ## Plugin-facing FakeProvider
 
-`context.World.FakeProvider` is a first-class SDK capability. It accepts immutable `SceneTileArea` data, creates global/personal `IPluginTileProvider` leases, and exposes `Move`, `Replace`, `SetLayer`, `SetTop`, `SetEnabled`, `SetObservers`, `Draw`, and `Dispose`. Personal providers accept `SceneSessionObserver.From(playerSnapshot)` or `.From(playerSessionOpened)` so previous connections cannot reappear on a reused slot. A single tracked owner releases all active providers and visibility layers on hot unload/reload; early disposal releases transient previews immediately. Names are descriptive, not cross-plugin lookup keys. `CreateVisibilityLayer` binds player observers and assignments to active sessions. NPC/projectile slots are native IDs and callers must remove assignments when their entity despawns. This is scene visibility, not full independent simulation or automatic entity resync. `CreatePersonal(..., fillOutsideWithAir: true)` and `SetFillOutsideWithAir(true)` enable a personal air background with cooperative refresh of loaded sections. This is visual only: canonical section data is still transmitted. Provider-owned logical chests are available through `SupportsVirtualChests` and `IPluginTileProvider.CreateVirtualChest(localX, localY, name, items)`. The handle supports revision-checked replacement, disposal and bounded exact-session `TryTakeOpenRequest`. `SupportsVirtualChestTransfers` and `Transfer(SceneVirtualChestTransferRequest)` allow explicit native inventory stack exchange on the game thread with authoritative SSC, exact-session/reach/visibility/revision checks and native item validation. The stock chest UI and full real-client qualification remain open. Logical signs use `SupportsVirtualSigns`, `IPluginTileProvider.CreateVirtualSign(localX, localY, text)`, `TrySetText` with a revision and `TryTakeReadRequest`. `SupportsVirtualSignEdits` and `CreateVirtualSign(..., allowEdits: true)` opt into edit requests after a current exact-session read; the plugin explicitly accepts via `TryTakeEditRequest` and `TryAcceptEdit` with revalidation. Provider lifetime, world/session visibility and footprint limits apply to both object types. When responding to an intent, use `plugin.Players.Message(playerSnapshot, text)` or `MessageAsync(playerSnapshot, text)`; the host rechecks the session and refuses unsupported exact delivery instead of using a numeric slot. `SupportsVirtualItemFrames`, `CreateVirtualItemFrame` and `TryReplace` provide read-only item-frame metadata rendered to exact sessions without canonical registration. The native sign editor, interactive tile entities and graphical-client qualification remain open. See [scene contracts](scenes.md) and `samples/Vega.PluginSamples/VirtualChestPreviewCommand.cs`. Existing `World.Scenes.Create` remains available. See the Russian SDK guide for a region-copy preview example.
+`context.World.FakeProvider` is a first-class SDK capability. It accepts immutable `SceneTileArea` data, creates global/personal `IPluginTileProvider` leases, and exposes `Move`, `Replace`, `SetLayer`, `SetTop`, `SetEnabled`, `SetObservers`, `Draw`, and `Dispose`. Personal providers accept `SceneSessionObserver.From(playerSnapshot)` or `.From(playerSessionOpened)` so previous connections cannot reappear on a reused slot. A single tracked owner releases all active providers and visibility layers on hot unload/reload; early disposal releases transient previews immediately. Names are descriptive, not cross-plugin lookup keys. `CreateVisibilityLayer` binds player observers and assignments to active sessions. NPC/projectile slots are native IDs and callers must remove assignments when their entity despawns. This is scene visibility, not full independent simulation or automatic entity resync. `CreatePersonal(..., fillOutsideWithAir: true)` and `SetFillOutsideWithAir(true)` enable a personal air background with cooperative refresh of loaded sections. This is visual only: canonical section data is still transmitted. Provider-owned logical chests are available through `SupportsVirtualChests` and `IPluginTileProvider.CreateVirtualChest(localX, localY, name, items)`. The handle supports revision-checked replacement, disposal and bounded exact-session `TryTakeOpenRequest`. `SupportsVirtualChestTransfers` and `Transfer(SceneVirtualChestTransferRequest)` allow explicit native inventory stack exchange on the game thread with authoritative SSC, exact-session/reach/visibility/revision checks and native item validation. The stock chest UI and full real-client qualification remain open. Logical signs use `SupportsVirtualSigns`, `IPluginTileProvider.CreateVirtualSign(localX, localY, text)`, `TrySetText` with a revision and `TryTakeReadRequest`. `SupportsVirtualSignEdits` and `CreateVirtualSign(..., allowEdits: true)` opt into edit requests after a current exact-session read; the plugin explicitly accepts via `TryTakeEditRequest` and `TryAcceptEdit` with revalidation. Provider lifetime, world/session visibility and footprint limits apply to both object types. When responding to an intent, use `plugin.Players.Message(playerSnapshot, text)` or `MessageAsync(playerSnapshot, text)`; the host rechecks the session and refuses unsupported exact delivery instead of using a numeric slot. `SupportsVirtualItemFrames`, `CreateVirtualItemFrame` and `TryReplace` provide read-only item-frame metadata rendered to exact sessions without canonical registration. `SupportsVirtualSignUi` and `TryPresentRead` send the stock opening response without canonical storage; `TryRefreshEdit` refreshes text without reopening, with a bounded exact-session index binding. `SupportsVirtualDisplays` and `CreateVirtualDisplay` provide read-only weapon racks, mannequins, hat racks and food platters through native metadata. Native chest UI, interactive furniture inventories and graphical-client qualification remain open. See [scene contracts](scenes.md) and `samples/Vega.PluginSamples/VirtualChestPreviewCommand.cs`. Existing `World.Scenes.Create` remains available. See the Russian SDK guide for a region-copy preview example.

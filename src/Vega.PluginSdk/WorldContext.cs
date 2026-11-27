@@ -361,6 +361,23 @@ internal static partial class VegaPluginRuntime
             public ValueTask<NpcShopPurchaseResult> PurchaseAsync(PlayerSnapshot player, string offerId, long expectedShopRevision, CancellationToken cancellationToken = default) =>
                 Volatile.Read(ref inner)?.PurchaseAsync(player, offerId, expectedShopRevision, cancellationToken) ??
                     ValueTask.FromResult(new NpcShopPurchaseResult(NpcShopPurchaseStatus.ActorGone));
+            public ValueTask<bool> SetDialogueAsync(NpcDialogueDefinition? dialogue, CancellationToken cancellationToken = default) =>
+                Volatile.Read(ref inner)?.SetDialogueAsync(dialogue, cancellationToken) ?? ValueTask.FromResult(false);
+            public ValueTask<NpcDialogueResult> BeginDialogueAsync(PlayerSnapshot player, CancellationToken cancellationToken = default) =>
+                Volatile.Read(ref inner)?.BeginDialogueAsync(player, cancellationToken) ?? ValueTask.FromResult(new NpcDialogueResult(NpcDialogueStatus.ActorGone));
+            public ValueTask<NpcDialogueResult> ChooseDialogueAsync(PlayerSnapshot player, long expectedViewRevision, string choiceId, CancellationToken cancellationToken = default) =>
+                Volatile.Read(ref inner)?.ChooseDialogueAsync(player, expectedViewRevision, choiceId, cancellationToken) ??
+                    ValueTask.FromResult(new NpcDialogueResult(NpcDialogueStatus.ActorGone));
+            public ValueTask<bool> SetQuestsAsync(NpcQuestCatalog? quests, CancellationToken cancellationToken = default) =>
+                Volatile.Read(ref inner)?.SetQuestsAsync(quests, cancellationToken) ?? ValueTask.FromResult(false);
+            public ValueTask<IReadOnlyList<NpcQuestView>> GetQuestsAsync(PlayerSnapshot player, CancellationToken cancellationToken = default) =>
+                Volatile.Read(ref inner)?.GetQuestsAsync(player, cancellationToken) ?? ValueTask.FromResult<IReadOnlyList<NpcQuestView>>([]);
+            public ValueTask<NpcQuestResult> AcceptQuestAsync(PlayerSnapshot player, string questId, long expectedCatalogRevision, CancellationToken cancellationToken = default) =>
+                Volatile.Read(ref inner)?.AcceptQuestAsync(player, questId, expectedCatalogRevision, cancellationToken) ??
+                    ValueTask.FromResult(new NpcQuestResult(NpcQuestStatus.ActorGone));
+            public ValueTask<NpcQuestResult> TurnInQuestAsync(PlayerSnapshot player, string questId, long expectedCatalogRevision, CancellationToken cancellationToken = default) =>
+                Volatile.Read(ref inner)?.TurnInQuestAsync(player, questId, expectedCatalogRevision, cancellationToken) ??
+                    ValueTask.FromResult(new NpcQuestResult(NpcQuestStatus.ActorGone));
             public void Dispose()
             {
                 INpcActor? current = Interlocked.Exchange(ref inner, null);

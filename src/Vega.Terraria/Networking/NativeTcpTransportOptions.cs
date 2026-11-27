@@ -19,6 +19,9 @@ internal sealed record NativeTcpTransportOptions
     public int MaxBatchRequests { get; init; } = 1;
     /// <summary>Use one wake for an idle writer instead of counting each queued request.</summary>
     public bool EdgeTriggeredWake { get; init; } = true;
+    /// <summary>Experimental world-thread burst batching; flushes during and after native ticks.</summary>
+    public bool DeferWriterWake { get; init; }
+    public TimeSpan DeferredWakeFlushInterval { get; init; } = TimeSpan.FromMilliseconds(1);
     /// <summary>One cancellation registration wakes an idle writer; the per-wait mode remains for A/B measurement.</summary>
     public bool SingleCancellationWake { get; init; } = true;
     /// <summary>Avoid taking the outbound gate on empty completion probes; false is the A/B baseline.</summary>
@@ -31,7 +34,8 @@ internal sealed record NativeTcpTransportOptions
         if (MaxConnections <= 0 || MaxOutstandingPerConnection <= 0 || MaxRetainedBytesPerConnection <= 0 ||
             MaxOutstandingPerWorld < MaxOutstandingPerConnection || MaxRetainedBytesPerWorld < MaxRetainedBytesPerConnection ||
             MaxSendBytes <= 0 || MaxSendBytes > MaxRetainedBytesPerConnection || MaxReceiveBytes <= 0 ||
-            MaxCallbacksPerPass <= 0 || CallbackBudget <= TimeSpan.Zero || MaxBatchRequests is < 1 or > NativeOutboundQueue.BatchRequestLimit)
+            MaxCallbacksPerPass <= 0 || CallbackBudget <= TimeSpan.Zero || MaxBatchRequests is < 1 or > NativeOutboundQueue.BatchRequestLimit ||
+            DeferredWakeFlushInterval <= TimeSpan.Zero || DeferredWakeFlushInterval > TimeSpan.FromMilliseconds(2))
             throw new ArgumentOutOfRangeException(nameof(NativeTcpTransportOptions), "Invalid native TCP transport limits.");
     }
 }

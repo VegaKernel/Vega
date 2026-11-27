@@ -5,7 +5,7 @@ using Vega.PluginSdk;
 
 namespace Vega.PluginSamples;
 
-// A personal virtual sign that displays its plugin-owned text in chat.
+// A personal virtual sign; stock UI when available, chat fallback otherwise.
 internal sealed class VirtualSignPreviewCommand : ICommandHandler
 {
     private readonly IVegaPluginContext plugin;
@@ -22,7 +22,7 @@ internal sealed class VirtualSignPreviewCommand : ICommandHandler
     }
 
     public CommandDescriptor Descriptor { get; } = new("samplesign", [], ["vega.samples.world"],
-        Syntax: "samplesign <player> <tileX> <tileY> <text> | clear");
+        Syntax: "samplesign <player> <tileX> <tileY> [--edit] <text> | clear");
 
     public ValueTask<CommandExecutionResult> ExecuteAsync(CommandInvocation invocation, CancellationToken cancellationToken)
     {
@@ -38,7 +38,10 @@ internal sealed class VirtualSignPreviewCommand : ICommandHandler
                 !plugin.Players.TryFindExact(args[0], out var player) || player is not { SessionId: not null } ||
                 !int.TryParse(args[1], out int x) || !int.TryParse(args[2], out int y) || x < 0 || y < 0)
                 return ValueTask.FromResult(CommandExecutionResult.Failed("command.invalid_usage"));
-            string text = string.Join(' ', args.Skip(3));
+            bool allowEdits = args[3].Equals("--edit", StringComparison.OrdinalIgnoreCase);
+            if (allowEdits && (args.Count < 5 || !plugin.World.FakeProvider.SupportsVirtualSignEdits))
+                return ValueTask.FromResult(CommandExecutionResult.Failed("command.invalid_usage"));
+            string text = string.Join(' ', args.Skip(allowEdits ? 4 : 3));
             if (text.Length > SceneVirtualSignDefinition.MaximumTextLength) return ValueTask.FromResult(CommandExecutionResult.Failed("command.invalid_usage"));
             var tiles = new SceneTileArea(2, 2,
             [
@@ -51,7 +54,7 @@ internal sealed class VirtualSignPreviewCommand : ICommandHandler
                 [SceneSessionObserver.From(player)], layer: 100);
             try
             {
-                var nextSign = next.CreateVirtualSign(0, 0, text);
+                var nextSign = next.CreateVirtualSign(0, 0, text, allowEdits);
                 Clear();
                 provider = next;
                 sign = nextSign;
@@ -66,10 +69,14 @@ internal sealed class VirtualSignPreviewCommand : ICommandHandler
     {
         lock (sync)
         {
-            if (sign is null || !sign.TryTakeReadRequest(out var pending) || pending is not { } request ||
+            if (sign is null) return;
+            // The operator explicitly opted in; this personal sample accepts that observer's edits.
+            if (sign.TryTakeEditRequest(out var edit) && edit is { } change && change.Observer.Session == session)
+                sign.TryAcceptEdit(change);
+            if (!sign.TryTakeReadRequest(out var pending) || pending is not { } request ||
                 !plugin.Players.TryGet(request.Observer.Player, out var player) || player is null ||
                 player.SessionId != request.Observer.Session || player.WorldId != request.Sign.WorldId) return;
-            plugin.Players.Message(player, request.Sign.Definition.Text);
+            if (!sign.TryPresentRead(request)) plugin.Players.Message(player, request.Sign.Definition.Text);
         }
     }
 

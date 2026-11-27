@@ -85,17 +85,17 @@ public sealed class NpcShopTests
             // A normal NPC conversation message followed by its native committed talkNPC state.
             NpcActorInteractedEvent? interaction = null;
             using var conversationSubscription = events.Subscribe<NpcActorInteractedEvent>(value => interaction = value);
-            using var stream = new MemoryStream();
-            new NpcTalk { PlayerId = playerSlot, NpcTalkTarget = npcSlot }.ToStream(stream, false);
             var buffer = new global::Terraria.MessageBuffer { whoAmI = playerSlot };
-            void ObserveConversation()
+            void ObserveConversation(int target = npcSlot)
             {
+                using var stream = new MemoryStream();
+                new NpcTalk { PlayerId = playerSlot, NpcTalkTarget = (short)target }.ToStream(stream, false);
                 byte packetId = (byte)PacketTypes.NpcTalk;
                 int start = 0, readOffset = 1, length = checked((int)stream.Length + 1), messageType = packetId;
                 buffer.readBuffer[0] = packetId;
                 stream.ToArray().CopyTo(buffer.readBuffer, readOffset);
                 Assert.That(global::TerrariaRuntime.Hooks.MessageBuffer.InvokeGetData(buffer, ref packetId, ref readOffset, ref start, ref length, ref messageType, 256), Is.True);
-                player.talkNPC = npcSlot;
+                player.talkNPC = target;
                 dispatcher.RunPending();
             }
             player.position = new(1000, 1000);
@@ -106,12 +106,15 @@ public sealed class NpcShopTests
             ObserveConversation();
             Assert.That(interaction!.Value.Actor, Is.EqualTo(actor.Id));
             Assert.That(interaction.Value.Player.SessionId, Is.EqualTo(buyer.SessionId));
+            int nativeSendCounter = global::Terraria.NetMessage.buffer[playerSlot].spamCount;
             Assert.That(await actor.PresentShopAsync(buyer), Is.EqualTo(NpcShopPresentationStatus.Sent));
             Assert.That(socket.LastSend, Is.Not.Empty);
             var firstPresentation = socket.LastBuffer;
             var firstBytes = socket.LastSend;
             Assert.That(await actor.PresentShopAsync(buyer), Is.EqualTo(NpcShopPresentationStatus.Sent));
             Assert.That(socket.LastBuffer, Is.SameAs(firstPresentation));
+            Assert.That(global::Terraria.NetMessage.buffer[playerSlot].spamCount, Is.EqualTo(nativeSendCounter),
+                "Direct encoded shop delivery must not debit the native SendData counter.");
             Assert.That(await actor.PresentShopAsync(buyer with { SessionId = PlayerSessionId.New() }), Is.EqualTo(NpcShopPresentationStatus.InvalidSession));
             int committed = 0;
             using var subscription = events.Subscribe<NpcActorPurchasedEvent>(_ => committed++);
@@ -160,6 +163,82 @@ public sealed class NpcShopTests
             Assert.That(await actor.PresentShopAsync(buyer), Is.EqualTo(NpcShopPresentationStatus.Sent));
             Assert.That(socket.LastBuffer, Is.Not.SameAs(soldOutBuffer));
             Assert.That(socket.LastSend, Is.EqualTo(firstBytes));
+
+            // Dialogues are server-owned menus, not guesses about the stock client's local UI.
+            NpcDialogueChoice[] choices = [new("more", "More", "details")];
+            var dialogue = new NpcDialogueDefinition("greeting", [new("greeting", "Hello", choices),
+                new("details", "Details", [new("bye", "Goodbye")])]);
+            choices[0] = new("changed", "This must not affect the graph");
+            Assert.That(await actor.SetDialogueAsync(dialogue), Is.True);
+            int selected = 0;
+            using var dialogueChoice = events.Subscribe<NpcActorDialogueChoiceEvent>(_ => selected++);
+            var first = (await actor.BeginDialogueAsync(buyer)).View!;
+            Assert.That(first.Choices.Single().Id, Is.EqualTo("more"));
+            Assert.That((await actor.ChooseDialogueAsync(buyer, first.Revision, "missing")).Status, Is.EqualTo(NpcDialogueStatus.InvalidChoice));
+            var second = (await actor.ChooseDialogueAsync(buyer, first.Revision, "more")).View!;
+            Assert.That(second.NodeId, Is.EqualTo("details"));
+            Assert.That((await actor.ChooseDialogueAsync(buyer, first.Revision, "more")).Status, Is.EqualTo(NpcDialogueStatus.StaleView));
+            ObserveConversation(-1);
+            Assert.That((await actor.ChooseDialogueAsync(buyer, second.Revision, "bye")).Status, Is.EqualTo(NpcDialogueStatus.NotInteracting));
+            ObserveConversation();
+            Assert.That((await actor.ChooseDialogueAsync(buyer, second.Revision, "bye")).Status, Is.EqualTo(NpcDialogueStatus.StaleView));
+            Assert.That(selected, Is.EqualTo(1));
+
+            // Alternate item currency stays out of the vanilla coin-price UI; commands use
+            // the same detached, authoritative native inventory transaction as coin purchases.
+            player.inventory[20].SetDefaults(ItemID.Torch);
+            player.inventory[20].stack = 6;
+            var alternate = new NpcShopCatalog([new NpcShopOffer("wood", ItemID.Wood, 3, 0, BuyOnce: true)
+                { ItemPrice = new(ItemID.Torch, 4) }]);
+            Assert.That(await actor.SetShopAsync(alternate), Is.True);
+            long alternateRevision = (await actor.CaptureAsync())!.ShopRevision;
+            Assert.That(await actor.PresentShopAsync(buyer), Is.EqualTo(NpcShopPresentationStatus.Sent));
+            int hiddenLength = BinaryPrimitives.ReadUInt16LittleEndian(socket.LastSend);
+            Assert.That(((NpcShopItem)TerrariaPacket.Deserialize(socket.LastSend, 0, hiddenLength)).ItemType, Is.Zero);
+            var itemPurchase = await actor.PurchaseAsync(buyer, "wood", alternateRevision);
+            Assert.That(itemPurchase.Status, Is.EqualTo(NpcShopPurchaseStatus.Committed));
+            Assert.That(itemPurchase.ItemPaid, Is.EqualTo(new NpcItemAmount(ItemID.Torch, 4)));
+            Assert.That(itemPurchase.CoinsPaid, Is.Zero);
+            Assert.That(player.inventory[20].stack, Is.EqualTo(2));
+            Assert.That(player.inventory.Take(50).Where(item => item.type == ItemID.Wood).Sum(item => item.stack), Is.EqualTo(3));
+
+            var quests = new NpcQuestCatalog([new("light", "Light", "Bring two torches", new(ItemID.Torch, 2), new(ItemID.HealingPotion, 1))]);
+            Assert.That(await actor.SetQuestsAsync(quests), Is.True);
+            long questRevision = (await actor.CaptureAsync())!.QuestRevision;
+            Assert.That((await actor.TurnInQuestAsync(buyer, "light", questRevision)).Status, Is.EqualTo(NpcQuestStatus.NotAccepted));
+            int questEvents = 0;
+            using var questSubscription = events.Subscribe<NpcActorQuestEvent>(_ => questEvents++);
+            Assert.That((await actor.AcceptQuestAsync(buyer, "light", questRevision)).Status, Is.EqualTo(NpcQuestStatus.Applied));
+            Assert.That((await actor.AcceptQuestAsync(buyer, "light", questRevision)).Status, Is.EqualTo(NpcQuestStatus.AlreadyAccepted));
+            global::Terraria.Main.ServerSideCharacter = false;
+            var rejected = await actor.TurnInQuestAsync(buyer, "light", questRevision);
+            Assert.That(rejected.InventoryFailure, Is.EqualTo(NpcShopPurchaseStatus.InventoryAuthorityRequired));
+            Assert.That(player.inventory[20].stack, Is.EqualTo(2));
+            Assert.That((await actor.GetQuestsAsync(buyer)).Single().State, Is.EqualTo(NpcQuestState.Accepted));
+            global::Terraria.Main.ServerSideCharacter = true;
+            player.inventory[20].stack = 1;
+            Assert.That((await actor.TurnInQuestAsync(buyer, "light", questRevision)).InventoryFailure, Is.EqualTo(NpcShopPurchaseStatus.InsufficientFunds));
+            Assert.That(player.inventory[20].stack, Is.EqualTo(1));
+            Assert.That((await actor.GetQuestsAsync(buyer)).Single().State, Is.EqualTo(NpcQuestState.Accepted));
+            player.inventory[20].stack = 2;
+            Assert.That((await actor.TurnInQuestAsync(buyer, "light", questRevision)).Quest?.State, Is.EqualTo(NpcQuestState.Completed));
+            Assert.That(player.inventory[20].IsAir, Is.True);
+            Assert.That(player.inventory.Take(50).Where(item => item.type == ItemID.HealingPotion).Sum(item => item.stack), Is.EqualTo(1));
+            Assert.That((await actor.TurnInQuestAsync(buyer, "light", questRevision)).Status, Is.EqualTo(NpcQuestStatus.AlreadyCompleted));
+            Assert.That(questEvents, Is.EqualTo(2));
+            Assert.That(await actor.SetQuestsAsync(quests), Is.True);
+            Assert.That((await actor.AcceptQuestAsync(buyer, "light", questRevision)).Status, Is.EqualTo(NpcQuestStatus.CatalogChanged));
+            Assert.That((await actor.GetQuestsAsync(buyer)).Single().State, Is.EqualTo(NpcQuestState.Available));
+
+            var waypoints = new PlayerPosition[] { new(100, 100), new(300, 100) };
+            Assert.That(await actor.SetIntentAsync(new NpcActorIntent(NpcActorIntentKind.Patrol) { Waypoints = waypoints }), Is.True);
+            waypoints[1] = new(0, 100);
+            int thinks = 0;
+            using var behavior = events.Subscribe<NpcActorThinkEvent>(value => { Assert.That(value.Intent, Is.EqualTo(NpcActorIntentKind.Patrol)); thinks++; });
+            var nativeActor = global::Terraria.Main.npc[npcSlot];
+            for (int i = 0; i < 60; i++) nativeActor.AI();
+            Assert.That(nativeActor.velocity.X, Is.GreaterThan(0));
+            Assert.That(thinks, Is.EqualTo(1));
             actor.Dispose();
         }
         finally
@@ -210,6 +289,7 @@ public sealed class NpcShopTests
             LastBuffer = data;
             LastSend = data.AsSpan(offset, size).ToArray();
             Sends.Add(LastSend);
+            callback(state);
         }
         public void AsyncReceive(byte[] data, int offset, int size, global::Terraria.Net.Sockets.SocketReceiveCallback callback, object? state = null) => throw new NotSupportedException();
     }
@@ -352,5 +432,55 @@ public sealed class NpcShopTests
         Assert.That(NpcShopPurchasePlan.Prepare(source, new("gift", 8, 1, 0, CoinPrice: 0), 9999,
             [9999, 9999, 9999, 9999], out plan), Is.EqualTo(NpcShopPurchaseStatus.Committed));
         Assert.That(plan![50], Is.EqualTo(source[50]));
+    }
+
+    [Test]
+    public void ItemExchangeUsesExactPrefixAndMainInventoryOnlyWithoutPartialCommit()
+    {
+        var source = new Slot[NpcShopPurchasePlan.Slots];
+        source[0] = new(ItemID.Torch, 2, 0, 9999);
+        source[1] = new(ItemID.Torch, 5, 1, 9999);
+        source[50] = new(ItemID.Torch, 100, 0, 9999);
+        var offer = new NpcShopOffer("wood", ItemID.Wood, 3, 0) { ItemPrice = new(ItemID.Torch, 3) };
+        var original = source.ToArray();
+        Assert.That(NpcShopPurchasePlan.Prepare(source, offer, 9999, [], out var plan), Is.EqualTo(NpcShopPurchaseStatus.InsufficientFunds));
+        Assert.That(source, Is.EqualTo(original));
+        Assert.That(plan, Is.Null);
+        source[2] = new(ItemID.Torch, 2, 0, 9999);
+        original = source.ToArray();
+        Assert.That(NpcShopPurchasePlan.Prepare(source, offer, 9999, [], out plan), Is.EqualTo(NpcShopPurchaseStatus.Committed));
+        Assert.That(source, Is.EqualTo(original));
+        Assert.That(plan![1], Is.EqualTo(source[1]));
+        Assert.That(plan[50], Is.EqualTo(source[50]));
+        Assert.That(plan.Take(50).Where(s => s.Type == ItemID.Torch && s.Prefix == 0).Sum(s => s.Stack), Is.EqualTo(1));
+        Assert.That(plan.Take(50).Where(s => s.Type == ItemID.Wood).Sum(s => s.Stack), Is.EqualTo(3));
+    }
+
+    [Test]
+    public void DialogueAndQuestCatalogRejectIncompleteGraphsAndDuplicateIdentifiers()
+    {
+        Assert.Throws<ArgumentException>(() => new NpcDialogueDefinition("start", [new("start", "Hello", [new("go", "Go", "missing")])]));
+        Assert.Throws<ArgumentException>(() => new NpcDialogueDefinition("start", [new("start", "Hello", [new("go", "Go"), new("go", "Again")])]));
+        var quest = new NpcQuestDefinition("a", "A", "Collect", new(ItemID.Torch, 2), new(ItemID.Wood, 1));
+        Assert.Throws<ArgumentException>(() => new NpcQuestCatalog([quest, quest]));
+        Assert.Throws<ArgumentException>(() => new NpcShopCatalog([new NpcShopOffer("a", ItemID.Wood, 1, 0, CoinPrice: 1)
+            { ItemPrice = new(ItemID.Torch, 1) }]));
+    }
+
+    [Test]
+    public void InteractionStateNeverCarriesMenusOrQuestAcceptanceIntoReplacementSession()
+    {
+        var player = new PlayerSnapshot(new PlayerId(1), "Player", false, 100, 100, 20, 20, default, false, 0)
+            { SessionId = PlayerSessionId.New() };
+        var dialogue = new NpcDialogueDefinition("start", [new("start", "Hello", [new("close", "Close")])]);
+        var quests = new NpcQuestCatalog([new("a", "A", "Bring a torch", new(ItemID.Torch, 1), new(ItemID.Wood, 1))]);
+        var state = new NpcActorInteractionState(dialogue, quests);
+        state.OnConversation(player);
+        var view = state.Begin(player).View!;
+        Assert.That(state.Accept(player, "a", state.QuestRevision).Status, Is.EqualTo(NpcQuestStatus.Applied));
+        var replacement = player with { SessionId = PlayerSessionId.New() };
+        state.OnConversation(replacement);
+        Assert.That(state.Choose(replacement, view.Revision, "close", out _).Status, Is.EqualTo(NpcDialogueStatus.StaleView));
+        Assert.That(state.GetQuests(replacement).Single().State, Is.EqualTo(NpcQuestState.Available));
     }
 }

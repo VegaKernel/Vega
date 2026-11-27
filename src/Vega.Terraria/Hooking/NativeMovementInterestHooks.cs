@@ -21,14 +21,14 @@ internal sealed class NativeMovementInterestHooks(int updatesPerSecond, Func<boo
     public void Attach()
     {
         Hooks.NetMessage.SendData += OnSendData;
-        Hooks.NetMessage.SendBytesFast += OnSendBytes;
+        Hooks.NetMessage.SendBytesReadOnly += OnSendBytes;
         Hooks.Netplay.ServerConnectionActivated += OnActivated;
     }
 
     public void Dispose()
     {
         Hooks.NetMessage.SendData -= OnSendData;
-        Hooks.NetMessage.SendBytesFast -= OnSendBytes;
+        Hooks.NetMessage.SendBytesReadOnly -= OnSendBytes;
         Hooks.Netplay.ServerConnectionActivated -= OnActivated;
     }
 
@@ -48,11 +48,11 @@ internal sealed class NativeMovementInterestHooks(int updatesPerSecond, Func<boo
         now = Stopwatch.GetTimestamp();
     }
 
-    private void OnSendBytes(ref Hooks.NetMessage.SendBytesContext args)
+    private void OnSendBytes(ref Hooks.NetMessage.ReadOnlySendBytesContext args)
     {
-        if (args.Size < 17 || args.Data[args.Offset + 2] != MovementPacket || !isGameThread() ||
+        if (args.Size < 17 || args.Data[2] != MovementPacket || !isGameThread() ||
             relay is not { } current || current.Result == HookResult.Cancel || args.Cancelled ||
-            args.Data[args.Offset + 3] != current.Number || (uint)args.RemoteClient >= Slots) return;
+            args.Data[3] != current.Number || (uint)args.RemoteClient >= Slots) return;
 
         int source = current.Number, target = args.RemoteClient;
         if (global::Terraria.Netplay.Clients[target] is not { State: FullyConnected } remote ||
@@ -68,7 +68,7 @@ internal sealed class NativeMovementInterestHooks(int updatesPerSecond, Func<boo
         if (!ReferenceEquals(args.Callback.Target, remote) ||
             args.Callback.Method.Name != nameof(global::Terraria.RemoteClient.ServerWriteCallBack)) return;
 
-        ReadOnlySpan<byte> payload = args.Data.AsSpan(args.Offset + 4, 5);
+        ReadOnlySpan<byte> payload = args.Data.Slice(4, 5);
         long state = (uint)((payload[0] & 0x20) | ((payload[1] & 0xfb) << 8) | (payload[2] << 16)) |
             ((long)payload[3] << 24) | ((long)payload[4] << 32);
         bool special = (payload[2] & 0x40) != 0 || (payload[3] & 0x38) != 0;

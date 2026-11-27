@@ -20,6 +20,7 @@ public sealed class TerrariaNpcActorService(IGameThreadDispatcher dispatcher, Wo
 {
     private readonly WorldId ownedWorld = worldId;
     private readonly Actor?[] bySlot = new Actor[global::Terraria.Main.maxNPCs];
+    private readonly long[] conversationEpoch = new long[global::Terraria.Main.maxPlayers];
     private int count;
     private bool attached;
     private bool disposed;
@@ -36,7 +37,7 @@ public sealed class TerrariaNpcActorService(IGameThreadDispatcher dispatcher, Wo
         dispatcher.AssertGameThread();
         if (disposed || requestedWorld != ownedWorld) return new(NpcOperationStatus.DispatcherUnavailable);
         if (definition is null || definition.BaseType <= 0 || definition.BaseType >= NPCID.Count ||
-            !ValidName(definition.Name) || !ValidPosition(position) || !ValidShop(definition.Shop))
+            !ValidName(definition.Name) || !ValidPosition(position) || !ValidShop(definition.Shop) || !ValidQuests(definition.Quests))
             return new(NpcOperationStatus.Invalid, ErrorCode: "npc.actor_invalid_definition");
 
         Span<bool> occupied = stackalloc bool[bySlot.Length];
@@ -74,18 +75,25 @@ public sealed class TerrariaNpcActorService(IGameThreadDispatcher dispatcher, Wo
     }
 
     private static bool ValidShop(NpcShopCatalog? shop) => shop is null ||
-        shop.Offers.All(offer => TryCreateOfferPrototype(offer, out _));
+        shop.Offers.All(offer => TryCreateOfferPrototype(offer, out _) &&
+            (offer.ItemPrice is not { } currency || TryCreateItemPrototype(currency.ItemType, currency.Prefix, out _)));
+
+    private static bool ValidQuests(NpcQuestCatalog? quests) => quests is null || quests.Quests.All(quest =>
+        TryCreateItemPrototype(quest.Required.ItemType, quest.Required.Prefix, out _) &&
+        TryCreateItemPrototype(quest.Reward.ItemType, quest.Reward.Prefix, out var reward) && quest.Reward.Amount <= reward.maxStack);
 
     private static bool TryCreateOfferPrototype(NpcShopOffer offer, out global::Terraria.Item prototype)
+        => TryCreateItemPrototype(offer.ItemType, offer.Prefix, out prototype) && offer.Stack > 0 && offer.Stack <= prototype.maxStack;
+
+    private static bool TryCreateItemPrototype(int itemType, byte prefix, out global::Terraria.Item prototype)
     {
         prototype = new global::Terraria.Item();
-        if (offer.ItemType <= 0 || offer.ItemType >= ItemID.Count || offer.Prefix >= PrefixID.Count) return false;
-        prototype.SetDefaults(offer.ItemType);
-        if (offer.Prefix != 0) prototype.Prefix(offer.Prefix);
+        if (itemType <= 0 || itemType >= ItemID.Count || prefix >= PrefixID.Count) return false;
+        prototype.SetDefaults(itemType);
+        if (prefix != 0) prototype.Prefix(prefix);
         // One presentation slot must describe a real native item, not a stack or prefix that the
         // stock decoder would accept into its UI but could never deliver as specified.
-        return prototype.type == offer.ItemType && prototype.prefix == offer.Prefix &&
-            offer.Stack > 0 && offer.Stack <= prototype.maxStack;
+        return prototype.type == itemType && prototype.prefix == prefix && prototype.maxStack > 0;
     }
     private static bool ValidName(string name) => !string.IsNullOrWhiteSpace(name) && name.Length <= 200 && !name.Any(char.IsControl);
     private static bool ValidPosition(PlayerPosition position) => float.IsFinite(position.X) && float.IsFinite(position.Y) &&
@@ -161,6 +169,13 @@ public sealed class TerrariaNpcActorService(IGameThreadDispatcher dispatcher, Wo
     {
         if (!dispatcher.IsGameThread || (uint)npc.whoAmI >= (uint)bySlot.Length || bySlot[npc.whoAmI] is not { } actor ||
             !IsCurrent(actor) || !ReferenceEquals(npc, actor.Native)) return;
+        if (++actor.AiVisits == 60)
+        {
+            actor.AiVisits = 0;
+            if (events.HasSubscribers<NpcActorThinkEvent>())
+                PublishSafe(new NpcActorThinkEvent(actor.Id, Snapshot(actor), actor.Intent.Kind), "Actor behavior observer failed.");
+            if (!IsCurrent(actor)) { args.ContinueExecution = false; return; }
+        }
         if (actor.Intent.Kind == NpcActorIntentKind.Vanilla) return;
         npc.friendly = actor.Definition.Friendly;
         npc.immortal = actor.Definition.Immortal;
@@ -171,6 +186,7 @@ public sealed class TerrariaNpcActorService(IGameThreadDispatcher dispatcher, Wo
             NpcActorIntentKind.MoveTo => actor.Intent.Target.X,
             NpcActorIntentKind.FollowPlayer when actor.Intent.Follow is { } expected && players?.TryGetSessionPlayer(expected, out var live) == true
                 && live is { dead: false } => live.Center.X,
+            NpcActorIntentKind.Patrol => PatrolTarget(actor),
             _ => null
         };
         float previous = npc.velocity.X;
@@ -186,6 +202,14 @@ public sealed class TerrariaNpcActorService(IGameThreadDispatcher dispatcher, Wo
         if (npc.velocity.X != previous) npc.netUpdate = true;
     }
 
+    private static float PatrolTarget(Actor actor)
+    {
+        var route = actor.Intent.Waypoints!;
+        if (Math.Abs(route[actor.PatrolIndex].X - actor.Native.Center.X) <= actor.Intent.StopDistance)
+            actor.PatrolIndex = (actor.PatrolIndex + 1) % route.Count;
+        return route[actor.PatrolIndex].X;
+    }
+
     private void OnReceive(object? sender, Hooks.MessageBuffer.GetDataEventArgs args)
     {
         if (args.Result == HookResult.Cancel || args.PacketId != (byte)PacketTypes.NpcTalk || !dispatcher.IsGameThread || players is null ||
@@ -195,15 +219,23 @@ public sealed class TerrariaNpcActorService(IGameThreadDispatcher dispatcher, Wo
         {
             var talk = packet.AsNpcTalkView();
             int slot = talk.NpcTalkTarget;
-            if ((uint)slot >= (uint)bySlot.Length || bySlot[slot] is not { } actor || !IsCurrent(actor) ||
-                !players.TryGet(new PlayerId(args.Instance.whoAmI), out var player) || player?.SessionId is null) return;
+            int playerSlot = args.Instance.whoAmI;
+            if ((uint)playerSlot >= (uint)conversationEpoch.Length || !players.TryGet(new PlayerId(playerSlot), out var player) ||
+                player?.SessionId is null) return;
+            long epoch = ++conversationEpoch[playerSlot];
+            // A native conversation change closes all prior actor menus for that slot,
+            // even if the new target is a normal NPC or the conversation is being closed.
+            foreach (var previous in bySlot)
+                if (previous is not null && previous.Conversations.Remove(player.Id)) previous.Interactions.OnConversation(player);
+            if ((uint)slot >= (uint)bySlot.Length || bySlot[slot] is not { } actor || !IsCurrent(actor)) return;
             // Let vanilla process the conversation first, then resolve the exact actor and player again.
             _ = dispatcher.TryPost("npc.actor.interaction", () =>
             {
-                if (IsCurrent(actor) && players.TryGetSessionPlayer(player, out var live) && IsNearConversation(actor, live) &&
+                if (conversationEpoch[playerSlot] == epoch && IsCurrent(actor) && players.TryGetSessionPlayer(player, out var live) && IsNearConversation(actor, live) &&
                     player.SessionId is { } session)
                 {
                     actor.Conversations[player.Id] = session;
+                    actor.Interactions.OnConversation(player);
                     if (events.HasSubscribers<NpcActorInteractedEvent>()) events.Publish(new NpcActorInteractedEvent(actor.Id, Snapshot(actor), player));
                 }
             });
@@ -226,7 +258,9 @@ public sealed class TerrariaNpcActorService(IGameThreadDispatcher dispatcher, Wo
             !players.TryGetSessionPlayer(expected, out live) || live.talkNPC != actor.Slot) return NpcShopPresentationStatus.InvalidSession;
         try
         {
-            socket.AsyncSend(data, 0, data.Length, client.ServerWriteCallBack);
+            // Cached encoded shop frames bypass native SendData and its spamCount increment.
+            // Native ServerWriteCallBack would debit a counter we never incremented.
+            socket.AsyncSend(data, 0, data.Length, static _ => { });
             return NpcShopPresentationStatus.Sent;
         }
         catch (Exception ex)
@@ -240,9 +274,70 @@ public sealed class TerrariaNpcActorService(IGameThreadDispatcher dispatcher, Wo
         !live.dead && live.talkNPC == actor.Slot &&
         Microsoft.Xna.Framework.Vector2.DistanceSquared(live.Center, actor.Native.Center) <= 256f * 256f;
 
-    private static bool IsInteracting(Actor actor, PlayerSnapshot expected, global::Terraria.Player live) =>
-        IsNearConversation(actor, live) && actor.Native.townNPC &&
+    private static bool HasConversation(Actor actor, PlayerSnapshot expected, global::Terraria.Player live) =>
+        IsNearConversation(actor, live) &&
         actor.Conversations.TryGetValue(expected.Id, out var conversation) && expected.SessionId == conversation;
+
+    private static bool IsInteracting(Actor actor, PlayerSnapshot expected, global::Terraria.Player live) =>
+        actor.Native.townNPC && HasConversation(actor, expected, live);
+
+    private bool TryConversation(Actor actor, PlayerSnapshot expected, out global::Terraria.Player live)
+    {
+        if (players?.TryGetSessionPlayer(expected, out var current) == true && HasConversation(actor, expected, current))
+        { live = current; return true; }
+        live = null!;
+        return false;
+    }
+
+    private NpcDialogueResult BeginDialogue(Actor actor, PlayerSnapshot expected)
+    {
+        if (!IsCurrent(actor)) return new(NpcDialogueStatus.ActorGone);
+        return TryConversation(actor, expected, out _) ? actor.Interactions.Begin(expected) : new(NpcDialogueStatus.NotInteracting);
+    }
+
+    private NpcDialogueResult ChooseDialogue(Actor actor, PlayerSnapshot expected, long viewRevision, string choiceId)
+    {
+        if (!IsCurrent(actor)) return new(NpcDialogueStatus.ActorGone);
+        if (!TryConversation(actor, expected, out _)) return new(NpcDialogueStatus.NotInteracting);
+        var result = actor.Interactions.Choose(expected, viewRevision, choiceId, out var selection);
+        if (selection is { } selected)
+            PublishSafe(new NpcActorDialogueChoiceEvent(actor.Id, expected, selected.NodeId, selected.Choice.Id, selected.Choice.NextNode), "Actor dialogue observer failed.");
+        return result;
+    }
+
+    private NpcQuestResult AcceptQuest(Actor actor, PlayerSnapshot expected, string questId, long revision)
+    {
+        var state = actor.Interactions;
+        if (!IsCurrent(actor)) return new(NpcQuestStatus.ActorGone, state.QuestRevision);
+        if (!TryConversation(actor, expected, out _)) return new(NpcQuestStatus.NotInteracting, state.QuestRevision);
+        var result = state.Accept(expected, questId, revision);
+        if (result.Status == NpcQuestStatus.Applied)
+            PublishSafe(new NpcActorQuestEvent(actor.Id, expected, questId, NpcQuestState.Accepted), "Actor quest observer failed.");
+        return result;
+    }
+
+    private NpcQuestResult TurnInQuest(Actor actor, PlayerSnapshot expected, string questId, long revision)
+    {
+        var state = actor.Interactions;
+        if (!IsCurrent(actor)) return new(NpcQuestStatus.ActorGone, state.QuestRevision);
+        if (!TryConversation(actor, expected, out var live)) return new(NpcQuestStatus.NotInteracting, state.QuestRevision);
+        if (revision != state.QuestRevision) return new(NpcQuestStatus.CatalogChanged, state.QuestRevision);
+        if (state.FindQuest(questId) is not { } quest) return new(NpcQuestStatus.UnknownQuest, state.QuestRevision);
+        var previous = state.State(expected, questId);
+        if (previous != NpcQuestState.Accepted)
+            return new(previous == NpcQuestState.Completed ? NpcQuestStatus.AlreadyCompleted : NpcQuestStatus.NotAccepted,
+                state.QuestRevision, new(quest, previous));
+        var offer = new NpcShopOffer(quest.Id, quest.Reward.ItemType, checked((short)quest.Reward.Amount), 0, quest.Reward.Prefix)
+            { ItemPrice = quest.Required };
+        var status = Exchange(actor, expected, live, offer,
+            () => state.QuestRevision == revision && state.State(expected, questId) == NpcQuestState.Accepted,
+            () => state.SetState(expected, questId, NpcQuestState.Completed));
+        if (status != NpcShopPurchaseStatus.Committed)
+            return new(NpcQuestStatus.InventoryRejected, state.QuestRevision, new(quest, previous), status);
+        var result = new NpcQuestResult(NpcQuestStatus.Applied, state.QuestRevision, new(quest, NpcQuestState.Completed));
+        PublishSafe(new NpcActorQuestEvent(actor.Id, expected, questId, NpcQuestState.Completed), "Actor quest observer failed.");
+        return result;
+    }
 
     private NpcShopPurchaseResult Purchase(Actor actor, PlayerSnapshot expected, string offerId, long revision)
     {
@@ -251,21 +346,36 @@ public sealed class TerrariaNpcActorService(IGameThreadDispatcher dispatcher, Wo
         if (actor.Shop is not { } catalog || actor.ShopRevision != revision) return Failure(NpcShopPurchaseStatus.CatalogChanged);
         if (players is null || !players.TryGetSessionPlayer(expected, out var live) || !IsInteracting(actor, expected, live))
             return Failure(NpcShopPurchaseStatus.NotInteracting);
+        NpcShopOffer offer = catalog.Offers.FirstOrDefault(o => o.Id == offerId);
+        if (offer.Id is null || offer.CoinPrice is null && offer.ItemPrice is null || actor.SoldOut.Contains(offer.Id))
+            return Failure(NpcShopPurchaseStatus.OfferUnavailable);
+        var status = Exchange(actor, expected, live, offer,
+            () => actor.ShopRevision == revision && !actor.SoldOut.Contains(offer.Id),
+            () => { if (offer.BuyOnce) { actor.SoldOut.Add(offer.Id); actor.InvalidateShopPresentation(); } });
+        if (status != NpcShopPurchaseStatus.Committed) return Failure(status);
+        var committed = new NpcShopPurchaseResult(status, actor.ShopRevision, offer.CoinPrice ?? 0, offer.ItemType, offer.Stack)
+            { ItemPaid = offer.ItemPrice };
+        PublishSafe(new NpcActorPurchasedEvent(actor.Id, expected, offer.Id, committed), "Committed shop purchase observer failed.");
+        return committed;
+    }
+
+    private NpcShopPurchaseStatus Exchange(Actor actor, PlayerSnapshot expected, global::Terraria.Player live, NpcShopOffer offer,
+        Func<bool> stillCurrent, Action committed)
+    {
         // The stock multiplayer client ignores SyncEquipment for its own unlocked inventory
         // unless the server advertised SSC. Do not debit or consume stock when the client owns it.
         if (global::Terraria.Main.netMode == 2 && !global::Terraria.Main.ServerSideCharacter)
-            return Failure(NpcShopPurchaseStatus.InventoryAuthorityRequired);
-        NpcShopOffer offer = catalog.Offers.FirstOrDefault(o => o.Id == offerId);
-        if (offer.Id is null || offer.CoinPrice is not long price || actor.SoldOut.Contains(offer.Id)) return Failure(NpcShopPurchaseStatus.OfferUnavailable);
-        if (live.inventory.Length < NpcShopPurchasePlan.Slots) return Failure(NpcShopPurchaseStatus.InvalidInventory);
+            return NpcShopPurchaseStatus.InventoryAuthorityRequired;
+        if (live.inventory.Length < NpcShopPurchasePlan.Slots) return NpcShopPurchaseStatus.InvalidInventory;
         var original = new NpcShopPurchasePlan.Slot[NpcShopPurchasePlan.Slots];
         for (int i = 0; i < original.Length; i++) original[i] = NpcShopPurchasePlan.Snapshot(live.inventory[i]);
 
-        if (!TryCreateOfferPrototype(offer, out var prototype))
-            return Failure(NpcShopPurchaseStatus.InvalidOffer);
+        if (!TryCreateOfferPrototype(offer, out var prototype) || offer.ItemPrice is { } itemCost &&
+            !TryCreateItemPrototype(itemCost.ItemType, itemCost.Prefix, out _))
+            return NpcShopPurchaseStatus.InvalidOffer;
         var status = NpcShopPurchasePlan.Prepare(original, offer, prototype.maxStack,
-            coinStackLimits ??= NpcShopPurchasePlan.ReadCoinStackLimits(), out var planned);
-        if (status != NpcShopPurchaseStatus.Committed || planned is null) return Failure(status);
+            offer.ItemPrice is null ? coinStackLimits ??= NpcShopPurchasePlan.ReadCoinStackLimits() : [], out var planned);
+        if (status != NpcShopPurchaseStatus.Committed || planned is null) return status;
 
         // Prepare every replacement before committing any native slot. Preserve extra item fields
         // on an existing stack; newly created stacks use normal Terraria item defaults/prefixes.
@@ -283,18 +393,17 @@ public sealed class TerrariaNpcActorService(IGameThreadDispatcher dispatcher, Wo
                 if (target.Prefix != 0) item.Prefix(target.Prefix);
             }
             if (item.type != target.Type || item.prefix != target.Prefix || target.Stack > item.maxStack)
-                return Failure(NpcShopPurchaseStatus.InvalidOffer);
+                return NpcShopPurchaseStatus.InvalidOffer;
             item.stack = target.Stack;
             replacements.Add((i, item));
         }
-        if (!IsCurrent(actor) || actor.ShopRevision != revision || !players.TryGetSessionPlayer(expected, out var current) ||
-            !ReferenceEquals(live, current) || !IsInteracting(actor, expected, live)) return Failure(NpcShopPurchaseStatus.InventoryChanged);
+        if (!IsCurrent(actor) || players?.TryGetSessionPlayer(expected, out var current) != true ||
+            !ReferenceEquals(live, current) || !HasConversation(actor, expected, live) || !stillCurrent()) return NpcShopPurchaseStatus.InventoryChanged;
         for (int i = 0; i < original.Length; i++)
-            if (NpcShopPurchasePlan.Snapshot(live.inventory[i]) != original[i]) return Failure(NpcShopPurchaseStatus.InventoryChanged);
+            if (NpcShopPurchasePlan.Snapshot(live.inventory[i]) != original[i]) return NpcShopPurchaseStatus.InventoryChanged;
 
         foreach (var (slot, item) in replacements) live.inventory[slot] = item;
-        if (offer.BuyOnce) { actor.SoldOut.Add(offer.Id); actor.InvalidateShopPresentation(); }
-        var committed = new NpcShopPurchaseResult(NpcShopPurchaseStatus.Committed, actor.ShopRevision, price, offer.ItemType, offer.Stack);
+        committed();
         // Publication is post-commit. A delivery/observer exception must never invite a second debit.
         foreach (var (slot, item) in replacements)
         {
@@ -308,9 +417,7 @@ public sealed class TerrariaNpcActorService(IGameThreadDispatcher dispatcher, Wo
             }
             catch (Exception ex) { LogSafe("Committed shop inventory sync failed.", ex); }
         }
-        try { events.Publish(new NpcActorPurchasedEvent(actor.Id, expected, offer.Id, committed)); }
-        catch (Exception ex) { LogSafe("Committed shop purchase observer failed.", ex); }
-        return committed;
+        return NpcShopPurchaseStatus.Committed;
     }
 
     internal static byte[] EncodeShop(NpcShopCatalog catalog, IReadOnlySet<string>? soldOut = null)
@@ -321,7 +428,7 @@ public sealed class TerrariaNpcActorService(IGameThreadDispatcher dispatcher, Wo
         for (byte i = 0; i < NpcShopCatalog.MaximumOffers; i++)
         {
             NpcShopOffer offer = i < catalog.Offers.Count ? catalog.Offers[i] : default;
-            if (offer.Id is not null && soldOut?.Contains(offer.Id) == true) offer = default;
+            if (offer.ItemPrice is not null || offer.Id is not null && soldOut?.Contains(offer.Id) == true) offer = default;
             packet.Slot = i;
             packet.ItemType = offer.ItemType;
             packet.Stack = offer.Stack;
@@ -350,6 +457,12 @@ public sealed class TerrariaNpcActorService(IGameThreadDispatcher dispatcher, Wo
     {
         try { logger.Log(OperationsLogLevel.Warning, "npc-actors", message, error); }
         catch { /* A reporting failure must not change an already committed native operation result. */ }
+    }
+
+    private void PublishSafe<T>(T value, string failure) where T : struct
+    {
+        try { events.Publish(value); }
+        catch (Exception ex) { LogSafe(failure, ex); }
     }
 
     private NpcEventSnapshot Snapshot(Actor actor) => new(ownedWorld, actor.Slot, actor.Generation, actor.Type,
@@ -388,6 +501,9 @@ public sealed class TerrariaNpcActorService(IGameThreadDispatcher dispatcher, Wo
         public int Type { get; } = native.type;
         public NpcActorDefinition Definition { get; } = definition;
         public NpcActorIntent Intent = new(definition.Stationary ? NpcActorIntentKind.Stop : NpcActorIntentKind.Vanilla);
+        public int PatrolIndex;
+        public int AiVisits;
+        public NpcActorInteractionState Interactions { get; } = new(definition.Dialogue, definition.Quests);
         public NpcShopCatalog? Shop = definition.Shop;
         public long ShopRevision = 1;
         public byte[]? EncodedShop;
@@ -403,7 +519,8 @@ public sealed class TerrariaNpcActorService(IGameThreadDispatcher dispatcher, Wo
         public void MarkRetired() => Interlocked.Exchange(ref retirement, 1);
         public ValueTask<NpcActorSnapshot?> CaptureAsync(CancellationToken cancellationToken = default) => owner.Dispatch<NpcActorSnapshot?>(() =>
             owner.IsCurrent(this) ? new NpcActorSnapshot(Id, owner.Snapshot(this), Native.GivenName, Intent.Kind, Shop, ShopRevision)
-                { SoldOutOffers = Array.AsReadOnly(SoldOut.ToArray()) } : null,
+                { SoldOutOffers = Array.AsReadOnly(SoldOut.ToArray()), Dialogue = Interactions.Dialogue,
+                    Quests = Interactions.Quests, QuestRevision = Interactions.QuestRevision } : null,
             null, cancellationToken);
         public ValueTask<bool> RenameAsync(string name, CancellationToken cancellationToken = default) => owner.Dispatch(() =>
         {
@@ -418,12 +535,20 @@ public sealed class TerrariaNpcActorService(IGameThreadDispatcher dispatcher, Wo
             Native.position = new(position.X, position.Y);
             Native.velocity = default;
             Conversations.Clear();
+            Interactions.InvalidateDialogues();
             owner.Sync(Native, Slot, name: false);
             return true;
         }, false, cancellationToken);
         public ValueTask<bool> SetIntentAsync(NpcActorIntent intent, CancellationToken cancellationToken = default) => owner.Dispatch(() =>
         {
             if (!owner.IsCurrent(this) || intent is null || !intent.IsValid || intent.Follow is { } follow && follow.WorldId != owner.ownedWorld) return false;
+            if (intent.Kind == NpcActorIntentKind.Patrol)
+            {
+                var route = intent.Waypoints!.Take(33).ToArray();
+                if (route.Length is < 2 or > 32 || route.Any(position => !ValidPosition(position))) return false;
+                intent = intent with { Waypoints = Array.AsReadOnly(route) };
+            }
+            PatrolIndex = 0;
             Intent = intent;
             Native.netUpdate = true;
             return true;
@@ -441,6 +566,32 @@ public sealed class TerrariaNpcActorService(IGameThreadDispatcher dispatcher, Wo
         public ValueTask<NpcShopPurchaseResult> PurchaseAsync(PlayerSnapshot player, string offerId, long expectedShopRevision,
             CancellationToken cancellationToken = default) => owner.Dispatch(() => owner.Purchase(this, player, offerId, expectedShopRevision),
                 new NpcShopPurchaseResult(NpcShopPurchaseStatus.Unavailable), cancellationToken);
+        public ValueTask<bool> SetDialogueAsync(NpcDialogueDefinition? dialogue, CancellationToken cancellationToken = default) => owner.Dispatch(() =>
+        {
+            if (!owner.IsCurrent(this)) return false;
+            Interactions.SetDialogue(dialogue);
+            return true;
+        }, false, cancellationToken);
+        public ValueTask<NpcDialogueResult> BeginDialogueAsync(PlayerSnapshot player, CancellationToken cancellationToken = default) =>
+            owner.Dispatch(() => owner.BeginDialogue(this, player), new NpcDialogueResult(NpcDialogueStatus.Unavailable), cancellationToken);
+        public ValueTask<NpcDialogueResult> ChooseDialogueAsync(PlayerSnapshot player, long expectedViewRevision, string choiceId,
+            CancellationToken cancellationToken = default) => owner.Dispatch(() => owner.ChooseDialogue(this, player, expectedViewRevision, choiceId),
+                new NpcDialogueResult(NpcDialogueStatus.Unavailable), cancellationToken);
+        public ValueTask<bool> SetQuestsAsync(NpcQuestCatalog? quests, CancellationToken cancellationToken = default) => owner.Dispatch(() =>
+        {
+            if (!owner.IsCurrent(this) || !ValidQuests(quests)) return false;
+            Interactions.SetQuests(quests);
+            return true;
+        }, false, cancellationToken);
+        public ValueTask<IReadOnlyList<NpcQuestView>> GetQuestsAsync(PlayerSnapshot player, CancellationToken cancellationToken = default) =>
+            owner.Dispatch<IReadOnlyList<NpcQuestView>>(() => owner.IsCurrent(this) && owner.TryConversation(this, player, out _)
+                ? Interactions.GetQuests(player) : [], [], cancellationToken);
+        public ValueTask<NpcQuestResult> AcceptQuestAsync(PlayerSnapshot player, string questId, long expectedCatalogRevision,
+            CancellationToken cancellationToken = default) => owner.Dispatch(() => owner.AcceptQuest(this, player, questId, expectedCatalogRevision),
+                new NpcQuestResult(NpcQuestStatus.Unavailable), cancellationToken);
+        public ValueTask<NpcQuestResult> TurnInQuestAsync(PlayerSnapshot player, string questId, long expectedCatalogRevision,
+            CancellationToken cancellationToken = default) => owner.Dispatch(() => owner.TurnInQuest(this, player, questId, expectedCatalogRevision),
+                new NpcQuestResult(NpcQuestStatus.Unavailable), cancellationToken);
         public void Dispose()
         {
             if (Interlocked.Exchange(ref retirement, 1) == 0) owner.Retire(this);

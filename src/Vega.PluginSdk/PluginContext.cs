@@ -21,6 +21,8 @@ public interface IVegaPluginContext
     IPluginWorldEvents WorldEvents => throw new NotSupportedException("World gameplay events are unavailable in this host.");
 
     IPluginTasks Tasks { get; }
+    /// <summary>Plugin-owned disposable resources, retired with this activation.</summary>
+    IPluginResources Resources => throw new NotSupportedException("Resource ownership is unavailable in this host.");
 
     /// <summary>Managed plugin configuration with typed load, validation, reload and atomic save.</summary>
     IPluginConfiguration Configuration { get; }
@@ -86,6 +88,24 @@ public interface IPluginPlayers
 
     /// <summary>Registers a game-thread player-leave callback for this plugin lifetime.</summary>
     void OnLeft(Action<PlayerSessionClosed> handler);
+
+    /// <summary>Game-thread player entry into the native world, bound to an exact session.</summary>
+    void OnEnteredWorld(Action<PlayerSnapshot> handler) => throw new NotSupportedException("World-entry events are unavailable.");
+
+    /// <summary>Game-thread notification before the native character/session is reset.</summary>
+    void OnClosing(Action<PlayerSessionClosed> handler) => throw new NotSupportedException("Pre-reset events are unavailable.");
+}
+
+public interface IPluginResources
+{
+    /// <summary>Transfers ownership of a resource to the activation. Register each resource once.</summary>
+    T Own<T>(T resource) where T : class, IDisposable;
+
+    /// <summary>Transfers ownership of an asynchronous resource to the activation.</summary>
+    T OwnAsync<T>(T resource) where T : class, IAsyncDisposable;
+
+    /// <summary>Registers cleanup executed after callback/task drain, in reverse registration order.</summary>
+    void OnCleanup(Action cleanup);
 }
 
 public interface IPluginTasks

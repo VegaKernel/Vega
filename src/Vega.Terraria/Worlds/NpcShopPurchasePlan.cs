@@ -15,6 +15,8 @@ internal static class NpcShopPurchasePlan
     public static NpcShopPurchaseStatus Prepare(Slot[] source, NpcShopOffer offer, int rewardMaxStack,
         int[] coinMaxStacks, out Slot[]? result)
     {
+        if (offer.ItemPrice is { } itemPrice)
+            return PrepareItems(source, offer, itemPrice, rewardMaxStack, out result);
         result = null;
         if (source.Length != Slots || offer.CoinPrice is not long price || price < 0 || offer.ItemType <= 0 || offer.Stack <= 0 ||
             rewardMaxStack <= 0 || coinMaxStacks.Length != CoinTypes.Length || coinMaxStacks.Any(static n => n <= 0))
@@ -45,6 +47,34 @@ internal static class NpcShopPurchasePlan
             if (!Add(plan, CoinTypes[coin], amount, 0, coinMaxStacks[coin], Slots, true))
                 return NpcShopPurchaseStatus.InventoryFull;
         }
+        result = plan;
+        return NpcShopPurchaseStatus.Committed;
+    }
+
+    private static NpcShopPurchaseStatus PrepareItems(Slot[] source, NpcShopOffer offer, NpcItemAmount price,
+        int rewardMaxStack, out Slot[]? result)
+    {
+        result = null;
+        if (source.Length != Slots || offer.CoinPrice is not null || !price.IsValid || offer.ItemType <= 0 ||
+            offer.Stack <= 0 || rewardMaxStack <= 0) return NpcShopPurchaseStatus.InvalidOffer;
+        var plan = (Slot[])source.Clone();
+        int remaining = price.Amount;
+        for (int i = 0; i < plan.Length; i++)
+        {
+            Slot slot = plan[i];
+            if (slot.Type == 0 && slot.Stack == 0) { plan[i] = default; continue; }
+            if (slot.Type <= 0 || slot.Stack <= 0 || slot.MaxStack <= 0 || slot.Stack > slot.MaxStack)
+                return NpcShopPurchaseStatus.InvalidInventory;
+            // Explicit item currencies are exact items in the main inventory. Favor existing slot
+            // order and leave banks, coin slots, prefixes and all unrelated stacks untouched.
+            if (i >= MainSlots || remaining == 0 || slot.Type != price.ItemType || slot.Prefix != price.Prefix) continue;
+            int debit = Math.Min(remaining, slot.Stack);
+            remaining -= debit;
+            plan[i] = debit == slot.Stack ? default : slot with { Stack = slot.Stack - debit };
+        }
+        if (remaining != 0) return NpcShopPurchaseStatus.InsufficientFunds;
+        if (!Add(plan, offer.ItemType, offer.Stack, offer.Prefix, rewardMaxStack, MainSlots, false))
+            return NpcShopPurchaseStatus.InventoryFull;
         result = plan;
         return NpcShopPurchaseStatus.Committed;
     }

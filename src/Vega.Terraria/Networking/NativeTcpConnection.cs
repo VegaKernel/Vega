@@ -3,6 +3,7 @@ using System.Net;
 using System.Net.Sockets;
 using Terraria.Net;
 using Terraria.Net.Sockets;
+using TerrariaRuntime;
 
 namespace Vega.Terraria.Networking;
 
@@ -10,13 +11,14 @@ namespace Vega.Terraria.Networking;
 /// An accepted TCP socket. Native sends use one owned FIFO; native receives preserve their one-request
 /// callback contract. No worker invokes a send callback or reads Terraria world state.
 /// </summary>
-internal sealed class NativeTcpConnection : ISocket
+internal sealed class NativeTcpConnection : ISocket, IBorrowedPacketSocket
 {
     private readonly object readGate = new();
     private readonly Socket socket;
     private readonly TcpAddress address;
     private readonly NativeOutboundQueue outbound;
     private readonly Action? afterEnqueue;
+    private readonly Func<bool>? shouldDeferWake;
     private readonly Action<long, NativeOutboundEnqueueResult>? onSendRejected;
     private readonly ArrayPool<byte> readPool;
     private readonly int maxReceiveBytes;
@@ -24,17 +26,20 @@ internal sealed class NativeTcpConnection : ISocket
     private ReadOperation? pendingRead;
     private int readOperations;
     private int closed;
+    private int deferredWakeBound;
+    private long socketWriteCalls;
     private bool closeCompleted;
 
     public NativeTcpConnection(Socket socket, long generation, NativeTcpTransportOptions options,
         NativeOutboundBudget budget, ArrayPool<byte>? readPool = null, Action? afterEnqueue = null,
-        Action<long, NativeOutboundEnqueueResult>? onSendRejected = null)
+        Action<long, NativeOutboundEnqueueResult>? onSendRejected = null, Func<bool>? shouldDeferWake = null)
     {
         this.socket = socket ?? throw new ArgumentNullException(nameof(socket));
         if (socket.RemoteEndPoint is not IPEndPoint remote) throw new ArgumentException("An accepted TCP socket is required.", nameof(socket));
         address = new TcpAddress(remote.Address, remote.Port);
         Generation = generation;
         this.afterEnqueue = afterEnqueue;
+        this.shouldDeferWake = shouldDeferWake;
         this.onSendRejected = onSendRejected;
         socket.NoDelay = true;
         maxReceiveBytes = options.MaxReceiveBytes;
@@ -49,6 +54,15 @@ internal sealed class NativeTcpConnection : ISocket
         Func<ReadOnlyMemory<byte>, CancellationToken, ValueTask<int>> writeSome = options.CancelPendingSocketSend
             ? (data, token) => socket.SendAsync(data, SocketFlags.None, token)
             : (data, _) => socket.SendAsync(data, SocketFlags.None);
+        if (options.MeasureQueueAge)
+        {
+            var nativeWrite = writeSome;
+            writeSome = (data, token) =>
+            {
+                Interlocked.Increment(ref socketWriteCalls);
+                return nativeWrite(data, token);
+            };
+        }
         Completion = ObserveWriterAsync(outbound.RunWriterAsync(writeSome));
     }
 
@@ -57,6 +71,7 @@ internal sealed class NativeTcpConnection : ISocket
     public Task<NativeOutboundWriterResult> Completion { get; }
     public NativeOutboundQueueSnapshot OutboundSnapshot => outbound.Snapshot;
     public NativeOutboundQueueAge ReadQueueAge() => outbound.ReadAge();
+    internal long SocketWriteCalls => Interlocked.Read(ref socketWriteCalls);
 
     public bool IsConnected() => !IsClosed;
 
@@ -75,7 +90,17 @@ internal sealed class NativeTcpConnection : ISocket
 
     public void AsyncSend(byte[] data, int offset, int size, SocketSendCallback callback, object? state = null)
     {
-        NativeOutboundEnqueueResult result = outbound.TryEnqueue(data, offset, size, Generation, callback, state);
+        ArgumentNullException.ThrowIfNull(data);
+        SendBorrowed(data.AsSpan(offset, size), callback, state);
+    }
+
+    public void SendBorrowed(ReadOnlySpan<byte> packet, SocketSendCallback callback, object? state)
+    {
+        bool deferWake = Volatile.Read(ref deferredWakeBound) != 0 && shouldDeferWake?.Invoke() == true;
+        NativeOutboundEnqueueResult result = outbound.TryEnqueue(packet, Generation, callback, state, deferWake);
+        // Unbinding can race publication of a deferred request. Either the unbind
+        // flush or this post-publication recheck must release that writer.
+        if (deferWake && Volatile.Read(ref deferredWakeBound) == 0) outbound.FlushDeferredWake();
         if (result == NativeOutboundEnqueueResult.Accepted)
         {
             afterEnqueue?.Invoke();
@@ -86,6 +111,14 @@ internal sealed class NativeTcpConnection : ISocket
             if (result != NativeOutboundEnqueueResult.Closed) onSendRejected?.Invoke(Generation, result);
         }
     }
+
+    internal void SetDeferredWakeBound(bool bound)
+    {
+        Volatile.Write(ref deferredWakeBound, bound ? 1 : 0);
+        if (!bound) outbound.FlushDeferredWake();
+    }
+
+    internal void FlushDeferredWake() => outbound.FlushDeferredWake();
 
     public bool TryReadCompletion(out NativeSendCompletion completion) => outbound.TryReadCompletion(out completion);
 

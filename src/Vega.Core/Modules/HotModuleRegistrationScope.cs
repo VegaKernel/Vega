@@ -71,6 +71,7 @@ internal sealed class HotModuleRegistrationScope : IHotModuleContext, IVegaPlugi
         Players = new PluginPlayers(this, playerDirectory, messenger, playerOperations, playerLifecycle);
         WorldEvents = new PluginWorldEvents(this, worldEvents);
         Tasks = new PluginTasks(this, gameThread);
+        Resources = new PluginResources(this);
         Configuration = new PluginConfiguration(this, pluginName, configurationDirectory);
         Storage = new PluginStorage(dataDirectory);
         Log = new PluginLog(logger, logSource);
@@ -86,6 +87,7 @@ internal sealed class HotModuleRegistrationScope : IHotModuleContext, IVegaPlugi
     public IPluginPlayers Players { get; }
     public IPluginWorldEvents WorldEvents { get; }
     public IPluginTasks Tasks { get; }
+    public IPluginResources Resources { get; }
     public IPluginConfiguration Configuration { get; }
     public IPluginStorage Storage { get; }
     public IPluginLog Log { get; }
@@ -171,7 +173,9 @@ internal sealed class HotModuleRegistrationScope : IHotModuleContext, IVegaPlugi
         {
             try
             {
-                owned[index].Dispose();
+                if (owned[index] is AsyncResourceRegistration asyncResource)
+                    await asyncResource.DisposeAsync().ConfigureAwait(false);
+                else owned[index].Dispose();
             }
             catch (Exception ex)
             {
@@ -370,6 +374,43 @@ internal sealed class HotModuleRegistrationScope : IHotModuleContext, IVegaPlugi
             lifecycle.Closed += guarded;
             owner.Track(new CleanupRegistration(() => lifecycle.Closed -= guarded));
         }
+
+        public void OnEnteredWorld(Action<PlayerSnapshot> handler)
+        {
+            ArgumentNullException.ThrowIfNull(handler);
+            if (lifecycle is not IPlayerSessionEnteredWorld entering) return;
+            Action<PlayerSnapshot> guarded = player => owner.executionGuard.TryInvoke("players.entered-world", handler, player);
+            entering.EnteredWorld += guarded;
+            owner.Track(new CleanupRegistration(() => entering.EnteredWorld -= guarded));
+        }
+
+        public void OnClosing(Action<PlayerSessionClosed> handler)
+        {
+            ArgumentNullException.ThrowIfNull(handler);
+            if (lifecycle is not IPlayerSessionClosing closing) return;
+            Action<PlayerSessionClosed> guarded = player => owner.executionGuard.TryInvoke("players.closing", handler, player);
+            closing.Closing += guarded;
+            owner.Track(new CleanupRegistration(() => closing.Closing -= guarded));
+        }
+    }
+
+    private sealed class PluginResources(HotModuleRegistrationScope owner) : IPluginResources
+    {
+        public T Own<T>(T resource) where T : class, IDisposable => owner.Track(resource);
+        public T OwnAsync<T>(T resource) where T : class, IAsyncDisposable
+        {
+            ArgumentNullException.ThrowIfNull(resource);
+            owner.Track(new AsyncResourceRegistration(resource));
+            return resource;
+        }
+        public void OnCleanup(Action cleanup) => owner.RegisterCleanup(cleanup);
+    }
+
+    private sealed class AsyncResourceRegistration(IAsyncDisposable resource) : IDisposable, IAsyncDisposable
+    {
+        private IAsyncDisposable? owned = resource;
+        public ValueTask DisposeAsync() => Interlocked.Exchange(ref owned, null)?.DisposeAsync() ?? ValueTask.CompletedTask;
+        public void Dispose() => DisposeAsync().AsTask().GetAwaiter().GetResult();
     }
 
     private sealed class PluginWorldEvents(HotModuleRegistrationScope owner, IWorldGameplayEvents? events) : IPluginWorldEvents
@@ -382,6 +423,9 @@ internal sealed class HotModuleRegistrationScope : IHotModuleContext, IVegaPlugi
         public void OnProjectileRemoved(Action<ProjectileRemovedEvent> handler) => Register("world.projectile.removed", handler);
         public void OnNpcActorInteracted(Action<NpcActorInteractedEvent> handler) => Register("world.npc.actor.interacted", handler);
         public void OnNpcActorPurchased(Action<NpcActorPurchasedEvent> handler) => Register("world.npc.actor.purchased", handler);
+        public void OnNpcActorDialogueChoice(Action<NpcActorDialogueChoiceEvent> handler) => Register("world.npc.actor.dialogue", handler);
+        public void OnNpcActorQuest(Action<NpcActorQuestEvent> handler) => Register("world.npc.actor.quest", handler);
+        public void OnNpcActorThink(Action<NpcActorThinkEvent> handler) => Register("world.npc.actor.think", handler);
         public void AllowNpcTransform(Func<NpcTransformingEvent, bool> allow) => RegisterPolicy("world.npc.transform.policy", allow);
         public void AllowNpcLoot(Func<NpcLootCreatingEvent, bool> allow) => RegisterPolicy("world.npc.loot.policy", allow);
 
