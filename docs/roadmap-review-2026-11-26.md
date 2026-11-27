@@ -78,7 +78,11 @@ producer batching (2 ms) completed in 9.437 s, 25,500 movements, 5,100 boss hits
 (71,400 damage), 1,275 messages, 8,261,324 completion callbacks and 144,253,282
 bytes with all peer hashes verified. Busy p95 was 19.260 ms with 139 cadence
 budget overruns: 63.58 average updates/s is not stable 60 TPS or stock-client
-qualification. Raw local evidence: `artifacts/mysql-migration-2026-11-27/`.
+qualification. The 1,800-update follow-up completed in 28.950 s (62.18 average
+updates/s), 76,500 movements, 15,300 boss hits (214,200 damage), 3,825 messages,
+24,821,029 callbacks and 433,669,826 bytes with all 255 stream hashes verified.
+Its busy p95 was 19.435 ms and 503/1,800 updates exceeded the 16.667 ms budget.
+Raw local evidence: `artifacts/mysql-migration-2026-11-27/`.
 
 
 - **P0 native gameplay load:** real native world counter now verifies a 255-slot
