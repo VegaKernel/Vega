@@ -49,6 +49,7 @@ public sealed record TerrariaServerHostServices(
         IPacketProcessor<PacketView> PacketPolicies,
         INetworkMetricsRecorder Metrics,
         ISecuritySignalRecorder SecuritySignals,
+        TerrariaInboundPacketRates PacketRates,
         ServerNetworkOptions? Options = null,
         IConnectionAdmissionPolicy? Admission = null);
 

@@ -7,6 +7,10 @@ For extending the authenticated loopback operator API without a separate HTTP se
 
 For account lifecycle and delegated group assignments see [Identity](plugin-identity-sdk.md). Region APIs, committed bounded player tile-cell differences and exact tile editing/undo are documented in [Region SDK](plugin-region-sdk.md) and [World editing](plugin-world-edit-sdk.md). `WorldEvents.OnHardmodeChanged` observes the before/after native hardmode flag after a tick; loading an already-hardmode world establishes a baseline rather than firing a new progression event.
 
+## Inbound packet rates
+
+Use `plugin.Packets.AllowInbound(p => p.PacketId != 13 || p.TypeCount <= 90)` in `Configure` to drop excess movement frames per connection. The example threshold applies to a fixed one-second window. `TypeCount` and `TotalCount` include attempted frames, including drops, from the handshake onward. Read both counters with `plugin.Packets.Read(new ConnectionId(slot), packetId)` from `Vega.Contracts.Networking`. An idle window reads zero, a closed slot returns null, and reconnecting starts fresh. Returning true passes the frame on to the remaining checks. Plugin retirement removes the rule.
+
 ## Create and build
 
 From a Vega checkout, install the maintained template and create a project:

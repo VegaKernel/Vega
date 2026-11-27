@@ -1,6 +1,7 @@
 using System.Text.Json;
 using Vega.Contracts.Commands;
 using Vega.Contracts.Modules;
+using Vega.Contracts.Networking;
 using Vega.Contracts.Operations;
 using Vega.Contracts.Players;
 using Vega.Contracts.Sandboxes;
@@ -59,7 +60,7 @@ internal sealed partial class HotModuleRegistrationScope : IHotModuleContext, IV
         IReadOnlyList<string>? identityAssignmentGroups = null,
         PluginRestRegistry? pluginRestRegistry = null,
         PluginClusterRegistry? pluginClusterRegistry = null,
-        Vega.Contracts.Cluster.IClusterNotificationSender? clusterSender = null)
+        Vega.Contracts.Cluster.IClusterNotificationSender? clusterSender = null, IInboundPacketRateReader? packetRates = null)
     {
         ArgumentNullException.ThrowIfNull(commands);
         this.logger = logger ?? throw new ArgumentNullException(nameof(logger));
@@ -86,6 +87,7 @@ internal sealed partial class HotModuleRegistrationScope : IHotModuleContext, IV
         Commands = new PluginCommands(this, commands);
         Players = new PluginPlayers(this, playerDirectory, messenger, playerOperations, playerLifecycle, activityWorldId);
         WorldEvents = new PluginWorldEvents(this, worldEvents);
+        Packets = new PluginPackets(this, packetRates, worldEvents);
         Activity = new PluginActivity(this, activityWorldId, playerDirectory, gameThread,
             authentication, publicChat, commands as ICommandCompletionObservations, commands as ICommandPolicyEvents);
         Identity = new PluginIdentity(this, activityWorldId, playerDirectory, authentication, accounts, groups, playerPermissions, gameThread, roleLeases, identityAssignmentGroups);
@@ -112,6 +114,7 @@ internal sealed partial class HotModuleRegistrationScope : IHotModuleContext, IV
     public IPluginCommands Commands { get; }
     public IPluginPlayers Players { get; }
     public IPluginWorldEvents WorldEvents { get; }
+    public IPluginPackets Packets { get; }
     public IPluginActivity Activity { get; }
     public IPluginIdentity Identity { get; }
     public IPluginStatistics Statistics { get; }

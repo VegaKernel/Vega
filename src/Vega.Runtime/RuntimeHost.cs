@@ -225,7 +225,7 @@ internal static partial class RuntimeHost
             World: new(foundation.RuntimeWorldId, foundation.HardmodeStarting, operations.WorldImages,
                 world.WorldMaintenance, world.WorldClock, foundation.ModuleRouter, world.WorldEvents),
             Network: new(foundation.ConnectionMetadata, packetPolicies.PlayerPacketPolicies,
-                foundation.NetworkMetrics, foundation.SecuritySignals,
+                foundation.NetworkMetrics, foundation.SecuritySignals, world.PacketRates,
                 ServerNetworkOptions.Load(Path.Combine(AppContext.BaseDirectory, "config", "network.json"), foundation.Logger),
                 admission.Whitelist),
             Players: new(foundation.PlayerBoundary, foundation.PlayerAuthorization, identity.AccountSessions),

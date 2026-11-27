@@ -48,6 +48,7 @@ public static class TerrariaServerHost
 
         AppDomain.CurrentDomain.UnhandledException += ReportUnhandled;
         using var nativeLifecycleHooks = new NativeLifecycleHooks(lifecycle);
+        using var packetRates = services.Network.PacketRates;
         using var gameplayEvents = world.Events is null ? null : new NativeGameplayEventHooks(
             world.Id, world.Events, gameThreadDispatcher, logger, playerBoundary);
         using var networkMetricsHooks = new NativeNetworkMetricsHooks(services.Network.Metrics);
@@ -139,6 +140,7 @@ public static class TerrariaServerHost
             global::Terraria.Main.ServerSideCharacter = characters.Authoritative;
             if (characters.Authoritative) logger.Log(OperationsLogLevel.Information, "ssc", "Native server-side character mode enabled.");
 
+            packetRates.Attach();
             nativeLifecycleHooks.Attach();
             gameThreadDispatcher.Attach();
             gameplayEvents?.Attach();

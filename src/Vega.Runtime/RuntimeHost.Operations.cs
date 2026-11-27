@@ -129,6 +129,7 @@ internal static partial class RuntimeHost
             world.Visibility, world.WorldSchematics, characters.WorldNpcActors, Regions: database.Regions));
         var pluginServices = new ServerPluginHostServices(commandDispatcher, logger)
         {
+            PacketRates = world.PacketRates,
             Players = new(playerBoundary, playerBoundary, playerBoundary, playerBoundary, foundation.GameThreadDispatcher),
             World = new(runtimeWorldId, worldEvents, identity.Chat,
                 new WorldPublicWarpReader(world.WorldEnvironment, world.WarpStore), identity.Playtime),

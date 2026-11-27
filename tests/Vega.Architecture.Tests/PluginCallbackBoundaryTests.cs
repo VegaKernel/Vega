@@ -26,6 +26,7 @@ public sealed class PluginCallbackBoundaryTests
             "IPluginTasks.RunIo", "IPluginTasks.TryRunCpu", "IPluginConfiguration.Use", "IPluginStorage.LoadJson",
             "IPluginServices.Register",
             "IPluginCluster.Subscribe",
+            "IPluginPackets.AllowInbound",
             "IPluginRest.RegisterQuery", "IPluginRest.RegisterAction",
             "IPluginWorldEvents.OnTickCompleted", "IPluginWorldEvents.OnSaveCompleted",
             "IPluginWorldEvents.OnHardmodeChanged",

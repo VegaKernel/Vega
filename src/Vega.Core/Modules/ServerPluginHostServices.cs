@@ -4,6 +4,7 @@ using Vega.Contracts.Cluster;
 using Vega.Contracts.Commands;
 using Vega.Contracts.Messaging;
 using Vega.Contracts.Modules;
+using Vega.Contracts.Networking;
 using Vega.Contracts.Operations;
 using Vega.Contracts.Players;
 using Vega.Contracts.Threading;
@@ -18,6 +19,7 @@ public sealed record ServerPluginHostServices(ICommandRegistry Commands, IOperat
     public WorldServices World { get; init; } = new();
     public IdentityServices Identity { get; init; } = new();
     public ExtensionServices Extensions { get; init; } = new();
+    public IInboundPacketRateReader? PacketRates { get; init; }
 
     public sealed record PlayerServices(IPlayerDirectory? Directory = null, IPlayerMessenger? Messenger = null,
         IPlayerOperations? Operations = null, IPlayerSessionLifecycle? Lifecycle = null, IGameThreadDispatcher? GameThread = null);
@@ -42,5 +44,5 @@ public sealed record ServerPluginHostServices(ICommandRegistry Commands, IOperat
             groups: Identity.Groups, playerPermissions: Identity.Permissions, roleLeases: Identity.RoleLeases,
             identityAssignmentGroups: options.IdentityGroupAssignments.GetValueOrDefault(name), serviceRegistry: registry,
             documentStore: Extensions.Documents, npcEconomyRegistry: Extensions.NpcEconomy, pluginRestRegistry: Extensions.Rest,
-            pluginClusterRegistry: Extensions.Cluster, clusterSender: Extensions.ClusterSender);
+            pluginClusterRegistry: Extensions.Cluster, clusterSender: Extensions.ClusterSender, packetRates: PacketRates);
 }

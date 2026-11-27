@@ -148,6 +148,7 @@ internal static partial class RuntimeHost
         var worldTiles = resources.Own(new TerrariaWorldTileService(gameThreadDispatcher, runtimeWorldId, foundation.Lifecycle));
         var worldNpcs = new TerrariaWorldNpcService(gameThreadDispatcher, runtimeWorldId, playerBoundary);
         var worldEvents = new WorldGameplayEventHub();
+        var packetRates = new TerrariaInboundPacketRates(worldEvents, foundation.NetworkMetrics);
         var worldSchematics = new SchematicSnapshotService(runtimeWorldId, new TerrariaSchematicCapture(gameThreadDispatcher), gameThreadDispatcher,
             new TerrariaSchematicPlacement(gameThreadDispatcher, runtimeWorldId).Place);
         WorldBuildProtection buildProtection;
@@ -174,7 +175,7 @@ internal static partial class RuntimeHost
             chestBackend,
             new AsyncEventPipeline<ChestChanging>([]),
             new AsyncEventPipeline<ChestChanged>([]));
-        return new(sceneRenderer, scenes, visibility, worldMaintenanceOptions, worldMaintenance, serverControl, runtimeMetrics, worldClock, worldEnvironment, regionReset, worldReset, cleanerOptions, worldEntities, worldTiles, worldNpcs, worldEvents, worldSchematics, buildProtection, warpStore, chestService);
+        return new(sceneRenderer, scenes, visibility, worldMaintenanceOptions, worldMaintenance, serverControl, runtimeMetrics, worldClock, worldEnvironment, regionReset, worldReset, cleanerOptions, worldEntities, worldTiles, worldNpcs, worldEvents, packetRates, worldSchematics, buildProtection, warpStore, chestService);
     }
 
     private static SoftRestartCoordinator? StartModules(RuntimeResourceScope resources, Launch launch, Foundation foundation, World world, string configuredWorldPath)
@@ -289,6 +290,7 @@ internal static partial class RuntimeHost
         TerrariaWorldTileService WorldTiles,
         TerrariaWorldNpcService WorldNpcs,
         WorldGameplayEventHub WorldEvents,
+        TerrariaInboundPacketRates PacketRates,
         SchematicSnapshotService WorldSchematics,
         WorldBuildProtection BuildProtection,
         WarpStore WarpStore,

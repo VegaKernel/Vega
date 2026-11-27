@@ -16,6 +16,8 @@ public interface IVegaPluginContext
 
     IPluginPlayers Players { get; }
 
+    IPluginPackets Packets => throw new NotSupportedException("Inbound packet accounting is unavailable in this host.");
+
     /// <summary>Curated immutable-snapshot access to the world hosted by this process.</summary>
     IPluginWorld World => VegaPluginRuntime.World(this);
 
