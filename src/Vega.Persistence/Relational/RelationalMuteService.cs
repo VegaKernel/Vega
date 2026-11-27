@@ -26,7 +26,9 @@ internal sealed class RelationalMuteService(
         }
     }
 
-    public MuteSnapshot? FindActive(string playerName, string? accountName, DateTimeOffset now)
+    public MuteSnapshot? FindActive(string playerName, string? accountName, DateTimeOffset now) => FindActive(playerName, accountName, null, null, now);
+
+    public MuteSnapshot? FindActive(string playerName, string? accountName, string? ip, string? uuid, DateTimeOffset now)
     {
         string normalizedPlayer = Normalize(playerName, nameof(playerName));
         string? normalizedAccount = string.IsNullOrWhiteSpace(accountName) ? null : accountName.Trim();
@@ -45,6 +47,8 @@ internal sealed class RelationalMuteService(
                         mute.SubjectValue.Equals(normalizedPlayer, StringComparison.OrdinalIgnoreCase),
                     _ => false
                 };
+                matches |= mute.IpAddress is not null && mute.IpAddress.Equals(ip, StringComparison.OrdinalIgnoreCase) ||
+                    mute.Uuid is not null && mute.Uuid.Equals(uuid, StringComparison.Ordinal);
                 if (matches && (best is null ||
                     mute.SubjectKind > best.SubjectKind ||
                     mute.SubjectKind == best.SubjectKind && mute.IssuedAt > best.IssuedAt))
@@ -88,6 +92,15 @@ internal sealed class RelationalMuteService(
                 {
                     AddParameters(command, mute);
                     await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
+                }
+
+                if (mute.IpAddress is not null || mute.Uuid is not null)
+                {
+                    await using DbCommand identity = CreateCommand(connection, transaction, "INSERT INTO vega_mute_identity (mute_id, last_ip, last_uuid) VALUES (@id, @ip, @uuid);");
+                    identity.AddParameter("@id", mute.Id.ToString());
+                    identity.AddParameter("@ip", mute.IpAddress);
+                    identity.AddParameter("@uuid", mute.Uuid);
+                    await identity.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
                 }
 
                 await WriteAuditAsync(connection, transaction, mute.IssuedBy, "mute.create", mute.Id.ToString(), 0, mute.Revision, cancellationToken)
@@ -175,8 +188,8 @@ internal sealed class RelationalMuteService(
             using DbConnection connection = open();
             using DbCommand command = connection.CreateCommand();
             command.CommandText =
-                "SELECT id, subject_kind, subject_value, reason, issued_by, issued_at_utc, expires_at_utc, revision " +
-                "FROM vega_mutes WHERE revoked = FALSE AND expires_at_utc > @now ORDER BY issued_at_utc, id;";
+                "SELECT m.id, m.subject_kind, m.subject_value, m.reason, m.issued_by, m.issued_at_utc, m.expires_at_utc, m.revision, i.last_ip, i.last_uuid " +
+                "FROM vega_mutes m LEFT JOIN vega_mute_identity i ON m.id = i.mute_id WHERE m.revoked = FALSE AND m.expires_at_utc > @now ORDER BY m.issued_at_utc, m.id;";
             command.AddParameter("@now", DateTimeOffset.UtcNow.ToString("O", CultureInfo.InvariantCulture));
             using DbDataReader reader = command.ExecuteReader();
             active = [];
@@ -208,7 +221,11 @@ internal sealed class RelationalMuteService(
         reader.GetString(4),
         DateTimeOffset.Parse(reader.GetString(5), CultureInfo.InvariantCulture, DateTimeStyles.RoundtripKind),
         DateTimeOffset.Parse(reader.GetString(6), CultureInfo.InvariantCulture, DateTimeStyles.RoundtripKind),
-        Convert.ToInt64(reader.GetValue(7), CultureInfo.InvariantCulture));
+        Convert.ToInt64(reader.GetValue(7), CultureInfo.InvariantCulture))
+    {
+        IpAddress = reader.IsDBNull(8) ? null : reader.GetString(8),
+        Uuid = reader.IsDBNull(9) ? null : reader.GetString(9)
+    };
 
     private static void AddParameters(DbCommand command, MuteSnapshot mute)
     {
@@ -252,6 +269,8 @@ internal sealed class RelationalMuteService(
         _ = Normalize(mute.SubjectValue, nameof(mute.SubjectValue));
         _ = Normalize(mute.Reason, nameof(mute.Reason), 2048);
         _ = Normalize(mute.IssuedBy, nameof(mute.IssuedBy));
+        if (mute.IpAddress is not null && !System.Net.IPAddress.TryParse(mute.IpAddress, out _)) throw new ArgumentException("Invalid mute IP address.");
+        if (mute.Uuid is not null) _ = Normalize(mute.Uuid, nameof(mute.Uuid));
         if (mute.Revision <= 0 || mute.ExpiresAt <= mute.IssuedAt)
         {
             throw new ArgumentException("Mute revision and expiration are invalid.", nameof(mute));

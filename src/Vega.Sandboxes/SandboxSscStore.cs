@@ -43,33 +43,6 @@ public sealed class SandboxSscStore : ISandboxSscStore
             FindState(state, accountId, Scope(worldId, mode))?.ToSnapshot(), write: false);
     }
 
-    /// <summary>Offline migration of the old primary-only store into this shared store. Never overwrites existing characters.</summary>
-    public PrimaryMigrationResult MigrateLegacyPrimary(string legacyPath, DateTimeOffset now)
-    {
-        var legacy = new SandboxSscStore(legacyPath);
-        if (string.Equals(legacy.path, path, StringComparison.OrdinalIgnoreCase))
-            throw new InvalidDataException("Legacy and shared SSC paths must differ.");
-        string archive = legacy.path + ".migrated";
-        lock (sync)
-        {
-            if (!File.Exists(legacy.path)) throw new FileNotFoundException("Legacy primary SSC store does not exist.", legacy.path);
-            using FileStream legacyLock = legacy.AcquireFileLock();
-            if (File.Exists(archive)) throw new IOException("Legacy SSC archive already exists; preserve it before retrying.");
-            Directory.CreateDirectory(Path.GetDirectoryName(path)!);
-            using FileStream sharedLock = AcquireFileLock();
-
-            State source = Load(legacy.path, requireExisting: true);
-            ValidateMigrationState(source, primaryOnly: true);
-            if (source.Leases.Any(lease => lease.ExpiresAt > now))
-                throw new InvalidDataException("Active SSC transfers exist. Stop all worlds and wait for the leases to expire before migrating.");
-            var result = MergePrimaryAndPublish(source, now);
-            File.Move(legacy.path, archive, overwrite: false);
-            return new PrimaryMigrationResult(result.Imported, result.AlreadyPresent, archive, result.SharedBackup);
-        }
-    }
-
-    public sealed record PrimaryMigrationResult(int Imported, int AlreadyPresent, string LegacyArchive, string? SharedBackup);
-
     public sealed record PrimaryImportResult(int Imported, int AlreadyPresent, string? SharedBackup);
 
     /// <summary>Atomically import primary characters into the shared store, preserving other worlds and refusing conflicting records.</summary>
@@ -78,7 +51,7 @@ public sealed class SandboxSscStore : ISandboxSscStore
         var source = new State();
         foreach (var pair in payloads)
             source.Entries.Add(new Entry(pair.Key, WorldId.Primary.Value, ++source.Sequence, pair.Value, now));
-        ValidateMigrationState(source, primaryOnly: true);
+        ValidateImportState(source, primaryOnly: true);
         lock (sync)
         {
             Directory.CreateDirectory(Path.GetDirectoryName(path)!);
@@ -90,7 +63,7 @@ public sealed class SandboxSscStore : ISandboxSscStore
     private PrimaryImportResult MergePrimaryAndPublish(State source, DateTimeOffset now)
     {
         State target = Load(path);
-        ValidateMigrationState(target, primaryOnly: false);
+        ValidateImportState(target, primaryOnly: false);
         if (target.Leases.Any(lease => lease.ExpiresAt > now))
             throw new InvalidDataException("Active SSC transfers exist. Stop all worlds and wait for the leases to expire before migrating.");
         int imported = 0;
@@ -123,7 +96,7 @@ public sealed class SandboxSscStore : ISandboxSscStore
         return new(imported, identical, backup);
     }
 
-    private static void ValidateMigrationState(State state, bool primaryOnly)
+    private static void ValidateImportState(State state, bool primaryOnly)
     {
         if (state.Sequence < 0 || state.Entries is null || state.Leases is null || state.Leases.Any(lease => lease is null))
             throw new InvalidDataException("SSC store metadata is invalid.");

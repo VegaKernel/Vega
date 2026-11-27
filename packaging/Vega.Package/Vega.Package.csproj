@@ -28,7 +28,6 @@
     <ProjectReference Include="..\..\src\Vega.Modules.Navigation\Vega.Modules.Navigation.csproj" PrivateAssets="all" />
     <ProjectReference Include="..\..\src\Vega.Modules.Restrictions\Vega.Modules.Restrictions.csproj" PrivateAssets="all" />
     <ProjectReference Include="..\..\src\Vega.Modules.Pvp\Vega.Modules.Pvp.csproj" PrivateAssets="all" />
-    <ProjectReference Include="..\..\src\Vega.Modules.CustomItems\Vega.Modules.CustomItems.csproj" PrivateAssets="all" />
     <ProjectReference Include="..\..\src\Vega.Modules.Scenes\Vega.Modules.Scenes.csproj" PrivateAssets="all" />
     <ProjectReference Include="..\..\src\TerraRuntime.Schematics\TerraRuntime.Schematics.csproj" PrivateAssets="all" />
     <ProjectReference Include="..\..\src\Vega.Modules.Wipe\Vega.Modules.Wipe.csproj" PrivateAssets="all" />

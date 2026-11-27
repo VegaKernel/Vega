@@ -23,7 +23,8 @@ public sealed class LoopbackRestService(
     Func<GameThreadQueueSnapshot>? queueMetrics = null,
     IWorldEnvironmentService? environment = null,
     IOperationsLogger? logger = null,
-    RestAdministration? administration = null) : IDisposable, ICommandHandler
+    RestAdministration? administration = null,
+    IPluginRestRouter? pluginRest = null) : IDisposable, ICommandHandler
 {
     private const int MaximumMutationBytes = 4096;
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
@@ -91,6 +92,14 @@ public sealed class LoopbackRestService(
                     continue;
                 }
                 if (request.Url is not { Query.Length: 0 } url) { response.StatusCode = 400; continue; }
+                if (url.AbsolutePath.StartsWith("/v1/plugins/", StringComparison.Ordinal))
+                {
+                    if (access != Access.Administration) { response.StatusCode = 403; continue; }
+                    if (pluginRest is null) { response.StatusCode = 404; continue; }
+                    if (!WorldReady()) { response.StatusCode = 503; continue; }
+                    await ApplyPluginOperationAsync(request, response, url.AbsolutePath["/v1/plugins/".Length..]).ConfigureAwait(false);
+                    continue;
+                }
                 if (url.AbsolutePath.StartsWith("/v1/admin/", StringComparison.Ordinal))
                 {
                     if (access != Access.Administration) { response.StatusCode = 403; continue; }
@@ -302,6 +311,83 @@ public sealed class LoopbackRestService(
         catch (Exception ex) when (ex is IOException or JsonException) { response.StatusCode = 400; }
         catch (Exception) { response.StatusCode = 500; }
         AuditMaintenance("admin." + route.Replace('/', '.'), response.StatusCode);
+    }
+
+    private async Task ApplyPluginOperationAsync(HttpListenerRequest request, HttpListenerResponse response, string route)
+    {
+        string[] segments = route.Split('/');
+        if (segments.Length != 2 || !segments.All(static segment => segment.Length is > 0 and <= 96 && segment is not ("." or "..") &&
+                segment.All(c => char.IsAsciiLetterOrDigit(c) || c is '.' or '_' or '-')))
+        { response.StatusCode = 404; return; }
+        PluginRestMethod method;
+        if (request.HttpMethod == "GET") method = PluginRestMethod.Query;
+        else if (request.HttpMethod == "POST") method = PluginRestMethod.Action;
+        else { response.StatusCode = 405; return; }
+
+        using var deadline = CancellationTokenSource.CreateLinkedTokenSource(stopping.Token);
+        deadline.CancelAfter(TimeSpan.FromSeconds(5));
+        Task<PluginRestResponse>? pending = null;
+        try
+        {
+            byte[] body = [];
+            if (method == PluginRestMethod.Query && request.HasEntityBody) { response.StatusCode = 400; return; }
+            if (method == PluginRestMethod.Action)
+            {
+                byte[]? bytes = await ReadMutationBodyAsync(request, response, deadline.Token).ConfigureAwait(false);
+                if (bytes is null) return;
+                using JsonDocument json = JsonDocument.Parse(bytes, new JsonDocumentOptions { MaxDepth = 16 });
+                if (json.RootElement.ValueKind != JsonValueKind.Object || !UnambiguousJson(json.RootElement)) { response.StatusCode = 400; return; }
+                body = bytes;
+            }
+            // Read scope and token revocation never grant plugin access, even while a body is arriving.
+            if (Authenticate(request.Headers["Authorization"]) != Access.Administration) { response.StatusCode = 401; return; }
+            if (!WorldReady()) { response.StatusCode = 503; return; }
+
+            pending = pluginRest!.DispatchAsync(segments[0], segments[1], method, body, deadline.Token).AsTask();
+            // Non-cooperative plugin callbacks do not block the sequential REST lane forever.
+            // The plugin scope still owns the operation and joins it at retirement.
+            PluginRestResponse reply = await pending.WaitAsync(deadline.Token).ConfigureAwait(false);
+            response.StatusCode = reply.Status switch
+            {
+                PluginRestStatus.Success => 200,
+                PluginRestStatus.NoContent => 204,
+                PluginRestStatus.BadRequest => 400,
+                PluginRestStatus.NotFound => 404,
+                PluginRestStatus.Conflict => 409,
+                PluginRestStatus.Unavailable => 503,
+                _ => 500
+            };
+            if (reply.Status == PluginRestStatus.Success)
+            {
+                if (reply.Json is not { Length: > 0 and <= 64 * 1024 }) { response.StatusCode = 500; return; }
+                response.ContentType = "application/json; charset=utf-8";
+                response.ContentLength64 = reply.Json.Length;
+                await response.OutputStream.WriteAsync(reply.Json, deadline.Token).ConfigureAwait(false);
+            }
+        }
+        catch (OperationCanceledException) { response.StatusCode = 504; }
+        catch (Exception ex) when (ex is IOException or JsonException) { response.StatusCode = 400; }
+        catch (Exception) { response.StatusCode = 500; }
+        finally
+        {
+            if (pending is { IsCompleted: false }) _ = pending.ContinueWith(static failed => _ = failed.Exception,
+                CancellationToken.None, TaskContinuationOptions.OnlyOnFaulted | TaskContinuationOptions.ExecuteSynchronously, TaskScheduler.Default);
+            else if (pending is { IsFaulted: true }) _ = pending.Exception;
+            AuditMaintenance("plugin." + segments[0] + "." + segments[1], response.StatusCode);
+        }
+    }
+
+    private static bool UnambiguousJson(JsonElement element)
+    {
+        if (element.ValueKind == JsonValueKind.Object)
+        {
+            var names = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            foreach (JsonProperty property in element.EnumerateObject())
+                if (!names.Add(property.Name) || !UnambiguousJson(property.Value)) return false;
+        }
+        else if (element.ValueKind == JsonValueKind.Array)
+            foreach (JsonElement item in element.EnumerateArray()) if (!UnambiguousJson(item)) return false;
+        return true;
     }
 
     private static async Task<byte[]?> ReadMutationBodyAsync(HttpListenerRequest request, HttpListenerResponse response, CancellationToken token)

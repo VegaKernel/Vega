@@ -14,7 +14,8 @@ public sealed class AccountCommand(
     IAccountService accounts,
     IAuthorizationService authorization,
     IRoleLeaseService? roleLeases = null,
-    TimeProvider? timeProvider = null) : ICommandHandler
+    TimeProvider? timeProvider = null,
+    IReadOnlyDictionary<string, HashSet<string>>? groupAssignments = null) : ICommandHandler
 {
     private readonly TimeProvider clock = timeProvider ?? TimeProvider.System;
 
@@ -43,7 +44,8 @@ public sealed class AccountCommand(
             "password" => await SetPasswordAsync(invocation, cancellationToken).ConfigureAwait(false),
             "temp" => await GrantTemporaryGroupAsync(invocation, cancellationToken).ConfigureAwait(false),
             "temp-clear" => await RevokeTemporaryGroupAsync(invocation, cancellationToken).ConfigureAwait(false),
-            "temp-list" => ListTemporaryGroups(),
+            "temp-list" => ListTemporaryGroups(invocation),
+            "temp-info" => await TemporaryGroupInfoAsync(invocation, cancellationToken).ConfigureAwait(false),
             "help" when invocation.Arguments.Count == 1 => Info("command.account.help", Descriptor.Syntax),
             _ => Usage()
         };
@@ -101,7 +103,7 @@ public sealed class AccountCommand(
         }
 
         string group = invocation.Arguments.Count == 4 ? invocation.Arguments[3] : "default";
-        if (!CanDelegate(invocation.Principal, group))
+        if (!CanDelegate(invocation.Principal, group) || !CanAssignGroup(invocation.Principal, group))
         {
             return Failure(
                 "command.account.delegation-denied",
@@ -164,7 +166,8 @@ public sealed class AccountCommand(
         }
 
         if (!CanDelegate(invocation.Principal, before.GroupName) ||
-            !CanDelegate(invocation.Principal, invocation.Arguments[2]))
+            !CanDelegate(invocation.Principal, invocation.Arguments[2]) ||
+            !CanAssignGroup(invocation.Principal, before.GroupName, invocation.Arguments[2]))
         {
             return Failure("command.account.delegation-denied", "You cannot assign or replace a group above your authority.");
         }
@@ -217,13 +220,14 @@ public sealed class AccountCommand(
         CommandInvocation invocation,
         CancellationToken cancellationToken)
     {
-        if (roleLeases is null || invocation.Arguments.Count != 4 ||
-            !TryParseDuration(invocation.Arguments[3], out TimeSpan duration))
+        TimeSpan duration = default;
+        if (roleLeases is null || invocation.Arguments.Count is < 3 or > 4 ||
+            invocation.Arguments.Count == 4 && !TryParseDuration(invocation.Arguments[3], out duration))
         {
             return Usage();
         }
 
-        AccountSnapshot? account = await accounts.FindByNameAsync(invocation.Arguments[1], cancellationToken)
+        AccountSnapshot? account = await ResolveAccountAsync(invocation.Arguments[1], cancellationToken)
             .ConfigureAwait(false);
         if (account is null)
         {
@@ -231,7 +235,10 @@ public sealed class AccountCommand(
         }
 
         string group = invocation.Arguments[2];
-        if (!CanDelegate(invocation.Principal, account.GroupName) || !CanDelegate(invocation.Principal, group))
+        if (!CanDelegate(invocation.Principal, account.GroupName) || !CanDelegate(invocation.Principal, group) ||
+            !CanAssignGroup(invocation.Principal, account.GroupName, group) ||
+            (roleLeases.FindActive(account.Id, clock.GetUtcNow()) is { } existing &&
+             (!CanDelegate(invocation.Principal, existing.GroupName) || !CanAssignGroup(invocation.Principal, existing.GroupName))))
         {
             return Failure(
                 "command.account.delegation-denied",
@@ -244,7 +251,7 @@ public sealed class AccountCommand(
             account.Id,
             group,
             now,
-            now.Add(duration),
+            invocation.Arguments.Count == 3 ? DateTimeOffset.MaxValue : now.Add(duration),
             invocation.Principal.Name,
             cancellationToken).ConfigureAwait(false);
         return result.Succeeded && result.After is not null
@@ -253,8 +260,8 @@ public sealed class AccountCommand(
                         "command.account.temp-granted",
                         account.Name,
                         result.After.GroupName,
-                        result.After.ExpiresAt.ToString("u"))
-                    .WithDefaultText("Assigned temporary group {1} to {0} until {2}."))
+                        FormatExpiration(result.After.ExpiresAt))
+                    .WithDefaultText(IsTempGroupInvocation(invocation) ? "A new temporary group has been added." : "Assigned temporary group {1} to {0} until {2}."))
             : Failure("command.account.temp-failed", "Temporary group operation failed: {0}.", result.Code);
     }
 
@@ -267,7 +274,7 @@ public sealed class AccountCommand(
             return Usage();
         }
 
-        AccountSnapshot? account = await accounts.FindByNameAsync(invocation.Arguments[1], cancellationToken)
+        AccountSnapshot? account = await ResolveAccountAsync(invocation.Arguments[1], cancellationToken)
             .ConfigureAwait(false);
         if (account is null)
         {
@@ -281,7 +288,8 @@ public sealed class AccountCommand(
         }
 
         if (!CanDelegate(invocation.Principal, account.GroupName) ||
-            !CanDelegate(invocation.Principal, lease.GroupName))
+            !CanDelegate(invocation.Principal, lease.GroupName) ||
+            !CanAssignGroup(invocation.Principal, account.GroupName, lease.GroupName))
         {
             return Failure("command.account.delegation-denied", "You cannot revoke this temporary group.");
         }
@@ -294,11 +302,52 @@ public sealed class AccountCommand(
         return result.Succeeded
             ? CommandExecutionResult.WithMessages(
                 MessageDescriptor.Success("command.account.temp-revoked", account.Name, lease.GroupName)
-                    .WithDefaultText("Revoked temporary group {1} from {0}."))
+                    .WithDefaultText(IsTempGroupInvocation(invocation) ? "The temporary group has been deleted." : "Revoked temporary group {1} from {0}."))
             : Failure("command.account.temp-failed", "Temporary group operation failed: {0}.", result.Code);
     }
 
-    private CommandExecutionResult ListTemporaryGroups()
+    internal ValueTask<AccountSnapshot?> ResolveAccountAsync(string value, CancellationToken token) =>
+        int.TryParse(value, out int id)
+            ? ValueTask.FromResult(accounts.SnapshotAccounts().FirstOrDefault(account => account.Id.Value == id))
+            : accounts.FindByNameAsync(value, token);
+
+    internal ValueTask<AccountSnapshot?> FindAccountByNameAsync(string name, CancellationToken token) => accounts.FindByNameAsync(name, token);
+
+    internal async ValueTask<CommandExecutionResult> TemporaryGroupInfoAsync(CommandInvocation invocation, CancellationToken token)
+    {
+        if (roleLeases is null || invocation.Arguments.Count != 2) return Usage();
+        bool ownStatus = invocation.Name.Equals("tempstatus", StringComparison.OrdinalIgnoreCase) || invocation.Name.Equals("temps", StringComparison.OrdinalIgnoreCase) || invocation.Name.Equals("ts", StringComparison.OrdinalIgnoreCase);
+        AccountSnapshot? account = await (ownStatus ? accounts.FindByNameAsync(invocation.Arguments[1], token) : ResolveAccountAsync(invocation.Arguments[1], token)).ConfigureAwait(false);
+        if (account is null) return Failure("command.account.not-found", "Invalid account.");
+        var lease = roleLeases.FindActive(account.Id, clock.GetUtcNow());
+        if (lease is null) return Failure("role-lease.not-found", "You don't have a temp group.");
+        if (ownStatus)
+        {
+            var prefix = authorization.SnapshotGroups().FirstOrDefault(group => group.Name.Equals(lease.GroupName, StringComparison.OrdinalIgnoreCase))?.Presentation.Prefix;
+            return CommandExecutionResult.WithMessages(MessageDescriptor.Info("command.tempstatus.info", string.IsNullOrEmpty(prefix) ? lease.GroupName : prefix, FormatExpiration(lease.ExpiresAt)).WithDefaultText("TempGroup: {0} | Expiration: {1}"));
+        }
+        return CommandExecutionResult.WithMessages(MessageDescriptor.Info("command.tempgroup.info", account.Id.Value,
+            account.Name, lease.GroupName, FormatExpiration(lease.ExpiresAt))
+            .WithDefaultText("AccountID: {0} - AccountName: {1} | TempGroup: {2} | Expiration: {3}"));
+    }
+
+    internal static string FormatExpiration(DateTimeOffset expiry) => expiry == DateTimeOffset.MaxValue ? "Never" : expiry.ToString("u");
+
+    private static bool IsTempGroupInvocation(CommandInvocation invocation) =>
+        invocation.Name.Equals("tg", StringComparison.OrdinalIgnoreCase) || invocation.Name.Equals("tempg", StringComparison.OrdinalIgnoreCase) || invocation.Name.Equals("tempgroup", StringComparison.OrdinalIgnoreCase);
+
+    private bool CanAssignGroup(ICommandPrincipal principal, params string[] targetGroups)
+    {
+        if (groupAssignments is null || principal.IsServer) return true;
+        if (principal is not IPlayerCommandPrincipal { AccountName: { } name }) return false;
+        var account = accounts.SnapshotAccounts().FirstOrDefault(a => a.Name.Equals(name, StringComparison.OrdinalIgnoreCase));
+        if (account is null) return false;
+        string source = roleLeases?.FindActive(account.Id, clock.GetUtcNow())?.GroupName ?? account.GroupName;
+        var allowed = groupAssignments.FirstOrDefault(entry => entry.Key.Equals(source, StringComparison.OrdinalIgnoreCase)).Value;
+        return allowed is not null && (allowed.Contains("*") || targetGroups.All(target => allowed.Contains(target, StringComparer.OrdinalIgnoreCase)));
+    }
+
+    private CommandExecutionResult ListTemporaryGroups(CommandInvocation invocation)
     {
         if (roleLeases is null)
         {
@@ -307,7 +356,21 @@ public sealed class AccountCommand(
 
         IReadOnlyDictionary<AccountId, AccountSnapshot> accountById = accounts.SnapshotAccounts()
             .ToDictionary(static account => account.Id);
-        RoleLeaseSnapshot[] leases = roleLeases.SnapshotActive(clock.GetUtcNow()).Take(200).ToArray();
+        int page = 1;
+        if (invocation.Arguments.Count > 2 || (invocation.Arguments.Count == 2 && (!int.TryParse(invocation.Arguments[1], out page) || page < 1 || page > int.MaxValue / 10)))
+            return Usage();
+        bool compatibility = IsTempGroupInvocation(invocation);
+        var all = roleLeases.SnapshotActive(clock.GetUtcNow());
+        RoleLeaseSnapshot[] leases = all.Skip((page - 1) * 10).Take(compatibility ? 10 : 200).ToArray();
+        if (compatibility)
+        {
+            if (leases.Length == 0) return Info("command.tempgroup.empty", "There are currently no tempgroup accounts.");
+            int pages = (all.Count - 1) / 10 + 1;
+            var messages = new List<MessageDescriptor> { MessageDescriptor.Info("command.tempgroup.list.header", page, pages).WithDefaultText("Tempered group list ({0}/{1})") };
+            messages.AddRange(leases.Select(lease => MessageDescriptor.Info("command.tempgroup.list.entry", lease.AccountId.Value, lease.GroupName, FormatExpiration(lease.ExpiresAt)).WithDefaultText("AccountID: {0} | TempGroup: {1} | Expiration: {2}")));
+            if (page < pages) messages.Add(MessageDescriptor.Info("command.tempgroup.list.next", page + 1).WithDefaultText("Type /tg list {0} for more."));
+            return CommandExecutionResult.WithMessages([.. messages]);
+        }
         return leases.Length == 0
             ? Info("command.account.temp-list-empty", "There are no active temporary groups.")
             : CommandExecutionResult.WithMessages(leases.Select(lease =>
@@ -317,44 +380,14 @@ public sealed class AccountCommand(
                             ? account.Name
                             : lease.AccountId.Value.ToString(CultureInfo.InvariantCulture),
                         lease.GroupName,
-                        lease.ExpiresAt.ToString("u"),
+                        FormatExpiration(lease.ExpiresAt),
                         lease.IssuedBy)
                     .WithDefaultText("{0} | group {1} | expires {2} | issued by {3}"))
                 .ToArray());
     }
 
-    private static bool TryParseDuration(string text, out TimeSpan duration)
-    {
-        duration = default;
-        if (string.IsNullOrWhiteSpace(text)) return false;
-        string value = text.Trim();
-        double multiplier = value[^1] switch
-        {
-            's' or 'S' => 1,
-            'm' or 'M' => 60,
-            'h' or 'H' => 60 * 60,
-            'd' or 'D' => 24 * 60 * 60,
-            _ => 0
-        };
-        return multiplier > 0 &&
-            double.TryParse(value[..^1], NumberStyles.AllowDecimalPoint, CultureInfo.InvariantCulture, out double units) &&
-            units > 0 && units * multiplier <= TimeSpan.FromDays(365).TotalSeconds &&
-            TrySeconds(units * multiplier, out duration);
-    }
-
-    private static bool TrySeconds(double seconds, out TimeSpan duration)
-    {
-        try
-        {
-            duration = TimeSpan.FromSeconds(seconds);
-            return duration > TimeSpan.Zero;
-        }
-        catch (OverflowException)
-        {
-            duration = default;
-            return false;
-        }
-    }
+    private static bool TryParseDuration(string text, out TimeSpan duration) =>
+        CommandDuration.TryParse(text, TimeSpan.FromDays(365), out duration);
 
     private bool CanDelegate(ICommandPrincipal principal, string groupName)
     {
@@ -412,7 +445,7 @@ public sealed class UserInfoCommand(
     public CommandDescriptor Descriptor { get; } = new(
         "userinfo",
         ["ui"],
-        ["vega.players.inspect"],
+        ["vega.players.inspect", "tshock.admin.userinfo"],
         Syntax: "userinfo <player>");
 
     public ValueTask<CommandExecutionResult> ExecuteAsync(
@@ -439,11 +472,11 @@ public sealed class UserInfoCommand(
         }
 
         var messages = new List<MessageDescriptor>();
-        if (invocation.Principal.HasPermission("vega.players.sensitive"))
-        {
+        bool sensitive = invocation.Principal.HasPermission("vega.players.sensitive");
+        if (sensitive || invocation.Principal.HasPermission("tshock.admin.userinfo.ip"))
             messages.Add(Success("command.userinfo.ip", "IP Address: {0}.", IpAddress(player.Connection?.EffectiveEndpoint ?? player.RemoteEndpoint)));
+        if (sensitive || invocation.Principal.HasPermission("tshock.accountinfo.details.uuid"))
             messages.Add(Success("command.userinfo.uuid", "Short UUID: {0}", ShortUuid(player.Connection?.ClientUuid)));
-        }
         if (accounts is not null && accounts.TryGetBinding(player, out var binding) &&
             accounts.TryRunWithBinding(binding, () => ReadIdentity(binding), out var identity) && identity is { } current)
             messages.Add(Success("command.userinfo.account", " -> Logged-in as: {0}; in group {1}.", current.Name, current.Group));
@@ -468,7 +501,7 @@ public sealed class UserInfoCommand(
     private static string IpAddress(string? endpoint) => IPAddress.TryParse(endpoint, out var address) ? address.ToString() :
         endpoint is not null && IPEndPoint.TryParse(endpoint, out var parsed) ? parsed.Address.ToString() : "N/A";
 
-    private static string ShortUuid(string? uuid) => string.IsNullOrEmpty(uuid) ? "N/A" : uuid.Length <= 17 ? uuid : $"{uuid[..8]}…{uuid[^8..]}";
+    internal static string ShortUuid(string? uuid) => string.IsNullOrEmpty(uuid) ? "N/A" : uuid.Length <= 17 ? uuid : $"{uuid[..8]}…{uuid[^8..]}";
 
     private static MessageDescriptor Success(string key, string text, params object?[] args) =>
         MessageDescriptor.Success(key, args).WithSource(Source).WithDefaultText(text);

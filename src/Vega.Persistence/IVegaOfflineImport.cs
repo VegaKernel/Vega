@@ -1,5 +1,7 @@
 using Vega.Contracts.Cluster.Events;
 using Vega.Contracts.Regions;
+using Vega.Contracts.Players;
+using Vega.Contracts.Worlds;
 using Vega.Persistence.Sqlite;
 
 namespace Vega.Persistence;
@@ -12,4 +14,5 @@ public interface IVegaOfflineImport
     ValueTask<int> ImportAccountsAsync(IReadOnlyList<LegacyAccountImport> imports, CancellationToken token = default);
     ValueTask<int> ImportBansAsync(IReadOnlyList<GlobalBanCreated> bans, CancellationToken token = default);
     ValueTask<int> ImportPrimaryRegionsAsync(IReadOnlyList<RegionSnapshot> regions, CancellationToken token = default);
+    ValueTask<int> ImportHomesAsync(WorldId world, Guid worldFile, IReadOnlyList<PlayerHome> homes, CancellationToken token = default);
 }

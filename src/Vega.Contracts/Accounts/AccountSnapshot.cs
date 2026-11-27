@@ -9,4 +9,7 @@ public sealed record AccountSnapshot(
     public string? Culture { get; init; }
 
     public long Revision { get; init; }
+    public DateTimeOffset? RegisteredUtc { get; init; }
+    [System.Text.Json.Serialization.JsonIgnore] public string? LastKnownIp { get; init; }
+    [System.Text.Json.Serialization.JsonIgnore] public string? LastKnownUuid { get; init; }
 }

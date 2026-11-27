@@ -236,14 +236,24 @@ public sealed partial class TerrariaPlayerBoundary :
 	}
 
 	public ValueTask<PlayerOperationResult> ToPositionAsync(PlayerSnapshot player, PlayerPosition destination, CancellationToken cancellationToken = default) =>
-		NavigateAsync(player, live =>
-		{
-			if (!float.IsFinite(destination.X) || !float.IsFinite(destination.Y) || destination.X < 640f || destination.Y < 640f ||
-				destination.X > global::Terraria.Main.rightWorld - 640f - live.width ||
-				destination.Y > global::Terraria.Main.bottomWorld - 640f - live.height)
-				return PlayerOperationResult.Failed("player.teleport.invalid_destination");
-			return ApplyTeleport(live, destination);
-		}, cancellationToken);
+		NavigateAsync(player, live => ApplyPositionTeleport(live, destination), cancellationToken);
+
+	public ValueTask<PlayerOperationResult> ToAuthenticatedPositionAsync(PlayerSnapshot player, PlayerPosition destination,
+		Guid worldFileId, Vega.Contracts.Accounts.IPlayerAccountSessionService accounts, Vega.Contracts.Accounts.PlayerAccountBinding binding,
+		CancellationToken cancellationToken = default) =>
+		NavigateAsync(player, live => worldFileId != Guid.Empty && global::Terraria.Main.ActiveWorldFileData?.UniqueId == worldFileId &&
+			binding.PlayerId == player.Id && binding.SessionId == player.SessionId &&
+			accounts.TryRunWithBinding(binding, () => ApplyPositionTeleport(live, destination), out var result)
+				? result : PlayerOperationResult.NotFound(), cancellationToken);
+
+	private static PlayerOperationResult ApplyPositionTeleport(global::Terraria.Player live, PlayerPosition destination)
+	{
+		if (!float.IsFinite(destination.X) || !float.IsFinite(destination.Y) || destination.X < 640f || destination.Y < 640f ||
+			destination.X > global::Terraria.Main.rightWorld - 640f - live.width ||
+			destination.Y > global::Terraria.Main.bottomWorld - 640f - live.height)
+			return PlayerOperationResult.Failed("player.teleport.invalid_destination");
+		return ApplyTeleport(live, destination);
+	}
 
 	public ValueTask<PlayerOperationResult> ToPlayerAsync(PlayerSnapshot player, PlayerSnapshot destination, CancellationToken cancellationToken = default) =>
 		NavigateAsync(player, live =>

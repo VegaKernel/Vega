@@ -159,7 +159,7 @@ public sealed class FileNpcAccountStore(string directory) : INpcQuestProgressSto
 
     private ValueTask<T> Access<T>(NpcAccountScope scope, Func<AccountState, (T Result, bool Save)> action, CancellationToken token)
     {
-        if (!scope.IsValid) throw new ArgumentException("Invalid NPC account scope.", nameof(scope));
+        if (!scope.IsValid || scope.EconomyProvider is not null) throw new ArgumentException("Invalid built-in NPC account scope.", nameof(scope));
         // Never perform directory, lock or durability work on Terraria's game thread.
         return new(Task.Run(async () =>
         {

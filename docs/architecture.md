@@ -100,7 +100,7 @@ Owns scheduled/manual deployment archive orchestration, atomic publication, rete
 
 Modules consume Vega-native contracts and lifecycle APIs. Existing TerraZ plugins are ported deliberately; neither binary nor source-level TShock compatibility is a target requirement.
 
-`Vega.Modules.Pvp` consumes packet, player-combat and session-state capabilities for ordered PvP policy. `Vega.Modules.CustomItems` consumes a targeted item-delivery capability; `Vega.Terraria` implements that capability and owns all `TZ.Multiplicity` serialization. Temporary PvP state follows `PlayerSessionId` lifecycle and is disposed on disconnect; it is not attached as a universal bag to player/domain models. See [`docs/extension-state.md`](extension-state.md).
+`Vega.Modules.Pvp` consumes packet, player-combat and session-state capabilities for ordered PvP policy. Custom item recipes are activation-owned in the Plugin SDK; `Vega.Terraria` performs exact-session native item delivery, including bounded transient world-item stats. Temporary PvP state follows `PlayerSessionId` lifecycle and is disposed on disconnect; it is not attached as a universal bag to player/domain models. See [`docs/extension-state.md`](extension-state.md).
 
 TShockAPI, TSAPI and their hook/command/plugin compatibility surfaces are not present in the executable path, solution or active source tree. The completed migration ledger and superseded compatibility scaffolding have been removed; architecture tests prevent those runtime dependencies from returning.
 

@@ -2,6 +2,11 @@
 
 An ordinary plugin needs one NuGet package, one base class and no knowledge of Terraria, TerrariaRuntime, packet buffers, worker lanes or collectible load contexts.
 
+For typed cross-plugin endpoints and durable SQLite/MySQL/PostgreSQL documents, see [Services and persistent data](plugin-services-data.md).
+For extending the authenticated loopback operator API without a separate HTTP server, see [Plugin REST operations](plugin-rest.md).
+
+For account lifecycle and delegated group assignments see [Identity](plugin-identity-sdk.md). Region APIs, committed bounded player tile-cell differences and exact tile editing/undo are documented in [Region SDK](plugin-region-sdk.md) and [World editing](plugin-world-edit-sdk.md). `WorldEvents.OnHardmodeChanged` observes the before/after native hardmode flag after a tick; loading an already-hardmode world establishes a baseline rather than firing a new progression event.
+
 ## Create and build
 
 From a Vega checkout, install the maintained template and create a project:
@@ -38,21 +43,23 @@ public sealed class HelloPlugin : VegaPlugin
 
     protected override void Configure(IVegaPluginContext plugin)
     {
-        plugin.Commands.Register(new HelloCommand());
-        plugin.Players.OnJoined(player =>
-            plugin.Players.Message(player.PlayerId, "Hello from MyPlugin!"));
+        plugin.Commands.Register("hello", "myplugin.hello",
+            command => PluginReply.Success($"Hello, {command.Principal.Name}!"), aliases: ["hi"]);
+        plugin.Players.OnEnteredWorld(player => plugin.Players.Message(player, "Hello from MyPlugin!"));
+        plugin.Log.Info("MyPlugin configured.");
     }
 }
 ```
 
 The fixed context exposes these discoverable facets:
 
-- `Commands` registers typed command handlers;
+- `Commands` registers typed command handlers or synchronous/asynchronous delegates using the same guarded handler path; `PluginReply` returns common command responses, and `Players.TryGetCommandPlayer(invocation, out player)` resolves the exact originating session;
 - `Players` provides immutable online snapshots, lookup, messaging, kick/teleport operations, join/leave/world-entry/pre-reset hooks and optimistic inventory access;
 - `World` exposes the active world through immutable environment, tile, chest and NPC snapshots plus plugin-owned scenes;
 - `WorldEvents` registers world-local gameplay notifications and narrowly scoped NPC transformation/loot policies;
-- `Activity` observes exact authentication tenures, accepted ordinary public chat and completed authorized commands without obtaining credentials or command arguments;
-- `Identity` provides read-only minimal account identity, group snapshots and exact authenticated effective permission queries;
+- `Activity` observes exact authentication tenures, accepted ordinary public chat and completed authorized commands, including deny/transform policies, without obtaining credentials or command arguments;
+- `Identity` provides minimal account identity, group snapshots, effective permission queries, committed changes and explicitly delegated group assignments;
+- `Services`, `Data`, `Rest`, `Cluster` and `NpcEconomy` provide isolated typed service calls, durable documents, authenticated operator routes, peer notifications and wallet providers, respectively;
 - `Statistics.ReadPlaytimeAsync(player)` reads authenticated entered-world playtime for the exact current player; unavailable or replaced sessions cannot expose another account's data;
 - `Warps` reads public navigation points in the hosted persistent world, not hidden warps or other worlds;
 - `Tasks` posts to the game thread, schedules repeating game-thread work and runs async I/O with a game-thread apply callback;
@@ -62,6 +69,8 @@ The fixed context exposes these discoverable facets:
 - `Log` writes structured records under the plugin's own source name;
 - `Sandboxes` discovers managed worlds and, on the control-plane process, exposes sandbox lifecycle operations;
 - `Debug` is a separately gated process-internal diagnostic surface for explicitly trusted tooling plugins.
+
+For a one-document update, `plugin.Data.TrySetAsync(collection, key, expectedRevision, value, jsonTypeInfo)` is shorthand for a single CAS mutation. Multi-document operations still use `CommitAsync`. Source-generated `JsonTypeInfo` keeps serialization explicit and avoids retaining reflection metadata from retired plugin assemblies. These helpers do not create a second task scheduler or command registry.
 
 The host owns every command, event subscription, repeating task and async operation created through these facets. Unload first cancels and joins background work, then removes registrations before releasing the collectible context. Ordinary plugins do not keep registration leases or reverse-registration lists.
 
@@ -91,7 +100,54 @@ not-yet-delivered requests on unload. `Applied` means the native operation was
 issued; death, hurt and respawn requests do not by themselves acknowledge the
 client's eventual game-state transition. No raw item/packet overrides are exposed.
 
-### Read-only player activity and regions
+`plugin.Players.Actions.CustomItems` is the activation-local registry for **named
+native item recipes**. Check `ItemDeliveryAvailable` and `CustomItems.IsAvailable`
+before registering. A `CustomItemRecipe` sets the native item type, stack and
+native prefix; definitions are case-insensitively unique within one activation,
+are not shared with other plugins, and are released on unload. `Snapshot()` is
+detached. The native delivery path still checks actual item/prefix IDs, maximum
+stack, currently bound player session, and content restrictions. Pending delivery
+is canceled and drained on retirement; a reconnect reusing the slot does
+not redirect an existing request to the new session.
+
+```csharp
+if (plugin.Players.Actions.ItemDeliveryAvailable && plugin.Players.Actions.CustomItems.IsAvailable)
+{
+    plugin.Players.Actions.CustomItems.Register(new CustomItemRecipe("starter-torches", 8, 20));
+    PlayerOperationResult result = await plugin.Players.Actions.CustomItems.GiveAsync(player, "starter-torches", cancellationToken);
+}
+```
+
+`CustomItems.SupportsWorldItemStats` additionally indicates native, transient
+world-item stat delivery. For example:
+
+```csharp
+if (plugin.Players.Actions.CustomItems.SupportsWorldItemStats)
+{
+    plugin.Players.Actions.CustomItems.Register(new CustomItemRecipe("custom-sword", 24)
+    {
+        WorldStats = new CustomWorldItemStats { Damage = 40, UseTime = 20 }
+    });
+    await plugin.Players.Actions.CustomItems.GiveAsync(player, "custom-sword", cancellationToken);
+}
+```
+
+Supported fields are color, damage, knockback, use animation/time, existing
+projectile speed, and scale; native template and finite-range validation apply.
+Gameplay overrides require a single nonstackable native item. Projectile and
+ammo identity, geometry, and arbitrary packet overrides are not exposed.
+Delivery uses the native world item plus native `NetMessage` sync/tweak, not a
+direct socket sender. Stock inventory/SSC, trading, death and reconnect have no
+durable identity for arbitrary custom stats; these are **transient world-item
+stats**, not promises of permanent or authoritative per-weapon combat stats.
+Persist recipe definitions in plugin configuration and register them again on
+activation when needed.
+
+For persistent, versioned virtual custom items with exact account ownership,
+atomic transfer and permanent revocation, use [Custom item instances](plugin-custom-item-instances.md).
+This deliberately does not attach arbitrary persistent stats to physical Terraria items.
+
+### Player activity, command/chat policy and regions
 
 Check `plugin.Activity.AuthenticationAvailable`, `PublicChatAvailable` and
 `CommandCompletionAvailable` before subscribing on hosts that omit these services.
@@ -112,6 +168,49 @@ rejections, exceptions and commands lacking an exact player session are omitted.
 Both are historical observations rather than authorization grants or delivery
 receipts. The events queue bounded game-thread work; under queue saturation
 observations can be dropped. All subscriptions are guarded and detached on unload.
+
+`plugin.Commands.CatalogAvailable` / `Snapshot()` provides detached command
+descriptors (canonical names, aliases, permissions, server-availability and syntax)
+including dynamic plugin registrations. Discovery does not grant dispatch permission.
+
+`plugin.Activity.PlayerCommandPolicyAvailable` and `PublicChatPolicyAvailable`
+enable two synchronous, world-local policy hooks. `BeforePlayerCommand` runs
+only for an exact live player session after ordinary dispatch permission checks:
+return `CommandPolicyDecision.Allow` or `CommandPolicyDecision.Reject(reason)`.
+The context includes canonical and invoked command names, but never arguments,
+credentials, the executing principal, or the output handle. No console or REST
+operator commands are intercepted. Rejection is final and is not a completed
+execution observation.
+
+`BeforePublicChat` receives ordinary public text, exact player/session/world and
+audience count. Return `PublicChatPolicyDecision.Allow`, `Replace(content)` or
+`Reject(reason)`. Replacements must be non-empty ordinary text of at most 1024
+characters, without control characters or command prefixes. The next subscriber
+sees the previous replacement, and all replacements still pass through the
+server's existing transforms and moderation (including mutes). Policies cannot
+change the sender/recipients or approve a message rejected by built-in policy.
+Private messages and slash/dot command-like input are not public chat.
+
+Policies run inline on the originating command/chat thread; keep them short and
+thread-safe, use cached data, never wait for game-thread work or external I/O.
+Use the existing deferred observations for analytics or background work. Callback
+exceptions (including invalid replacements) are isolated and counted by the plugin
+fault breaker; that callback's decision is ignored, never bypassing server checks.
+Retirement detaches policies and drains in-flight guarded callbacks.
+
+```csharp
+if (plugin.Activity.PlayerCommandPolicyAvailable)
+    plugin.Activity.BeforePlayerCommand(ctx =>
+        ctx.CommandName.Equals("spawn", StringComparison.OrdinalIgnoreCase) && !CanSpawn(ctx.PlayerId)
+            ? CommandPolicyDecision.Reject("Spawn is unavailable during this event.")
+            : CommandPolicyDecision.Allow);
+
+if (plugin.Activity.PublicChatPolicyAvailable)
+    plugin.Activity.BeforePublicChat(ctx =>
+        ctx.Content.Contains("example", StringComparison.OrdinalIgnoreCase)
+            ? PublicChatPolicyDecision.Replace(ctx.Content.Replace("example", "sample", StringComparison.OrdinalIgnoreCase))
+            : PublicChatPolicyDecision.Allow);
+```
 
 `plugin.World.Regions.IsAvailable` indicates read-only region support.
 `Snapshot()` returns detached regions of the current world; `FindTop(tileX, tileY)`
@@ -203,6 +302,44 @@ notifications can be dropped when it is full or the adapter is stopping. Subscri
 are resolved when that queued notification is delivered, and retired registrations
 cannot be invoked. With no subscribers, no event snapshot or queued dispatch is
 created. Startup-ready and stopping callbacks are not exposed by this facade yet.
+
+### Player state observations
+
+`OnPlayerHurtCompleted` observes each positive return from the native `Player.Hurt` method, in addition to net post-tick vital changes. The victim is identified by exact local session and the event includes native damage return, before/after life, and native PvP/critical arguments. Native melee execution can provide an exact matching local attacking player session; a matching native projectile execution provides detached projectile identity, not a verified player owner. Other calls are explicitly `Unverified` (including client-reported damage processed by Terraria). `DeclaredPlayerSlot` is only the death reason's source claim; never promote it to attacker identity or use it for authoritative rewards. `NativeDamage` may differ from the actual life change, especially when the native result represents client synchronization. No cancellation, damage rewriting or arbitrary packet access is provided. Native HookGen availability is verified by the host and a hook installation failure leaves vanilla combat intact with a diagnostic.
+
+For session statistics and role-play, the world event facade additionally exposes
+`OnPlayerVitalsChanged`, `OnPlayerDeathObserved`, `OnPlayerRespawnObserved`,
+`OnPlayerDeathCountersChanged`, `OnPlayerPvpChanged`, and `OnPlayerBuffsChanged`.
+They sample live native state on the game thread after dedicated tick completion,
+only while a relevant observer is registered. Each observation includes the
+world, player slot, exact current connection session ID, timestamp, and detached
+state (life/max life, mana/max mana, dead/hostile/team and native death counters).
+The first sample for a connection is a baseline; disconnects, incomplete joins,
+slot reuse or skipped sessions never compare two different tenures.
+
+```csharp
+plugin.WorldEvents.OnPlayerVitalsChanged(change =>
+    RecordLifeDelta(change.After.PlayerId, change.After.SessionId, change.LifeDelta));
+
+plugin.WorldEvents.OnPlayerDeathObserved(death =>
+    RecordDeath(death.After.PlayerId, death.After.SessionId, death.Kind));
+
+plugin.WorldEvents.OnPlayerBuffsChanged(change =>
+    RecordBuffMembership(change.Player.PlayerId, change.After));
+```
+
+Vital deltas are net changes between observed ticks, not individual combat hits
+or verified healing. Death/respawn report native dead-state transitions (not a
+requested kill or respawn); `Kind` is `Pve`/`Pvp` only if the corresponding native
+counter increases and the other does not change in the same sample, otherwise
+`Unknown`. Counter changes are also separately observable. Terraria synchronizes
+some of this state from clients; do not treat the observations as proof of damage,
+killer identity, PvP authorization, or entitlement to rewards. Use them together
+with exact authentication tenures and the existing native NPC strike observations
+for analytics. Buff changes describe sorted sets of native buff types; countdown,
+refresh and slot reordering do not generate membership changes. No mutable native
+arrays, raw packets or damage override interfaces are exposed. All callbacks use
+the same guarded, lifetime-managed world event subscriptions.
 
 ### Portable schematics
 

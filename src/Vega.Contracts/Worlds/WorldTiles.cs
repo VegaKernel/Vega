@@ -12,14 +12,23 @@ public sealed record WorldTileAreaSnapshot(
     SceneBounds Bounds,
     long Revision,
     SceneTileArea Tiles,
-    DateTimeOffset CapturedAt);
+    DateTimeOffset CapturedAt)
+{
+    /// <summary>Process-local loaded-world identity; never reuse an edit receipt after a world reload.</summary>
+    public Guid? WorldInstanceId { get; init; }
+}
 
 public sealed record WorldTileMutationRequest(
     WorldId WorldId,
     SceneBounds Bounds,
     long ExpectedRevision,
     SceneTileArea Tiles,
-    string Actor);
+    string Actor)
+{
+    /// <summary>Exact original tile contents for compare-and-apply, in addition to the observed revision.</summary>
+    public SceneTileArea? ExpectedTiles { get; init; }
+    public Guid? ExpectedWorldInstanceId { get; init; }
+}
 
 public enum WorldTileMutationStatus
 {

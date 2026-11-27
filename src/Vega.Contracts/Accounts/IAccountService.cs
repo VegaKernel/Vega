@@ -8,6 +8,9 @@ public interface IAccountService
         string name,
         CancellationToken cancellationToken = default);
 
+    ValueTask<AccountSnapshot?> FindByIdAsync(AccountId id, CancellationToken cancellationToken = default) =>
+        ValueTask.FromResult(SnapshotAccounts().FirstOrDefault(account => account.Id == id));
+
     ValueTask<AccountMutationResult> CreateAsync(
         string name,
         string password,
@@ -49,6 +52,10 @@ public interface IAccountService
         string actor,
         CancellationToken cancellationToken = default);
 
+    ValueTask<AccountMutationResult> RecordLoginWithConnectionAsync(string name, DateTimeOffset seenAt,
+        long expectedRevision, string actor, string? ip, string? uuid, CancellationToken cancellationToken = default) =>
+        RecordLoginAsync(name, seenAt, expectedRevision, actor, cancellationToken);
+
     ValueTask<bool> VerifyPasswordAsync(
         string name,
         string password,
@@ -60,3 +67,11 @@ public sealed record AccountMutationResult(
     string Code,
     AccountSnapshot? Before = null,
     AccountSnapshot? After = null);
+
+/// <summary>Committed account mutations; observers must not wait for queued work or reenter the writer.</summary>
+public interface IAccountChangeSource
+{
+    event Action<AccountChange>? AccountChanged;
+}
+
+public sealed record AccountChange(string Operation, string Actor, AccountSnapshot? Before, AccountSnapshot? After);

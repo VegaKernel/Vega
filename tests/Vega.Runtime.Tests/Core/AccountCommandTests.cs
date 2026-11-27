@@ -77,6 +77,10 @@ public sealed class AccountCommandTests
         SqliteVegaDatabase database = await SqliteVegaDatabase.OpenAsync(new SqliteVegaDatabaseOptions(Path.Combine(directory, "vega.db")));
         await database.Authorization.CreateGroupAsync("moderator", "default", "Server");
         var created = await database.Accounts.CreateAsync("Alice", "correct horse battery staple", "default", "Server");
+        Assert.That(created.After!.RegisteredUtc, Is.Not.Null);
+        var recorded = await database.Accounts.RecordLoginWithConnectionAsync("Alice", now, created.After.Revision, "Alice", "192.0.2.12", "0123456789abcdefghij");
+        Assert.That(recorded.After?.LastKnownIp, Is.EqualTo("192.0.2.12"));
+        Assert.That((await database.Accounts.FindByNameAsync("Alice"))?.LastKnownUuid, Is.EqualTo("0123456789abcdefghij"));
         var account = new AccountCommand(database.Accounts, database.Authorization, database.RoleLeases, new FixedTimeProvider(now));
         var dispatcher = new CommandDispatcher([new AccountInfoCommand(account), new TempGroupCommand(account)]);
         var info = new CommandInvocation("ai", ["Alice"], new InspectorPrincipal(), NullOutput.Instance);
@@ -88,6 +92,42 @@ public sealed class AccountCommandTests
         Assert.That(database.RoleLeases.FindActive(created.After!.Id, now)?.GroupName, Is.EqualTo("moderator"));
         Assert.That((await dispatcher.DispatchAsync(grant with { Arguments = ["Alice", "clear"] })).Status, Is.EqualTo(CommandExecutionStatus.Success));
         Assert.That(database.RoleLeases.FindActive(created.After.Id, now), Is.Null);
+        string id = created.After.Id.Value.ToString();
+        Assert.That((await dispatcher.DispatchAsync(info with { Name = "ai-id", Arguments = [id] })).Status, Is.EqualTo(CommandExecutionStatus.Success));
+        Assert.That((await dispatcher.DispatchAsync(grant with { Name = "tg", Arguments = ["add", id, "moderator"] })).Status, Is.EqualTo(CommandExecutionStatus.Success));
+        Assert.That(database.RoleLeases.FindActive(created.After.Id, now)?.ExpiresAt, Is.EqualTo(DateTimeOffset.MaxValue));
+        Assert.That((await dispatcher.DispatchAsync(grant with { Name = "tg", Arguments = ["info", id] })).Status, Is.EqualTo(CommandExecutionStatus.Success));
+        Assert.That((await dispatcher.DispatchAsync(grant with { Name = "tg", Arguments = ["del", id] })).Status, Is.EqualTo(CommandExecutionStatus.Success));
+        Assert.That(database.RoleLeases.FindActive(created.After.Id, now), Is.Null);
+        Assert.That((await dispatcher.DispatchAsync(grant with { Name = "tg", Arguments = ["add", id, "moderator", "10h-30m+2m"] })).Status, Is.EqualTo(CommandExecutionStatus.Success));
+        Assert.That(database.RoleLeases.FindActive(created.After.Id, now)?.ExpiresAt, Is.EqualTo(now.AddMinutes(572)));
+    }
+
+    [Test]
+    public async Task GroupOptionsRestrictPermanentAndTemporaryAssignmentsEvenWithDelegationPermission()
+    {
+        var database = await SqliteVegaDatabase.OpenAsync(new SqliteVegaDatabaseOptions(Path.Combine(directory, "vega.db")));
+        await database.Authorization.CreateGroupAsync("moderator", "default", "Server");
+        await database.Authorization.CreateGroupAsync("vip", "default", "Server");
+        await database.Accounts.CreateAsync("Op", "correct horse battery staple", "moderator", "Server");
+        await database.Accounts.CreateAsync("Alice", "correct horse battery staple", "default", "Server");
+        var command = new AccountCommand(database.Accounts, database.Authorization, database.RoleLeases,
+            groupAssignments: new Dictionary<string, HashSet<string>> { ["moderator"] = ["default"] });
+        var invocation = new CommandInvocation("account", ["group", "Alice", "vip"], new DelegatingPrincipal(), NullOutput.Instance);
+        Assert.That((await command.ExecuteAsync(invocation, default)).ErrorCode, Is.EqualTo("command.account.delegation-denied"));
+        Assert.That((await command.ExecuteAsync(invocation with { Arguments = ["temp", "Alice", "vip", "1h"] }, default)).ErrorCode, Is.EqualTo("command.account.delegation-denied"));
+        Assert.That((await command.ExecuteAsync(invocation with { Arguments = ["temp", "Alice", "default", "1h"] }, default)).Status, Is.EqualTo(CommandExecutionStatus.Success));
+    }
+
+    private sealed class DelegatingPrincipal : IPlayerCommandPrincipal
+    {
+        public string Name => "Op";
+        public bool IsServer => false;
+        public bool HasPermission(string permission) => true;
+        public string CultureSubjectId => "Op";
+        public Vega.Contracts.Players.PlayerId PlayerId => new(0);
+        public string PlayerName => "Op";
+        public string? AccountName => "Op";
     }
 
     private static ValueTask<CommandExecutionResult> ExecuteAsync(

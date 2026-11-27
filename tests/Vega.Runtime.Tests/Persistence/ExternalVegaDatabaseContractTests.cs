@@ -66,11 +66,18 @@ public sealed class ExternalVegaDatabaseContractTests
         Assert.That(allowance.Succeeded, Is.True);
         await AssertOfflineImportFamiliesAsync(first);
         DateTimeOffset now = DateTimeOffset.UtcNow;
+        var importedAccount = first.Accounts.SnapshotAccounts().Single();
+        var loggedIn = await first.Accounts.RecordLoginWithConnectionAsync(importedAccount.Name, now, importedAccount.Revision, "contract-test", "192.0.2.25", "contract-uuid");
+        Assert.That(loggedIn.Succeeded, Is.True);
+        Assert.That(await first.PluginData.CommitAsync("contract-plugin",
+            [new("wallets", "account-1", 0, "100"), new("wallets", "account-2", 0, "10")]), Is.True);
+        Assert.That(await first.PluginData.CommitAsync("contract-plugin",
+            [new("wallets", "account-1", 1, "80"), new("wallets", "account-2", 2, "30")]), Is.False);
         var lease = await first.RoleLeases.GrantAsync(first.Accounts.SnapshotAccounts().Single().Id,
             "builders", now, now.AddHours(2), "contract-test");
         Assert.That(lease.Succeeded, Is.True);
         var mute = new MuteSnapshot(MuteId.New(), MuteSubjectKind.Account, "fixture-user", "fixture",
-            "contract-test", now, now.AddHours(2), 1);
+            "contract-test", now, now.AddHours(2), 1) { IpAddress = "192.0.2.25", Uuid = "contract-uuid" };
         Assert.That((await first.Mutes.CreateAsync(mute)).Succeeded, Is.True);
         var region = await first.Regions.CreateAsync(WorldId.Primary, "build-zone", 100, 100, 10, 10, 1, null, "contract-test");
         Assert.That(region.Succeeded, Is.True);
@@ -81,6 +88,9 @@ public sealed class ExternalVegaDatabaseContractTests
         Assert.That(renamed.Succeeded, Is.True);
 
         var accountId = first.Accounts.SnapshotAccounts().Single().Id;
+        Guid homeWorld = Guid.NewGuid();
+        Assert.That(await first.Homes.SetAsync(new(accountId, WorldId.Primary, homeWorld, "base", new(1400, 1600)), 1), Is.EqualTo(HomeWriteResult.Applied));
+        Assert.That(await first.Homes.SetAsync(new(accountId, WorldId.Primary, homeWorld, "second", new(1400, 1600)), 1), Is.EqualTo(HomeWriteResult.LimitReached));
         var tenure = new PlayerPlaytimeCheckpoint(Guid.NewGuid(), accountId, PlayerSessionId.New(), WorldId.Primary,
             now, TimeSpan.FromSeconds(40), false);
         var arena = tenure with { AuthenticationId = Guid.NewGuid(), SessionId = PlayerSessionId.New(), WorldId = new("Arena"),
@@ -92,6 +102,10 @@ public sealed class ExternalVegaDatabaseContractTests
 
         IVegaDatabase reopened = VegaDatabaseFactory.Create(options, baseDirectory);
         await reopened.InitializeAsync();
+        Assert.That((await reopened.Homes.FindAsync(accountId, WorldId.Primary, homeWorld, "BASE"))?.Position, Is.EqualTo(new PlayerPosition(1400, 1600)));
+        Assert.That((await reopened.PluginData.ReadAsync("Contract-Plugin", "wallets", "account-1"))?.Json, Is.EqualTo("100"));
+        Assert.That(await reopened.PluginData.ReadAsync("other-plugin", "wallets", "account-1"), Is.Null);
+        Assert.That((await reopened.PluginData.ListAsync("contract-plugin", "wallets", "account-1", 1)).Single().Key, Is.EqualTo("account-2"));
         Assert.That(await reopened.Playtime.ReadAsync(accountId, WorldId.Primary), Is.EqualTo(new PlayerPlaytimeSummary(
             accountId, WorldId.Primary, TimeSpan.FromSeconds(170), TimeSpan.FromSeconds(90), 2, 1)));
         Assert.That((await reopened.Playtime.ReadAsync(accountId, new("arena"))).InWorld, Is.EqualTo(TimeSpan.Zero));
@@ -103,8 +117,8 @@ public sealed class ExternalVegaDatabaseContractTests
             await reopened.WriteBackupAsync(dump);
             Assert.Multiple(() =>
             {
-                Assert.That(first.SchemaVersion, Is.EqualTo(3));
-                Assert.That(reopened.SchemaVersion, Is.EqualTo(3));
+                Assert.That(first.SchemaVersion, Is.EqualTo(1));
+                Assert.That(reopened.SchemaVersion, Is.EqualTo(1));
                 Assert.That(created.Succeeded, Is.True);
                 Assert.That(reopened.Authorization.SnapshotGroups().Any(group => group.Name == "builders"), Is.True);
                 Assert.That(reopened.Authorization.SnapshotGroups().Single(group => group.Name == "builders").Presentation, Is.EqualTo(style));
@@ -116,6 +130,9 @@ public sealed class ExternalVegaDatabaseContractTests
                 Assert.That(reopened.RoleLeases.FindActive(first.Accounts.SnapshotAccounts().Single().Id, now)!.Id,
                     Is.EqualTo(lease.After!.Id));
                 Assert.That(reopened.Mutes.FindActive("other-name", "fixture-user", now)!.Id, Is.EqualTo(mute.Id));
+                Assert.That(reopened.Mutes.FindActive("different-name", null, "192.0.2.25", null, now)!.Id, Is.EqualTo(mute.Id));
+                Assert.That(reopened.Mutes.FindActive("different-name", null, null, "contract-uuid", now)!.Id, Is.EqualTo(mute.Id));
+                Assert.That(reopened.Accounts.SnapshotAccounts().Single().LastKnownIp, Is.EqualTo("192.0.2.25"));
                 var imported = reopened.Regions.SnapshotRegions(WorldId.Primary).Single(entry => entry.Name == "imported-zone");
                 Assert.That(imported.Id, Is.EqualTo(91));
                 Assert.That(imported.Owner, Is.EqualTo("fixture-user"));

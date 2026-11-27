@@ -154,8 +154,42 @@ ignores cancellation may settle its write later, so treat uncertain outcomes
 as recovery cases, not as permission to send another purchase operation.
 The built-in file ledger is a world-local virtual economy, not real-money
 payments or a shared cross-world wallet. Host integrations can inject their
-own `INpcEconomyProvider` and `INpcQuestProgressStore`; no dynamic provider
-registration from collectible plugins is exposed yet.
+own `INpcEconomyProvider` and `INpcQuestProgressStore`. Ordinary plugins may
+now register a named external economy provider:
+
+```csharp
+// WalletService provider plugin, in Configure:
+plugin.NpcEconomy.Register("wallet", 1, new WalletProvider(plugin.Data));
+
+// NPCShop consumer plugin:
+var definition = new NpcActorDefinition(17, "Merchant", Shop: catalog)
+{
+    EconomyScope = "npc-shop.wallet",
+    EconomyProvider = new("WalletService", "wallet", 1)
+};
+```
+
+`WalletProvider` implements the existing four `INpcEconomyProvider` operations
+in the shared contracts. For a durable SQL-backed implementation, use
+[`plugin.Data`](plugin-services-data.md) to atomically update a balance and
+operation receipts in one compare-and-swap batch. The provider receives the
+authoritative world/account/scope and a stable operation GUID, not mutable
+native player state. Reserve must return `Applied` only for a newly committed
+debit reservation, `RecoveryRequired` for a pending operation and
+`AlreadyApplied` for one already committed. Finalize must be idempotent;
+never expire/refund an uncertain reservation automatically.
+
+Named addresses include the provider plugin descriptor name, service name and
+explicit version. `plugin.NpcEconomy.Snapshot()` discovers active addresses.
+When an explicitly selected provider is unavailable, Vega never switches the
+shop to its built-in ledger. A failure after provider code begins a debit
+is treated as an uncertain reservation; a failed finalization preserves
+`RecoveryRequired` and the existing operation ID. Provider retirement cancels
+and drains in-flight calls, and later calls resolve the replacement activation
+by the same named address. Keep the provider's ledger/receipt semantics
+compatible under the same address across reloads. Changing the address or
+provider's storage is an explicit migration, not automatic wallet conversion.
+An actor without `EconomyProvider` continues using the existing built-in ledger.
 
 Production stores are rooted in the world's `data/npc-account-progress/`
 directory, with independently hashed account/scope files and cross-process

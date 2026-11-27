@@ -4,9 +4,10 @@ using Vega.Contracts.Authorization;
 
 namespace Vega.Core.Messaging;
 
-public sealed class ChatPipeline : IChatPipeline, IPublicChatObservations, IPublicChatObservationSink
+public sealed class ChatPipeline : IChatPipeline, IPublicChatObservations, IPublicChatObservationSink, IPublicChatPolicyEvents
 {
     public event Action<PublicChatAcceptedObservation>? Accepted;
+    public event Func<PublicChatPolicyContext, PublicChatPolicyDecision>? BeforePublicChat;
     private readonly IChatContentTransform[] transforms;
     private readonly IChatModerationRule[] moderation;
     private readonly IChatRecipientRenderer[] renderers;
@@ -29,6 +30,31 @@ public sealed class ChatPipeline : IChatPipeline, IPublicChatObservations, IPubl
         ArgumentNullException.ThrowIfNull(context);
         string content = context.Content;
         bool changed = false;
+        // Plugin replacements pass through native transforms/moderation below. Unknown native
+        // command-like messages are not ordinary public chat and cannot be rewritten here.
+        if (BeforePublicChat is { } policies && context.Sender.WorldId == context.WorldId &&
+            context.Sender.SessionId is { } session && IsOrdinaryPublicChat(content))
+        {
+            var policyContext = new PublicChatPolicyContext(context.WorldId, context.Sender.Id, session,
+                context.Sender.Name, content, context.Recipients.Count);
+            foreach (Func<PublicChatPolicyContext, PublicChatPolicyDecision> policy in policies.GetInvocationList())
+            {
+                PublicChatPolicyDecision decision;
+                try { decision = policy(policyContext with { Content = content }); }
+                catch (Exception) { global::System.Diagnostics.Trace.TraceWarning("Public chat policy callback failed."); continue; }
+                if (decision.Rejected)
+                {
+                    string reason = decision.Reason is { Length: > 0 and <= 256 } candidate && !candidate.Any(char.IsControl)
+                        ? candidate : "Chat message rejected by server policy.";
+                    return new(false, true, Array.Empty<ChatDelivery>(), reason);
+                }
+                if (decision.Replacement is { } replacement && IsValidReplacement(replacement))
+                {
+                    changed |= replacement != content;
+                    content = replacement;
+                }
+            }
+        }
         foreach (IChatContentTransform transform in transforms)
         {
             ChatContentTransformResult result = transform.Transform(context, content);
@@ -94,7 +120,7 @@ public sealed class ChatPipeline : IChatPipeline, IPublicChatObservations, IPubl
     {
         if (Accepted is not { } handlers || !result.Allowed || result.PublicContent is not { } content ||
             context.Sender.WorldId != context.WorldId || context.Sender.SessionId is not { } sessionId ||
-            string.IsNullOrWhiteSpace(context.Content) || context.Content.TrimStart()[0] is '/' or '.') return;
+            !IsOrdinaryPublicChat(context.Content)) return;
         var observation = new PublicChatAcceptedObservation(context.WorldId, context.Sender.Id,
             sessionId, content, result.Deliveries.Count, result.RequiresCustomDelivery);
         foreach (Action<PublicChatAcceptedObservation> handler in handlers.GetInvocationList())
@@ -103,6 +129,12 @@ public sealed class ChatPipeline : IChatPipeline, IPublicChatObservations, IPubl
             catch (Exception) { System.Diagnostics.Trace.TraceWarning("Public chat observation callback failed."); }
         }
     }
+
+    private static bool IsOrdinaryPublicChat(string content) =>
+        !string.IsNullOrWhiteSpace(content) && content.AsSpan().TrimStart()[0] is not ('/' or '.');
+
+    internal static bool IsValidReplacement(string content) =>
+        content.Length <= 1024 && IsOrdinaryPublicChat(content) && !content.Any(char.IsControl);
 
     private static T[] Order<T>(IEnumerable<T> stages) => stages
         .Select((stage, index) => (Stage: stage, Index: index))

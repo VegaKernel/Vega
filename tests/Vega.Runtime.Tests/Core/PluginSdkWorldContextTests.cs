@@ -11,6 +11,7 @@ using Vega.Contracts.Scenes;
 using Vega.Contracts.Threading;
 using Vega.Contracts.Worlds;
 using Vega.Core.Events;
+using Vega.Core.Commands;
 using Vega.Core.Modules;
 using Vega.Core.Scenes;
 using Vega.PluginSdk;
@@ -24,6 +25,202 @@ namespace Vega.Runtime.Tests.Core;
 [TestFixture]
 public sealed class PluginSdkWorldContextTests
 {
+    [Test]
+    [NonParallelizable]
+    public async Task NativeHurtObservesPositiveReturnAndNeverTreatsDeclaredSourceAsVerifiedAttacker()
+    {
+        const int attackerSlot = 230, victimSlot = 231;
+        var world = new WorldId("hurt-provenance");
+        var events = new WorldGameplayEventHub();
+        var dispatcher = new EventGameThread { OnThread = true };
+        using var boundary = new TerrariaPlayerBoundary(dispatcher, new TerrariaConnectionMetadataRegistry(), world);
+        using var hooks = new NativeGameplayEventHooks(world, events, dispatcher, new NullLogger(), boundary);
+        var oldAttacker = global::Terraria.Main.player[attackerSlot];
+        var oldVictim = global::Terraria.Main.player[victimSlot];
+        var oldAttackerClient = global::Terraria.Netplay.Clients[attackerSlot];
+        var oldVictimClient = global::Terraria.Netplay.Clients[victimSlot];
+        int oldMode = global::Terraria.Main.netMode, oldPlayer = global::Terraria.Main.myPlayer;
+        bool oldDedicated = global::Terraria.Main.dedServ;
+        await using var scope = new HotModuleRegistrationScope(new NullCommandRegistry(), new NullLogger(),
+            "Fixture.Hurt", Path.GetTempPath(), worldEvents: events);
+        var observed = new List<PlayerHurtCompletedEvent>();
+        scope.WorldEvents.OnPlayerHurtCompleted(observed.Add);
+        try
+        {
+            global::Terraria.Main.netMode = 2; global::Terraria.Main.myPlayer = 255; global::Terraria.Main.dedServ = true;
+            boundary.Attach(); hooks.Attach();
+            Assert.That(hooks.PlayerHurtObservationAvailable, Is.True, "Pinned runtime HookGen must support the native hurt hooks.");
+
+            global::Terraria.Player Open(int slot)
+            {
+                var native = new global::Terraria.Player { active = true, whoAmI = slot, name = $"Hurt{slot}", statLife = 100, statLifeMax2 = 100 };
+                global::Terraria.Main.player[slot] = native;
+                var client = new global::Terraria.RemoteClient { Id = slot };
+                global::Terraria.Netplay.Clients[slot] = client;
+                client.Activate(new StrikeFixtureSocket());
+                client.State = (int)TerrariaConnectionState.FullyConnected;
+                global::TerrariaRuntime.Hooks.Netplay.NotifyServerPlayerEnteringWorld(slot);
+                return native;
+            }
+
+            var attacker = Open(attackerSlot);
+            var victim = Open(victimSlot);
+            Assert.That(boundary.TryGet(new(attackerSlot), out var attackerSnapshot), Is.True);
+            Assert.That(boundary.TryGet(new(victimSlot), out var victimSnapshot), Is.True);
+            var declared = global::Terraria.DataStructures.PlayerDeathReason.ByPlayer(attackerSlot);
+            int calls = 0;
+            global::On.Terraria.Player.orig_Hurt native = (self, _, _, _, _, _, _, _, _) => { calls++; self.statLife -= 7; return 9.5; };
+            double result = hooks.HurtCompleted(native, victim, declared, 15, 0, true, false, true, 0, false);
+            Assert.That(result, Is.EqualTo(9.5));
+            Assert.That(calls, Is.EqualTo(1));
+            var unverified = observed.Single();
+            Assert.Multiple(() =>
+            {
+                Assert.That(unverified.WorldId, Is.EqualTo(world));
+                Assert.That(unverified.VictimSession, Is.EqualTo(victimSnapshot!.SessionId));
+                Assert.That(unverified.SourceKind, Is.EqualTo(PlayerHurtSourceKind.Unverified));
+                Assert.That(unverified.DeclaredPlayerSlot, Is.EqualTo(attackerSlot));
+                Assert.That(unverified.NativeAttacker, Is.Null);
+                Assert.That(unverified.NativeDamage, Is.EqualTo(9.5));
+                Assert.That(unverified.LifeAfter - unverified.LifeBefore, Is.EqualTo(-7));
+            });
+
+            // Only a genuine native caller scope may attach an exact player session.
+            hooks.ObserveMeleePvpCall((_, _, _, _, _) => hooks.HurtCompleted(native, victim, declared, 15, 0, true, false, false, 0, false),
+                attacker, new global::Terraria.Item(), default, 15, 0);
+            Assert.That(observed[1].SourceKind, Is.EqualTo(PlayerHurtSourceKind.NativeMeleePlayer));
+            Assert.That(observed[1].NativeAttacker, Is.EqualTo(attackerSnapshot!.Id));
+            Assert.That(observed[1].NativeAttackerSession, Is.EqualTo(attackerSnapshot.SessionId));
+            hooks.HurtCompleted(native, victim, declared, 15, 0, true, false, false, 0, false);
+            Assert.That(observed[2].SourceKind, Is.EqualTo(PlayerHurtSourceKind.Unverified), "Native caller scope must be restored.");
+
+            Assert.That(hooks.HurtCompleted((_, _, _, _, _, _, _, _, _) => 0, victim, declared, 15, 0, true, false, false, 0, false), Is.Zero);
+            Assert.That(observed, Has.Count.EqualTo(3));
+            // Replacing the victim slot during native completion invalidates its exact session.
+            hooks.HurtCompleted((_, _, _, _, _, _, _, _, _) => { _ = Open(victimSlot); return 8; }, victim, declared, 15, 0, true, false, false, 0, false);
+            Assert.That(observed, Has.Count.EqualTo(3));
+            await scope.DisposeAsync();
+            Assert.That(events.HasSubscribers<PlayerHurtCompletedEvent>(), Is.False);
+        }
+        finally
+        {
+            hooks.Dispose(); boundary.Dispose();
+            global::Terraria.Main.player[attackerSlot] = oldAttacker;
+            global::Terraria.Main.player[victimSlot] = oldVictim;
+            global::Terraria.Netplay.Clients[attackerSlot] = oldAttackerClient;
+            global::Terraria.Netplay.Clients[victimSlot] = oldVictimClient;
+            global::Terraria.Main.netMode = oldMode; global::Terraria.Main.myPlayer = oldPlayer; global::Terraria.Main.dedServ = oldDedicated;
+        }
+    }
+    [Test]
+    [NonParallelizable]
+    public async Task CommittedTileChangesRequireAcceptedExactSessionAndActualNativeCellChanges()
+    {
+        const int slot = 232;
+        var world = new WorldId("tile-commit");
+        var events = new WorldGameplayEventHub();
+        var dispatcher = new EventGameThread { OnThread = true };
+        using var boundary = new TerrariaPlayerBoundary(dispatcher, new TerrariaConnectionMetadataRegistry(), world);
+        using var hooks = new NativeGameplayEventHooks(world, events, dispatcher, new NullLogger(), boundary);
+        var oldPlayer = global::Terraria.Main.player[slot];
+        var oldClient = global::Terraria.Netplay.Clients[slot];
+        var oldGrid = global::Terraria.Main.tile;
+        int oldWidth = global::Terraria.Main.maxTilesX, oldHeight = global::Terraria.Main.maxTilesY;
+        int oldMode = global::Terraria.Main.netMode, oldMyPlayer = global::Terraria.Main.myPlayer;
+        bool oldDedicated = global::Terraria.Main.dedServ;
+        await using var scope = new HotModuleRegistrationScope(new NullCommandRegistry(), new NullLogger(),
+            "Fixture.TileCommit", Path.GetTempPath(), worldEvents: events);
+        var observed = new List<PlayerTileChangesCommittedEvent>();
+        scope.WorldEvents.OnPlayerTileChangesCommitted(observed.Add);
+        var grid = new global::TerrariaRuntime.DefaultCollection<global::Terraria.ITile>(100, 100);
+        for (int x = 0; x < 12; x++)
+            for (int y = 0; y < 12; y++)
+                grid[x, y] = new global::Terraria.Tile();
+        try
+        {
+            global::Terraria.Main.netMode = 2; global::Terraria.Main.myPlayer = 255; global::Terraria.Main.dedServ = true;
+            global::Terraria.Main.tile = grid;
+            global::Terraria.Main.maxTilesX = global::Terraria.Main.maxTilesY = 100;
+            boundary.Attach(); hooks.Attach();
+            Assert.That(hooks.TileChangesObservationAvailable, Is.True);
+            void Open()
+            {
+                global::Terraria.Main.player[slot] = new global::Terraria.Player { active = true, whoAmI = slot, name = "TileEditor" };
+                var client = new global::Terraria.RemoteClient { Id = slot };
+                global::Terraria.Netplay.Clients[slot] = client;
+                client.Activate(new StrikeFixtureSocket());
+                client.State = (int)TerrariaConnectionState.FullyConnected;
+                global::TerrariaRuntime.Hooks.Netplay.NotifyServerPlayerEnteringWorld(slot);
+            }
+            Open();
+            Assert.That(boundary.TryGet(new(slot), out var player), Is.True);
+            var intent = new PlayerTileInteractionEvent(world, new(slot), player!.SessionId!.Value,
+                TileInteractionKind.Tile, TileInteractionAccess.Build, new(5, 5), new(5, 5), TileEditOperation.PlaceTile, 1);
+            var buffer = new global::Terraria.MessageBuffer { whoAmI = slot };
+            void Observe(Action native)
+            {
+                hooks.ObserveNativeTileInteraction((global::Terraria.MessageBuffer _, int _, int _, out int messageType) =>
+                {
+                    native(); messageType = 0;
+                }, buffer, 0, 0, out _);
+            }
+            void Accept(PlayerTileInteractionEvent value) => events.Publish(new PlayerTileInteractionAcceptedEvent(value));
+            Observe(() => { grid[5, 5].type = 2; }); // No accepted intent.
+            Observe(() => Accept(intent)); // Native processing did not modify anything.
+            Assert.That(observed, Is.Empty);
+            Observe(() =>
+            {
+                Accept(intent);
+                grid[5, 5].type = 3;
+                grid[6, 5].type = 4;
+            });
+            var committed = observed.Single();
+            Assert.That(committed.Intent, Is.EqualTo(intent));
+            Assert.That(committed.ObservedBounds, Is.EqualTo(new SceneBounds(3, 3, 5, 5)));
+            Assert.That(committed.Changes.Select(c => c.Position), Is.EqualTo(new WorldTilePosition[] { new(5, 5), new(6, 5) }));
+            Assert.That(committed.Changes[0].Before.TileType, Is.EqualTo(2));
+            Assert.That(committed.Changes[0].After.TileType, Is.EqualTo(3));
+            Observe(() => { Accept(intent with { End = new(99, 99) }); grid[5, 5].type = 5; });
+            Observe(() => { Accept(intent); Open(); grid[5, 5].type = 6; });
+            Assert.That(observed, Has.Count.EqualTo(1), "Oversized or stale-session interactions must not emit an attributed commit.");
+        }
+        finally
+        {
+            hooks.Dispose(); boundary.Dispose();
+            global::Terraria.Main.player[slot] = oldPlayer; global::Terraria.Netplay.Clients[slot] = oldClient;
+            global::Terraria.Main.tile = oldGrid;
+            global::Terraria.Main.maxTilesX = oldWidth; global::Terraria.Main.maxTilesY = oldHeight;
+            global::Terraria.Main.netMode = oldMode; global::Terraria.Main.myPlayer = oldMyPlayer; global::Terraria.Main.dedServ = oldDedicated;
+        }
+    }
+    [Test]
+    [NonParallelizable]
+    public async Task HardmodeObservationPublishesOnlyActualTransitionsAfterBaseline()
+    {
+        var world = new WorldId("hardmode-events");
+        var events = new WorldGameplayEventHub();
+        var dispatcher = new EventGameThread { OnThread = true };
+        using var hooks = new NativeGameplayEventHooks(world, events, dispatcher, new NullLogger());
+        bool original = global::Terraria.Main.hardMode;
+        hooks.Attach();
+        await using var scope = new HotModuleRegistrationScope(new CommandDispatcher([]), new NullLogger(), "Fixture.Progression", Path.GetTempPath(), worldEvents: events);
+        var observed = new List<WorldHardmodeChangedEvent>();
+        scope.WorldEvents.OnHardmodeChanged(observed.Add);
+        try
+        {
+            global::Terraria.Main.hardMode = false;
+            var timer = System.Diagnostics.Stopwatch.StartNew();
+            global::TerrariaRuntime.Hooks.Main.NotifyDedicatedTickCompleted(timer);
+            Assert.That(observed, Is.Empty);
+            global::Terraria.Main.hardMode = true;
+            global::TerrariaRuntime.Hooks.Main.NotifyDedicatedTickCompleted(timer);
+            global::TerrariaRuntime.Hooks.Main.NotifyDedicatedTickCompleted(timer);
+            Assert.That(observed.Single().Hardmode, Is.True);
+            Assert.That(observed.Single().PreviousHardmode, Is.False);
+            Assert.That(observed.Single().WorldId, Is.EqualTo(world));
+        }
+        finally { global::Terraria.Main.hardMode = original; }
+    }
     [Test]
     [NonParallelizable]
     public async Task RegionFacadeExposesOnlyDetachedSnapshotsFromHostedWorld()
@@ -307,6 +504,121 @@ public sealed class PluginSdkWorldContextTests
         public void StopListening() => throw new NotSupportedException();
         public void AsyncSend(byte[] data, int offset, int size, SocketSendCallback callback, object? state = null) => callback(state);
         public void AsyncReceive(byte[] data, int offset, int size, SocketReceiveCallback callback, object? state = null) => throw new NotSupportedException();
+    }
+
+    [Test]
+    [NonParallelizable]
+    public async Task NativePlayerStateEventsObserveConsecutiveTicksWithoutInventingCombatAttribution()
+    {
+        const int slot = 6;
+        var world = new WorldId("player-state-events");
+        var events = new WorldGameplayEventHub();
+        var dispatcher = new EventGameThread();
+        using var boundary = new TerrariaPlayerBoundary(dispatcher, new TerrariaConnectionMetadataRegistry(), world);
+        using var hooks = new NativeGameplayEventHooks(world, events, dispatcher, new NullLogger(), boundary);
+        var oldNative = global::Terraria.Main.player[slot];
+        var oldClient = global::Terraria.Netplay.Clients[slot];
+        int oldMode = global::Terraria.Main.netMode, oldPlayer = global::Terraria.Main.myPlayer;
+        bool oldDedicated = global::Terraria.Main.dedServ;
+        await using var faulty = new HotModuleRegistrationScope(new NullCommandRegistry(), new NullLogger(),
+            "Plugin.FaultyPlayerState", Path.GetTempPath(), faultThreshold: 1, worldEvents: events);
+        await using var scope = new HotModuleRegistrationScope(new NullCommandRegistry(), new NullLogger(),
+            "Plugin.PlayerState", Path.GetTempPath(), worldEvents: events);
+        var vitals = new List<PlayerVitalsChangedEvent>();
+        var deaths = new List<PlayerDeathObservedEvent>();
+        var respawns = new List<PlayerRespawnObservedEvent>();
+        var counters = new List<PlayerDeathCountersChangedEvent>();
+        var pvp = new List<PlayerPvpChangedEvent>();
+        var buffs = new List<PlayerBuffsChangedEvent>();
+        faulty.WorldEvents.OnPlayerVitalsChanged(_ => throw new InvalidOperationException("fixture"));
+        scope.WorldEvents.OnPlayerVitalsChanged(vitals.Add);
+        scope.WorldEvents.OnPlayerDeathObserved(deaths.Add);
+        scope.WorldEvents.OnPlayerRespawnObserved(respawns.Add);
+        scope.WorldEvents.OnPlayerDeathCountersChanged(counters.Add);
+        scope.WorldEvents.OnPlayerPvpChanged(pvp.Add);
+        scope.WorldEvents.OnPlayerBuffsChanged(buffs.Add);
+        var timer = System.Diagnostics.Stopwatch.StartNew();
+        void Tick() => global::TerrariaRuntime.Hooks.Main.NotifyDedicatedTickCompleted(timer);
+
+        try
+        {
+            global::Terraria.Main.netMode = 2; global::Terraria.Main.myPlayer = 255; global::Terraria.Main.dedServ = true;
+            boundary.Attach(); hooks.Attach();
+            global::Terraria.Player Open(bool dead = false)
+            {
+                var native = new global::Terraria.Player { active = true, whoAmI = slot, name = "PlayerState", dead = dead,
+                    statLife = dead ? 0 : 100, statLifeMax2 = 100, statMana = 20, statManaMax2 = 20 };
+                global::Terraria.Main.player[slot] = native;
+                var client = new global::Terraria.RemoteClient { Id = slot };
+                global::Terraria.Netplay.Clients[slot] = client;
+                client.Activate(new StrikeFixtureSocket());
+                client.State = (int)TerrariaConnectionState.FullyConnected;
+                return native;
+            }
+
+            var player = Open();
+            global::TerrariaRuntime.Hooks.Netplay.NotifyServerPlayerEnteringWorld(slot);
+            Assert.That(boundary.TryGet(new PlayerId(slot), out var first), Is.True);
+            Tick(); // capture baseline, not a synthetic death/heal/buff event on join
+            Assert.That(vitals, Is.Empty); Assert.That(buffs, Is.Empty);
+            player.statLife = 91; player.statMana = 18; player.hostile = true; player.team = 2;
+            player.buffType[0] = 2;
+            Tick();
+            Assert.That(vitals.Single().LifeDelta, Is.EqualTo(-9));
+            Assert.That(vitals[0].ManaDelta, Is.EqualTo(-2));
+            Assert.That(vitals[0].After.WorldId, Is.EqualTo(world));
+            Assert.That(vitals[0].After.SessionId, Is.EqualTo(first!.SessionId));
+            Assert.That(faulty.Faults.Quarantined, Is.True);
+            Assert.That(pvp.Single().After.IsHostile, Is.True);
+            Assert.That(buffs.Single().After, Is.EqualTo(new[] { 2 }));
+            Assert.Throws<NotSupportedException>(() => ((IList<int>)buffs[0].After)[0] = 99);
+
+            player.buffType[0] = 0; player.buffType[1] = 2; Tick();
+            Assert.That(buffs, Has.Count.EqualTo(1), "Slot reordering is not buff membership change.");
+            player.dead = true; player.statLife = 0; player.numberOfDeathsPVP++;
+            dispatcher.OnThread = false; Tick(); dispatcher.OnThread = true;
+            Assert.That(deaths, Is.Empty);
+            Tick(); Tick();
+            Assert.That(deaths.Single().Kind, Is.EqualTo(PlayerObservedDeathKind.Pvp));
+            Assert.That(counters.Single().After.DeathsPvp, Is.EqualTo(counters[0].Before.DeathsPvp + 1));
+            player.dead = false; player.statLife = 100; player.buffType[1] = 0; Tick();
+            Assert.That(respawns, Has.Count.EqualTo(1));
+            Assert.That(buffs[1].After, Is.Empty);
+            Assert.That(buffs[0].After, Is.EqualTo(new[] { 2 }), "Earlier observations remain detached.");
+
+            var replacement = Open(dead: true);
+            Tick(); // old slot snapshot cannot identify the new socket
+            global::TerrariaRuntime.Hooks.Netplay.NotifyServerPlayerEnteringWorld(slot);
+            Tick(); // fresh baseline, no false death across sessions
+            Assert.That(deaths, Has.Count.EqualTo(1));
+            replacement.dead = false; replacement.statLife = 100; Tick();
+            Assert.That(respawns, Has.Count.EqualTo(2));
+            Assert.That(respawns[1].After.SessionId, Is.Not.EqualTo(first.SessionId));
+            replacement.dead = true; replacement.statLife = 0; Tick();
+            Assert.That(deaths[^1].Kind, Is.EqualTo(PlayerObservedDeathKind.Unknown), "No same-tick counter change, no inferred attribution.");
+            replacement.numberOfDeathsPVE++; Tick();
+            Assert.That(deaths, Has.Count.EqualTo(2));
+            Assert.That(counters[^1].After.DeathsPve, Is.EqualTo(counters[^1].Before.DeathsPve + 1));
+            int count = vitals.Count;
+            await scope.DisposeAsync(); await faulty.DisposeAsync();
+            replacement.statLife = 55; Tick();
+            Assert.That(vitals, Has.Count.EqualTo(count));
+            Assert.That(events.HasSubscribers<PlayerVitalsChangedEvent>(), Is.False);
+            await using var resumed = new HotModuleRegistrationScope(new NullCommandRegistry(), new NullLogger(),
+                "Plugin.ResumedPlayerState", Path.GetTempPath(), worldEvents: events);
+            resumed.WorldEvents.OnPlayerVitalsChanged(vitals.Add);
+            replacement.statLife = 54; Tick();
+            Assert.That(vitals, Has.Count.EqualTo(count), "A new observation subscription establishes a fresh baseline.");
+            replacement.statLife = 53; Tick();
+            Assert.That(vitals[^1].LifeDelta, Is.EqualTo(-1));
+        }
+        finally
+        {
+            hooks.Dispose(); boundary.Dispose();
+            global::Terraria.Main.player[slot] = oldNative;
+            global::Terraria.Netplay.Clients[slot] = oldClient;
+            global::Terraria.Main.netMode = oldMode; global::Terraria.Main.myPlayer = oldPlayer; global::Terraria.Main.dedServ = oldDedicated;
+        }
     }
 
     [Test]

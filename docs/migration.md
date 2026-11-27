@@ -47,16 +47,6 @@ file-store backups together with the matching deployment version. Never
 restore an older backup over newer live progress. SQLite CLI examples below
 remain unchanged.
 
-## Existing Vega primary SSC
-
-```powershell
-.\Vega.Server.exe --vega-migrate-primary-ssc
-```
-
-This imports `data/primary-characters.json` into `data/sandboxes/ssc.json`. It preserves existing isolated-world and shared state, never replaces a different shared character, rejects duplicates and active transfers, and assigns imported entries new shared revisions. Byte-identical existing characters are retained. Before publishing, the existing shared store is copied to a unique `.before-primary-migration.*` file; the old primary file is then archived as `primary-characters.json.migrated`. Output gives the counts and backup paths. The copied timestamps and payloads are retained. Source and destination use the same inter-process lock as ordinary store access.
-
-After successful migration, enable `enabled` and `authoritative` in `config/primary-character-persistence.json`. A conflict leaves both original stores unchanged. If publication fails before source archival, retry while still offline: identical imported rows are recognized; conflicting rows require explicit operator reconciliation. To roll back offline before resuming play, restore the archived primary file and previous shared backup together (if the shared store did not exist, restore from the complete deployment backup), then disable authority. Do not restore an old backup over later live progress. Existing source file/archives are intentionally never discarded.
-
 ## TShock active bans
 
 ```powershell

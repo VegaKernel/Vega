@@ -53,6 +53,16 @@ public interface IRegionService
     ValueTask<RegionMutationResult> RenameAsync(WorldId worldId, string name, string newName, long expectedRevision,
         string actor, CancellationToken cancellationToken = default) =>
         ValueTask.FromResult(new RegionMutationResult(false, "region.rename-unavailable"));
+
+    /// <summary>Identity-checked variants keep a deleted/recreated region from matching an old name and revision.</summary>
+    ValueTask<RegionMutationResult> DeleteAsync(RegionSnapshot expected, string actor, CancellationToken cancellationToken = default) =>
+        ValueTask.FromResult(new RegionMutationResult(false, "region.identity-validation-unavailable"));
+    ValueTask<RegionMutationResult> UpdateAsync(RegionSnapshot expected, RegionUpdate update, string actor, CancellationToken cancellationToken = default) =>
+        ValueTask.FromResult(new RegionMutationResult(false, "region.identity-validation-unavailable"));
+    ValueTask<RegionMutationResult> SetAccessAsync(RegionSnapshot expected, RegionAccessKind kind, string subject, bool enabled, string actor, CancellationToken cancellationToken = default) =>
+        ValueTask.FromResult(new RegionMutationResult(false, "region.identity-validation-unavailable"));
+    ValueTask<RegionMutationResult> RenameAsync(RegionSnapshot expected, string newName, string actor, CancellationToken cancellationToken = default) =>
+        ValueTask.FromResult(new RegionMutationResult(false, "region.identity-validation-unavailable"));
 }
 
 public sealed record RegionUpdate(

@@ -1,6 +1,6 @@
 # Optional cluster messaging
 
-Vega cluster messaging adds typed inter-server capabilities without making networking a prerequisite for a standalone server. The default runtime uses `UnavailableClusterClient`; local operations continue and cluster publication failure is returned as a separate result.
+Vega cluster messaging adds typed inter-server capabilities without making networking a prerequisite for a standalone server. In an unconfigured runtime, local operations continue independently. The optional [authenticated peer transport](plugin-cluster.md) enables plugin notifications and bounded host presence with advisory routing.
 
 ## Contract model
 
@@ -17,7 +17,7 @@ There is no service locator, dynamic payload dictionary or string action protoco
 
 ## Delivery and failure semantics
 
-The current reference transport is in-memory and belongs to `Vega.Cluster`, outside Core and Contracts. It exists for local composition and deterministic integration testing; ADR 0019 still does not select a production Redis, NATS, RabbitMQ, HTTP or WebSocket transport.
+The in-memory reference transport belongs to `Vega.Cluster`, outside Core and Contracts. It exists for local composition and deterministic integration testing. The optional authenticated HTTP transport has a narrower explicit event allowlist: plugin notifications, host presence announcements, and withdrawals. Experimental command/request handlers are not exposed over this transport.
 
 Dispatch uses bounded message-ID retention for duplicate detection. Duplicate event/command delivery is successful and observable as `Duplicate`; duplicate requests reuse a bounded cached typed response instead of repeating the handler side effect. Failed or cancelled delivery releases the message ID so a transport can retry it. Exactly-once delivery is not promised. Audit records capture family, message type, metadata, status and failure detail in a bounded log.
 

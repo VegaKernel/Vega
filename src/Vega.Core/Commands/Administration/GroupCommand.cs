@@ -39,102 +39,110 @@ public sealed class GroupCommand(IAuthorizationService authorization) : ICommand
             return Show(invocation);
         }
 
-        if ((action is "prefix" or "suffix" or "color") && invocation.Arguments.Count >= 3)
+        return action switch
         {
-            if (!authorization.TryGetGroup(invocation.Arguments[1], out GroupSnapshot? group) || group is null)
-                return NotFound();
-            if (!CanDelegate(invocation.Principal, group.Name))
-                return DelegationDenied();
-            string value = string.Join(' ', invocation.Arguments.Skip(2));
-            bool clear = value.Equals("none", StringComparison.OrdinalIgnoreCase);
-            GroupChatPresentation presentation = group.Presentation;
-            if (action == "prefix") presentation = presentation with { Prefix = clear ? "" : value };
-            else if (action == "suffix") presentation = presentation with { Suffix = clear ? "" : value };
-            else if (clear) presentation = presentation with { Color = null };
-            else if (TryParseColor(value, out string? color)) presentation = presentation with { Color = color };
-            else return Usage();
-            if (!presentation.IsValid) return Usage();
-            return Mutation(await authorization.SetPresentationAsync(group.Name, presentation, group.Revision,
-                invocation.Principal.Name, cancellationToken).ConfigureAwait(false));
+            "prefix" or "suffix" or "color" when invocation.Arguments.Count >= 3 => await SetPresentationAsync(action, invocation, cancellationToken).ConfigureAwait(false),
+            "create" when invocation.Arguments.Count is 2 or 3 => await CreateAsync(invocation, cancellationToken).ConfigureAwait(false),
+            "delete" when invocation.Arguments.Count == 2 => await DeleteAsync(invocation, cancellationToken).ConfigureAwait(false),
+            "parent" when invocation.Arguments.Count == 3 => await SetParentAsync(invocation, cancellationToken).ConfigureAwait(false),
+            "grant" or "deny" or "revoke" when invocation.Arguments.Count == 3 => await SetPermissionAsync(action, invocation, cancellationToken).ConfigureAwait(false),
+            _ => Usage()
+        };
+    }
+
+    private async ValueTask<CommandExecutionResult> SetPresentationAsync(string action, CommandInvocation invocation, CancellationToken cancellationToken)
+    {
+        if (!authorization.TryGetGroup(invocation.Arguments[1], out GroupSnapshot? group) || group is null)
+            return NotFound();
+        if (!CanDelegate(invocation.Principal, group.Name))
+            return DelegationDenied();
+        string value = string.Join(' ', invocation.Arguments.Skip(2));
+        bool clear = value.Equals("none", StringComparison.OrdinalIgnoreCase);
+        GroupChatPresentation presentation = group.Presentation;
+        if (action == "prefix") presentation = presentation with { Prefix = clear ? "" : value };
+        else if (action == "suffix") presentation = presentation with { Suffix = clear ? "" : value };
+        else if (clear) presentation = presentation with { Color = null };
+        else if (TryParseColor(value, out string? color)) presentation = presentation with { Color = color };
+        else return Usage();
+        if (!presentation.IsValid) return Usage();
+        return Mutation(await authorization.SetPresentationAsync(group.Name, presentation, group.Revision,
+            invocation.Principal.Name, cancellationToken).ConfigureAwait(false));
+    }
+
+    private async ValueTask<CommandExecutionResult> CreateAsync(CommandInvocation invocation, CancellationToken cancellationToken)
+    {
+        string? parent = invocation.Arguments.Count == 3 ? invocation.Arguments[2] : null;
+        if (parent is not null && !CanDelegate(invocation.Principal, parent))
+        {
+            return DelegationDenied();
         }
 
-        if (action == "create" && invocation.Arguments.Count is 2 or 3)
-        {
-            string? parent = invocation.Arguments.Count == 3 ? invocation.Arguments[2] : null;
-            if (parent is not null && !CanDelegate(invocation.Principal, parent))
-            {
-                return DelegationDenied();
-            }
+        return Mutation(await authorization.CreateGroupAsync(
+            invocation.Arguments[1], parent, invocation.Principal.Name, cancellationToken).ConfigureAwait(false));
+    }
 
-            return Mutation(await authorization.CreateGroupAsync(
-                invocation.Arguments[1], parent, invocation.Principal.Name, cancellationToken).ConfigureAwait(false));
+    private async ValueTask<CommandExecutionResult> DeleteAsync(CommandInvocation invocation, CancellationToken cancellationToken)
+    {
+        if (!authorization.TryGetGroup(invocation.Arguments[1], out GroupSnapshot? group) || group is null)
+        {
+            return NotFound();
         }
 
-        if (action == "delete" && invocation.Arguments.Count == 2)
+        if (!CanDelegate(invocation.Principal, group.Name))
         {
-            if (!authorization.TryGetGroup(invocation.Arguments[1], out GroupSnapshot? group) || group is null)
-            {
-                return NotFound();
-            }
-
-            if (!CanDelegate(invocation.Principal, group.Name))
-            {
-                return DelegationDenied();
-            }
-
-            return Mutation(await authorization.DeleteGroupAsync(
-                group.Name, group.Revision, invocation.Principal.Name, cancellationToken).ConfigureAwait(false));
+            return DelegationDenied();
         }
 
-        if (action == "parent" && invocation.Arguments.Count == 3)
+        return Mutation(await authorization.DeleteGroupAsync(
+            group.Name, group.Revision, invocation.Principal.Name, cancellationToken).ConfigureAwait(false));
+    }
+
+    private async ValueTask<CommandExecutionResult> SetParentAsync(CommandInvocation invocation, CancellationToken cancellationToken)
+    {
+        if (!authorization.TryGetGroup(invocation.Arguments[1], out GroupSnapshot? group) || group is null)
         {
-            if (!authorization.TryGetGroup(invocation.Arguments[1], out GroupSnapshot? group) || group is null)
-            {
-                return NotFound();
-            }
-
-            string? parent = invocation.Arguments[2].Equals("none", StringComparison.OrdinalIgnoreCase)
-                ? null
-                : invocation.Arguments[2];
-            if (!CanDelegate(invocation.Principal, group.Name) ||
-                (parent is not null && !CanDelegate(invocation.Principal, parent)))
-            {
-                return DelegationDenied();
-            }
-
-            return Mutation(await authorization.SetParentAsync(
-                group.Name, parent, group.Revision, invocation.Principal.Name, cancellationToken).ConfigureAwait(false));
+            return NotFound();
         }
 
-        if ((action is "grant" or "deny" or "revoke") && invocation.Arguments.Count == 3)
+        string? parent = invocation.Arguments[2].Equals("none", StringComparison.OrdinalIgnoreCase)
+            ? null
+            : invocation.Arguments[2];
+        if (!CanDelegate(invocation.Principal, group.Name) ||
+            (parent is not null && !CanDelegate(invocation.Principal, parent)))
         {
-            if (!authorization.TryGetGroup(invocation.Arguments[1], out GroupSnapshot? group) || group is null)
-            {
-                return NotFound();
-            }
-
-            string permission = invocation.Arguments[2];
-            if (!invocation.Principal.IsServer && !invocation.Principal.HasPermission(permission))
-            {
-                return DelegationDenied();
-            }
-
-            PermissionEffect? effect = action switch
-            {
-                "grant" => PermissionEffect.Grant,
-                "deny" => PermissionEffect.Deny,
-                _ => null
-            };
-            return Mutation(await authorization.SetPermissionAsync(
-                group.Name,
-                permission,
-                effect,
-                group.Revision,
-                invocation.Principal.Name,
-                cancellationToken).ConfigureAwait(false));
+            return DelegationDenied();
         }
 
-        return Usage();
+        return Mutation(await authorization.SetParentAsync(
+            group.Name, parent, group.Revision, invocation.Principal.Name, cancellationToken).ConfigureAwait(false));
+    }
+
+    private async ValueTask<CommandExecutionResult> SetPermissionAsync(string action, CommandInvocation invocation, CancellationToken cancellationToken)
+    {
+        if (!authorization.TryGetGroup(invocation.Arguments[1], out GroupSnapshot? group) || group is null)
+        {
+            return NotFound();
+        }
+
+        string permission = invocation.Arguments[2];
+        if (!invocation.Principal.IsServer && !invocation.Principal.HasPermission(permission))
+        {
+            return DelegationDenied();
+        }
+
+        PermissionEffect? effect = action switch
+        {
+            "grant" => PermissionEffect.Grant,
+            "deny" => PermissionEffect.Deny,
+            _ => null
+        };
+        return Mutation(await authorization.SetPermissionAsync(
+            group.Name,
+            permission,
+            effect,
+            group.Revision,
+            invocation.Principal.Name,
+            cancellationToken).ConfigureAwait(false));
     }
 
     private CommandExecutionResult List()

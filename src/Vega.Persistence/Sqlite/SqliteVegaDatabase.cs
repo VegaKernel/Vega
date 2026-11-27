@@ -7,6 +7,7 @@ using Vega.Contracts.Regions;
 using Vega.Contracts.Worlds;
 using Vega.Contracts.Players;
 using Vega.Persistence.Relational;
+using Vega.Contracts.Modules;
 
 namespace Vega.Persistence.Sqlite;
 
@@ -48,6 +49,9 @@ public sealed class SqliteVegaDatabase : IVegaDatabase, IVegaOfflineImport
             EnsureReady);
         Playtime = new RelationalPlaytimeStore(
             async cancellationToken => await connections.OpenAsync(cancellationToken).ConfigureAwait(false), EnsureReady);
+        Homes = new RelationalHomeStore(async cancellationToken => await connections.OpenAsync(cancellationToken).ConfigureAwait(false), EnsureReady);
+        PluginData = new RelationalPluginDocumentStore(
+            async cancellationToken => await connections.OpenAsync(cancellationToken).ConfigureAwait(false), EnsureReady);
         offlineImport = new(
             async cancellationToken => await connections.OpenAsync(cancellationToken).ConfigureAwait(false),
             EnsureReady, () => ((RelationalRegionService)Regions).Invalidate(WorldId.Primary));
@@ -77,6 +81,11 @@ public sealed class SqliteVegaDatabase : IVegaDatabase, IVegaOfflineImport
 
     public IRegionService Regions { get; }
     public IPlayerPlaytimeStore Playtime { get; }
+    public IPlayerHomeStore Homes { get; }
+
+    public ValueTask<int> ImportHomesAsync(WorldId world, Guid worldFile, IReadOnlyList<PlayerHome> homes, CancellationToken token = default) =>
+        ((RelationalHomeStore)Homes).ImportAsync(world, worldFile, homes, token);
+    public IPluginDocumentStore PluginData { get; }
 
     /// <summary>Offline, transactional insert-only ban migration; existing and revoked IDs are preserved.</summary>
     public ValueTask<int> ImportBansAsync(IReadOnlyList<GlobalBanCreated> bans, CancellationToken token = default) =>

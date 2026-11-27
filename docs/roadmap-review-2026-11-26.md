@@ -163,3 +163,8 @@ graphical client acceptance fields remain `pending-manual`.
 ## Recommendation
 
 Treat the current code as an advanced deployment candidate for a fresh/test world. Do not advertise a drop-in production replacement for an existing TShock installation until the relevant P0 gates pass. Compare on the same protocol/runtime/world and equivalent policy settings, and record operator-visible differences rather than reimplementing TShock internals by default. See [performance measurements](performance-2026-11-26.md).
+
+
+## 27 November plugin P0/P1 and complexity follow-up
+
+The [readiness matrix](terraz-plugin-port-readiness.md) and [complexity review](code-complexity-review-2026-11-27.md) record this implementation round. The typed SDK now offers bounded committed cell differences around accepted native tile interactions; the prior deny-only policy remains authoritative. FakeProvider adds scoped composable tile UI panels and controls; native rendering and gestures are covered by headless tests, not graphical client qualification. Virtual custom item instances have persistent, immutable versioned recipes with ownership/CAS transfer and revoke, distinct from physical Terraria items. Authenticated cluster presence provides role, capacity, expiry and advisory destination selection, not independent-server SSC transfer. Existing global whitelist and ban behavior is unchanged. REST administration routing, world-event parsing, group command routing and offline migration dispatch were decomposed using the existing modules; the added complexity audit finds no source project cycles. Native client SSC, real-player TPS and complete operator/plugin equivalence remain release gates.

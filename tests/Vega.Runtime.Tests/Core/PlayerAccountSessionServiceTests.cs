@@ -22,6 +22,65 @@ public sealed class PlayerAccountSessionServiceTests
 {
     private string testDirectory = null!;
 
+    [Test]
+    public async Task IdentitySdkObservesCommittedChangesAndAllowsOnlyConfiguredGroupAssignments()
+    {
+        var db = await OpenAsync();
+        var vip = await db.Authorization.CreateGroupAsync("vip", "default", "Server");
+        await db.Authorization.SetPermissionAsync("vip", "fixture.vip", PermissionEffect.Grant, vip.After!.Revision, "Server");
+        var created = await db.Accounts.CreateAsync("alice", "fixture password", "default", "Server");
+        var lifecycle = new FakeLifecycle();
+        using var permissions = new PlayerSessionAuthorizationService(lifecycle);
+        using var sessions = new PlayerAccountSessionService(db.Accounts, db.Authorization, permissions, new LocalizationService("en-US"), lifecycle, roleLeases: db.RoleLeases);
+        var playerId = new PlayerId(4);
+        var sessionId = lifecycle.Open(playerId);
+        Assert.That((await sessions.LoginAsync(playerId, "alice", "fixture password", expectedSession: sessionId)).Succeeded, Is.True);
+        var dispatcher = new QueuedIdentityDispatcher();
+        var scope = new HotModuleRegistrationScope(new CommandDispatcher([]), new IdentityLogger(), "Plugin.Donations", Path.GetTempPath(), gameThread: dispatcher,
+            accounts: db.Accounts, groups: db.Authorization, roleLeases: db.RoleLeases, identityAssignmentGroups: ["default", "vip"]);
+        var identity = scope.Identity;
+        var accountEvents = new List<PluginAccountChanged>();
+        var groupEvents = new List<PluginGroupChanged>();
+        var leases = new List<RoleLeaseChange>();
+        identity.OnAccountChanged(accountEvents.Add);
+        identity.OnGroupChanged(groupEvents.Add);
+        identity.OnTemporaryGroupChanged(leases.Add);
+        var account = created.After!.Id;
+        Assert.That((await identity.FindAccountByIdAsync(account))?.Name, Is.EqualTo("alice"));
+        Assert.That((await identity.AssignGroupAsync(account, "administrator")).Code, Is.EqualTo("plugin.identity.group-denied"));
+        Assert.That((await identity.AssignGroupAsync(account, "vip")).Succeeded, Is.True);
+        Assert.That(permissions.HasPermission(playerId, "fixture.vip"), Is.True, "online permission changes must not wait for re-login");
+        Assert.That(accountEvents, Is.Empty, "SDK observers must not run inside the database writer");
+        Assert.That((await identity.GrantTemporaryGroupAsync(account, "default", DateTimeOffset.UtcNow.AddHours(1))).Succeeded, Is.True);
+        Assert.That(permissions.HasPermission(playerId, "fixture.vip"), Is.False);
+        Assert.That((await identity.RevokeOwnTemporaryGroupAsync(account)).Succeeded, Is.True);
+        Assert.That(permissions.HasPermission(playerId, "fixture.vip"), Is.True);
+        await db.RoleLeases.GrantAsync(account, "default", DateTimeOffset.UtcNow, DateTimeOffset.UtcNow.AddHours(1), "Server");
+        Assert.That((await identity.RevokeOwnTemporaryGroupAsync(account)).Code, Is.EqualTo("plugin.identity.group-denied"));
+        Assert.That((await identity.GrantTemporaryGroupAsync(account, "vip", DateTimeOffset.UtcNow.AddHours(1))).Code, Is.EqualTo("plugin.identity.group-denied"));
+        await db.Authorization.CreateGroupAsync("extra", "default", "Server");
+        dispatcher.Drain();
+        Assert.That(accountEvents.Single().After!.GroupName, Is.EqualTo("vip"));
+        Assert.That(accountEvents.Single().Actor, Is.EqualTo("plugin:Plugin.Donations"));
+        Assert.That(groupEvents.Single().After!.Name, Is.EqualTo("extra"));
+        Assert.That(leases, Has.Count.EqualTo(3));
+        await db.Authorization.CreateGroupAsync("later", "default", "Server");
+        await scope.DisposeAsync();
+        dispatcher.Drain();
+        Assert.That(groupEvents, Has.Count.EqualTo(1), "retired subscriptions and queued callbacks must not execute");
+    }
+
+    private sealed class QueuedIdentityDispatcher : Vega.Contracts.Threading.IGameThreadDispatcher
+    {
+        private readonly System.Collections.Concurrent.ConcurrentQueue<Action> pending = new();
+        public bool IsGameThreadKnown => true;
+        public bool IsGameThread => false;
+        public void AssertGameThread() => throw new NotSupportedException();
+        public bool TryPost(string name, Action action) { pending.Enqueue(action); return true; }
+        public bool TrySchedule(string name, Func<bool> step) => throw new NotSupportedException();
+        public void Drain() { while (pending.TryDequeue(out var action)) action(); }
+    }
+
     [SetUp]
     public void SetUp() => testDirectory = Path.Combine(
         Path.GetTempPath(),

@@ -42,6 +42,8 @@ public sealed record NpcActorDefinition(int BaseType, string Name, bool Friendly
     public string? PersistentQuestScope { get; init; }
     /// <summary>Opt into named virtual currencies under a stable plugin-qualified account scope.</summary>
     public string? EconomyScope { get; init; }
+    /// <summary>Optional external economy address. A missing external provider never falls back to another ledger.</summary>
+    public NpcEconomyProviderAddress? EconomyProvider { get; init; }
 }
 
 public enum NpcActorIntentKind { Vanilla, Stop, MoveTo, FollowPlayer, Patrol }
@@ -69,6 +71,7 @@ public sealed record NpcActorSnapshot(NpcActorId Id, NpcEventSnapshot Npc, strin
     public long QuestRevision { get; init; }
     public string? PersistentQuestScope { get; init; }
     public string? EconomyScope { get; init; }
+    public NpcEconomyProviderAddress? EconomyProvider { get; init; }
 }
 
 public sealed record NpcActorCreationResult(NpcOperationStatus Status, INpcActor? Actor = null, string? ErrorCode = null);

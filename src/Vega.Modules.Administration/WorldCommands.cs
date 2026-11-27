@@ -95,23 +95,48 @@ public sealed class WorldInfoCommand(IWorldEnvironmentService world) : ICommandH
 
 public sealed class WorldEventCommand(IWorldEnvironmentService world) : ICommandHandler
 {
+    private static readonly Dictionary<string, NativeWorldEvent> NativeEvents = new(StringComparer.OrdinalIgnoreCase)
+    {
+        ["slimerain"] = NativeWorldEvent.SlimeRain, ["sandstorm"] = NativeWorldEvent.Sandstorm,
+        ["pumpkinmoon"] = NativeWorldEvent.PumpkinMoon, ["frostmoon"] = NativeWorldEvent.FrostMoon,
+        ["goblinarmy"] = NativeWorldEvent.GoblinArmy, ["snowlegion"] = NativeWorldEvent.SnowLegion,
+        ["pirateinvasion"] = NativeWorldEvent.PirateInvasion, ["martianmadness"] = NativeWorldEvent.MartianMadness,
+        ["meteor"] = NativeWorldEvent.Meteor, ["lanternnight"] = NativeWorldEvent.LanternNight,
+        ["meteorshower"] = NativeWorldEvent.MeteorShower, ["coinrain"] = NativeWorldEvent.CoinRain
+    };
+    private static readonly Dictionary<string, string> InvasionAliases = new(StringComparer.OrdinalIgnoreCase)
+    {
+        ["goblin"] = "goblinarmy", ["goblins"] = "goblinarmy", ["snowman"] = "snowlegion", ["snowmen"] = "snowlegion",
+        ["pirate"] = "pirateinvasion", ["pirates"] = "pirateinvasion", ["pumpkin"] = "pumpkinmoon", ["pumpkinmoon"] = "pumpkinmoon",
+        ["frost"] = "frostmoon", ["frostmoon"] = "frostmoon", ["martian"] = "martianmadness", ["martians"] = "martianmadness"
+    };
     public CommandDescriptor Descriptor { get; } = new("worldevent", [], ["vega.world.events"],
         Syntax: "worldevent <rain|bloodmoon|eclipse|fullmoon|slimerain|sandstorm|pumpkinmoon|frostmoon|goblinarmy|snowlegion|pirateinvasion|martianmadness|meteor|lanterns|meteorshower|coinrain> [on|off] | worldevent invade <type> | worldevent rain <slime|coin>");
 
     public async ValueTask<CommandExecutionResult> ExecuteAsync(CommandInvocation invocation, CancellationToken cancellationToken)
     {
-        var args = invocation.Arguments;
-        if (args.Count is < 1 or > 2) return Usage();
+        if (Parse(invocation.Arguments) is not { } request) return Usage();
+        var (kind, action, native) = request;
+        if (!invocation.Principal.HasPermission($"vega.world.events.{kind}")) return new(CommandExecutionStatus.Forbidden,
+            "command.permission_denied", [MessageDescriptor.Error("command.permission_denied").WithDefaultText("Permission denied.")]);
+        WorldEnvironmentSnapshot? state = await world.CaptureAsync(invocation.WorldId, cancellationToken).ConfigureAwait(false);
+        if (state is null) return CommandExecutionResult.Failed("worldevent.unavailable");
+        bool invasion = native is NativeWorldEvent.GoblinArmy or NativeWorldEvent.SnowLegion or NativeWorldEvent.PirateInvasion or NativeWorldEvent.MartianMadness;
+        if (invasion && action == "off") return Usage();
+        bool enabled = action == "on" || action is null && (invasion || !IsEnabled(kind, native, state));
+        var result = await world.PatchAsync(new(invocation.WorldId, BuildPatch(kind, native, enabled, state), invocation.Principal.Name), cancellationToken).ConfigureAwait(false);
+        return result.IsSuccess ? CommandExecutionResult.WithMessages(MessageDescriptor.Success("worldevent.applied", kind, enabled)
+            .WithDefaultText("World event {0}: enabled={1}.")) : CommandExecutionResult.Failed(result.ErrorCode ?? "worldevent.failed");
+    }
+
+    private static (string Kind, string? Action, NativeWorldEvent? Native)? Parse(IReadOnlyList<string> args)
+    {
+        if (args.Count is < 1 or > 2) return null;
         string kind = args[0].ToLowerInvariant() switch { "full moon" => "fullmoon", "blood moon" => "bloodmoon", "lanterns" or "lanternsnight" => "lanternnight", var value => value };
         string? action = args.Count == 2 ? args[1].ToLowerInvariant() : null;
         if (kind is "invade" or "invasion")
         {
-            kind = action switch
-            {
-                "goblin" or "goblins" => "goblinarmy", "snowman" or "snowmen" => "snowlegion",
-                "pirate" or "pirates" => "pirateinvasion", "pumpkin" or "pumpkinmoon" => "pumpkinmoon",
-                "frost" or "frostmoon" => "frostmoon", "martian" or "martians" => "martianmadness", _ => ""
-            };
+            kind = action is not null && InvasionAliases.TryGetValue(action, out string? canonical) ? canonical : "";
             action = "on";
         }
         else if (kind == "rain" && (action is "slime" or "coin"))
@@ -119,29 +144,20 @@ public sealed class WorldEventCommand(IWorldEnvironmentService world) : ICommand
             kind = action == "slime" ? "slimerain" : "coinrain";
             action = null;
         }
-        NativeWorldEvent? native = kind switch
-        {
-            "slimerain" => NativeWorldEvent.SlimeRain, "sandstorm" => NativeWorldEvent.Sandstorm,
-            "pumpkinmoon" => NativeWorldEvent.PumpkinMoon, "frostmoon" => NativeWorldEvent.FrostMoon,
-            "goblinarmy" => NativeWorldEvent.GoblinArmy, "snowlegion" => NativeWorldEvent.SnowLegion,
-            "pirateinvasion" => NativeWorldEvent.PirateInvasion, "martianmadness" => NativeWorldEvent.MartianMadness,
-            "meteor" => NativeWorldEvent.Meteor, "lanternnight" => NativeWorldEvent.LanternNight,
-            "meteorshower" => NativeWorldEvent.MeteorShower, "coinrain" => NativeWorldEvent.CoinRain, _ => null
-        };
-        if (native is null && kind is not ("rain" or "bloodmoon" or "eclipse" or "fullmoon")) return Usage();
-        if (action is not (null or "on" or "off") || (kind is "fullmoon" or "meteor") && action == "off") return Usage();
-        if (!invocation.Principal.HasPermission($"vega.world.events.{kind}")) return new(CommandExecutionStatus.Forbidden,
-            "command.permission_denied", [MessageDescriptor.Error("command.permission_denied").WithDefaultText("Permission denied.")]);
-        WorldEnvironmentSnapshot? state = await world.CaptureAsync(invocation.WorldId, cancellationToken).ConfigureAwait(false);
-        if (state is null) return CommandExecutionResult.Failed("worldevent.unavailable");
-        bool invasion = native is NativeWorldEvent.GoblinArmy or NativeWorldEvent.SnowLegion or NativeWorldEvent.PirateInvasion or NativeWorldEvent.MartianMadness;
-        if (invasion && action == "off") return Usage();
-        bool enabled = action == "on" || action is null && (invasion || !(kind switch
-        {
-            "rain" => state.Raining, "bloodmoon" => state.BloodMoon, "eclipse" => state.Eclipse,
-            _ => native is { } e && state.NativeEvents.Contains(e)
-        }));
-        WorldEnvironmentPatch patch = native is { } nativeKind ? new(NativeEvent: new(nativeKind, enabled)) : kind switch
+        NativeWorldEvent? native = NativeEvents.TryGetValue(kind, out var nativeValue) ? nativeValue : null;
+        if (native is null && kind is not ("rain" or "bloodmoon" or "eclipse" or "fullmoon")) return null;
+        if (action is not (null or "on" or "off") || (kind is "fullmoon" or "meteor") && action == "off") return null;
+        return (kind, action, native);
+    }
+
+    private static bool IsEnabled(string kind, NativeWorldEvent? native, WorldEnvironmentSnapshot state) => kind switch
+    {
+        "rain" => state.Raining, "bloodmoon" => state.BloodMoon, "eclipse" => state.Eclipse,
+        _ => native is { } e && state.NativeEvents.Contains(e)
+    };
+
+    private static WorldEnvironmentPatch BuildPatch(string kind, NativeWorldEvent? native, bool enabled, WorldEnvironmentSnapshot state) =>
+        native is { } nativeKind ? new(NativeEvent: new(nativeKind, enabled)) : kind switch
         {
             "rain" => new(Raining: enabled),
             "bloodmoon" => new(BloodMoon: enabled, IsDaytime: enabled && state.IsDaytime ? false : null,
@@ -150,10 +166,6 @@ public sealed class WorldEventCommand(IWorldEnvironmentService world) : ICommand
                 TimeTicks: enabled && !state.IsDaytime ? 0 : null, BloodMoon: enabled ? false : null),
             _ => new(IsDaytime: false, TimeTicks: 0, MoonPhase: 0)
         };
-        var result = await world.PatchAsync(new(invocation.WorldId, patch, invocation.Principal.Name), cancellationToken).ConfigureAwait(false);
-        return result.IsSuccess ? CommandExecutionResult.WithMessages(MessageDescriptor.Success("worldevent.applied", kind, enabled)
-            .WithDefaultText("World event {0}: enabled={1}.")) : CommandExecutionResult.Failed(result.ErrorCode ?? "worldevent.failed");
-    }
 
     private static CommandExecutionResult Usage() => new(CommandExecutionStatus.InvalidUsage, "worldevent.usage",
         [MessageDescriptor.Error("worldevent.usage").WithDefaultText("Use help worldevent. Invasions support start only.")]);

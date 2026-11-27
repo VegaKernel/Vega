@@ -29,7 +29,6 @@ Vega does not load TShock or TSAPI plugins and does not preserve their API shape
 | `src/Vega.Persistence` | Domain persistence, Vega 1.0 baseline schema, and SQLite/PostgreSQL/MySQL providers |
 | `src/Vega.Regions` | World-scoped region commands and packet ACL decisions; storage remains in Persistence |
 | `src/Vega.Modules.Pvp` | PvP authority, projectile attribution, death windows, and per-session state |
-| `src/Vega.Modules.CustomItems` | Typed custom-item definitions and targeted Terraria delivery |
 | `tests/Vega.Architecture.Tests` | Dependency and ownership guardrails |
 | `tests/Vega.Runtime.Tests` | Unit and integration tests for runtime behavior |
 | `benchmarks/Vega.WorldImage.Benchmarks` | Reproducible `.wld` versus `.vworld` measurements |
@@ -189,7 +188,7 @@ Opt-in primary character persistence supports `savessc`, `overridessc <authentic
 {"enabled":true,"authoritative":true,"requireLogin":true,"requireCharacterReady":true}
 ```
 
-All options default off. Authority requires persistence and character readiness. A blank server-owned character is used pending exact account authentication and successful restoration; pending client character synchronization cannot replace that state. Normal authentication chat, movement and protocol acknowledgements remain available. Explicit logout clears the character. Authoritative primary worlds share the sandbox SSC store; migrate an existing separate `primary-characters.json` with the offline `--vega-migrate-primary-ssc` command before enabling authority (see [migration guide](../migration.md)). Sandbox SSC modes other than `Disabled` also set the native flag. Current-schema TShock SQLite and MySQL character migration is implemented and fixture-tested; stock-client join, restoration and reconnect qualification and full check equivalence remain open.
+All options default off. Authority requires persistence and character readiness. A blank server-owned character is used pending exact account authentication and successful restoration; pending client character synchronization cannot replace that state. Normal authentication chat, movement and protocol acknowledgements remain available. Explicit logout clears the character. Both primary persistence modes use the shared sandbox SSC store from the initial release, without a second primary storage format. Sandbox SSC modes other than `Disabled` also set the native flag. Current-schema TShock SQLite and MySQL character migration is implemented and fixture-tested; stock-client join, restoration and reconnect qualification and full check equivalence remain open.
 
 ### Operations modes
 
@@ -271,7 +270,7 @@ ProcessStart → Bootstrap → RuntimeReady → ModulesRegistered
 Bundled modules implement `IVegaModule` and are created by the runtime composition root.
 
 - `Vega.Modules.Pvp` owns PvP-specific policy and temporary session state.
-- `Vega.Modules.CustomItems` owns custom-item definitions while `Vega.Terraria` performs packet delivery.
+- The activation-owned SDK item catalog owns named recipes while `Vega.Terraria` performs exact-session native item delivery.
 
 Modules should depend on the narrowest capability they need. They must not mutate `Terraria.Main`, retain mutable player objects, introduce a competing packet codec, or hide business behavior in global helpers. Temporary extension state is scoped to a concrete player session and removed deterministically on disconnect.
 

@@ -9,6 +9,10 @@ public sealed record ServerPresenceAnnounced(
     int OnlinePlayers,
     DateTimeOffset ExpiresAt) : IClusterEvent
 {
+    public ClusterServerRole Role { get; init; }
+    public int MaximumPlayers { get; init; }
+    public bool IsWorldReady { get; init; }
+
     public string Schema => "vega.cluster.presence.announced";
 
     public int SchemaVersion => 1;

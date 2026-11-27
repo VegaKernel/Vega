@@ -47,6 +47,24 @@ public interface IPublicChatObservations
     event Action<PublicChatAcceptedObservation>? Accepted;
 }
 
+/// <summary>Ordinary public text, with exact session identity and no raw connection metadata.</summary>
+public readonly record struct PublicChatPolicyContext(WorldId WorldId, PlayerId PlayerId, PlayerSessionId SessionId,
+    string PlayerName, string Content, int RecipientCount);
+
+/// <summary>Replace ordinary public text or reject it; never changes its sender, recipients, or built-in moderation.</summary>
+public readonly record struct PublicChatPolicyDecision(bool Rejected, string? Replacement = null, string? Reason = null)
+{
+    public static PublicChatPolicyDecision Allow => default;
+    public static PublicChatPolicyDecision Reject(string? reason = null) => new(true, Reason: reason);
+    public static PublicChatPolicyDecision Replace(string content) => new(false, content);
+}
+
+/// <summary>Host policy boundary. Plugins subscribe through the lifetime-managed SDK.</summary>
+public interface IPublicChatPolicyEvents
+{
+    event Func<PublicChatPolicyContext, PublicChatPolicyDecision>? BeforePublicChat;
+}
+
 /// <summary>Host-only notification after the native public chat hook accepts a message.</summary>
 public interface IPublicChatObservationSink
 {

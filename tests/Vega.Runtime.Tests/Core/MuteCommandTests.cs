@@ -56,6 +56,44 @@ public sealed class MuteCommandTests
         });
     }
 
+    [Test]
+    public async Task ExtendedBansOfflineAccountMuteSurvivesRestartAndMatchesStoredIdentities()
+    {
+        DateTimeOffset now = DateTimeOffset.UtcNow;
+        var options = new SqliteVegaDatabaseOptions(Path.Combine(directory, "vega.db"));
+        var database = await SqliteVegaDatabase.OpenAsync(options);
+        var created = await database.Accounts.CreateAsync("Alice", "fixture-password", "default", "Server");
+        await database.Accounts.RecordLoginWithConnectionAsync("Alice", now, created.After!.Revision, "Alice", "192.0.2.15", "fixture-uuid");
+        var command = new MuteCommand(EmptyPlayers.Instance, EmptyAccountSessions.Instance, database.Mutes, new FixedTimeProvider(now), database.Accounts);
+        Assert.That((await ExecuteAsync(command, "mute", "add", "Alice", "0", "fixture reason")).Status, Is.EqualTo(CommandExecutionStatus.Success));
+        var reopened = await SqliteVegaDatabase.OpenAsync(options);
+        Assert.That(reopened.Mutes.FindActive("other", null, "192.0.2.15", null, now)?.ExpiresAt, Is.EqualTo(DateTimeOffset.MaxValue));
+        Assert.That(reopened.Mutes.FindActive("other", null, null, "fixture-uuid", now), Is.Not.Null);
+        command = new MuteCommand(EmptyPlayers.Instance, EmptyAccountSessions.Instance, reopened.Mutes, new FixedTimeProvider(now), reopened.Accounts);
+        Assert.That((await ExecuteAsync(command, "mute", "del", "Alice")).Status, Is.EqualTo(CommandExecutionStatus.Success));
+        Assert.That(reopened.Mutes.FindActive("other", null, "192.0.2.15", "fixture-uuid", now), Is.Null);
+    }
+
+    [Test]
+    public async Task ExtendedBansDelegatedMuteCannotTargetAHigherPermissionTier()
+    {
+        var database = await SqliteVegaDatabase.OpenAsync(new SqliteVegaDatabaseOptions(Path.Combine(directory, "vega.db")));
+        var group = await database.Authorization.CreateGroupAsync("protected", "default", "Server");
+        await database.Authorization.SetPermissionAsync("protected", "extendedbans.mute.10", Vega.Contracts.Authorization.PermissionEffect.Grant, group.After!.Revision, "Server");
+        await database.Accounts.CreateAsync("Alice", "fixture-password", "protected", "Server");
+        var command = new MuteCommand(EmptyPlayers.Instance, EmptyAccountSessions.Instance, database.Mutes, accounts: database.Accounts, groups: database.Authorization);
+        var invocation = new CommandInvocation("mute", ["add", "Alice", "1h", "test"], new LimitedMutePrincipal(), NullOutput.Instance);
+        Assert.That((await command.ExecuteAsync(invocation, default)).ErrorCode, Is.EqualTo("command.mute.authority"));
+        Assert.That(database.Mutes.SnapshotActive(DateTimeOffset.UtcNow), Is.Empty);
+    }
+
+    private sealed class LimitedMutePrincipal : ICommandPrincipal
+    {
+        public string Name => "Moderator";
+        public bool IsServer => false;
+        public bool HasPermission(string permission) => permission == "extendedbans.mute";
+    }
+
     private static ValueTask<CommandExecutionResult> ExecuteAsync(
         MuteCommand command,
         string name,

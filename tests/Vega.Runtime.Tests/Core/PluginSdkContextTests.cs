@@ -19,6 +19,26 @@ namespace Vega.Runtime.Tests.Core;
 public sealed class PluginSdkContextTests
 {
     [Test]
+    public async Task ConciseCommandsUseExistingGuardAuthorizationWorldAndRetirement()
+    {
+        var world = new WorldId("convenience");
+        var player = new PlayerSnapshot(new(2), "alice", false, 100, 100, 20, 20, new(0, 0), false, 0)
+        { SessionId = PlayerSessionId.New(), WorldId = world };
+        var directory = new RecordingPlayers { Current = player };
+        var commands = new CommandDispatcher([]);
+        var scope = new HotModuleRegistrationScope(commands, new RecordingLogger(), "Plugin.Convenience", Path.GetTempPath(), playerDirectory: directory, activityWorldId: world);
+        scope.Commands.Register("hello", "fixture.hello", invocation => scope.Players.TryGetCommandPlayer(invocation, out var current)
+            ? PluginReply.Success($"Hello, {current!.Name}!") : PluginReply.Error("fixture.stale", "Player is no longer connected."), aliases: ["hi"], allowServer: false);
+        var invocation = new CommandInvocation("hi", [], new ActivityPrincipal(player.Id, player.SessionId!.Value), Output.Instance) { WorldId = world };
+        var result = await commands.DispatchAsync(invocation);
+        Assert.That(result.Status, Is.EqualTo(CommandExecutionStatus.Success));
+        Assert.That(result.Messages!.Single().Arguments, Does.Contain("Hello, alice!"));
+        directory.Current = player with { SessionId = PlayerSessionId.New() };
+        Assert.That((await commands.DispatchAsync(invocation)).ErrorCode, Is.EqualTo("fixture.stale"));
+        await scope.DisposeAsync();
+        Assert.That((await commands.DispatchAsync(invocation)).ErrorCode, Is.EqualTo("command.not_found"));
+    }
+    [Test]
     public async Task ReadOnlyWarpCapabilityCancelsPendingReadsDuringRetirementAndRejectsForeignCatalog()
     {
         var world = new WorldId("warp-test");
@@ -123,6 +143,84 @@ public sealed class PluginSdkContextTests
     }
 
     [Test]
+    public async Task NamedCustomItemRecipesAreActivationLocalAndReuseSessionBoundDelivery()
+    {
+        var world = new WorldId("recipes");
+        var player = new PlayerSnapshot(new(1), "fixture", false, 100, 100, 20, 20, new(0, 0), false, 0)
+        { WorldId = world, SessionId = PlayerSessionId.New() };
+        var players = new RecordingPlayers { Current = player };
+        var native = new PlayerActionsFixture(players);
+        var scope = new HotModuleRegistrationScope(new RecordingCommandRegistry(), new RecordingLogger(), "Plugin.Recipes",
+            Path.GetTempPath(), playerDirectory: players, playerOperations: native, activityWorldId: world);
+        await using var other = new HotModuleRegistrationScope(new RecordingCommandRegistry(), new RecordingLogger(), "Plugin.OtherRecipes",
+            Path.GetTempPath(), playerDirectory: players, playerOperations: native, activityWorldId: world);
+        IPluginCustomItems recipes = scope.Players.Actions.CustomItems;
+        try
+        {
+            Assert.That(recipes.IsAvailable, Is.True);
+            Assert.Throws<ArgumentException>(() => recipes.Register(new("invalid", 0)));
+            Assert.Throws<ArgumentException>(() => recipes.Register(new("invalid", 1, -1)));
+            Assert.Throws<ArgumentException>(() => recipes.Register(new("invalid", 1, Prefix: 256)));
+            recipes.Register(new("Starter Sword", 24, 1, 3));
+            Assert.Throws<ArgumentException>(() => recipes.Register(new("starter sword", 5)));
+            other.Players.Actions.CustomItems.Register(new("Starter Sword", 5, 2));
+            Assert.That(recipes.Snapshot().Single(), Is.EqualTo(new CustomItemRecipe("Starter Sword", 24, 1, 3)));
+            Assert.That(other.Players.Actions.CustomItems.Snapshot().Single().ItemType, Is.EqualTo(5));
+            Assert.That((await recipes.GiveAsync(player, "missing")).ErrorCode, Is.EqualTo("custom_item.recipe_not_found"));
+            Assert.That((await recipes.GiveAsync(player with { WorldId = new("foreign") }, "Starter Sword")).Status, Is.EqualTo(PlayerOperationStatus.PlayerNotFound));
+            Assert.That((await recipes.GiveAsync(player, "STARTER SWORD")).IsSuccess, Is.True);
+            Assert.That(native.Delivered, Is.EqualTo(new[] { "give:24:1:3" }));
+
+            native.Defer = true;
+            Task<PlayerOperationResult> stale = recipes.GiveAsync(player, "Starter Sword").AsTask();
+            var replacement = player with { SessionId = PlayerSessionId.New() };
+            players.Current = replacement;
+            native.Flush();
+            Assert.That((await stale).Status, Is.EqualTo(PlayerOperationStatus.PlayerNotFound));
+            Task<PlayerOperationResult> pending = recipes.GiveAsync(replacement, "Starter Sword").AsTask();
+            Task retiring = scope.DrainForRetirementAsync(CancellationToken.None);
+            Assert.That(retiring.IsCompleted, Is.False);
+            native.Flush();
+            Assert.That((await pending).Status, Is.EqualTo(PlayerOperationStatus.Cancelled));
+            await retiring;
+        }
+        finally { native.Flush(); await scope.DisposeAsync(); }
+        Assert.That(recipes.IsAvailable, Is.False);
+        Assert.That(recipes.Snapshot(), Is.Empty);
+        Assert.That((await recipes.GiveAsync(player, "Starter Sword")).Status, Is.EqualTo(PlayerOperationStatus.Cancelled));
+        Assert.Throws<ObjectDisposedException>(() => recipes.Register(new("retired", 1)));
+        Assert.That(other.Players.Actions.CustomItems.Snapshot(), Has.Count.EqualTo(1));
+    }
+
+    [Test]
+    public async Task NativeWorldStatsRecipesHaveExplicitCapabilityAndRetirePendingExactSessionDelivery()
+    {
+        var world = new WorldId("world-stats");
+        var player = new PlayerSnapshot(new(1), "fixture", false, 100, 100, 20, 20, new(0, 0), false, 0)
+            { WorldId = world, SessionId = PlayerSessionId.New() };
+        var players = new RecordingPlayers { Current = player };
+        var native = new PlayerActionsFixture(players);
+        await using var scope = new HotModuleRegistrationScope(new RecordingCommandRegistry(), new RecordingLogger(), "Plugin.WorldStats",
+            Path.GetTempPath(), playerDirectory: players, playerOperations: native, activityWorldId: world);
+        var recipes = scope.Players.Actions.CustomItems;
+        Assert.That(recipes.SupportsWorldItemStats, Is.True);
+        Assert.Throws<ArgumentException>(() => recipes.Register(new("bad", 24) { WorldStats = new() { UseTime = 0 } }));
+        recipes.Register(new("world-sword", 24) { WorldStats = new() { Damage = 60 } });
+        Assert.That((await recipes.GiveAsync(player, "world-sword")).IsSuccess, Is.True);
+        Assert.That(native.Delivered.Single(), Is.EqualTo("world:24:1:0:60"));
+        native.Defer = true;
+        var pending = recipes.GiveAsync(player, "world-sword").AsTask();
+        players.Current = player with { SessionId = PlayerSessionId.New() };
+        native.Flush();
+        Assert.That((await pending).Status, Is.EqualTo(PlayerOperationStatus.PlayerNotFound));
+        pending = recipes.GiveAsync(players.Current!, "world-sword").AsTask();
+        Task retiring = scope.DrainForRetirementAsync(CancellationToken.None);
+        native.Flush();
+        Assert.That((await pending).Status, Is.EqualTo(PlayerOperationStatus.Cancelled));
+        await retiring;
+    }
+
+    [Test]
     public async Task PlayerActionCapabilityDoesNotFallBackToNumericSlotOperations()
     {
         var players = new RecordingPlayers();
@@ -135,9 +233,11 @@ public sealed class PluginSdkContextTests
         Assert.That(actions.VitalsAvailable || actions.ItemDeliveryAvailable, Is.False);
         Assert.That((await actions.HealAsync(player, 1)).Status, Is.EqualTo(PlayerOperationStatus.DispatcherUnavailable));
         Assert.That((await actions.GiveAsync(player, "1")).Status, Is.EqualTo(PlayerOperationStatus.DispatcherUnavailable));
+        Assert.That(actions.CustomItems.IsAvailable, Is.False);
+        Assert.That((await actions.CustomItems.GiveAsync(player, "anything")).Status, Is.EqualTo(PlayerOperationStatus.DispatcherUnavailable));
     }
 
-    private sealed class PlayerActionsFixture(RecordingPlayers players) : IPlayerOperations, IPlayerVitalOperations, IPlayerItemDelivery
+    private sealed class PlayerActionsFixture(RecordingPlayers players) : IPlayerOperations, IPlayerVitalOperations, IPlayerItemDelivery, IPlayerCustomWorldItemDelivery
     {
         public bool Defer { get; set; }
         public int Accepted { get; private set; }
@@ -166,6 +266,8 @@ public sealed class PluginSdkContextTests
         public ValueTask<PlayerOperationResult> SlapAsync(PlayerSnapshot p, int damage, CancellationToken t = default) => Deliver(p, $"slap:{damage}", t);
         public ValueTask<PlayerOperationResult> RespawnAsync(PlayerSnapshot p, CancellationToken t = default) => Deliver(p, "respawn", t);
         public ValueTask<PlayerOperationResult> GiveAsync(PlayerSnapshot p, string item, int stack, int prefix, CancellationToken t = default) => Deliver(p, $"give:{item}:{stack}:{prefix}", t, stack > 0);
+        public ValueTask<PlayerOperationResult> GiveWorldItemAsync(PlayerSnapshot p, int item, int stack, int prefix, CustomWorldItemStats stats, CancellationToken t = default) =>
+            Deliver(p, $"world:{item}:{stack}:{prefix}:{stats.Damage}", t, stats.IsValid);
         public ValueTask<PlayerOperationResult> KickAsync(PlayerId player, string reason, CancellationToken t = default) => throw new NotSupportedException();
         public ValueTask<PlayerOperationResult> TeleportAsync(PlayerId player, PlayerPosition destination, CancellationToken t = default) => throw new NotSupportedException();
     }

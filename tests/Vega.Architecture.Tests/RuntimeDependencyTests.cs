@@ -317,8 +317,8 @@ public sealed class RuntimeDependencyTests
             Assert.That(workflow, Does.Not.Contain("foreach ($project in $projects)"));
             Assert.That(workflow, Does.Not.Contain("artifacts/nuget/*.snupkg"));
             Assert.That(Regex.Matches(workflow, "dotnet pack").Count, Is.EqualTo(1));
-            Assert.That(Regex.Matches(nuspec, @"\.dll"" target=""lib\\\$tfm\$""").Count, Is.EqualTo(21));
-            Assert.That(Regex.Matches(nuspec, @"\.pdb"" target=""lib\\\$tfm\$""").Count, Is.EqualTo(21));
+            Assert.That(Regex.Matches(nuspec, @"\.dll"" target=""lib\\\$tfm\$""").Count, Is.EqualTo(20));
+            Assert.That(Regex.Matches(nuspec, @"\.pdb"" target=""lib\\\$tfm\$""").Count, Is.EqualTo(20));
             Assert.That(nuspec, Does.Contain("TerraRuntime.Schematics.dll"));
             Assert.That(nuspec, Does.Contain("TerraRuntime.Schematics.pdb"));
             Assert.That(nuspec, Does.Contain("Vega.Contracts.dll"));
@@ -449,7 +449,7 @@ public sealed class RuntimeDependencyTests
             Assert.That(templateProject, Does.Not.Contain("ProjectReference"));
             Assert.That(template, Does.Contain(": VegaPlugin"));
             Assert.That(template, Does.Contain("plugin.Commands.Register"));
-            Assert.That(template, Does.Contain("plugin.Players.OnJoined"));
+            Assert.That(template, Does.Contain("plugin.Players.OnEnteredWorld"));
             Assert.That(sample, Does.Contain("plugin.Tasks.RunIo"));
             Assert.That(sample, Does.Contain("plugin.Storage.LoadJson"));
             Assert.That(sample, Does.Contain("plugin.Players.KickAsync"));
@@ -638,8 +638,8 @@ public sealed class RuntimeDependencyTests
             repositoryRoot,
             "src",
             "Vega.Terraria",
-			"Items",
-            "CustomItemPacketFactory.cs"));
+            "Players",
+            "TerrariaPlayerBoundary.CustomWorldItems.cs"));
         string pvp = File.ReadAllText(Path.Combine(
             repositoryRoot,
             "src",
@@ -660,7 +660,8 @@ public sealed class RuntimeDependencyTests
         Assert.Multiple(() =>
         {
             Assert.That(customItems, Does.Contain("Multiplicity.Packets"));
-            Assert.That(customItems, Does.Contain("TweakItem"));
+            Assert.That(customItems, Does.Contain("NetMessage.TrySendData(MessageID.ItemTweaker"));
+            Assert.That(customItems, Does.Not.Contain("AsyncSend"));
             Assert.That(customItems, Does.Not.Contain("PacketWriter"));
             Assert.That(pvp, Does.Contain("IPacketProcessor<PacketView>"));
             Assert.That(pvp, Does.Contain("IPlayerCombatDirectory"));
@@ -736,7 +737,7 @@ public sealed class RuntimeDependencyTests
     }
 
     [Test]
-    public void ReplicatedBanHandlersCannotRepublishAndStandaloneUsesUnavailableClient()
+    public void ReplicatedBanHandlersCannotRepublishAndRuntimeTransportOnlyRegistersPluginNotifications()
     {
         string repositoryRoot = FindRepositoryRoot();
         string banHandlers = File.ReadAllText(Path.Combine(
@@ -755,7 +756,11 @@ public sealed class RuntimeDependencyTests
         {
             Assert.That(handlerSection, Does.Not.Contain("IClusterPublisher"));
             Assert.That(handlerSection, Does.Not.Contain("PublishAsync"));
-            Assert.That(runtime, Does.Contain("UnavailableClusterClient.Instance"));
+            Assert.That(runtime, Does.Contain("clusterDispatcher.RegisterEvent(pluginCluster)"));
+            Assert.That(runtime, Does.Contain("pluginClusterRegistry: clusterTransport is null ? null : pluginCluster"));
+            Assert.That(runtime, Does.Not.Contain("clusterDispatcher.RegisterCommand"));
+            Assert.That(runtime, Does.Not.Contain("clusterDispatcher.RegisterRequest"));
+            Assert.That(runtime, Does.Not.Contain("new GlobalBanCoordinator("));
         });
     }
 

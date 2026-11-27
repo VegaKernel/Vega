@@ -5,6 +5,7 @@ using System.Net.Sockets;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
+using System.Text.Json.Serialization.Metadata;
 using Microsoft.Data.Sqlite;
 using NUnit.Framework;
 using Vega.Contracts.Commands;
@@ -17,17 +18,133 @@ using Vega.Contracts.Worlds;
 using Vega.Core.Commands;
 using Vega.Core.Bans;
 using Vega.Core.Operations;
+using Vega.Core.Modules;
 using Vega.Operations;
 using Vega.Operations.Actions;
 using Vega.Operations.Metrics;
 using Vega.Persistence.Sqlite;
 using Vega.Sandboxes;
+using Vega.PluginSdk;
 
 namespace Vega.Runtime.Tests.Operations;
 
 [TestFixture]
 public sealed class LoopbackRestServiceTests
 {
+    [Test]
+    public async Task PluginRoutesAreAdministratorOnlyTypedBoundedAndRetiredWithTheirActivation()
+    {
+        string root = Path.Combine(Path.GetTempPath(), "vega-rest-plugin", Guid.NewGuid().ToString("N"));
+        try
+        {
+            var database = await SqliteVegaDatabase.OpenAsync(new SqliteVegaDatabaseOptions(Path.Combine(root, "vega.db")));
+            var world = new WorldId("rest-arena");
+            using var sandboxes = new SandboxProbe();
+            var admin = new RestAdministration(world, database.Accounts, database.Authorization, database.Regions,
+                new GlobalBanService(database.GlobalBans), database.Mutes, sandboxes, sandboxes);
+            var lifetime = new RuntimeLifecycleTracker(Stopwatch.GetTimestamp());
+            var logger = new RecordingLogger();
+            var routes = new PluginRestRegistry();
+            await using var plugin = new HotModuleRegistrationScope(new CommandDispatcher([]), logger, "test.plugin", root, pluginRestRegistry: routes);
+            var requestType = (JsonTypeInfo<PluginRequest>)JsonSerializerOptions.Default.GetTypeInfo(typeof(PluginRequest));
+            var intType = (JsonTypeInfo<int>)JsonSerializerOptions.Default.GetTypeInfo(typeof(int));
+            var stringType = (JsonTypeInfo<string>)JsonSerializerOptions.Default.GetTypeInfo(typeof(string));
+            int amount = 10;
+            plugin.Rest.RegisterQuery("balance", intType, _ => ValueTask.FromResult(new PluginRestReply<int>(PluginRestStatus.Success, amount)));
+            plugin.Rest.RegisterAction("balance", requestType, intType, (request, _) =>
+            {
+                if (request.Amount <= 0) return ValueTask.FromResult(new PluginRestReply<int>(PluginRestStatus.Conflict));
+                amount += request.Amount;
+                return ValueTask.FromResult(new PluginRestReply<int>(PluginRestStatus.Success, amount));
+            });
+            Assert.Throws<InvalidOperationException>(() => plugin.Rest.RegisterQuery("Balance", intType, _ => ValueTask.FromResult(new PluginRestReply<int>(PluginRestStatus.Success, 0))));
+            Assert.Throws<ArgumentException>(() => plugin.Rest.RegisterQuery("invalid/route", intType, _ => ValueTask.FromResult(new PluginRestReply<int>(PluginRestStatus.Success, 0))));
+            plugin.Rest.RegisterQuery("large", stringType, _ => ValueTask.FromResult(new PluginRestReply<string>(PluginRestStatus.Success, new string('x', 64 * 1024))));
+            plugin.Rest.RegisterQuery("fault", intType, _ => throw new InvalidOperationException("plugin fixture fault"));
+            var releaseSlow = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+            plugin.Rest.RegisterQuery("slow", intType, async _ =>
+            {
+                await releaseSlow.Task; // Test-only non-cooperative callback; host must bound its HTTP wait.
+                return new(PluginRestStatus.Success, 0);
+            });
+            var waiting = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+            plugin.Rest.RegisterQuery("cancel", intType, async token =>
+            {
+                waiting.TrySetResult();
+                await Task.Delay(Timeout.InfiniteTimeSpan, token);
+                return new(PluginRestStatus.Success, 0);
+            });
+
+            using var listener = new TcpListener(IPAddress.Loopback, 0);
+            listener.Start(); int port = ((IPEndPoint)listener.LocalEndpoint).Port; listener.Stop();
+            string reader = Convert.ToHexString(RandomNumberGenerator.GetBytes(32)), writer = Convert.ToHexString(RandomNumberGenerator.GetBytes(32)),
+                administrator = Convert.ToHexString(RandomNumberGenerator.GetBytes(32));
+            static string Fingerprint(string token) => Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(token)));
+            using var service = new LoopbackRestService(world, lifetime, new State(), new Players([]), new NetworkMetricsCounter(),
+                maintenance: new Maintenance(), logger: logger, administration: admin, pluginRest: routes);
+            service.Start(port, Fingerprint(reader), Fingerprint(writer), Fingerprint(administrator));
+            using var http = new HttpClient { BaseAddress = new Uri($"http://127.0.0.1:{port}/"), Timeout = TimeSpan.FromSeconds(10) };
+            async Task<HttpStatusCode> Get(string operation)
+            {
+                using var response = await http.GetAsync("v1/plugins/test.plugin/" + operation);
+                return response.StatusCode;
+            }
+            async Task<HttpStatusCode> Post(string payload, string contentType = "application/json")
+            {
+                using var content = new StringContent(payload, Encoding.UTF8, contentType);
+                using var response = await http.PostAsync("v1/plugins/test.plugin/balance", content);
+                return response.StatusCode;
+            }
+
+            Assert.That(await Get("balance"), Is.EqualTo(HttpStatusCode.Unauthorized));
+            http.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", reader);
+            Assert.That(await Get("balance"), Is.EqualTo(HttpStatusCode.Forbidden));
+            Assert.That(await Post("{\"Amount\":2}"), Is.EqualTo(HttpStatusCode.Forbidden));
+            http.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", writer);
+            Assert.That(await Get("balance"), Is.EqualTo(HttpStatusCode.Forbidden));
+            Assert.That(await Post("{\"Amount\":2}"), Is.EqualTo(HttpStatusCode.Forbidden));
+            http.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", administrator);
+            Assert.That(await Get("balance"), Is.EqualTo(HttpStatusCode.ServiceUnavailable));
+            for (int stage = 1; stage <= (int)RuntimeLifecycleStage.NetworkReady; stage++) lifetime.Advance((RuntimeLifecycleStage)stage);
+            Assert.That(await http.GetStringAsync("v1/plugins/test.plugin/balance"), Is.EqualTo("10"));
+            Assert.That(await Get("missing"), Is.EqualTo(HttpStatusCode.NotFound));
+            Assert.That(await Get("balance?amount=10"), Is.EqualTo(HttpStatusCode.BadRequest));
+            Assert.That(await Post("{\"Amount\":1,\"amount\":2}"), Is.EqualTo(HttpStatusCode.BadRequest));
+            Assert.That(await Post("{\"Amount\":\"wrong\"}"), Is.EqualTo(HttpStatusCode.BadRequest));
+            Assert.That(await Post("[]"), Is.EqualTo(HttpStatusCode.BadRequest));
+            Assert.That(await Post("{\"Amount\":5}", "text/plain"), Is.EqualTo(HttpStatusCode.UnsupportedMediaType));
+            Assert.That(await Post("{\"Amount\":" + new string('1', 4096) + "}"), Is.EqualTo(HttpStatusCode.RequestEntityTooLarge));
+            Assert.That(await Post("{\"Amount\":0}"), Is.EqualTo(HttpStatusCode.Conflict));
+            Assert.That(await Post("{\"Amount\":5}"), Is.EqualTo(HttpStatusCode.OK));
+            Assert.That(await http.GetStringAsync("v1/plugins/test.plugin/balance"), Is.EqualTo("15"));
+            Assert.That(await Get("fault"), Is.EqualTo(HttpStatusCode.InternalServerError));
+            Assert.That(await Get("large"), Is.EqualTo(HttpStatusCode.InternalServerError));
+            Assert.That(plugin.Faults.Count, Is.EqualTo(2));
+            try
+            {
+                Assert.That(await Get("slow"), Is.EqualTo(HttpStatusCode.GatewayTimeout));
+                Assert.That(await Get("balance"), Is.EqualTo(HttpStatusCode.OK));
+            }
+            finally { releaseSlow.TrySetResult(); }
+
+            Task<HttpStatusCode> pending = Get("cancel");
+            await waiting.Task.WaitAsync(TimeSpan.FromSeconds(3));
+            using var deadline = new CancellationTokenSource(TimeSpan.FromSeconds(3));
+            await plugin.DrainForRetirementAsync(deadline.Token);
+            Assert.That(await pending, Is.EqualTo(HttpStatusCode.ServiceUnavailable));
+            await plugin.DisposeAsync();
+            Assert.That(await Get("balance"), Is.EqualTo(HttpStatusCode.NotFound));
+            Assert.That(logger.Entries.Any(entry => entry.Contains(reader) || entry.Contains(writer) || entry.Contains(administrator)), Is.False);
+            Assert.That(logger.Entries.Any(entry => entry.Contains("action=plugin.test.plugin.balance status=200")), Is.True);
+        }
+        finally
+        {
+            SqliteConnection.ClearAllPools();
+            if (Directory.Exists(root)) Directory.Delete(root, true);
+        }
+    }
+
+    public sealed record PluginRequest(int Amount);
     [Test]
     public async Task ConfirmedSandboxRestUsesCuratedTemplatesAndRejectsStaleOrExternalDestruction()
     {

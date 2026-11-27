@@ -3,9 +3,10 @@ using Vega.Contracts.Messaging;
 
 namespace Vega.Core.Commands;
 
-public sealed class CommandDispatcher : ICommandDispatcher, ICommandRegistry, ICommandCatalog, ICommandCompletionObservations
+public sealed class CommandDispatcher : ICommandDispatcher, ICommandRegistry, ICommandCatalog, ICommandCompletionObservations, ICommandPolicyEvents
 {
     public event Action<CommandCompletedObservation>? Completed;
+    public event Func<PlayerCommandPolicyContext, CommandPolicyDecision>? BeforePlayerCommand;
     private readonly object sync = new();
     private IReadOnlyDictionary<string, ICommandHandler> handlers;
 
@@ -14,12 +15,7 @@ public sealed class CommandDispatcher : ICommandDispatcher, ICommandRegistry, IC
         ArgumentNullException.ThrowIfNull(handlers);
 
         var map = new Dictionary<string, ICommandHandler>(StringComparer.OrdinalIgnoreCase);
-        foreach (ICommandHandler handler in handlers)
-        {
-            Register(map, handler.Descriptor.Name, handler);
-            foreach (string alias in handler.Descriptor.Aliases)
-                Register(map, alias, handler);
-        }
+        RegisterHandlers(map, handlers);
 
         this.handlers = map;
     }
@@ -35,23 +31,22 @@ public sealed class CommandDispatcher : ICommandDispatcher, ICommandRegistry, IC
             .OrderBy(static descriptor => descriptor.Name, StringComparer.OrdinalIgnoreCase)
             .ToArray());
 
-    public IDisposable Register(ICommandHandler handler)
+    public IDisposable Register(ICommandHandler handler) => RegisterBatch([handler]);
+
+    /// <summary>Publish a whole command family atomically; one copy-on-write map and one lifetime handle.</summary>
+    public IDisposable RegisterBatch(IEnumerable<ICommandHandler> commandFamily)
     {
-        ArgumentNullException.ThrowIfNull(handler);
+        ArgumentNullException.ThrowIfNull(commandFamily);
+        ICommandHandler[] batch = commandFamily.ToArray();
 
         lock (sync)
         {
             var updated = new Dictionary<string, ICommandHandler>(handlers, StringComparer.OrdinalIgnoreCase);
-            Register(updated, handler.Descriptor.Name, handler);
-            foreach (string alias in handler.Descriptor.Aliases)
-            {
-                Register(updated, alias, handler);
-            }
-
+            RegisterHandlers(updated, batch);
             Volatile.Write(ref handlers, updated);
         }
 
-        return new Registration(this, handler);
+        return new Registration(this, batch);
     }
 
     public ValueTask<CommandExecutionResult> DispatchAsync(
@@ -83,6 +78,29 @@ public sealed class CommandDispatcher : ICommandDispatcher, ICommandRegistry, IC
                 CommandExecutionStatus.Forbidden,
                 "command.permission_denied",
                 "You do not have permission to use this command."));
+        }
+
+        // Player-only restrictive policy, after normal authorization. The callback sees
+        // names and exact session identity, never arguments, output, or the principal.
+        if (BeforePlayerCommand is { } policies && !invocation.Principal.IsServer &&
+            invocation.Principal is IPlayerCommandPrincipal { SessionId: { } session } policyPlayer)
+        {
+            var context = new PlayerCommandPolicyContext(invocation.WorldId, descriptor.Name, invocation.Name, policyPlayer.PlayerId, session);
+            foreach (Func<PlayerCommandPolicyContext, CommandPolicyDecision> policy in policies.GetInvocationList())
+            {
+                CommandPolicyDecision decision;
+                try { decision = policy(context); }
+                catch (Exception) { global::System.Diagnostics.Trace.TraceWarning("Command policy callback failed."); continue; }
+                if (!decision.Rejected) continue;
+                string reason = decision.Reason is { Length: > 0 and <= 256 } candidate && !candidate.Any(char.IsControl)
+                    ? candidate : "Command rejected by server policy.";
+                return ValueTask.FromResult(new CommandExecutionResult(CommandExecutionStatus.Forbidden, "command.policy_rejected",
+                    [MessageDescriptor.Error("command.policy_rejected", reason).WithDefaultText("{0}")]));
+            }
+            // A policy callback may have yielded the authority held by this principal.
+            // Never execute using a permission check made before the callback invoked.
+            if (descriptor.Permissions.Count > 0 && !descriptor.Permissions.Any(invocation.Principal.HasPermission))
+                return ValueTask.FromResult(CreateFailure(CommandExecutionStatus.Forbidden, "command.permission_denied", "You do not have permission to use this command."));
         }
 
         if (Completed is null) return handler.ExecuteAsync(invocation, cancellationToken);
@@ -137,13 +155,24 @@ public sealed class CommandDispatcher : ICommandDispatcher, ICommandRegistry, IC
             throw new InvalidOperationException($"Command name or alias '{name}' is already registered.");
     }
 
-    private void Unregister(ICommandHandler handler)
+    private static void RegisterHandlers(IDictionary<string, ICommandHandler> map, IEnumerable<ICommandHandler> commandFamily)
     {
+        foreach (ICommandHandler handler in commandFamily)
+        {
+            ArgumentNullException.ThrowIfNull(handler);
+            Register(map, handler.Descriptor.Name, handler);
+            foreach (string alias in handler.Descriptor.Aliases) Register(map, alias, handler);
+        }
+    }
+
+    private void Unregister(ICommandHandler[] commandFamily)
+    {
+        var removing = new HashSet<ICommandHandler>(commandFamily, ReferenceEqualityComparer.Instance);
         lock (sync)
         {
             var updated = new Dictionary<string, ICommandHandler>(handlers, StringComparer.OrdinalIgnoreCase);
             foreach (string name in updated
-                .Where(pair => ReferenceEquals(pair.Value, handler))
+                .Where(pair => removing.Contains(pair.Value))
                 .Select(static pair => pair.Key)
                 .ToArray())
             {
@@ -154,19 +183,13 @@ public sealed class CommandDispatcher : ICommandDispatcher, ICommandRegistry, IC
         }
     }
 
-    private sealed class Registration(CommandDispatcher owner, ICommandHandler handler) : IDisposable
+    private sealed class Registration(CommandDispatcher owner, ICommandHandler[] commandFamily) : IDisposable
     {
-        private CommandDispatcher? owner = owner;
-        private ICommandHandler? handler = handler;
+        private ICommandHandler[]? family = commandFamily;
 
         public void Dispose()
         {
-            CommandDispatcher? currentOwner = Interlocked.Exchange(ref owner, null);
-            ICommandHandler? currentHandler = Interlocked.Exchange(ref handler, null);
-            if (currentOwner is not null && currentHandler is not null)
-            {
-                currentOwner.Unregister(currentHandler);
-            }
+            if (Interlocked.Exchange(ref family, null) is { } current) owner.Unregister(current);
         }
     }
 }

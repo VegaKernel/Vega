@@ -6,6 +6,7 @@ using Vega.Contracts.Regions;
 using Vega.Contracts.Moderation;
 using Vega.Contracts.Backups;
 using Vega.Contracts.Players;
+using Vega.Contracts.Modules;
 
 namespace Vega.Persistence;
 
@@ -25,4 +26,6 @@ public interface IVegaDatabase : IRuntimeStartupParticipant, IDatabaseBackupSour
 
     IRegionService Regions { get; }
     IPlayerPlaytimeStore Playtime { get; }
+    IPlayerHomeStore Homes { get; }
+    IPluginDocumentStore PluginData { get; }
 }

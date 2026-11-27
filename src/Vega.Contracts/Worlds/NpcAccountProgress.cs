@@ -5,8 +5,18 @@ namespace Vega.Contracts.Worlds;
 /// <summary>Stable world-local, plugin-defined named scope for one authenticated account.</summary>
 public readonly record struct NpcAccountScope(WorldId World, string Scope, AccountId Account)
 {
-    public bool IsValid => !string.IsNullOrWhiteSpace(World.Value) && Account.Value > 0 && IsValidName(Scope);
+    public NpcEconomyProviderAddress? EconomyProvider { get; init; }
+    public bool IsValid => !string.IsNullOrWhiteSpace(World.Value) && Account.Value > 0 && IsValidName(Scope) &&
+        (EconomyProvider is null || EconomyProvider.IsValid);
     public static bool IsValidName(string? value) => NpcDialogueDefinition.ValidId(value);
+}
+
+/// <summary>Stable, explicit named provider identity; an absent address selects Vega's built-in ledger.</summary>
+public sealed record NpcEconomyProviderAddress(string Plugin, string Name, int Version)
+{
+    public bool IsValid => !string.IsNullOrWhiteSpace(Plugin) && Plugin.Length <= 255 &&
+        !string.IsNullOrWhiteSpace(Name) && Name.Length <= 96 && Version > 0 &&
+        Name.All(c => char.IsAsciiLetterOrDigit(c) || c is '.' or '_' or '-');
 }
 
 public sealed record NpcQuestProgress(NpcQuestState State, Guid? OperationId = null);
@@ -43,6 +53,8 @@ public sealed record NpcEconomyReservationResult(NpcEconomyStatus Status, Guid O
 /// </summary>
 public interface INpcEconomyProvider
 {
+    /// <summary>Whether this host provider can route explicitly addressed plugin providers.</summary>
+    bool SupportsNamedProviders => false;
     ValueTask<NpcEconomyBalanceResult> ReadBalanceAsync(NpcAccountScope scope, string currencyId, CancellationToken cancellationToken = default);
     ValueTask<NpcEconomyBalanceResult> CreditAsync(NpcAccountScope scope, NpcEconomyPrice credit, Guid operationId, CancellationToken cancellationToken = default);
     /// <summary>Only a new debit reservation returns Applied. An existing pending ID returns RecoveryRequired; a committed ID returns AlreadyApplied.</summary>

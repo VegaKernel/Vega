@@ -1,4 +1,5 @@
 using Vega.Contracts.Worlds;
+using Vega.Contracts.Regions;
 
 namespace Vega.PluginSdk;
 
@@ -7,8 +8,36 @@ public interface IPluginWorldEvents
 {
     /// <summary>Runs after native update work on the owning game thread. Keep callbacks short.</summary>
     void OnTickCompleted(Action<WorldTickCompletedEvent> handler);
+    void OnHardmodeChanged(Action<WorldHardmodeChangedEvent> handler) => throw new NotSupportedException("World progression observations are unavailable in this host.");
     /// <summary>Read-only native save result, delivered on the owning game thread. Off-thread save notifications use bounded dispatch.</summary>
     void OnSaveCompleted(Action<WorldSaveCompletedEvent> handler);
+    /// <summary>Net life and mana changes at native tick completion; not individual hits or verified heals.</summary>
+    void OnPlayerVitalsChanged(Action<PlayerVitalsChangedEvent> handler) => throw new NotSupportedException("Player-state observations are unavailable in this host.");
+    /// <summary>Observed alive-to-dead transition for the exact session.</summary>
+    void OnPlayerDeathObserved(Action<PlayerDeathObservedEvent> handler) => throw new NotSupportedException("Player-state observations are unavailable in this host.");
+    /// <summary>Observed dead-to-alive transition for the exact session.</summary>
+    void OnPlayerRespawnObserved(Action<PlayerRespawnObservedEvent> handler) => throw new NotSupportedException("Player-state observations are unavailable in this host.");
+    void OnPlayerDeathCountersChanged(Action<PlayerDeathCountersChangedEvent> handler) => throw new NotSupportedException("Player-state observations are unavailable in this host.");
+    void OnPlayerPvpChanged(Action<PlayerPvpChangedEvent> handler) => throw new NotSupportedException("Player-state observations are unavailable in this host.");
+    void OnPlayerBuffsChanged(Action<PlayerBuffsChangedEvent> handler) => throw new NotSupportedException("Player-state observations are unavailable in this host.");
+    /// <summary>Observe an individual positive native Hurt completion, with explicit caller provenance.</summary>
+    void OnPlayerHurtCompleted(Action<PlayerHurtCompletedEvent> handler) => throw new NotSupportedException();
+    /// <summary>Observe a validated player interaction intent before native processing (not a committed edit).</summary>
+    void OnTileInteractionRequested(Action<PlayerTileInteractionEvent> handler) => throw new NotSupportedException();
+    /// <summary>Detached actual changed tile cells within the observed native interaction bounds; not a complete world-edit journal.</summary>
+    void OnPlayerTileChangesCommitted(Action<PlayerTileChangesCommittedEvent> handler) => throw new NotSupportedException();
+    /// <summary>Additional restriction after built-in checks. Returning false denies; true does not override any built-in protection.</summary>
+    void AllowTileInteraction(Func<PlayerTileInteractionEvent, bool> allow) => throw new NotSupportedException();
+    /// <summary>Observe validated player hostility/team requests, not committed changes.</summary>
+    void OnPlayerPvpChangeRequested(Action<PlayerPvpChangeRequestedEvent> handler) => throw new NotSupportedException();
+    /// <summary>Additional deny-only restriction on a player's requested hostility or team change.</summary>
+    void AllowPlayerPvpChange(Func<PlayerPvpChangeRequestedEvent, bool> allow) => throw new NotSupportedException();
+    /// <summary>After a player session enters any containing region (not just the top region).</summary>
+    void OnRegionEntered(Action<RegionEnteredEvent> handler) => throw new NotSupportedException("Region observations are unavailable in this host.");
+    /// <summary>After a player session leaves a region, including disconnect, deletion and resize.</summary>
+    void OnRegionLeft(Action<RegionLeftEvent> handler) => throw new NotSupportedException("Region observations are unavailable in this host.");
+    /// <summary>Committed local region changes, deferred to the game thread. Re-read on revision conflict.</summary>
+    void OnRegionChanged(Action<RegionChangedEvent> handler) => throw new NotSupportedException("Region observations are unavailable in this host.");
     void OnNpcCreating(Action<NpcCreatingEvent> handler);
     void OnNpcKilled(Action<NpcKilledEvent> handler);
     /// <summary>Observes successful positive native strike returns. No cancellation or damage override is available.</summary>

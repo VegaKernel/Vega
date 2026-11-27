@@ -23,7 +23,7 @@ public sealed class RegionBuildAuthorizationPolicy(
     {
         if (context.Direction != PacketDirection.Inbound ||
             context.PlayerId is not PlayerId playerId ||
-            !TryGetInteractionArea(
+            !TryGetInteractionArea(worldInteractions,
                 context.Packet,
                 out int startX,
                 out int startY,
@@ -123,7 +123,8 @@ public sealed class RegionBuildAuthorizationPolicy(
         return true;
     }
 
-    private bool TryGetInteractionArea(
+    internal static bool TryGetInteractionArea(
+        IWorldInteractionState? worldInteractions,
         PacketView packet,
         out int startX,
         out int startY,
@@ -311,7 +312,7 @@ public sealed class RegionBuildAuthorizationPolicy(
         return startX != int.MinValue;
     }
 
-    private enum RegionInteraction
+    internal enum RegionInteraction
     {
         Build,
         Use

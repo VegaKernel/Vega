@@ -21,6 +21,7 @@ public sealed class SceneInteractionAuthorityPolicy(ISceneRuntime scenes, WorldI
 
         WorldId world = ownedWorld ?? WorldId.Primary;
         if (context.Packet.PacketType == PacketTypes.SignNew) return ProcessSignEdit(in context, world);
+        if (context.Packet.PacketType == PacketTypes.MassWireOperation) return ProcessMassWire(in context, world);
         if (context.PlayerId is not PlayerId playerId || !TryGetPosition(context.Packet, out int x, out int y)) return PacketProcessingDecision.Allow;
         if (!scenes.TryResolveTile(
             world,
@@ -43,7 +44,29 @@ public sealed class SceneInteractionAuthorityPolicy(ISceneRuntime scenes, WorldI
             if (context.Packet.PacketType == PacketTypes.ChestGetContents) scenes.TryRequestVirtualChestOpen(player, x, y);
             else scenes.TryRequestVirtualSignRead(player, x, y);
         }
+        if (context.Packet.PacketType == PacketTypes.HitSwitch && scenes is ISceneButtonRuntime buttons && players is not null &&
+            players.TryGet(playerId, out var buttonPlayer) && buttonPlayer is not null && buttonPlayer.WorldId == world)
+            buttons.TryRequestButtonPress(buttonPlayer, x, y);
         return PacketProcessingDecision.Reject("scene.phantom_interaction");
+    }
+
+    private PacketProcessingDecision ProcessMassWire(in PacketProcessingContext<PacketView> context, WorldId world)
+    {
+        if (context.PlayerId is not { } id) return PacketProcessingDecision.Allow;
+        var wire = context.Packet.AsMassWireOperationView();
+        var origin = new WorldTilePosition(wire.StartX, wire.StartY);
+        var position = new WorldTilePosition(wire.EndX, wire.EndY);
+        if (scenes is ISceneGestureRuntime gestures && players is ISceneGestureToolState tool &&
+            players.TryGet(id, out var player) && player is not null && player.WorldId == world &&
+            gestures.TryCompleteGesture(player, origin, position, tool.IsHoldingGestureTool(player), context.Timestamp))
+            return PacketProcessingDecision.Reject("scene.phantom_interaction");
+
+        // The vanilla tool changes more than one cell. A virtual overlay may never route that
+        // multi-cell operation into the canonical world, irrespective of plugin registrations.
+        var bounds = new SceneBounds(Math.Min(origin.X, position.X), Math.Min(origin.Y, position.Y),
+            Math.Abs(origin.X - position.X) + 1, Math.Abs(origin.Y - position.Y) + 1);
+        return scenes.HasOverlayInRegion(world, bounds, id)
+            ? PacketProcessingDecision.Reject("scene.phantom_interaction") : PacketProcessingDecision.Allow;
     }
 
     private PacketProcessingDecision ProcessSignEdit(in PacketProcessingContext<PacketView> context, WorldId world)
@@ -79,6 +102,7 @@ public sealed class SceneInteractionAuthorityPolicy(ISceneRuntime scenes, WorldI
             PacketTypes.ChestGetContents => (packet.AsChestGetContentsView().TileX, packet.AsChestGetContentsView().TileY),
             PacketTypes.ChestUnlock => (packet.AsChestUnlockView().X, packet.AsChestUnlockView().Y),
             PacketTypes.SignRead => (packet.AsSignReadView().X, packet.AsSignReadView().Y),
+            PacketTypes.HitSwitch => (packet.AsHitSwitchView().X, packet.AsHitSwitchView().Y),
             PacketTypes.LiquidSet => (packet.AsLiquidSetView().X, packet.AsLiquidSetView().Y),
             PacketTypes.PlaceTileEntity => (packet.AsPlaceTileEntityView().X, packet.AsPlaceTileEntityView().Y),
             PacketTypes.PlaceItemFrame => (packet.AsPlaceItemFrameView().X, packet.AsPlaceItemFrameView().Y),

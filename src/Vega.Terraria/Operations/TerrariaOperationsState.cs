@@ -17,6 +17,18 @@ public sealed class TerrariaOperationsState : IServerRuntimeStateReader, IDispos
         0,
         DateTimeOffset.UtcNow);
     private bool attached;
+    private int resetRequested;
+    private int alertsEnabled;
+    private long lastAlert;
+    public event Action<double>? LowTickRate;
+    public void RequestTickRateReset() => Interlocked.Exchange(ref resetRequested, 1);
+    public bool ToggleTickRateAlerts()
+    {
+        int previous;
+        do { previous = Volatile.Read(ref alertsEnabled); }
+        while (Interlocked.CompareExchange(ref alertsEnabled, 1 - previous, previous) != previous);
+        return previous == 0;
+    }
 
     public TerrariaOperationsState()
         : this(new TickRateMonitor())
@@ -73,7 +85,14 @@ public sealed class TerrariaOperationsState : IServerRuntimeStateReader, IDispos
     {
         try
         {
+            if (Interlocked.Exchange(ref resetRequested, 0) != 0) tickRateMonitor.Reset();
             TickRateStatisticsSnapshot tickRate = tickRateMonitor.RecordTick();
+            if (Volatile.Read(ref alertsEnabled) != 0 && tickRate.SampleCount > 0 && tickRate.Current < 15 &&
+                !ReferenceEquals(Read().TickRate, tickRate) && Environment.TickCount64 - lastAlert >= 5000)
+            {
+                lastAlert = Environment.TickCount64;
+                LowTickRate?.Invoke(tickRate.Current);
+            }
 
             PublishIfChanged(
                 string.IsNullOrWhiteSpace(global::Terraria.Main.worldName)

@@ -5,7 +5,7 @@ namespace Vega.Cluster.Dispatching;
 internal sealed class ClusterRequestResponseCache
 {
     private readonly object sync = new();
-    private readonly Dictionary<ClusterMessageId, Entry> responses = [];
+    private readonly Dictionary<(ServerId Sender, ClusterMessageId Id), Entry> responses = [];
     private readonly int capacity;
     private readonly TimeSpan retention;
     private readonly TimeProvider time;
@@ -25,13 +25,13 @@ internal sealed class ClusterRequestResponseCache
         time = timeProvider ?? TimeProvider.System;
     }
 
-    public bool TryGet<TResponse>(ClusterMessageId messageId, out TResponse? response)
+    public bool TryGet<TResponse>(ServerId sender, ClusterMessageId messageId, out TResponse? response)
         where TResponse : IClusterResponse
     {
         lock (sync)
         {
             PurgeExpired(time.GetUtcNow());
-            if (responses.TryGetValue(messageId, out Entry? entry) && entry.Response is TResponse typed)
+            if (responses.TryGetValue((sender, messageId), out Entry? entry) && entry.Response is TResponse typed)
             {
                 response = typed;
                 return true;
@@ -42,26 +42,27 @@ internal sealed class ClusterRequestResponseCache
         }
     }
 
-    public void Store<TResponse>(ClusterMessageId messageId, TResponse response)
+    public void Store<TResponse>(ServerId sender, ClusterMessageId messageId, TResponse response)
         where TResponse : IClusterResponse
     {
         lock (sync)
         {
             DateTimeOffset now = time.GetUtcNow();
             PurgeExpired(now);
-            if (responses.Count >= capacity && !responses.ContainsKey(messageId))
+            var key = (sender, messageId);
+            if (responses.Count >= capacity && !responses.ContainsKey(key))
             {
-                ClusterMessageId oldest = responses.MinBy(static pair => pair.Value.ExpiresAt).Key;
+                var oldest = responses.MinBy(static pair => pair.Value.ExpiresAt).Key;
                 responses.Remove(oldest);
             }
 
-            responses[messageId] = new Entry(response, now + retention);
+            responses[key] = new Entry(response, now + retention);
         }
     }
 
     private void PurgeExpired(DateTimeOffset now)
     {
-        foreach (ClusterMessageId expired in responses
+        foreach (var expired in responses
             .Where(pair => pair.Value.ExpiresAt <= now)
             .Select(static pair => pair.Key)
             .ToArray())

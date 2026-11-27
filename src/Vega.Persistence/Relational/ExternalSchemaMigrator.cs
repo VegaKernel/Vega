@@ -17,82 +17,27 @@ internal sealed class ExternalSchemaInitializer(
     string regionSchemaSql,
     string moderationSchemaSql)
 {
-    private const int CurrentVersion = 3;
-
-    // MySQL DDL implicitly commits. IF NOT EXISTS makes the migration recoverable
-    // if the table was created before its history row was durably inserted.
-    private static string GroupPresentationSql => """
-        CREATE TABLE IF NOT EXISTS vega_group_presentation (
-            group_name VARCHAR(255) NOT NULL PRIMARY KEY,
-            chat_prefix VARCHAR(64) NOT NULL,
-            chat_suffix VARCHAR(64) NOT NULL,
-            chat_color VARCHAR(6) NULL,
-            FOREIGN KEY (group_name) REFERENCES vega_groups(name) ON DELETE CASCADE
-        );
-        """;
-
     public async ValueTask<int> InitializeAsync(CancellationToken cancellationToken)
     {
-        await using DbConnection connection = await connections
-            .OpenAsync(cancellationToken)
-            .ConfigureAwait(false);
-        if (provider == RelationalProvider.MySql)
+        await using DbConnection connection = await connections.OpenAsync(cancellationToken).ConfigureAwait(false);
+        bool mysql = provider == RelationalProvider.MySql;
+        IEnumerable<string> sections = new[] { globalBanSchemaSql, identitySchemaSql, regionSchemaSql, moderationSchemaSql }
+            .Concat(RelationalSchemaBaseline.AdditionalTables(mysql, sqlite: false));
+        if (mysql)
         {
-            return await ApplyMySqlAsync(connection, cancellationToken).ConfigureAwait(false);
+            // MySQL commits DDL implicitly. All table definitions and seeds are idempotent,
+            // and the named lock covers the entire baseline until its one history row is written.
+            await AcquireMySqlLockAsync(connection, cancellationToken).ConfigureAwait(false);
+            try { return await RelationalSchemaBaseline.InitializeLockedAsync(connection, null, sections, cancellationToken).ConfigureAwait(false); }
+            finally { await ReleaseMySqlLockAsync(connection).ConfigureAwait(false); }
         }
 
-        await using DbTransaction transaction = await connection
-            .BeginTransactionAsync(cancellationToken)
-            .ConfigureAwait(false);
+        // PostgreSQL supports transactional DDL and a transaction-scoped initialization lock.
+        await using DbTransaction transaction = await connection.BeginTransactionAsync(cancellationToken).ConfigureAwait(false);
         try
         {
-            await ExecuteAsync(
-                    connection,
-                    transaction,
-                    "SELECT pg_advisory_xact_lock(621980319401);",
-                    cancellationToken)
-                .ConfigureAwait(false);
-
-            await ExecuteAsync(connection, transaction, HistoryTableSql, cancellationToken)
-                .ConfigureAwait(false);
-            int version = await ReadVersionAsync(connection, transaction, cancellationToken)
-                .ConfigureAwait(false);
-            EnsureSupported(version);
-
-            if (version == 0)
-            {
-                await ExecuteAsync(connection, transaction, globalBanSchemaSql, cancellationToken)
-                    .ConfigureAwait(false);
-                await ExecuteAsync(connection, transaction, identitySchemaSql, cancellationToken)
-                    .ConfigureAwait(false);
-                await ExecuteAsync(connection, transaction, regionSchemaSql, cancellationToken)
-                    .ConfigureAwait(false);
-                await ExecuteAsync(connection, transaction, moderationSchemaSql, cancellationToken)
-                    .ConfigureAwait(false);
-                await InsertHistoryAsync(
-                        connection,
-                        transaction,
-                        1,
-                        "vega-1.0-baseline",
-                        cancellationToken)
-                    .ConfigureAwait(false);
-                version = 1;
-            }
-            if (version == 1)
-            {
-                await ExecuteAsync(connection, transaction, GroupPresentationSql, cancellationToken).ConfigureAwait(false);
-                await InsertHistoryAsync(connection, transaction, 2, "group-chat-presentation", cancellationToken).ConfigureAwait(false);
-                version = 2;
-            }
-
-            if (version == 2)
-            {
-                await ExecuteAsync(connection, transaction, RelationalPlaytimeStore.SchemaSql + ";", cancellationToken).ConfigureAwait(false);
-                await ExecuteAsync(connection, transaction, RelationalPlaytimeStore.AccountIndexSql, cancellationToken).ConfigureAwait(false);
-                await InsertHistoryAsync(connection, transaction, 3, "authenticated-playtime", cancellationToken).ConfigureAwait(false);
-                version = 3;
-            }
-
+            await RelationalSchemaBaseline.ExecuteAsync(connection, transaction, "SELECT pg_advisory_xact_lock(621980319401);", cancellationToken).ConfigureAwait(false);
+            int version = await RelationalSchemaBaseline.InitializeLockedAsync(connection, transaction, sections, cancellationToken).ConfigureAwait(false);
             await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
             return version;
         }
@@ -103,135 +48,7 @@ internal sealed class ExternalSchemaInitializer(
         }
     }
 
-    private async ValueTask<int> ApplyMySqlAsync(
-        DbConnection connection,
-        CancellationToken cancellationToken)
-    {
-        bool lockHeld = await AcquireMySqlLockAsync(connection, cancellationToken)
-            .ConfigureAwait(false);
-        try
-        {
-            await ExecuteAsync(connection, null, HistoryTableSql, cancellationToken)
-                .ConfigureAwait(false);
-            int version = await ReadVersionAsync(connection, null, cancellationToken)
-                .ConfigureAwait(false);
-            EnsureSupported(version);
-            if (version == 0)
-            {
-                // MySQL implicitly commits DDL. Baseline DDL is idempotent so a crash
-                // before the single history row is safely retried under the same lock.
-                await ExecuteAsync(connection, null, globalBanSchemaSql, cancellationToken)
-                    .ConfigureAwait(false);
-                await ExecuteAsync(connection, null, identitySchemaSql, cancellationToken)
-                    .ConfigureAwait(false);
-                await ExecuteAsync(connection, null, regionSchemaSql, cancellationToken)
-                    .ConfigureAwait(false);
-                await ExecuteAsync(connection, null, moderationSchemaSql, cancellationToken)
-                    .ConfigureAwait(false);
-                await InsertHistoryAsync(
-                        connection,
-                        null,
-                        1,
-                        "vega-1.0-baseline",
-                        cancellationToken)
-                    .ConfigureAwait(false);
-                version = 1;
-            }
-            if (version == 1)
-            {
-                // Use the same InnoDB engine as the referenced vega_groups table.
-                string mysqlPresentation = GroupPresentationSql.TrimEnd().TrimEnd(';') + " ENGINE=InnoDB;";
-                await ExecuteAsync(connection, null, mysqlPresentation, cancellationToken).ConfigureAwait(false);
-                await InsertHistoryAsync(connection, null, 2, "group-chat-presentation", cancellationToken).ConfigureAwait(false);
-                version = 2;
-            }
-
-            if (version == 2)
-            {
-                // InnoDB indexes the account foreign key. The idempotent CREATE also permits recovery after implicit DDL commit.
-                string schema = RelationalPlaytimeStore.SchemaSql.Replace("world_id VARCHAR(255)",
-                    "world_id VARCHAR(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_bin", StringComparison.Ordinal);
-                await ExecuteAsync(connection, null, schema + " ENGINE=InnoDB;", cancellationToken).ConfigureAwait(false);
-                await InsertHistoryAsync(connection, null, 3, "authenticated-playtime", cancellationToken).ConfigureAwait(false);
-                version = 3;
-            }
-
-            return version;
-        }
-        finally
-        {
-            if (lockHeld)
-            {
-                await ReleaseMySqlLockAsync(connection).ConfigureAwait(false);
-            }
-        }
-    }
-
-    private static void EnsureSupported(int version)
-    {
-        if (version > CurrentVersion)
-        {
-            throw new InvalidDataException(
-                $"Database schema {version} is newer than supported schema {CurrentVersion}.");
-        }
-    }
-
-    private static string HistoryTableSql =>
-        """
-        CREATE TABLE IF NOT EXISTS vega_schema_history (
-            version INTEGER NOT NULL PRIMARY KEY,
-            name VARCHAR(200) NOT NULL,
-            applied_at_utc VARCHAR(40) NOT NULL
-        );
-        """;
-
-    private static async ValueTask<int> ReadVersionAsync(
-        DbConnection connection,
-        DbTransaction? transaction,
-        CancellationToken cancellationToken)
-    {
-        await using DbCommand command = connection.CreateCommand();
-        command.Transaction = transaction;
-        command.CommandText = "SELECT COALESCE(MAX(version), 0) FROM vega_schema_history;";
-        object? scalar = await command.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false);
-        return Convert.ToInt32(scalar, CultureInfo.InvariantCulture);
-    }
-
-    private static async ValueTask InsertHistoryAsync(
-        DbConnection connection,
-        DbTransaction? transaction,
-        int version,
-        string baselineName,
-        CancellationToken cancellationToken)
-    {
-        await using DbCommand command = connection.CreateCommand();
-        command.Transaction = transaction;
-        command.CommandText =
-            """
-            INSERT INTO vega_schema_history (version, name, applied_at_utc)
-            VALUES (@version, @name, @appliedAt);
-            """;
-        command.AddParameter("@version", version);
-        command.AddParameter("@name", baselineName);
-        command.AddParameter(
-            "@appliedAt",
-            DateTimeOffset.UtcNow.ToString("O", CultureInfo.InvariantCulture));
-        await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
-    }
-
-    private static async ValueTask ExecuteAsync(
-        DbConnection connection,
-        DbTransaction? transaction,
-        string sql,
-        CancellationToken cancellationToken)
-    {
-        await using DbCommand command = connection.CreateCommand();
-        command.Transaction = transaction;
-        command.CommandText = sql;
-        await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
-    }
-
-    private static async ValueTask<bool> AcquireMySqlLockAsync(
+    private static async ValueTask AcquireMySqlLockAsync(
         DbConnection connection,
         CancellationToken cancellationToken)
     {
@@ -244,7 +61,6 @@ internal sealed class ExternalSchemaInitializer(
                 "Could not acquire the MySQL Vega schema initialization lock.");
         }
 
-        return true;
     }
 
     private static async ValueTask ReleaseMySqlLockAsync(DbConnection connection)

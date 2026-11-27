@@ -8,12 +8,20 @@ namespace Vega.Persistence.Relational;
 internal sealed class RelationalRoleLeaseService(
     Func<DbConnection> open,
     Func<CancellationToken, ValueTask<DbConnection>> openAsync,
-    Action ensureReady) : IRoleLeaseService
+    Action ensureReady) : IRoleLeaseService, IRoleLeaseChangeSource
 {
     private static readonly TimeSpan MaximumDuration = TimeSpan.FromDays(365);
     private readonly SemaphoreSlim mutations = new(1, 1);
     private readonly object cacheSync = new();
     private Dictionary<AccountId, RoleLeaseSnapshot>? activeByAccount;
+    public event Action<RoleLeaseChange>? RoleLeaseChanged;
+
+    private void Publish(RoleLeaseChange change)
+    {
+        if (RoleLeaseChanged is not { } callbacks) return;
+        foreach (Action<RoleLeaseChange> callback in callbacks.GetInvocationList())
+            try { callback(change); } catch (Exception) { System.Diagnostics.Trace.TraceWarning("Role lease observation callback failed."); }
+    }
 
     public IReadOnlyList<RoleLeaseSnapshot> SnapshotActive(DateTimeOffset now)
     {
@@ -39,13 +47,22 @@ internal sealed class RelationalRoleLeaseService(
         }
     }
 
-    public async ValueTask<RoleLeaseMutationResult> GrantAsync(
+    public ValueTask<RoleLeaseMutationResult> GrantAsync(
         AccountId accountId,
         string groupName,
         DateTimeOffset issuedAt,
         DateTimeOffset expiresAt,
         string actor,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default) => GrantCoreAsync(accountId, groupName, issuedAt, expiresAt, actor, null, null, null, cancellationToken);
+
+    public ValueTask<RoleLeaseMutationResult> GrantConditionalAsync(AccountId accountId, string groupName, DateTimeOffset issuedAt,
+        DateTimeOffset expiresAt, string actor, long expectedAccountRevision, Guid? expectedActiveLeaseId, long? expectedActiveLeaseRevision,
+        CancellationToken cancellationToken = default) => GrantCoreAsync(accountId, groupName, issuedAt, expiresAt, actor,
+            expectedAccountRevision, expectedActiveLeaseId, expectedActiveLeaseRevision, cancellationToken);
+
+    private async ValueTask<RoleLeaseMutationResult> GrantCoreAsync(AccountId accountId, string groupName, DateTimeOffset issuedAt,
+        DateTimeOffset expiresAt, string actor, long? expectedAccountRevision, Guid? expectedActiveLeaseId,
+        long? expectedActiveLeaseRevision, CancellationToken cancellationToken)
     {
         ValidateAccountId(accountId);
         string normalizedGroup = Normalize(groupName, nameof(groupName));
@@ -53,7 +70,7 @@ internal sealed class RelationalRoleLeaseService(
         issuedAt = issuedAt.ToUniversalTime();
         expiresAt = expiresAt.ToUniversalTime();
         TimeSpan duration = expiresAt - issuedAt;
-        if (duration <= TimeSpan.Zero || duration > MaximumDuration)
+        if (duration <= TimeSpan.Zero || (expiresAt != DateTimeOffset.MaxValue && duration > MaximumDuration))
         {
             return new RoleLeaseMutationResult(false, "role-lease.invalid-expiry");
         }
@@ -68,11 +85,17 @@ internal sealed class RelationalRoleLeaseService(
                 .ConfigureAwait(false);
             try
             {
-                if (!await ExistsAsync(connection, transaction, "vega_accounts", "id", accountId.Value, cancellationToken)
-                        .ConfigureAwait(false))
+                await using var accountLock = CreateCommand(connection, transaction, "UPDATE vega_accounts SET revision = revision WHERE id = @account;");
+                accountLock.AddParameter("@account", accountId.Value);
+                await accountLock.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
+                accountLock.CommandText = "SELECT revision FROM vega_accounts WHERE id = @account;";
+                object? revision = await accountLock.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false);
+                if (revision is null || revision == DBNull.Value)
                 {
                     return new RoleLeaseMutationResult(false, "account.not-found");
                 }
+                if (expectedAccountRevision is { } expected && Convert.ToInt64(revision, CultureInfo.InvariantCulture) != expected)
+                    return new RoleLeaseMutationResult(false, "account.revision-conflict");
 
                 if (!await ExistsAsync(connection, transaction, "vega_groups", "name", normalizedGroup, cancellationToken)
                         .ConfigureAwait(false))
@@ -82,6 +105,9 @@ internal sealed class RelationalRoleLeaseService(
 
                 RoleLeaseSnapshot? before = await FindCurrentAsync(
                     connection, transaction, accountId, cancellationToken).ConfigureAwait(false);
+                var active = before?.IsActive(issuedAt) == true ? before : null;
+                if (expectedAccountRevision.HasValue && (active?.Id != expectedActiveLeaseId || active?.Revision != expectedActiveLeaseRevision))
+                    return new RoleLeaseMutationResult(false, "role-lease.revision-conflict", before);
                 await using (DbCommand revoke = CreateCommand(connection, transaction,
                     "UPDATE vega_role_leases SET revoked = @revoked, revision = revision + 1 " +
                     "WHERE account_id = @account AND revoked = @active;"))
@@ -127,6 +153,7 @@ internal sealed class RelationalRoleLeaseService(
                     activeByAccount[accountId] = after;
                 }
 
+                Publish(new("role-lease.granted", normalizedActor, before, after));
                 return new RoleLeaseMutationResult(true, "role-lease.granted", before, after);
             }
             catch
@@ -209,6 +236,7 @@ internal sealed class RelationalRoleLeaseService(
                     }
                 }
 
+                Publish(new("role-lease.revoked", normalizedActor, before, after));
                 return new RoleLeaseMutationResult(true, "role-lease.revoked", before, after);
             }
             catch

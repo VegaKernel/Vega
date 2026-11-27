@@ -2,6 +2,7 @@ using System.Collections.Frozen;
 using Vega.Contracts.Accounts;
 using Vega.Contracts.Authorization;
 using Vega.Contracts.Players;
+using Vega.Contracts.Threading;
 using Vega.Contracts.Worlds;
 using Vega.PluginSdk;
 
@@ -9,58 +10,120 @@ namespace Vega.Core.Modules;
 
 internal sealed partial class HotModuleRegistrationScope
 {
-    private ValueTask<T> ReadServiceAsync<T>(Func<CancellationToken, ValueTask<T>> read, CancellationToken callerToken)
-    {
-        CancellationTokenSource source;
-        TaskCompletionSource settled;
-        lock (sync)
-        {
-            if (disposed || !executionGuard.AcceptsCallbacks || lifetime.IsCancellationRequested || callerToken.IsCancellationRequested)
-                return ValueTask.FromCanceled<T>(new CancellationToken(true));
-            source = callerToken.CanBeCanceled ? CancellationTokenSource.CreateLinkedTokenSource(callerToken) : new CancellationTokenSource();
-            pendingActionTokens.Add(source, null);
-            settled = new(TaskCreationOptions.RunContinuationsAsynchronously);
-            // Track settlement, not the caller-visible result: handled store failures must not
-            // be misreported as an activation retirement failure.
-            TrackTask(settled.Task);
-        }
-        return ReadCoreAsync(read, source, settled);
-    }
-
-    private async ValueTask<T> ReadCoreAsync<T>(Func<CancellationToken, ValueTask<T>> read,
-        CancellationTokenSource source, TaskCompletionSource settled)
-    {
-        try
-        {
-            source.Token.ThrowIfCancellationRequested();
-            if (!executionGuard.AcceptsCallbacks) throw new OperationCanceledException(new CancellationToken(true));
-            T result = await read(source.Token).ConfigureAwait(false);
-            source.Token.ThrowIfCancellationRequested();
-            if (!executionGuard.AcceptsCallbacks) throw new OperationCanceledException(new CancellationToken(true));
-            return result;
-        }
-        finally
-        {
-            Task? cancellation;
-            lock (sync) pendingActionTokens.Remove(source, out cancellation);
-            if (cancellation is not null)
-            {
-                try { await cancellation.ConfigureAwait(false); }
-                catch (Exception) { /* Retirement observes cancellation failure. */ }
-            }
-            source.Dispose();
-            settled.TrySetResult();
-        }
-    }
-
     private sealed class PluginIdentity(HotModuleRegistrationScope owner, WorldId? worldId, IPlayerDirectory? directory,
         IPlayerAccountSessionService? authentication, IAccountService? accounts, IAuthorizationService? groups,
-        IPlayerAuthorizationService? playerPermissions) : IPluginIdentity
+        IPlayerAuthorizationService? playerPermissions, IGameThreadDispatcher? gameThread, IRoleLeaseService? roleLeases,
+        IReadOnlyList<string>? identityAssignmentGroups) : IPluginIdentity
     {
         public bool AccountsAvailable => accounts is not null;
         public bool GroupsAvailable => groups is not null;
         public bool AuthenticatedPermissionsAvailable => worldId.HasValue && directory is not null &&
             authentication is not null && playerPermissions is not null;
+        public bool AccountChangesAvailable => gameThread is not null && accounts is IAccountChangeSource;
+        public bool GroupChangesAvailable => gameThread is not null && groups is IGroupChangeSource;
+        public bool TemporaryGroupChangesAvailable => gameThread is not null && roleLeases is IRoleLeaseChangeSource;
+        private readonly HashSet<string> assignable = new(identityAssignmentGroups ?? [], StringComparer.OrdinalIgnoreCase);
+        public bool GroupAssignmentsAvailable => accounts is not null && groups is not null && assignable.Count != 0;
+
+        public ValueTask<PluginIdentityMutationResult> AssignGroupAsync(AccountId account, string group, CancellationToken cancellationToken = default)
+        {
+            Ensure(GroupAssignmentsAvailable);
+            return owner.ReadServiceAsync<PluginIdentityMutationResult>(token => new(Task.Run<PluginIdentityMutationResult>(async () =>
+            {
+                var before = await accounts!.FindByIdAsync(account, token).ConfigureAwait(false);
+                if (before is null) return new(false, "account.not-found");
+                if (!assignable.Contains(before.GroupName) || !assignable.Contains(group)) return new(false, "plugin.identity.group-denied");
+                var result = await accounts.SetGroupAsync(before.Name, group, before.Revision, owner.logSource, token).ConfigureAwait(false);
+                return new(result.Succeeded, result.Code, result.After is null ? null : Detach(result.After));
+            }, token)), cancellationToken);
+        }
+
+        public ValueTask<PluginIdentityMutationResult> GrantTemporaryGroupAsync(AccountId account, string group, DateTimeOffset expiresAt, CancellationToken cancellationToken = default)
+        {
+            Ensure(GroupAssignmentsAvailable && roleLeases is not null);
+            return owner.ReadServiceAsync<PluginIdentityMutationResult>(token => new(Task.Run<PluginIdentityMutationResult>(async () =>
+            {
+                var before = await accounts!.FindByIdAsync(account, token).ConfigureAwait(false);
+                if (before is null) return new(false, "account.not-found");
+                var now = DateTimeOffset.UtcNow;
+                var active = roleLeases!.FindActive(account, now);
+                if (!assignable.Contains(before.GroupName) || !assignable.Contains(group) ||
+                    (active is not null && (!assignable.Contains(active.GroupName) || !active.IssuedBy.Equals(owner.logSource, StringComparison.Ordinal))))
+                    return new(false, "plugin.identity.group-denied");
+                var result = await roleLeases.GrantConditionalAsync(account, group, now, expiresAt, owner.logSource, before.Revision, active?.Id, active?.Revision, token).ConfigureAwait(false);
+                return new(result.Succeeded, result.Code, Detach(before), result.After);
+            }, token)), cancellationToken);
+        }
+
+        public ValueTask<PluginIdentityMutationResult> RevokeOwnTemporaryGroupAsync(AccountId account, CancellationToken cancellationToken = default)
+        {
+            Ensure(GroupAssignmentsAvailable && roleLeases is not null);
+            return owner.ReadServiceAsync<PluginIdentityMutationResult>(token => new(Task.Run<PluginIdentityMutationResult>(async () =>
+            {
+                var active = roleLeases!.FindActive(account, DateTimeOffset.UtcNow);
+                if (active is null) return new(false, "role-lease.not-found");
+                if (!assignable.Contains(active.GroupName) || !active.IssuedBy.Equals(owner.logSource, StringComparison.Ordinal)) return new(false, "plugin.identity.group-denied");
+                var result = await roleLeases.RevokeAsync(active.Id, active.Revision, owner.logSource, token).ConfigureAwait(false);
+                return new(result.Succeeded, result.Code, TemporaryGroup: result.After);
+            }, token)), cancellationToken);
+        }
+
+        public void OnAccountChanged(Action<PluginAccountChanged> handler)
+        {
+            Ensure(AccountChangesAvailable);
+            var source = (IAccountChangeSource)accounts!;
+            Subscribe<AccountChange, PluginAccountChanged>("account-changed", handler,
+                callback => source.AccountChanged += callback, callback => source.AccountChanged -= callback,
+                change => new(change.Operation, change.Actor, change.Before is null ? null : Detach(change.Before), change.After is null ? null : Detach(change.After)));
+        }
+
+        public void OnGroupChanged(Action<PluginGroupChanged> handler)
+        {
+            Ensure(GroupChangesAvailable);
+            var source = (IGroupChangeSource)groups!;
+            Subscribe<GroupChange, PluginGroupChanged>("group-changed", handler,
+                callback => source.GroupChanged += callback, callback => source.GroupChanged -= callback,
+                change => new(change.Operation, change.Actor, change.Before is null ? null : Detach(change.Before), change.After is null ? null : Detach(change.After)));
+        }
+
+        public void OnTemporaryGroupChanged(Action<RoleLeaseChange> handler)
+        {
+            Ensure(TemporaryGroupChangesAvailable);
+            var source = (IRoleLeaseChangeSource)roleLeases!;
+            Subscribe<RoleLeaseChange, RoleLeaseChange>("temporary-group-changed", handler,
+                callback => source.RoleLeaseChanged += callback, callback => source.RoleLeaseChanged -= callback, change => change);
+        }
+
+        public ValueTask<RoleLeaseSnapshot?> FindTemporaryGroupAsync(AccountId account, CancellationToken cancellationToken = default)
+        {
+            Ensure(roleLeases is not null);
+            if (account.Value <= 0) throw new ArgumentOutOfRangeException(nameof(account));
+            return owner.ReadServiceAsync<RoleLeaseSnapshot?>(token => new(Task.Run(() => roleLeases!.FindActive(account, DateTimeOffset.UtcNow), token)), cancellationToken);
+        }
+
+        private void Subscribe<TInput, TOutput>(string operation, Action<TOutput> handler,
+            Action<Action<TInput>> attach, Action<Action<TInput>> detach, Func<TInput, TOutput> project)
+        {
+            ArgumentNullException.ThrowIfNull(handler);
+            Action<TOutput>? active = handler;
+            void Observe(TInput value)
+            {
+                if (!IsActive()) return;
+                // Detach account metadata and group collections before leaving the SQL writer callback.
+                TOutput snapshot = project(value);
+                gameThread!.TryPost(operation, () =>
+                {
+                    if (IsActive() && Volatile.Read(ref active) is { } current)
+                        owner.executionGuard.TryInvoke(operation, current, snapshot);
+                });
+            }
+            lock (owner.sync)
+            {
+                ObjectDisposedException.ThrowIf(owner.disposed, owner);
+                attach(Observe);
+                owner.Track(new CleanupRegistration(() => { Interlocked.Exchange(ref active, null); detach(Observe); }));
+            }
+        }
 
         public ValueTask<PluginAccountIdentity?> FindAccountAsync(string name, CancellationToken cancellationToken = default)
         {
@@ -70,6 +133,17 @@ internal sealed partial class HotModuleRegistrationScope
             return owner.ReadServiceAsync<PluginAccountIdentity?>(token => new(Task.Run(async () =>
             {
                 AccountSnapshot? account = await accounts!.FindByNameAsync(name, token).ConfigureAwait(false);
+                return account is null ? null : Detach(account);
+            }, token)), cancellationToken);
+        }
+
+        public ValueTask<PluginAccountIdentity?> FindAccountByIdAsync(AccountId id, CancellationToken cancellationToken = default)
+        {
+            Ensure(AccountsAvailable);
+            if (id.Value <= 0) throw new ArgumentOutOfRangeException(nameof(id));
+            return owner.ReadServiceAsync<PluginAccountIdentity?>(token => new(Task.Run(async () =>
+            {
+                AccountSnapshot? account = await accounts!.FindByIdAsync(id, token).ConfigureAwait(false);
                 return account is null ? null : Detach(account);
             }, token)), cancellationToken);
         }

@@ -15,7 +15,7 @@ internal static class TShockAccountMigration
         var mapping = ReadGroupMapping(mappingPath);
         using var connection = source.OpenReadOnly();
         using var command = connection.CreateCommand();
-        command.CommandText = "SELECT ID, Username, Password, Usergroup, LastAccessed FROM Users ORDER BY ID;";
+        command.CommandText = "SELECT ID, Username, Password, Usergroup, LastAccessed, Users.* FROM Users ORDER BY ID;";
         using var reader = command.ExecuteReader();
         var accounts = new List<LegacyAccountImport>();
         while (reader.Read())
@@ -38,7 +38,30 @@ internal static class TShockAccountMigration
                     throw new InvalidDataException($"TShock account {id} has an unsupported LastAccessed timestamp.");
                 lastSeen = timestamp;
             }
-            accounts.Add(new(id, name.ToLowerInvariant(), mapped, hash, lastSeen));
+            string? registeredText = Optional("Registered");
+            DateTimeOffset? registered = DateTimeOffset.TryParse(registeredText, CultureInfo.InvariantCulture,
+                DateTimeStyles.AssumeUniversal | DateTimeStyles.AdjustToUniversal, out var registeredAt) ? registeredAt : null;
+            string? lastIp = null;
+            if (Optional("KnownIps") is { } knownIps)
+            {
+                try { lastIp = JsonSerializer.Deserialize<string[]>(knownIps)?.LastOrDefault(); }
+                catch (JsonException) { /* Legacy metadata is optional; do not lose an otherwise valid account. */ }
+            }
+            string? uuid = Optional("UUID");
+            accounts.Add(new(id, name.ToLowerInvariant(), mapped, hash, lastSeen)
+            {
+                RegisteredUtc = registered,
+                LastKnownIp = System.Net.IPAddress.TryParse(lastIp, out var address) ? address.ToString() : null,
+                LastKnownUuid = uuid is { Length: > 0 and <= 255 } && !uuid.Any(char.IsControl) ? uuid : null
+            });
+
+            string? Optional(string column)
+            {
+                for (int i = 5; i < reader.FieldCount; i++)
+                    if (reader.GetName(i).Equals(column, StringComparison.OrdinalIgnoreCase))
+                        return reader.IsDBNull(i) ? null : Convert.ToString(reader.GetValue(i), CultureInfo.InvariantCulture);
+                return null;
+            }
         }
         return accounts.AsReadOnly();
     }

@@ -5,13 +5,15 @@ using Vega.Contracts.Players;
 
 namespace Vega.PluginSdk;
 
-/// <summary>Read-only, world-local observations. Notifications are best-effort game-thread work,
-/// never a policy override, authorization grant, or delivery receipt.</summary>
+/// <summary>World-local observations and restrictive player command/public chat policies.</summary>
 public interface IPluginActivity
 {
     bool AuthenticationAvailable { get; }
     bool PublicChatAvailable { get; }
     bool CommandCompletionAvailable { get; }
+
+    bool PlayerCommandPolicyAvailable => false;
+    bool PublicChatPolicyAvailable => false;
 
     /// <summary>Checks the exact current authentication tenure without exposing credentials.</summary>
     bool TryGetAuthentication(PlayerSnapshot player, out PlayerAccountBinding binding);
@@ -23,4 +25,12 @@ public interface IPluginActivity
     void OnPublicChatAccepted(Action<PublicChatAcceptedObservation> handler);
     /// <summary>Only authorized executed commands returning a result, including unsuccessful results.</summary>
     void OnCommandCompleted(Action<CommandCompletedObservation> handler);
+
+    /// <summary>Synchronous, restrictive policy after dispatch permission checks. No arguments, console commands, or authority grants.</summary>
+    void BeforePlayerCommand(Func<PlayerCommandPolicyContext, CommandPolicyDecision> policy) =>
+        throw new NotSupportedException("Player command policy is unavailable in this host.");
+
+    /// <summary>Synchronous ordinary chat transform/veto; built-in transforms and moderation still apply.</summary>
+    void BeforePublicChat(Func<PublicChatPolicyContext, PublicChatPolicyDecision> policy) =>
+        throw new NotSupportedException("Public chat policy is unavailable in this host.");
 }

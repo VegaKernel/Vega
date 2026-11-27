@@ -8,30 +8,60 @@ namespace Vega.Core.Modules;
 
 internal sealed partial class HotModuleRegistrationScope
 {
-    // CancelAsync marks its own token synchronously, but propagation to a linked token
-    // is an asynchronous callback. Track the actual service tokens and cancel each
-    // directly at retirement, before awaiting general activation cancellation.
-    private readonly Dictionary<CancellationTokenSource, Task?> pendingActionTokens = [];
-
-    private Task BeginRetirementCancellationLocked()
-    {
-        if (retirementCancellation is not null) return retirementCancellation;
-        var cancellations = new List<Task>(pendingActionTokens.Count + 1);
-        foreach (CancellationTokenSource source in pendingActionTokens.Keys.ToArray())
-        {
-            Task cancellation = source.CancelAsync();
-            pendingActionTokens[source] = cancellation;
-            cancellations.Add(cancellation);
-        }
-        cancellations.Add(lifetime.CancelAsync());
-        return retirementCancellation = Task.WhenAll(cancellations);
-    }
-
     private sealed class PluginPlayerActions(HotModuleRegistrationScope owner, IPlayerDirectory? directory,
-        WorldId? worldId, IPlayerVitalOperations? vitals, IPlayerItemDelivery? items) : IPluginPlayerActions
+        WorldId? worldId, IPlayerVitalOperations? vitals, IPlayerItemDelivery? items) : IPluginPlayerActions, IPluginCustomItems
     {
+        private readonly Dictionary<string, CustomItemRecipe> recipes = new(StringComparer.OrdinalIgnoreCase);
         public bool VitalsAvailable => directory is not null && vitals is not null;
         public bool ItemDeliveryAvailable => directory is not null && items is not null;
+        public IPluginCustomItems CustomItems => this;
+        bool IPluginCustomItems.IsAvailable => ItemDeliveryAvailable && owner.executionGuard.AcceptsCallbacks && !owner.lifetime.IsCancellationRequested;
+        bool IPluginCustomItems.SupportsWorldItemStats => ItemDeliveryAvailable && items is IPlayerCustomWorldItemDelivery &&
+            owner.executionGuard.AcceptsCallbacks && !owner.lifetime.IsCancellationRequested;
+        IPluginCustomItemInstances IPluginCustomItems.Instances => owner.itemInstances;
+
+        void IPluginCustomItems.Register(CustomItemRecipe recipe)
+        {
+            ArgumentNullException.ThrowIfNull(recipe);
+            if (!ValidItemRecipe(recipe))
+                throw new ArgumentException("A valid named native item recipe is required.", nameof(recipe));
+            recipe = recipe with { Name = recipe.Name.Trim() };
+            lock (owner.sync)
+            {
+                ObjectDisposedException.ThrowIf(owner.disposed || owner.lifetime.IsCancellationRequested || !owner.executionGuard.AcceptsCallbacks, owner);
+                if (!ItemDeliveryAvailable) throw new NotSupportedException("Item delivery is unavailable in this host.");
+                if (recipe.WorldStats is not null && items is not IPlayerCustomWorldItemDelivery)
+                    throw new NotSupportedException("Native world-item stats are unavailable in this host.");
+                if (recipes.Count == 0) owner.RegisterCleanup(() => { lock (owner.sync) recipes.Clear(); });
+                if (!recipes.TryAdd(recipe.Name, recipe)) throw new ArgumentException("An item recipe by this name is already registered in this activation.", nameof(recipe));
+            }
+        }
+
+        IReadOnlyList<CustomItemRecipe> IPluginCustomItems.Snapshot()
+        {
+            lock (owner.sync)
+                return owner.disposed || owner.lifetime.IsCancellationRequested || !owner.executionGuard.AcceptsCallbacks ? [] :
+                    Array.AsReadOnly(recipes.Values.OrderBy(static recipe => recipe.Name, StringComparer.OrdinalIgnoreCase).ToArray());
+        }
+
+        ValueTask<PlayerOperationResult> IPluginCustomItems.GiveAsync(PlayerSnapshot player, string name, CancellationToken cancellationToken)
+        {
+            ArgumentNullException.ThrowIfNull(player);
+            CustomItemRecipe? recipe;
+            lock (owner.sync)
+            {
+                if (owner.disposed || owner.lifetime.IsCancellationRequested || !owner.executionGuard.AcceptsCallbacks || cancellationToken.IsCancellationRequested)
+                    return ValueTask.FromResult(PlayerOperationResult.Cancelled());
+                if (!ItemDeliveryAvailable) return ValueTask.FromResult(PlayerOperationResult.DispatcherUnavailable());
+                if (string.IsNullOrWhiteSpace(name) || !recipes.TryGetValue(name.Trim(), out recipe))
+                    return ValueTask.FromResult(PlayerOperationResult.Failed("custom_item.recipe_not_found"));
+            }
+            if (recipe.WorldStats is { } stats)
+                return InvokeAsync(player, items is IPlayerCustomWorldItemDelivery,
+                    token => ((IPlayerCustomWorldItemDelivery)items!).GiveWorldItemAsync(player, recipe.ItemType, recipe.Stack, recipe.Prefix, stats, token), cancellationToken);
+            return GiveAsync(player, recipe.ItemType.ToString(System.Globalization.CultureInfo.InvariantCulture), recipe.Stack,
+                recipe.Prefix, cancellationToken);
+        }
 
         public ValueTask<PlayerOperationResult> HealAsync(PlayerSnapshot player, int amount, CancellationToken cancellationToken = default) =>
             InvokeAsync(player, VitalsAvailable, token => vitals!.HealAsync(player, amount, token), cancellationToken);

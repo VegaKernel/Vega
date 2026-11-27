@@ -13,6 +13,17 @@ namespace Vega.Runtime.Tests.Core;
 public sealed class BanCommandTests
 {
     [Test]
+    public async Task BanToolsRangeCommandsUseTheGlobalBanStore()
+    {
+        var replica = new FakeBans();
+        var command = new BanCommand(new FakeDirectory([]), new FakeOperations(), new GlobalBanService(replica));
+        var invocation = Invocation(["addrange", "192.0.2.0/24", "test", "1h"]) with { Name = "bt" };
+        Assert.That((await command.ExecuteAsync(invocation, default)).Status, Is.EqualTo(CommandExecutionStatus.Success));
+        Assert.That(replica.Created.Single().Subject.Kind, Is.EqualTo(GlobalBanSubjectKind.Network));
+        Assert.That((await command.ExecuteAsync(invocation with { Arguments = ["listrange", "1"] }, default)).Messages, Has.Count.EqualTo(1));
+        Assert.That((await command.ExecuteAsync(invocation with { Arguments = ["delrange", "192.0.2.0/24"] }, default)).Status, Is.EqualTo(CommandExecutionStatus.Success));
+    }
+    [Test]
     public async Task LegacyBanDetailsAndDelUseExistingRevisionedBanService()
     {
         var replica = new FakeBans();

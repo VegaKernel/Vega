@@ -16,6 +16,11 @@ public interface IRoleLeaseService
         string actor,
         CancellationToken cancellationToken = default);
 
+    /// <summary>Grant only if the caller's observed account revision and active lease still match.</summary>
+    ValueTask<RoleLeaseMutationResult> GrantConditionalAsync(AccountId accountId, string groupName, DateTimeOffset issuedAt,
+        DateTimeOffset expiresAt, string actor, long expectedAccountRevision, Guid? expectedActiveLeaseId, long? expectedActiveLeaseRevision,
+        CancellationToken cancellationToken = default) => ValueTask.FromResult(new RoleLeaseMutationResult(false, "role-lease.conditional-unavailable"));
+
     ValueTask<RoleLeaseMutationResult> RevokeAsync(
         Guid leaseId,
         long expectedRevision,
@@ -41,3 +46,10 @@ public sealed record RoleLeaseMutationResult(
     string Code,
     RoleLeaseSnapshot? Before = null,
     RoleLeaseSnapshot? After = null);
+
+public interface IRoleLeaseChangeSource
+{
+    event Action<RoleLeaseChange>? RoleLeaseChanged;
+}
+
+public sealed record RoleLeaseChange(string Operation, string Actor, RoleLeaseSnapshot? Before, RoleLeaseSnapshot? After);

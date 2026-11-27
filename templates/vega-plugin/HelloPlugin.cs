@@ -1,4 +1,3 @@
-using Vega.Contracts.Commands;
 using Vega.Contracts.Modules;
 using Vega.PluginSdk;
 
@@ -15,25 +14,9 @@ public sealed class HelloPlugin : VegaPlugin
 
     protected override void Configure(IVegaPluginContext plugin)
     {
-        plugin.Commands.Register(new HelloCommand());
-        plugin.Players.OnJoined(player =>
-            plugin.Players.Message(player.PlayerId, "Hello from Vega.PluginTemplate!"));
-    }
-
-    private sealed class HelloCommand : ICommandHandler
-    {
-        public CommandDescriptor Descriptor { get; } = new(
-            "hello",
-            ["hi"],
-            ["vega.plugin-template.hello"],
-            Syntax: "hello");
-
-        public async ValueTask<CommandExecutionResult> ExecuteAsync(
-            CommandInvocation invocation,
-            CancellationToken cancellationToken)
-        {
-            await invocation.Output.SuccessAsync("Hello from Vega!", cancellationToken);
-            return CommandExecutionResult.Success;
-        }
+        plugin.Commands.Register("hello", "vega.plugin-template.hello",
+            command => PluginReply.Success($"Hello, {command.Principal.Name}!"), aliases: ["hi"]);
+        plugin.Players.OnEnteredWorld(player => plugin.Players.Message(player, "Hello from Vega.PluginTemplate!"));
+        plugin.Log.Info("Hello plugin configured.");
     }
 }

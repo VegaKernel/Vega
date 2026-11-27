@@ -36,6 +36,9 @@ public readonly record struct ProjectileRemovedEvent(PlayerId Sender, Projectile
 /// <summary>Elapsed native dedicated update work observed at its completion hook, before server pacing sleep.</summary>
 public readonly record struct WorldTickCompletedEvent(WorldId WorldId, TimeSpan Duration);
 
+/// <summary>Observed authoritative hardmode transition within the same loaded world, after a completed native tick.</summary>
+public readonly record struct WorldHardmodeChangedEvent(WorldId WorldId, Guid? WorldFileId, bool PreviousHardmode, bool Hardmode);
+
 /// <summary>Observed native save result; not a before-save policy or a guarantee of backup completion.
 /// FailureType contains only the exception type name when available, never a mutable exception or stack trace.</summary>
 public readonly record struct WorldSaveCompletedEvent(WorldId WorldId, bool Succeeded, string? FailureType);

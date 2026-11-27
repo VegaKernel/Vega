@@ -2,6 +2,8 @@ using Vega.Contracts.Commands;
 using Vega.Contracts.Modules;
 using Vega.Contracts.Scenes;
 using Vega.PluginSdk;
+using System.Text.Json.Serialization;
+using Vega.Contracts.Operations;
 
 namespace Vega.HotReload.TestPlugin;
 
@@ -18,6 +20,12 @@ public sealed class TestHotModule : VegaPlugin
     {
         plugin.Commands.Register(new ProbeCommand());
         plugin.Commands.Register(new FaultProbeCommand());
+        plugin.Services.Register("probe", 1, ProbeJsonContext.Default.ProbeMessage, ProbeJsonContext.Default.ProbeMessage,
+            (request, _) => ValueTask.FromResult(new ProbeMessage(request.Value + 1)));
+        plugin.Commands.Register(new ServiceProbeCommand(plugin.Services));
+        if (plugin.Rest.IsAvailable)
+            plugin.Rest.RegisterQuery("probe", ProbeJsonContext.Default.ProbeMessage,
+                _ => ValueTask.FromResult(new PluginRestReply<ProbeMessage>(PluginRestStatus.Success, new(42))));
         stopGate = Path.Combine(plugin.Storage.DataDirectory, "hold-stop");
         startFailure = Path.Combine(plugin.Storage.DataDirectory, "start-failure");
         plugin.Commands.Register(new StallProbeCommand(Path.Combine(plugin.Storage.DataDirectory, "hold-command")));
@@ -87,6 +95,17 @@ public sealed class TestHotModule : VegaPlugin
             throw new InvalidOperationException("Test-only plugin callback fault.");
     }
 
+    private sealed class ServiceProbeCommand(IPluginServices services) : ICommandHandler
+    {
+        public CommandDescriptor Descriptor { get; } = new("hotservice", [], []);
+        public async ValueTask<CommandExecutionResult> ExecuteAsync(CommandInvocation invocation, CancellationToken cancellationToken)
+        {
+            var result = await services.CallAsync(new("Vega.Test.HotPlugin", "probe", 1), new ProbeMessage(41),
+                ProbeJsonContext.Default.ProbeMessage, ProbeJsonContext.Default.ProbeMessage, cancellationToken);
+            return result.Value?.Value == 42 ? CommandExecutionResult.Success : CommandExecutionResult.Failed("service.probe");
+        }
+    }
+
     private sealed class StallProbeCommand(string gate) : ICommandHandler
     {
         public CommandDescriptor Descriptor { get; } = new("hotstall", [], []);
@@ -98,3 +117,8 @@ public sealed class TestHotModule : VegaPlugin
         }
     }
 }
+
+internal sealed record ProbeMessage(int Value);
+
+[JsonSerializable(typeof(ProbeMessage))]
+internal partial class ProbeJsonContext : JsonSerializerContext;

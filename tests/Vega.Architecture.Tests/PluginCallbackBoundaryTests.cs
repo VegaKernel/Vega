@@ -20,9 +20,23 @@ public sealed class PluginCallbackBoundaryTests
             "IPluginPlayers.OnJoined", "IPluginPlayers.OnLeft", "IPluginPlayers.OnEnteredWorld", "IPluginPlayers.OnClosing",
             "IPluginActivity.OnAuthenticationEstablished", "IPluginActivity.OnAuthenticationEnded",
             "IPluginActivity.OnPublicChatAccepted", "IPluginActivity.OnCommandCompleted",
+            "IPluginActivity.BeforePlayerCommand", "IPluginActivity.BeforePublicChat",
+            "IPluginIdentity.OnAccountChanged", "IPluginIdentity.OnGroupChanged", "IPluginIdentity.OnTemporaryGroupChanged",
             "IPluginResources.OnCleanup", "IPluginTasks.Post", "IPluginTasks.Every",
             "IPluginTasks.RunIo", "IPluginTasks.TryRunCpu", "IPluginConfiguration.Use", "IPluginStorage.LoadJson",
+            "IPluginServices.Register",
+            "IPluginCluster.Subscribe",
+            "IPluginRest.RegisterQuery", "IPluginRest.RegisterAction",
             "IPluginWorldEvents.OnTickCompleted", "IPluginWorldEvents.OnSaveCompleted",
+            "IPluginWorldEvents.OnHardmodeChanged",
+            "IPluginWorldEvents.OnPlayerVitalsChanged", "IPluginWorldEvents.OnPlayerDeathObserved",
+            "IPluginWorldEvents.OnPlayerRespawnObserved", "IPluginWorldEvents.OnPlayerDeathCountersChanged",
+            "IPluginWorldEvents.OnPlayerPvpChanged", "IPluginWorldEvents.OnPlayerBuffsChanged",
+            "IPluginWorldEvents.OnPlayerHurtCompleted",
+            "IPluginWorldEvents.OnTileInteractionRequested", "IPluginWorldEvents.AllowTileInteraction",
+            "IPluginWorldEvents.OnPlayerTileChangesCommitted",
+            "IPluginWorldEvents.OnPlayerPvpChangeRequested", "IPluginWorldEvents.AllowPlayerPvpChange",
+            "IPluginWorldEvents.OnRegionEntered", "IPluginWorldEvents.OnRegionLeft", "IPluginWorldEvents.OnRegionChanged",
             "IPluginWorldEvents.OnNpcCreating", "IPluginWorldEvents.OnNpcKilled", "IPluginWorldEvents.OnNpcTransforming",
             "IPluginWorldEvents.OnNpcStrikeCompleted", "IPluginWorldEvents.OnNpcStrikeCompletedWithSource",
             "IPluginWorldEvents.OnNpcLootDropped", "IPluginWorldEvents.OnProjectileSynchronized", "IPluginWorldEvents.OnProjectileRemoved",
@@ -36,8 +50,11 @@ public sealed class PluginCallbackBoundaryTests
         DirectoryInfo? root = new(TestContext.CurrentContext.TestDirectory);
         while (root is not null && !File.Exists(Path.Combine(root.FullName, "src", "Vega.sln"))) root = root.Parent;
         Assert.That(root, Is.Not.Null);
-        string scope = File.ReadAllText(Path.Combine(root!.FullName, "src", "Vega.Core", "Modules", "HotModuleRegistrationScope.cs"));
+        string scope = string.Join("\n", Directory.EnumerateFiles(Path.Combine(root!.FullName, "src", "Vega.Core", "Modules"), "HotModuleRegistrationScope*.cs")
+            .Select(File.ReadAllText));
         string activity = File.ReadAllText(Path.Combine(root.FullName, "src", "Vega.Core", "Modules", "HotModuleRegistrationScope.Activity.cs"));
+        string identity = File.ReadAllText(Path.Combine(root.FullName, "src", "Vega.Core", "Modules", "HotModuleRegistrationScope.Identity.cs"));
+        string cluster = File.ReadAllText(Path.Combine(root.FullName, "src", "Vega.Core", "Modules", "HotModuleRegistrationScope.Cluster.cs"));
         Assert.Multiple(() =>
         {
             Assert.That(scope, Does.Contain("commands.Register(new GuardedCommandHandler(owner, handler))"));
@@ -55,7 +72,13 @@ public sealed class PluginCallbackBoundaryTests
             Assert.That(scope, Does.Contain("owner.executionGuard.Allows(operation, allow, value)"));
             Assert.That(scope, Does.Contain("owner.Track(events.SubscribePolicy<T>"));
             Assert.That(activity, Does.Contain("owner.executionGuard.TryInvoke(operation, liveHandler, value)"));
+            Assert.That(activity, Does.Contain("owner.executionGuard.InvokePolicy(operation, live, value)"));
             Assert.That(activity, Does.Contain("Interlocked.Exchange(ref activeHandler, null)"));
+            Assert.That(identity, Does.Contain("owner.executionGuard.TryInvoke(operation, current, snapshot)"));
+            Assert.That(identity, Does.Contain("Interlocked.Exchange(ref active, null)"));
+            Assert.That(cluster, Does.Contain("owner.Track(registry.Register("));
+            Assert.That(cluster, Does.Contain("owner.executionGuard.InvokeServiceAsync("));
+            Assert.That(cluster, Does.Contain("owner.RunScopedAsync("));
         });
     }
 }

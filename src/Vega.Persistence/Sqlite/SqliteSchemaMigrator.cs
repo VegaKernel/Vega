@@ -1,4 +1,3 @@
-using System.Globalization;
 using Microsoft.Data.Sqlite;
 using Vega.Persistence.Relational;
 
@@ -6,12 +5,9 @@ namespace Vega.Persistence.Sqlite;
 
 internal static class SqliteSchemaInitializer
 {
-    private const int CurrentVersion = 3;
-
-    private static readonly SchemaSection[] BaselineSections =
+    private static readonly string[] BaselineSections =
     [
-        new(
-            """
+        """
             CREATE TABLE global_bans (
                 id TEXT NOT NULL PRIMARY KEY,
                 subject_kind INTEGER NULL CHECK (subject_kind BETWEEN 0 AND 4),
@@ -33,9 +29,8 @@ internal static class SqliteSchemaInitializer
 
             CREATE INDEX ix_global_bans_active_expiry
                 ON global_bans (revoked, expires_at_utc);
-            """),
-        new(
-            """
+            """,
+        """
             CREATE TABLE vega_groups (
                 name TEXT NOT NULL COLLATE NOCASE PRIMARY KEY,
                 parent_name TEXT NULL COLLATE NOCASE REFERENCES vega_groups(name) ON DELETE RESTRICT,
@@ -89,9 +84,8 @@ internal static class SqliteSchemaInitializer
             INSERT INTO vega_groups (name, parent_name, revision) VALUES ('administrator', 'default', 1);
             INSERT INTO vega_group_permissions (group_name, permission, effect)
                 VALUES ('administrator', '*', 1);
-            """),
-        new(
-            """
+            """,
+        """
             CREATE TABLE vega_regions (
                 id INTEGER NOT NULL PRIMARY KEY,
                 world_id TEXT NOT NULL COLLATE NOCASE,
@@ -127,9 +121,8 @@ internal static class SqliteSchemaInitializer
                 value INTEGER NOT NULL CHECK (value IN (0, 1)),
                 PRIMARY KEY (region_id, flag)
             );
-            """),
-        new(
-            """
+            """,
+        """
             CREATE TABLE vega_mutes (
                 id TEXT NOT NULL PRIMARY KEY,
                 subject_kind INTEGER NOT NULL CHECK (subject_kind BETWEEN 0 AND 1),
@@ -146,73 +139,18 @@ internal static class SqliteSchemaInitializer
 
             CREATE INDEX ix_vega_mutes_active_subject
                 ON vega_mutes (revoked, subject_kind, subject_value, expires_at_utc);
-            """)
+            """
     ];
 
-    public static async ValueTask<int> InitializeAsync(
-        SqliteConnectionFactory connections,
-        CancellationToken cancellationToken)
+    public static async ValueTask<int> InitializeAsync(SqliteConnectionFactory connections, CancellationToken cancellationToken)
     {
-        await using SqliteConnection connection = await connections
-            .OpenAsync(cancellationToken)
-            .ConfigureAwait(false);
-
+        await using SqliteConnection connection = await connections.OpenAsync(cancellationToken).ConfigureAwait(false);
         await EnableWriteAheadLoggingAsync(connection, cancellationToken).ConfigureAwait(false);
-        await using SqliteTransaction transaction = (SqliteTransaction)await connection
-            .BeginTransactionAsync(cancellationToken)
-            .ConfigureAwait(false);
+        await using var transaction = await connection.BeginTransactionAsync(cancellationToken).ConfigureAwait(false);
         try
         {
-            await EnsureHistoryTableAsync(connection, transaction, cancellationToken)
-                .ConfigureAwait(false);
-            int version = await ReadVersionAsync(connection, transaction, cancellationToken)
-                .ConfigureAwait(false);
-            if (version > CurrentVersion)
-            {
-                throw new InvalidDataException(
-                    $"Database schema {version} is newer than supported schema {CurrentVersion}.");
-            }
-
-            if (version == 0)
-            {
-                foreach (SchemaSection section in BaselineSections)
-                {
-                    await ExecuteSchemaSectionAsync(
-                            connection,
-                            transaction,
-                            section,
-                            cancellationToken)
-                        .ConfigureAwait(false);
-                }
-
-                await InsertHistoryAsync(connection, transaction, 1, "vega-1.0-baseline", cancellationToken)
-                    .ConfigureAwait(false);
-                version = 1;
-            }
-
-            if (version == 1)
-            {
-                await ExecuteSchemaSectionAsync(connection, transaction, new SchemaSection(
-                    """
-                    CREATE TABLE vega_group_presentation (
-                        group_name TEXT NOT NULL COLLATE NOCASE PRIMARY KEY REFERENCES vega_groups(name) ON DELETE CASCADE,
-                        chat_prefix TEXT NOT NULL,
-                        chat_suffix TEXT NOT NULL,
-                        chat_color TEXT NULL
-                    );
-                    """), cancellationToken).ConfigureAwait(false);
-                await InsertHistoryAsync(connection, transaction, 2, "group-chat-presentation", cancellationToken).ConfigureAwait(false);
-                version = 2;
-            }
-
-            if (version == 2)
-            {
-                await ExecuteSchemaSectionAsync(connection, transaction, new SchemaSection(RelationalPlaytimeStore.SchemaSql + ";"), cancellationToken).ConfigureAwait(false);
-                await ExecuteSchemaSectionAsync(connection, transaction, new SchemaSection(RelationalPlaytimeStore.AccountIndexSql), cancellationToken).ConfigureAwait(false);
-                await InsertHistoryAsync(connection, transaction, 3, "authenticated-playtime", cancellationToken).ConfigureAwait(false);
-                version = 3;
-            }
-
+            int version = await RelationalSchemaBaseline.InitializeLockedAsync(connection, transaction,
+                BaselineSections.Concat(RelationalSchemaBaseline.AdditionalTables(mysql: false, sqlite: true)), cancellationToken).ConfigureAwait(false);
             await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
             return version;
         }
@@ -232,69 +170,4 @@ internal static class SqliteSchemaInitializer
         await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
     }
 
-    private static async ValueTask EnsureHistoryTableAsync(
-        SqliteConnection connection,
-        SqliteTransaction transaction,
-        CancellationToken cancellationToken)
-    {
-        await using SqliteCommand command = connection.CreateCommand();
-        command.Transaction = transaction;
-        command.CommandText =
-            """
-            CREATE TABLE IF NOT EXISTS vega_schema_history (
-                version INTEGER NOT NULL PRIMARY KEY,
-                name TEXT NOT NULL,
-                applied_at_utc TEXT NOT NULL
-            );
-            """;
-        await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
-    }
-
-    private static async ValueTask<int> ReadVersionAsync(
-        SqliteConnection connection,
-        SqliteTransaction transaction,
-        CancellationToken cancellationToken)
-    {
-        await using SqliteCommand command = connection.CreateCommand();
-        command.Transaction = transaction;
-        command.CommandText = "SELECT COALESCE(MAX(version), 0) FROM vega_schema_history;";
-        object? scalar = await command.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false);
-        return Convert.ToInt32(scalar, CultureInfo.InvariantCulture);
-    }
-
-    private static async ValueTask ExecuteSchemaSectionAsync(
-        SqliteConnection connection,
-        SqliteTransaction transaction,
-        SchemaSection section,
-        CancellationToken cancellationToken)
-    {
-        await using SqliteCommand schema = connection.CreateCommand();
-        schema.Transaction = transaction;
-        schema.CommandText = section.Sql;
-        await schema.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
-    }
-
-    private static async ValueTask InsertHistoryAsync(
-        SqliteConnection connection,
-        SqliteTransaction transaction,
-        int version,
-        string name,
-        CancellationToken cancellationToken)
-    {
-        await using SqliteCommand history = connection.CreateCommand();
-        history.Transaction = transaction;
-        history.CommandText =
-            """
-            INSERT INTO vega_schema_history (version, name, applied_at_utc)
-            VALUES ($version, $name, $appliedAt);
-            """;
-        history.Parameters.AddWithValue("$version", version);
-        history.Parameters.AddWithValue("$name", name);
-        history.Parameters.AddWithValue(
-            "$appliedAt",
-            DateTimeOffset.UtcNow.ToString("O", CultureInfo.InvariantCulture));
-        await history.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
-    }
-
-    private sealed record SchemaSection(string Sql);
 }

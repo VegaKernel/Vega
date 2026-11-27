@@ -43,11 +43,12 @@ public sealed class SqliteVegaDatabaseTests
 
         Assert.Multiple(() =>
         {
-            Assert.That(first.SchemaVersion, Is.EqualTo(3));
-            Assert.That(second.SchemaVersion, Is.EqualTo(3));
+            Assert.That(first.SchemaVersion, Is.EqualTo(1));
+            Assert.That(second.SchemaVersion, Is.EqualTo(1));
             Assert.That(first.DatabasePath, Is.EqualTo(Path.GetFullPath(databasePath)));
             Assert.That(File.Exists(databasePath), Is.True);
-            Assert.That(ScalarInt64("SELECT COUNT(*) FROM vega_schema_history;"), Is.EqualTo(3));
+            Assert.That(ScalarInt64("SELECT COUNT(*) FROM vega_schema_history;"), Is.EqualTo(1));
+            Assert.That(ScalarInt64("SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name IN ('vega_group_presentation','vega_play_sessions','vega_account_metadata','vega_mute_identity','vega_plugin_documents','vega_homes');"), Is.EqualTo(6));
             Assert.That(ScalarInt64("SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = 'global_bans';"), Is.EqualTo(1));
             Assert.That(ScalarInt64("SELECT COUNT(*) FROM vega_groups;"), Is.EqualTo(3));
         });
@@ -62,21 +63,13 @@ public sealed class SqliteVegaDatabaseTests
     }
 
     [Test]
-    public async Task ExistingSchemaOneUpgradesAndPresentationKeepsRevisionAuditAndPermissions()
+    public async Task BaselinePresentationKeepsRevisionAuditAndPermissions()
     {
         SqliteVegaDatabase original = await OpenAsync();
         var created = await original.Authorization.CreateGroupAsync("builders", "default", "Server");
         Assert.That(created.Succeeded, Is.True);
-        // Reconstitute the previous schema layout in this test-owned database.
-        await using (var connection = new SqliteConnection($"Data Source={databasePath}"))
-        {
-            await connection.OpenAsync();
-            await using var command = connection.CreateCommand();
-            command.CommandText = "DROP TABLE vega_play_sessions; DROP TABLE vega_group_presentation; DELETE FROM vega_schema_history WHERE version >= 2;";
-            await command.ExecuteNonQueryAsync();
-        }
         var migrated = await OpenAsync();
-        Assert.That(migrated.SchemaVersion, Is.EqualTo(3));
+        Assert.That(migrated.SchemaVersion, Is.EqualTo(1));
         Assert.That(migrated.Authorization.TryGetGroup("builders", out var before), Is.True);
         Assert.That(before!.Presentation, Is.EqualTo(GroupChatPresentation.Default));
         var style = new GroupChatPresentation("[Builder] ", "!", "12ab34");
@@ -96,6 +89,24 @@ public sealed class SqliteVegaDatabaseTests
         Assert.That(ScalarInt64("SELECT COUNT(*) FROM vega_administration_audit WHERE operation = 'group.presentation';"), Is.EqualTo(1));
         Assert.That((await reopened.Authorization.DeleteGroupAsync("builders", persisted.Revision, "Server")).Succeeded, Is.True);
         Assert.That(ScalarInt64("SELECT COUNT(*) FROM vega_group_presentation;"), Is.Zero);
+    }
+
+    [Test]
+    public async Task DevelopmentSchemaIsRejectedWithoutChangingItsTablesOrRows()
+    {
+        var database = await OpenAsync();
+        await database.Authorization.CreateGroupAsync("preserve", "default", "Server");
+        // Simulate the old version-one marker in a fixture, never a real server database.
+        await using (var connection = new SqliteConnection($"Data Source={databasePath}"))
+        {
+            await connection.OpenAsync();
+            await using var command = connection.CreateCommand();
+            command.CommandText = "UPDATE vega_schema_history SET name = 'vega-1.0-baseline';";
+            await command.ExecuteNonQueryAsync();
+        }
+        Assert.ThrowsAsync<InvalidDataException>(async () => await OpenAsync());
+        Assert.That(ScalarInt64("SELECT COUNT(*) FROM vega_groups WHERE name = 'preserve';"), Is.EqualTo(1));
+        Assert.That(ScalarInt64("SELECT COUNT(*) FROM vega_schema_history WHERE name = 'vega-1.0-baseline';"), Is.EqualTo(1));
     }
 
     [Test]

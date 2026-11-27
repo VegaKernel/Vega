@@ -11,6 +11,8 @@ using Vega.Contracts.Players;
 using Vega.Contracts.Threading;
 using Vega.Contracts.Worlds;
 using Vega.Core.Events;
+using Vega.Core.Commands;
+using Vega.Core.Modules;
 using Vega.Persistence;
 using Vega.Terraria.Networking;
 using Vega.Terraria.Players;
@@ -22,9 +24,10 @@ namespace Vega.Runtime.Tests.Worlds;
 [TestFixture]
 public sealed class NpcShopTests
 {
-    [Test]
+    [TestCase(false)]
+    [TestCase(true)]
     [NonParallelizable]
-    public void PersistentQuestAndWalletPurchaseUseExactAccountAndDurableReservations()
+    public void PersistentQuestAndWalletPurchaseUseExactAccountAndDurableReservations(bool namedProvider)
     {
         const int playerSlot = 2, npcSlot = 0;
         var oldPlayer = global::Terraria.Main.player[playerSlot];
@@ -42,11 +45,19 @@ public sealed class NpcShopTests
         var accountSessions = new BindingAccounts();
         var store = new FileNpcAccountStore(root);
         var provider = new TrackingEconomyProvider(store, dispatcher);
+        var builtIn = new FileNpcAccountStore(Path.Combine(root, "built-in"));
+        var router = new PluginNpcEconomyRegistry(builtIn);
+        HotModuleRegistrationScope? economyScope = null;
+        if (namedProvider)
+        {
+            economyScope = new(new CommandDispatcher([]), new QuietLogger(), "WalletService", root, npcEconomyRegistry: router);
+            economyScope.NpcEconomy.Register("wallet", 1, provider);
+        }
         bool ready = true;
         bool checkpointSucceeds = true;
         int checkpoints = 0;
         using var actors = new TerrariaNpcActorService(dispatcher, world, boundary, new WorldGameplayEventHub(), new QuietLogger(),
-            accountSessions, store, provider, _ => ready, (player, expected, _) =>
+            accountSessions, store, namedProvider ? router : provider, _ => ready, (player, expected, _) =>
             {
                 Assert.That(dispatcher.IsGameThread, Is.False);
                 Interlocked.Increment(ref checkpoints);
@@ -100,7 +111,8 @@ public sealed class NpcShopTests
             var shop = new NpcShopCatalog([new NpcShopOffer("wood", ItemID.Wood, 2, 0) { EconomyPrice = new("gems", 5) }]);
             var quests = new NpcQuestCatalog([new("torch", "Torch", "Bring two torches", new(ItemID.Torch, 2), new(ItemID.StoneBlock, 1))]);
             var creation = dispatcher.Pump(actors.CreateAsync(world, new NpcActorDefinition(17, "Account Merchant", Shop: shop)
-                { Quests = quests, PersistentQuestScope = "npc.quest.test", EconomyScope = "npc.wallet.test" }, new(100, 100)));
+                { Quests = quests, PersistentQuestScope = "npc.quest.test", EconomyScope = "npc.wallet.test",
+                    EconomyProvider = namedProvider ? new("WalletService", "wallet", 1) : null }, new(100, 100)));
             Assert.That(creation.Status, Is.EqualTo(NpcOperationStatus.Applied));
             using var actor = creation.Actor!;
             global::Terraria.Main.netMode = 2;
@@ -180,6 +192,8 @@ public sealed class NpcShopTests
             Assert.That(provider.Invocations, Is.GreaterThan(0));
             // Operator reconciliation after verifying the prior native grant, not an automatic retry.
             Assert.That(store.FinalizeDebitAsync(new NpcAccountScope(world, "npc.wallet.test", new AccountId(1)), uncertain.OperationId!.Value, true).AsTask().GetAwaiter().GetResult(), Is.True);
+            if (namedProvider)
+                Assert.That(builtIn.ReadBalanceAsync(walletScope, "gems").AsTask().GetAwaiter().GetResult().Balance, Is.Zero);
         }
         finally
         {
@@ -193,6 +207,7 @@ public sealed class NpcShopTests
             global::Terraria.Main.ServerSideCharacter = oldSsc;
             global::Terraria.Main.rightWorld = oldRight;
             global::Terraria.Main.bottomWorld = oldBottom;
+            economyScope?.DisposeAsync().AsTask().GetAwaiter().GetResult();
             if (Directory.Exists(root)) Directory.Delete(root, true);
         }
     }

@@ -27,6 +27,12 @@ public interface IVegaPluginContext
     IPluginStatistics Statistics => throw new NotSupportedException("Player statistics are unavailable in this host.");
     IPluginWarps Warps => throw new NotSupportedException("Warp queries are unavailable in this host.");
 
+    IPluginServices Services => throw new NotSupportedException("Inter-plugin services are unavailable in this host.");
+    IPluginData Data => throw new NotSupportedException("Plugin database storage is unavailable in this host.");
+    IPluginNpcEconomy NpcEconomy => throw new NotSupportedException("Named NPC economy providers are unavailable in this host.");
+    IPluginRest Rest => throw new NotSupportedException("Plugin REST operations are unavailable in this host.");
+    IPluginCluster Cluster => throw new NotSupportedException("Plugin cluster notifications are unavailable in this host.");
+
     IPluginTasks Tasks { get; }
     /// <summary>Plugin-owned disposable resources, retired with this activation.</summary>
     IPluginResources Resources => throw new NotSupportedException("Resource ownership is unavailable in this host.");
@@ -53,6 +59,11 @@ public interface IPluginCommands
 {
     /// <summary>Registers a command until the plugin is unloaded.</summary>
     void Register(ICommandHandler handler);
+
+    bool CatalogAvailable => false;
+
+    /// <summary>Detached descriptors, including registrations from other plugins. Not an authorization grant or executable handle.</summary>
+    IReadOnlyList<CommandDescriptor> Snapshot() => [];
 }
 
 public interface IPluginPlayers
@@ -105,10 +116,18 @@ public interface IPluginPlayers
         string reason,
         CancellationToken cancellationToken = default);
 
+    /// <summary>Disconnect only the originally observed session.</summary>
+    ValueTask<PlayerOperationResult> KickAsync(PlayerSnapshot player, string reason, CancellationToken cancellationToken = default) =>
+        ValueTask.FromResult(PlayerOperationResult.DispatcherUnavailable());
+
     ValueTask<PlayerOperationResult> TeleportAsync(
         PlayerId id,
         PlayerPosition destination,
         CancellationToken cancellationToken = default);
+
+    /// <summary>Move only the originally observed session in its hosted world.</summary>
+    ValueTask<PlayerOperationResult> TeleportAsync(PlayerSnapshot player, PlayerPosition destination, CancellationToken cancellationToken = default) =>
+        ValueTask.FromResult(PlayerOperationResult.DispatcherUnavailable());
 
     /// <summary>Registers a game-thread player-join callback for this plugin lifetime.</summary>
     void OnJoined(Action<PlayerSessionOpened> handler);

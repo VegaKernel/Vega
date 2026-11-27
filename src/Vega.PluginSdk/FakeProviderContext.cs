@@ -17,6 +17,8 @@ public interface IPluginFakeProvider
     bool SupportsVirtualSignUi => false;
     bool SupportsVirtualItemFrames => false;
     bool SupportsVirtualDisplays => false;
+    bool SupportsVirtualButtons => false;
+    bool SupportsVirtualGestures => false;
     IPluginTileProvider CreateGlobal(string name, SceneBounds bounds, SceneTileArea tiles, int layer = 0);
     IPluginTileProvider CreatePersonal(string name, SceneBounds bounds, SceneTileArea tiles,
         IEnumerable<SceneSessionObserver> observers, int layer = 0);
@@ -51,6 +53,14 @@ public interface IPluginTileProvider : IDisposable
         throw new NotSupportedException("Virtual item frames are unavailable.");
     IPluginVirtualDisplay CreateVirtualDisplay(SceneVirtualDisplayKind kind, int localX, int localY,
         IReadOnlyList<SceneDisplayItem> items, IReadOnlyList<SceneDisplayItem> dyes) => throw new NotSupportedException("Virtual displays are unavailable.");
+    /// <summary>Opt in to stock switch clicks at provider-local active tiles. Empty targets disable input.</summary>
+    void SetButtonTargets(IReadOnlyList<SceneButtonTarget> targets) => throw new NotSupportedException("Virtual buttons are unavailable.");
+    /// <summary>Consume a current exact-session click; use on the game thread, as with other virtual intents.</summary>
+    bool TryTakeButtonPress(out SceneButtonPress? press) { press = null; return false; }
+    /// <summary>Rectangles accepting stock WireKite drag gestures. Empty targets disable input.</summary>
+    void SetGestureTargets(IReadOnlyList<SceneGestureTarget> targets) => throw new NotSupportedException("Virtual gestures are unavailable.");
+    /// <summary>Consumes begin/move/end/cancel input; intermediate movement may be coalesced.</summary>
+    bool TryTakeGesture(out SceneGestureEvent? input) { input = null; return false; }
 }
 
 /// <summary>Logical container owned by its provider. Explicit transfers use native inventory on the game thread.</summary>

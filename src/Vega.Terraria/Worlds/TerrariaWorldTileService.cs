@@ -1,15 +1,16 @@
-using System.Collections.Concurrent;
+using Vega.Contracts.Runtime;
 using Vega.Contracts.Scenes;
 using Vega.Contracts.Threading;
 using Vega.Contracts.Worlds;
 
 namespace Vega.Terraria.Worlds;
 
-public sealed class TerrariaWorldTileService(
-    IGameThreadDispatcher dispatcher,
-    WorldId worldId) : IWorldTileService
+public sealed class TerrariaWorldTileService : IWorldTileService, IDisposable
 {
     private const int MaxTilesPerOperation = WorldTileOperationLimits.MaximumTiles;
+    // Revisions are opaque. Bound the number of retained selection shapes; an evicted
+    // receipt conflicts rather than being able to match a recycled revision.
+    internal const int MaximumTrackedAreas = 4096;
     private const SceneTileFlags KnownFlags =
         SceneTileFlags.Active |
         SceneTileFlags.WireRed |
@@ -23,7 +24,50 @@ public sealed class TerrariaWorldTileService(
         SceneTileFlags.FullbrightWall |
         SceneTileFlags.InvisibleBlock |
         SceneTileFlags.InvisibleWall;
-    private readonly ConcurrentDictionary<AreaIdentity, VersionState> versions = new();
+    private readonly IGameThreadDispatcher dispatcher;
+    private readonly WorldId worldId;
+    private readonly IRuntimeLifecycle? lifecycle;
+    private readonly Dictionary<SceneBounds, VersionState> versions = new();
+    private readonly Queue<SceneBounds> areas = new();
+    private object? observedGrid;
+    private Guid? observedFile;
+    private Guid worldInstanceId;
+    private long nextRevision;
+    private int lifecycleGeneration, observedGeneration;
+    private bool disposed;
+
+    public TerrariaWorldTileService(IGameThreadDispatcher dispatcher, WorldId worldId, IRuntimeLifecycle? lifecycle = null)
+    {
+        this.dispatcher = dispatcher;
+        this.worldId = worldId;
+        this.lifecycle = lifecycle;
+        if (lifecycle is not null) lifecycle.Transitioned += OnLifecycle;
+    }
+
+    private void OnLifecycle(RuntimeLifecycleTransition transition)
+    {
+        if (transition.Stage is RuntimeLifecycleStage.WorldLoading or RuntimeLifecycleStage.Stopping)
+            Interlocked.Increment(ref lifecycleGeneration);
+    }
+
+    private bool TryObserveWorld()
+    {
+        if (Volatile.Read(ref disposed) || lifecycle is not null &&
+            (lifecycle.CurrentStage < RuntimeLifecycleStage.WorldReady || lifecycle.CurrentStage >= RuntimeLifecycleStage.Stopping) ||
+            global::Terraria.Main.tile is not { } grid) return false;
+        Guid? file = global::Terraria.Main.ActiveWorldFileData?.UniqueId;
+        int generation = Volatile.Read(ref lifecycleGeneration);
+        if (!ReferenceEquals(observedGrid, grid) || observedFile != file || observedGeneration != generation)
+        {
+            observedGrid = grid;
+            observedFile = file;
+            observedGeneration = generation;
+            worldInstanceId = Guid.NewGuid();
+            versions.Clear();
+            areas.Clear();
+        }
+        return true;
+    }
 
     public ValueTask<WorldTileAreaSnapshot?> CaptureAsync(
         WorldId requestedWorldId,
@@ -54,26 +98,26 @@ public sealed class TerrariaWorldTileService(
     private WorldTileAreaSnapshot? Capture(WorldId requestedWorldId, SceneBounds bounds)
     {
         dispatcher.AssertGameThread();
-        if (requestedWorldId != worldId || !ValidateBounds(bounds, out _))
+        if (requestedWorldId != worldId || !TryObserveWorld() || !ValidateBounds(bounds, out _))
         {
             return null;
         }
 
         (SceneTileArea area, long fingerprint) = CaptureArea(global::Terraria.Main.tile, bounds);
-        var identity = new AreaIdentity(requestedWorldId, bounds);
-        VersionState state = versions.AddOrUpdate(
-            identity,
-            static (_, value) => new VersionState(1, value),
-            static (_, current, value) => current.Fingerprint == value
-                ? current
-                : new VersionState(checked(current.Revision + 1), value),
-            fingerprint);
+        if (!versions.TryGetValue(bounds, out VersionState state))
+        {
+            if (versions.Count == MaximumTrackedAreas) versions.Remove(areas.Dequeue());
+            areas.Enqueue(bounds);
+            versions[bounds] = state = new(checked(++nextRevision), fingerprint);
+        }
+        else if (state.Fingerprint != fingerprint)
+            versions[bounds] = state = new(checked(++nextRevision), fingerprint);
         return new WorldTileAreaSnapshot(
             requestedWorldId,
             bounds,
             state.Revision,
             area,
-            DateTimeOffset.UtcNow);
+            DateTimeOffset.UtcNow) { WorldInstanceId = worldInstanceId };
     }
 
     internal static (SceneTileArea Area, long Fingerprint) CaptureArea(
@@ -104,7 +148,7 @@ public sealed class TerrariaWorldTileService(
     private WorldTileMutationResult Replace(WorldTileMutationRequest request)
     {
         dispatcher.AssertGameThread();
-        if (request.WorldId != worldId)
+        if (request.WorldId != worldId || !TryObserveWorld())
         {
             return new WorldTileMutationResult(
                 WorldTileMutationStatus.Invalid,
@@ -119,7 +163,8 @@ public sealed class TerrariaWorldTileService(
         }
 
         if (request.Tiles.Width != request.Bounds.Width ||
-            request.Tiles.Height != request.Bounds.Height)
+            request.Tiles.Height != request.Bounds.Height ||
+            request.ExpectedTiles is { } expected && (expected.Width != request.Bounds.Width || expected.Height != request.Bounds.Height))
         {
             return new WorldTileMutationResult(
                 WorldTileMutationStatus.Invalid,
@@ -141,7 +186,10 @@ public sealed class TerrariaWorldTileService(
                 ErrorCode: "world.tiles.not_found");
         }
 
-        if (before.Revision != request.ExpectedRevision)
+        if (before.Revision != request.ExpectedRevision ||
+            (request.ExpectedTiles is { } original && (request.ExpectedWorldInstanceId != before.WorldInstanceId ||
+                !TileContentsEqual(original, before.Tiles))) ||
+            (request.ExpectedWorldInstanceId is { } instance && instance != before.WorldInstanceId))
         {
             return new WorldTileMutationResult(
                 WorldTileMutationStatus.RevisionConflict,
@@ -149,36 +197,62 @@ public sealed class TerrariaWorldTileService(
                 ErrorCode: "world.tiles.revision_conflict");
         }
 
-        for (var localY = 0; localY < request.Bounds.Height; localY++)
+        var native = global::Terraria.Main.tile;
+        WorldTileAreaSnapshot after;
+        try
         {
-            int worldY = request.Bounds.Y + localY;
-            for (var localX = 0; localX < request.Bounds.Width; localX++)
+            ApplyArea(native, request.Bounds, request.Tiles, before.Tiles);
+            after = Capture(request.WorldId, request.Bounds) ?? throw new InvalidOperationException("Cannot capture completed tile edit.");
+            if (after.WorldInstanceId != before.WorldInstanceId || !TileContentsEqual(request.Tiles, after.Tiles))
+                throw new InvalidOperationException("World changed or tile provider rejected the requested tile edit.");
+        }
+        catch (Exception mutationError)
+        {
+            // No packets have been sent. Restore the original tile values before returning a failure.
+            // If a native tile provider itself refuses rollback, propagate the consistency failure.
+            try
             {
-                int worldX = request.Bounds.X + localX;
-                Apply(global::Terraria.Main.tile[worldX, worldY], request.Tiles[localX, localY]);
+                ApplyArea(native, request.Bounds, before.Tiles);
+                if (!TileContentsEqual(CaptureArea(native, request.Bounds).Area, before.Tiles))
+                    throw new InvalidOperationException("Native tile provider did not restore the original tile snapshot.");
             }
+            catch (Exception rollbackError) { throw new InvalidOperationException("Tile edit rollback failed.", new AggregateException(mutationError, rollbackError)); }
+            return new(WorldTileMutationStatus.Failed, before, ErrorCode: "world.tiles.apply_failed");
         }
 
+        // Authoritative edit is complete. A transport error cannot turn an already-applied edit
+        // into an unapplied one or safely undo a partially broadcast update.
+        string? syncError = null;
         if (global::Terraria.Main.netMode == 2)
         {
-            global::Terraria.NetMessage.SendTileSquare(
-                -1,
-                request.Bounds.X,
-                request.Bounds.Y,
-                request.Bounds.Width,
-                request.Bounds.Height);
+            try
+            {
+                const int side = Vega.Terraria.Scenes.TerrariaSceneRenderSink.MaximumTileSquareSide;
+                for (int x = request.Bounds.X; x < request.Bounds.Right; x += side)
+                    for (int y = request.Bounds.Y; y < request.Bounds.Bottom; y += side)
+                        global::Terraria.NetMessage.SendTileSquare(-1, x, y,
+                            Math.Min(side, request.Bounds.Right - x), Math.Min(side, request.Bounds.Bottom - y));
+            }
+            catch (Exception) { syncError = "world.tiles.broadcast_failed"; }
         }
 
-        WorldTileAreaSnapshot? after = Capture(request.WorldId, request.Bounds);
-        return after is null
-            ? new WorldTileMutationResult(
-                WorldTileMutationStatus.Failed,
-                before,
-                ErrorCode: "world.tiles.capture_after_failed")
-            : new WorldTileMutationResult(
-                WorldTileMutationStatus.Applied,
-                before,
-                after);
+        return new(WorldTileMutationStatus.Applied, before, after, syncError);
+    }
+
+    private static bool TileContentsEqual(SceneTileArea expected, SceneTileArea actual)
+    {
+        if (expected.Width != actual.Width || expected.Height != actual.Height) return false;
+        for (int i = 0; i < expected.Tiles.Count; i++)
+            if (expected.Tiles[i] != actual.Tiles[i]) return false;
+        return true;
+    }
+
+    private static void ApplyArea(global::TerrariaRuntime.ICollection<global::Terraria.ITile> native,
+        SceneBounds bounds, SceneTileArea tiles, SceneTileArea? previous = null)
+    {
+        for (int y = 0; y < bounds.Height; y++)
+            for (int x = 0; x < bounds.Width; x++)
+                if (previous is null || previous[x, y] != tiles[x, y]) Apply(native[bounds.X + x, bounds.Y + y], tiles[x, y]);
     }
 
     internal static bool ValidateBounds(SceneBounds bounds, out string? error)
@@ -213,7 +287,7 @@ public sealed class TerrariaWorldTileService(
         tile.TileColor <= global::Terraria.Main.numTileColors &&
         tile.WallColor <= global::Terraria.Main.numTileColors &&
         tile.Slope <= 4 &&
-        (tile.LiquidAmount == 0 ? tile.LiquidKind == 0 : tile.LiquidKind <= 3) &&
+        tile.LiquidKind <= 3 &&
         (tile.Flags & ~KnownFlags) == 0 &&
         (tile.Slope == 0 || (tile.Flags & SceneTileFlags.HalfBlock) == 0);
 
@@ -254,7 +328,9 @@ public sealed class TerrariaWorldTileService(
         tile.frameX = value.FrameX;
         tile.frameY = value.FrameY;
         tile.liquid = value.LiquidAmount;
-        tile.liquidType(value.LiquidAmount == 0 ? 0 : value.LiquidKind);
+        // Native tiles may retain their valid liquid type after the amount reaches zero.
+        // Preserve that bit state so a captured tile area is round-trippable for undo.
+        tile.liquidType(value.LiquidKind);
         tile.color(value.TileColor);
         tile.wallColor(value.WallColor);
         tile.slope(value.Slope);
@@ -296,7 +372,11 @@ public sealed class TerrariaWorldTileService(
         var completion = new TaskCompletionSource<T>(TaskCreationOptions.RunContinuationsAsynchronously);
         if (!dispatcher.TryPost(
                 operation,
-                () => completion.TrySetResult(cancellationToken.IsCancellationRequested ? cancelled! : action())))
+                () =>
+                {
+                    try { completion.TrySetResult(cancellationToken.IsCancellationRequested ? cancelled! : action()); }
+                    catch (Exception ex) { completion.TrySetException(ex); }
+                }))
         {
             return ValueTask.FromResult(unavailable!);
         }
@@ -304,6 +384,11 @@ public sealed class TerrariaWorldTileService(
         return new ValueTask<T>(completion.Task);
     }
 
-    private readonly record struct AreaIdentity(WorldId WorldId, SceneBounds Bounds);
-    private sealed record VersionState(long Revision, long Fingerprint);
+    public void Dispose()
+    {
+        Volatile.Write(ref disposed, true);
+        if (lifecycle is not null) lifecycle.Transitioned -= OnLifecycle;
+    }
+
+    private readonly record struct VersionState(long Revision, long Fingerprint);
 }

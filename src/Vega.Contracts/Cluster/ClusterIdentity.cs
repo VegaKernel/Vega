@@ -1,7 +1,10 @@
+using System.Text.Json.Serialization;
+
 namespace Vega.Contracts.Cluster;
 
 public readonly record struct ServerId
 {
+    [JsonConstructor]
     public ServerId(string value)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(value);

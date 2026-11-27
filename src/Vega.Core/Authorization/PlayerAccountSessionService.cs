@@ -44,6 +44,7 @@ public sealed class PlayerAccountSessionService : IPlayerAccountSessionService, 
         this.roleLeases = roleLeases;
         lifecycle.Closed += OnClosed;
         lifecycle.Opened += OnOpened;
+        if (accounts is IAccountChangeSource changes) changes.AccountChanged += OnAccountChanged;
     }
 
     public bool TryGetAccount(PlayerId playerId, out AccountSnapshot? account)
@@ -347,6 +348,7 @@ public sealed class PlayerAccountSessionService : IPlayerAccountSessionService, 
             disposed = true;
             lifecycle.Closed -= OnClosed;
             lifecycle.Opened -= OnOpened;
+            if (accounts is IAccountChangeSource changes) changes.AccountChanged -= OnAccountChanged;
             players = authenticated.Keys.ToArray();
             authenticated.Clear();
             authenticationIds.Clear();
@@ -373,11 +375,21 @@ public sealed class PlayerAccountSessionService : IPlayerAccountSessionService, 
             return PlayerAccountSessionResult.Failure("account.banned");
         }
 
-        AccountMutationResult seen = await accounts.RecordLoginAsync(
+        string? ip = null, uuid = null;
+        if (stamp?.Id is { } capturedSessionId && lifecycle is IPlayerDirectory directory && directory.TryGet(playerId, out var player) && player?.SessionId == capturedSessionId)
+        {
+            string? endpoint = player.Connection?.EffectiveEndpoint ?? player.RemoteEndpoint;
+            if (System.Net.IPAddress.TryParse(endpoint, out var address)) ip = address.ToString();
+            else if (endpoint is not null && System.Net.IPEndPoint.TryParse(endpoint, out var parsed)) ip = parsed.Address.ToString();
+            uuid = player.Connection?.ClientUuid;
+        }
+        AccountMutationResult seen = await accounts.RecordLoginWithConnectionAsync(
             account.Name,
             DateTimeOffset.UtcNow,
             account.Revision,
             account.Name,
+            ip,
+            uuid,
             cancellationToken).ConfigureAwait(false);
         AccountSnapshot current = seen.Succeeded && seen.After is not null ? seen.After : account;
         PlayerAccountBinding? establishedBinding = null;
@@ -446,6 +458,43 @@ public sealed class PlayerAccountSessionService : IPlayerAccountSessionService, 
             }
         }
         if (ended is { } binding) NotifyAuthenticationEnded(binding, PlayerAuthenticationEndReason.Disconnected);
+    }
+
+    private void OnAccountChanged(AccountChange change)
+    {
+        AccountId? accountId = change.After?.Id ?? change.Before?.Id;
+        if (accountId is null) return;
+        List<PlayerAccountBinding>? ended = null;
+        lock (sync)
+        {
+            if (disposed) return;
+            foreach (var pair in authenticated.Where(pair => pair.Value.Id == accountId).ToArray())
+            {
+                if (change.After is { } updated)
+                {
+                    if (updated.Revision <= pair.Value.Revision) continue;
+                    authenticated[pair.Key] = updated;
+                    if (!updated.GroupName.Equals(pair.Value.GroupName, StringComparison.OrdinalIgnoreCase))
+                        playerAuthorization.ReplaceAccountGroup(pair.Key, updated.GroupName, authorization, updated.Id, roleLeases);
+                }
+                else
+                {
+                    // The account has already been deleted; do not allow a stale authentication to keep its permissions.
+                    if (CaptureBindingLocked(pair.Key) is { } binding) (ended ??= []).Add(binding);
+                    authenticated.Remove(pair.Key);
+                    authenticationIds.Remove(pair.Key);
+                    if (sessionStamps.GetValueOrDefault(pair.Key) is { } stamp) stamp.AuthenticationEpoch++;
+                    playerAuthorization.Replace(pair.Key, []);
+                    cultures.ResetSession(CultureSubject(pair.Key));
+                }
+            }
+        }
+        if (ended is not null)
+            foreach (var binding in ended)
+            {
+                NotifyBinding(BindingEnded, binding, "account-deleted");
+                NotifyAuthenticationEnded(binding, PlayerAuthenticationEndReason.Logout);
+            }
     }
 
     private void OnOpened(PlayerSessionOpened opened)

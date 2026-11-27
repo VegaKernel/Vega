@@ -94,6 +94,8 @@ public sealed partial class SceneRuntime(ISceneRenderSink? sink = null) : IScene
 
     private void RemoveObserver(WorldId world, PlayerId player)
     {
+        pendingButtonPresses.Remove((world, player));
+        gestureCaptures.Remove((world, player));
         pendingVirtualChestOpens.Remove((world, player));
         RemoveManagedChestPlayer(world, player);
         pendingVirtualSignReads.Remove((world, player));
@@ -307,6 +309,9 @@ public sealed partial class SceneRuntime(ISceneRenderSink? sink = null) : IScene
 
             SceneOverlayDefinition stored = definition with { Id = overlayId, Observers = FreezeScope(scene.WorldId, definition.Observers) };
             scene.Overlays[overlayId] = new OverlayState(stored, current.Sequence);
+            InvalidateButtons(sceneId, overlayId);
+            if (stored.Bounds != current.Definition.Bounds || stored.Enabled != current.Definition.Enabled)
+                InvalidateGestureCaptures(sceneId, overlayId);
             Volatile.Write(ref lookup, null);
             // Logical inventory changes must not enqueue tile data when the visible
             // provider has not changed; the chest snapshots are published separately.
@@ -370,6 +375,8 @@ public sealed partial class SceneRuntime(ISceneRenderSink? sink = null) : IScene
             }
             RemoveVirtualChestOpens(sceneId, overlayId);
             RemoveVirtualSignReads(sceneId, overlayId);
+            RemoveButtons(sceneId, overlayId);
+            RemoveGestures(sceneId, overlayId);
             Volatile.Write(ref lookup, null);
 
             RecordDirty(scene, removed.Definition.Bounds);
@@ -390,6 +397,7 @@ public sealed partial class SceneRuntime(ISceneRenderSink? sink = null) : IScene
             if (bringToFront)
             {
                 scene.Overlays[overlayId] = overlay with { Sequence = ++nextSequence };
+                InvalidateButtons(sceneId, overlayId);
                 Volatile.Write(ref lookup, null);
             }
             RecordDirty(scene, overlay.Definition.Bounds);
@@ -410,6 +418,8 @@ public sealed partial class SceneRuntime(ISceneRenderSink? sink = null) : IScene
             }
             RemoveVirtualChestOpens(sceneId);
             RemoveVirtualSignReads(sceneId);
+            RemoveButtons(sceneId);
+            RemoveGestures(sceneId);
             Volatile.Write(ref lookup, null);
 
             requests = scene.Overlays.Values

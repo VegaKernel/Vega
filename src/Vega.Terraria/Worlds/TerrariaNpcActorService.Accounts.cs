@@ -12,19 +12,20 @@ public sealed partial class TerrariaNpcActorService
     private sealed record EconomyOperation(ScopedAccount Account, NpcShopOffer Offer, long Revision);
     private sealed record EconomyPreparation(NpcShopPurchaseResult? Result, EconomyOperation? Operation = null);
 
-    private bool TryAccount(Actor actor, PlayerSnapshot player, string? name, bool conversation, out ScopedAccount scoped)
+    private bool TryAccount(Actor actor, PlayerSnapshot player, string? name, bool conversation, out ScopedAccount scoped,
+        NpcEconomyProviderAddress? economyProviderAddress = null)
     {
         scoped = default;
         if (name is null || !IsCurrent(actor) || (conversation ? !TryConversation(actor, player, out _) : !HasLiveSession(player)) ||
             accounts?.TryGetBinding(player, out var binding) != true) return false;
-        var scope = new NpcAccountScope(ownedWorld, name, binding.AccountId);
+        var scope = new NpcAccountScope(ownedWorld, name, binding.AccountId) { EconomyProvider = economyProviderAddress };
         if (!scope.IsValid) return false;
         scoped = new(scope, binding);
         return true;
     }
 
     private bool SameAccount(Actor actor, PlayerSnapshot player, ScopedAccount expected, bool conversation) =>
-        TryAccount(actor, player, expected.Scope.Scope, conversation, out var current) && current == expected;
+        TryAccount(actor, player, expected.Scope.Scope, conversation, out var current, expected.Scope.EconomyProvider) && current == expected;
 
     // Providers may perform synchronous work before returning a ValueTask. Always invoke them
     // from a worker, even when the initial game-thread capture completed synchronously.
@@ -176,7 +177,7 @@ public sealed partial class TerrariaNpcActorService
         var offer = catalog.Offers.FirstOrDefault(value => value.Id == offerId);
         if (offer.Id is null || actor.SoldOut.Contains(offerId)) return Failure(NpcShopPurchaseStatus.OfferUnavailable);
         if (offer.EconomyPrice is null) return walletOnly ? Failure(NpcShopPurchaseStatus.InvalidOffer) : new(Purchase(actor, player, offerId, revision));
-        if (!TryAccount(actor, player, actor.Definition.EconomyScope, true, out var account)) return Failure(NpcShopPurchaseStatus.AccountRequired);
+        if (!TryAccount(actor, player, actor.Definition.EconomyScope, true, out var account, actor.Definition.EconomyProvider)) return Failure(NpcShopPurchaseStatus.AccountRequired);
         if (!HasInventoryAuthority(player)) return Failure(NpcShopPurchaseStatus.InventoryAuthorityRequired);
         return new(null, new(account, offer, revision));
     }
@@ -244,7 +245,7 @@ public sealed partial class TerrariaNpcActorService
     private async ValueTask<NpcEconomyBalanceResult> CurrencyBalanceAsync(Actor actor, PlayerSnapshot player, string currencyId, CancellationToken token)
     {
         if (!NpcAccountScope.IsValidName(currencyId)) return new(NpcEconomyStatus.InvalidRequest);
-        var scoped = await Dispatch<ScopedAccount?>(() => TryAccount(actor, player, actor.Definition.EconomyScope, false, out var account) ? account : null,
+        var scoped = await Dispatch<ScopedAccount?>(() => TryAccount(actor, player, actor.Definition.EconomyScope, false, out var account, actor.Definition.EconomyProvider) ? account : null,
             null, token).ConfigureAwait(false);
         if (scoped is not { } captured) return new(NpcEconomyStatus.AccountRequired);
         try
@@ -260,7 +261,7 @@ public sealed partial class TerrariaNpcActorService
     private async ValueTask<NpcEconomyBalanceResult> CreditCurrencyAsync(Actor actor, PlayerSnapshot player, NpcEconomyPrice credit, Guid operationId, CancellationToken token)
     {
         if (!credit.IsValid || operationId == Guid.Empty) return new(NpcEconomyStatus.InvalidRequest);
-        var scoped = await Dispatch<ScopedAccount?>(() => TryAccount(actor, player, actor.Definition.EconomyScope, false, out var account) ? account : null,
+        var scoped = await Dispatch<ScopedAccount?>(() => TryAccount(actor, player, actor.Definition.EconomyScope, false, out var account, actor.Definition.EconomyProvider) ? account : null,
             null, token).ConfigureAwait(false);
         if (scoped is not { } captured) return new(NpcEconomyStatus.AccountRequired);
         try { return await OffThread(ct => economyProvider!.CreditAsync(captured.Scope, credit, operationId, ct), token).ConfigureAwait(false); }

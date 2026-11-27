@@ -36,7 +36,9 @@ public sealed class AdministrationGameplayCommandTests
         Assert.That((await dispatcher.DispatchAsync(fixture.Command("i", ["Torch", "20", "0"]))).Status, Is.EqualTo(CommandExecutionStatus.Success));
         Assert.That(fixture.Last, Is.EqualTo("item:Alice:Torch:20:0"));
         Assert.That((await dispatcher.DispatchAsync(fixture.Command("give", ["Torch", "OtherWorld"]))).Status, Is.EqualTo(CommandExecutionStatus.Failed));
-        Assert.That((await dispatcher.DispatchAsync(fixture.Command("give", ["Torch", "Bob", "0"]))).Status, Is.EqualTo(CommandExecutionStatus.InvalidUsage));
+        Assert.That((await dispatcher.DispatchAsync(fixture.Command("give", ["Torch", "Bob", "0"]))).Status, Is.EqualTo(CommandExecutionStatus.Success));
+        Assert.That((await dispatcher.DispatchAsync(fixture.Command("i", ["Blue", "Torch", "20"]))).Status, Is.EqualTo(CommandExecutionStatus.Success));
+        Assert.That(fixture.Last, Is.EqualTo("item:Alice:Blue Torch:20:0"));
         Assert.That((await dispatcher.DispatchAsync(fixture.Command("give", ["Torch", "Bob", "4"]))).Status, Is.EqualTo(CommandExecutionStatus.Success));
         Assert.That(fixture.Last, Is.EqualTo("item:Bob:Torch:4:0"));
         Assert.That((await dispatcher.DispatchAsync(fixture.Command("heal", ["Bob", "100"]))).Status, Is.EqualTo(CommandExecutionStatus.Success));

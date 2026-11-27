@@ -29,7 +29,6 @@
 		<ProjectReference Include="..\Vega.Modules.Administration\Vega.Modules.Administration.csproj" />
 		<ProjectReference Include="..\Vega.Modules.AutoWorldCleaner\Vega.Modules.AutoWorldCleaner.csproj" />
 		<ProjectReference Include="..\Vega.Modules.Chests\Vega.Modules.Chests.csproj" />
-		<ProjectReference Include="..\Vega.Modules.CustomItems\Vega.Modules.CustomItems.csproj" />
 		<ProjectReference Include="..\Vega.Modules.Mentions\Vega.Modules.Mentions.csproj" />
 		<ProjectReference Include="..\Vega.Modules.Navigation\Vega.Modules.Navigation.csproj" />
 		<ProjectReference Include="..\Vega.Modules.Restrictions\Vega.Modules.Restrictions.csproj" />

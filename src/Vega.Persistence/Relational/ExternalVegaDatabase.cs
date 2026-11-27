@@ -7,6 +7,7 @@ using Vega.Contracts.Worlds;
 using Vega.Contracts.Players;
 using System.Diagnostics;
 using Vega.Persistence.Sqlite;
+using Vega.Contracts.Modules;
 
 namespace Vega.Persistence.Relational;
 
@@ -57,6 +58,8 @@ public abstract class ExternalVegaDatabase : IVegaDatabase, IVegaOfflineImport
             connections.OpenAsync,
             EnsureReady);
         Playtime = new RelationalPlaytimeStore(connections.OpenAsync, EnsureReady, relationalProvider == RelationalProvider.MySql);
+        Homes = new RelationalHomeStore(connections.OpenAsync, EnsureReady);
+        PluginData = new RelationalPluginDocumentStore(connections.OpenAsync, EnsureReady, relationalProvider == RelationalProvider.MySql);
         offlineImport = new(connections.OpenAsync, EnsureReady,
             () => ((RelationalRegionService)Regions).Invalidate(WorldId.Primary));
     }
@@ -83,6 +86,11 @@ public abstract class ExternalVegaDatabase : IVegaDatabase, IVegaOfflineImport
 
     public IRegionService Regions { get; }
     public IPlayerPlaytimeStore Playtime { get; }
+    public IPlayerHomeStore Homes { get; }
+
+    public ValueTask<int> ImportHomesAsync(WorldId world, Guid worldFile, IReadOnlyList<PlayerHome> homes, CancellationToken token = default) =>
+        ((RelationalHomeStore)Homes).ImportAsync(world, worldFile, homes, token);
+    public IPluginDocumentStore PluginData { get; }
 
     public ValueTask<int> ImportAccountsAsync(IReadOnlyList<LegacyAccountImport> imports, CancellationToken token = default) =>
         offlineImport.ImportAccountsAsync(imports, token);

@@ -77,129 +77,177 @@ public sealed class RestAdministration(WorldId world, IAccountService accounts, 
         foreach (JsonProperty property in payload.EnumerateObject())
             if (!names.Add(property.Name)) return 400;
 
-        T Body<T>() where T : class => payload.Deserialize<T>(RequestOptions) ?? throw new JsonException("Missing administration body.");
-        DateTimeOffset now = DateTimeOffset.UtcNow;
+        int slash = route.IndexOf('/');
+        if (slash < 0) return 404;
         try
         {
-            switch (route)
+            return route[..slash] switch
             {
-                case "accounts/create":
-                    var createAccount = Body<CreateAccount>();
-                    return Status(await accounts.CreateAsync(Text(createAccount.Name), Text(createAccount.Password, 512), Text(createAccount.Group), Actor, token));
-                case "accounts/delete":
-                    var deleteAccount = Body<RevisionTarget>();
-                    return Status(await accounts.DeleteAsync(Text(deleteAccount.Name), Revision(deleteAccount.Revision), Actor, token));
-                case "accounts/group":
-                    var group = Body<AccountGroup>();
-                    return Status(await accounts.SetGroupAsync(Text(group.Name), Text(group.Group), Revision(group.Revision), Actor, token));
-                case "accounts/password":
-                    var password = Body<AccountPassword>();
-                    return Status(await accounts.ChangePasswordAsync(Text(password.Name), Text(password.Password, 512), Revision(password.Revision), Actor, token));
-                case "accounts/culture":
-                    var culture = Body<AccountCulture>();
-                    return Status(await accounts.SetCultureAsync(Text(culture.Name), Optional(culture.Culture), Revision(culture.Revision), Actor, token));
-                case "groups/create":
-                    var createGroup = Body<CreateGroup>();
-                    return Status(await groups.CreateGroupAsync(Text(createGroup.Name), Optional(createGroup.Parent), Actor, token));
-                case "groups/delete":
-                    var deleteGroup = Body<RevisionTarget>();
-                    return Status(await groups.DeleteGroupAsync(Text(deleteGroup.Name), Revision(deleteGroup.Revision), Actor, token));
-                case "groups/parent":
-                    var parent = Body<GroupParent>();
-                    return Status(await groups.SetParentAsync(Text(parent.Name), Optional(parent.Parent), Revision(parent.Revision), Actor, token));
-                case "groups/permission":
-                    var permission = Body<GroupPermission>();
-                    PermissionEffect? effect = permission.Effect switch
-                    { "grant" => PermissionEffect.Grant, "deny" => PermissionEffect.Deny, "revoke" => null, _ => throw new ArgumentException() };
-                    return Status(await groups.SetPermissionAsync(Text(permission.Name), Text(permission.Permission, 256), effect, Revision(permission.Revision), Actor, token));
-                case "regions/create":
-                    var createRegion = Body<CreateRegion>();
-                    return Status(await regions.CreateAsync(world, Text(createRegion.Name), createRegion.X, createRegion.Y,
-                        createRegion.Width, createRegion.Height, createRegion.Priority, Optional(createRegion.Owner), Actor, token));
-                case "regions/delete":
-                    var deleteRegion = Body<RevisionTarget>();
-                    return Status(await regions.DeleteAsync(world, Text(deleteRegion.Name), Revision(deleteRegion.Revision), Actor, token));
-                case "regions/resize":
-                    var resize = Body<ResizeRegion>();
-                    return Status(await regions.UpdateAsync(world, Text(resize.Name), new(resize.X, resize.Y, resize.Width, resize.Height), Revision(resize.Revision), Actor, token));
-                case "regions/priority":
-                    var priority = Body<RegionPriority>();
-                    return Status(await regions.UpdateAsync(world, Text(priority.Name), new(Priority: priority.Priority), Revision(priority.Revision), Actor, token));
-                case "regions/owner":
-                    var owner = Body<RegionOwner>();
-                    return Status(await regions.UpdateAsync(world, Text(owner.Name), new(Owner: Optional(owner.Owner), ClearOwner: owner.Owner is null), Revision(owner.Revision), Actor, token));
-                case "regions/flag":
-                    var flag = Body<RegionFlag>();
-                    return Status(await regions.UpdateAsync(world, Text(flag.Name), new(Flag: Text(flag.Flag), FlagValue: flag.Enabled), Revision(flag.Revision), Actor, token));
-                case "regions/access":
-                    var access = Body<RegionAccess>();
-                    RegionAccessKind kind = access.Kind switch { "member" => RegionAccessKind.Member, "group" => RegionAccessKind.Group, _ => throw new ArgumentException() };
-                    return Status(await regions.SetAccessAsync(world, Text(access.Name), kind, Text(access.Subject), access.Enabled, Revision(access.Revision), Actor, token));
-                case "bans/add":
-                    var ban = Body<BanRequest>();
-                    GlobalBanSubjectKind banKind = ban.Kind switch
-                    { "name" => GlobalBanSubjectKind.PlayerName, "account" => GlobalBanSubjectKind.Account, "uuid" => GlobalBanSubjectKind.Uuid,
-                        "ip" => GlobalBanSubjectKind.IpAddress, "cidr" => GlobalBanSubjectKind.Network, _ => throw new ArgumentException() };
-                    if (!bans.TryNormalizeSubject(new(banKind, Text(ban.Value, 256)), out var subject, out _) || subject is null) return 400;
-                    return await bans.CreateAsync(new(GlobalBanId.New(), subject, Text(ban.Reason, 512), Actor, now,
-                        ban.DurationSeconds is { } seconds ? Expiry(now, seconds) : null, 1), token) ? 204 : 409;
-                case "bans/revoke":
-                    var revokeBan = Body<RevisionId>();
-                    if (revokeBan.Id == Guid.Empty) return 400;
-                    var existing = bans.SnapshotActive(now).FirstOrDefault(b => b.Id.Value == revokeBan.Id);
-                    if (existing is null) return 404;
-                    if (existing.Revision != Revision(revokeBan.Revision) || existing.Revision == long.MaxValue) return 409;
-                    return await bans.RevokeAsync(new(existing.Id, Actor, now, existing.Revision + 1), token) ? 204 : 409;
-                case "mutes/add":
-                    var mute = Body<MuteRequest>();
-                    MuteSubjectKind muteKind = mute.Kind switch { "name" => MuteSubjectKind.PlayerName, "account" => MuteSubjectKind.Account, _ => throw new ArgumentException() };
-                    return Status(await mutes.CreateAsync(new(MuteId.New(), muteKind, Text(mute.Value), Text(mute.Reason, 512), Actor, now, Expiry(now, mute.DurationSeconds), 1), token));
-                case "mutes/revoke":
-                    var revokeMute = Body<RevisionId>();
-                    if (revokeMute.Id == Guid.Empty) return 400;
-                    return Status(await mutes.RevokeAsync(new(revokeMute.Id), Revision(revokeMute.Revision), Actor, now, token));
-                case "sandboxes/start":
-                case "sandboxes/stop":
-                case "sandboxes/restart":
-                    if (sandboxControl is null) return 404;
-                    var target = new WorldId(Text(Body<SandboxTarget>().WorldId));
-                    if (target == WorldId.Primary) return 400;
-                    SandboxOperationResult result = route switch
-                    {
-                        "sandboxes/start" => await sandboxControl.StartAsync(target, token),
-                        "sandboxes/stop" => await sandboxControl.StopAsync(target, token),
-                        _ => await sandboxControl.RestartAsync(target, token)
-                    };
-                    return Status(result);
-                case "sandboxes/create":
-                    if (sandboxControl is null) return 404;
-                    var create = Body<CreateSandbox>();
-                    var persistence = create.Persistence switch
-                    { "temporary" => SandboxPersistenceMode.Temporary, "persistent" => SandboxPersistenceMode.Persistent, _ => throw new ArgumentException() };
-                    var ssc = create.SscMode switch
-                    { "inherit" => SandboxSscMode.Inherit, "copyOnEnter" => SandboxSscMode.CopyOnEnter,
-                        "isolated" => SandboxSscMode.Isolated, "disabled" => SandboxSscMode.Disabled, _ => throw new ArgumentException() };
-                    if (create.Capacity is < 1 or > 255 || create.WorldId.Equals("primary", StringComparison.OrdinalIgnoreCase)) return 400;
-                    string? template = ResolveTemplate(create.Template);
-                    if (template is null) return 404;
-                    return Status(await sandboxControl.CreateAsync(new SandboxCreateRequest(Text(create.WorldId), Text(create.Name), template,
-                        persistence, create.Capacity, new(SandboxAccessMode.Public), null, ssc, new HashSet<string>()), token));
-                case "sandboxes/reset":
-                    if (sandboxControl is null) return 404;
-                    var reset = Body<ResetSandbox>();
-                    if (!reset.Confirm || reset.WorldId.Equals("primary", StringComparison.OrdinalIgnoreCase)) return 400;
-                    string? replacement = reset.Template is null ? null : ResolveTemplate(reset.Template);
-                    if (reset.Template is not null && replacement is null) return 404;
-                    return Status(await sandboxControl.ResetConfirmedAsync(new(Text(reset.WorldId)), Revision(reset.Revision), reset.CreatedAt, replacement, token));
-                case "sandboxes/destroy":
-                    if (sandboxControl is null) return 404;
-                    var destroy = Body<DestroySandbox>();
-                    if (!destroy.Confirm || destroy.WorldId.Equals("primary", StringComparison.OrdinalIgnoreCase)) return 400;
-                    return Status(await sandboxControl.DestroyConfirmedAsync(new(Text(destroy.WorldId)), Revision(destroy.Revision), destroy.CreatedAt, token));
-                default: return 404;
-            }
+                "accounts" => await WriteAccountsAsync(route, payload, token),
+                "groups" => await WriteGroupsAsync(route, payload, token),
+                "regions" => await WriteRegionsAsync(route, payload, token),
+                "bans" or "mutes" => await WriteModerationAsync(route, payload, DateTimeOffset.UtcNow, token),
+                "sandboxes" => await WriteSandboxesAsync(route, payload, token),
+                _ => 404
+            };
         }
         catch (Exception ex) when (ex is ArgumentException or JsonException or OverflowException) { return 400; }
+    }
+
+    private static T Body<T>(JsonElement payload) where T : class =>
+        payload.Deserialize<T>(RequestOptions) ?? throw new JsonException("Missing administration body.");
+
+    private async ValueTask<int> WriteAccountsAsync(string route, JsonElement payload, CancellationToken token)
+    {
+        switch (route)
+        {
+            case "accounts/create":
+                var createAccount = Body<CreateAccount>(payload);
+                return Status(await accounts.CreateAsync(Text(createAccount.Name), Text(createAccount.Password, 512), Text(createAccount.Group), Actor, token));
+            case "accounts/delete":
+                var deleteAccount = Body<RevisionTarget>(payload);
+                return Status(await accounts.DeleteAsync(Text(deleteAccount.Name), Revision(deleteAccount.Revision), Actor, token));
+            case "accounts/group":
+                var group = Body<AccountGroup>(payload);
+                return Status(await accounts.SetGroupAsync(Text(group.Name), Text(group.Group), Revision(group.Revision), Actor, token));
+            case "accounts/password":
+                var password = Body<AccountPassword>(payload);
+                return Status(await accounts.ChangePasswordAsync(Text(password.Name), Text(password.Password, 512), Revision(password.Revision), Actor, token));
+            case "accounts/culture":
+                var culture = Body<AccountCulture>(payload);
+                return Status(await accounts.SetCultureAsync(Text(culture.Name), Optional(culture.Culture), Revision(culture.Revision), Actor, token));
+            default: return 404;
+        }
+    }
+
+    private async ValueTask<int> WriteGroupsAsync(string route, JsonElement payload, CancellationToken token)
+    {
+        switch (route)
+        {
+            case "groups/create":
+                var createGroup = Body<CreateGroup>(payload);
+                return Status(await groups.CreateGroupAsync(Text(createGroup.Name), Optional(createGroup.Parent), Actor, token));
+            case "groups/delete":
+                var deleteGroup = Body<RevisionTarget>(payload);
+                return Status(await groups.DeleteGroupAsync(Text(deleteGroup.Name), Revision(deleteGroup.Revision), Actor, token));
+            case "groups/parent":
+                var parent = Body<GroupParent>(payload);
+                return Status(await groups.SetParentAsync(Text(parent.Name), Optional(parent.Parent), Revision(parent.Revision), Actor, token));
+            case "groups/permission":
+                var permission = Body<GroupPermission>(payload);
+                PermissionEffect? effect = permission.Effect switch
+                { "grant" => PermissionEffect.Grant, "deny" => PermissionEffect.Deny, "revoke" => null, _ => throw new ArgumentException() };
+                return Status(await groups.SetPermissionAsync(Text(permission.Name), Text(permission.Permission, 256), effect, Revision(permission.Revision), Actor, token));
+            default: return 404;
+        }
+    }
+
+    private async ValueTask<int> WriteRegionsAsync(string route, JsonElement payload, CancellationToken token)
+    {
+        switch (route)
+        {
+            case "regions/create":
+                var createRegion = Body<CreateRegion>(payload);
+                return Status(await regions.CreateAsync(world, Text(createRegion.Name), createRegion.X, createRegion.Y,
+                    createRegion.Width, createRegion.Height, createRegion.Priority, Optional(createRegion.Owner), Actor, token));
+            case "regions/delete":
+                var deleteRegion = Body<RevisionTarget>(payload);
+                return Status(await regions.DeleteAsync(world, Text(deleteRegion.Name), Revision(deleteRegion.Revision), Actor, token));
+            case "regions/resize":
+                var resize = Body<ResizeRegion>(payload);
+                return Status(await regions.UpdateAsync(world, Text(resize.Name), new(resize.X, resize.Y, resize.Width, resize.Height), Revision(resize.Revision), Actor, token));
+            case "regions/priority":
+                var priority = Body<RegionPriority>(payload);
+                return Status(await regions.UpdateAsync(world, Text(priority.Name), new(Priority: priority.Priority), Revision(priority.Revision), Actor, token));
+            case "regions/owner":
+                var owner = Body<RegionOwner>(payload);
+                return Status(await regions.UpdateAsync(world, Text(owner.Name), new(Owner: Optional(owner.Owner), ClearOwner: owner.Owner is null), Revision(owner.Revision), Actor, token));
+            case "regions/flag":
+                var flag = Body<RegionFlag>(payload);
+                return Status(await regions.UpdateAsync(world, Text(flag.Name), new(Flag: Text(flag.Flag), FlagValue: flag.Enabled), Revision(flag.Revision), Actor, token));
+            case "regions/access":
+                var access = Body<RegionAccess>(payload);
+                RegionAccessKind kind = access.Kind switch { "member" => RegionAccessKind.Member, "group" => RegionAccessKind.Group, _ => throw new ArgumentException() };
+                return Status(await regions.SetAccessAsync(world, Text(access.Name), kind, Text(access.Subject), access.Enabled, Revision(access.Revision), Actor, token));
+            default: return 404;
+        }
+    }
+
+    private async ValueTask<int> WriteModerationAsync(string route, JsonElement payload, DateTimeOffset now, CancellationToken token)
+    {
+        switch (route)
+        {
+            case "bans/add":
+                var ban = Body<BanRequest>(payload);
+                GlobalBanSubjectKind banKind = ban.Kind switch
+                { "name" => GlobalBanSubjectKind.PlayerName, "account" => GlobalBanSubjectKind.Account, "uuid" => GlobalBanSubjectKind.Uuid,
+                    "ip" => GlobalBanSubjectKind.IpAddress, "cidr" => GlobalBanSubjectKind.Network, _ => throw new ArgumentException() };
+                if (!bans.TryNormalizeSubject(new(banKind, Text(ban.Value, 256)), out var subject, out _) || subject is null) return 400;
+                return await bans.CreateAsync(new(GlobalBanId.New(), subject, Text(ban.Reason, 512), Actor, now,
+                    ban.DurationSeconds is { } seconds ? Expiry(now, seconds) : null, 1), token) ? 204 : 409;
+            case "bans/revoke":
+                var revokeBan = Body<RevisionId>(payload);
+                if (revokeBan.Id == Guid.Empty) return 400;
+                var existing = bans.SnapshotActive(now).FirstOrDefault(b => b.Id.Value == revokeBan.Id);
+                if (existing is null) return 404;
+                if (existing.Revision != Revision(revokeBan.Revision) || existing.Revision == long.MaxValue) return 409;
+                return await bans.RevokeAsync(new(existing.Id, Actor, now, existing.Revision + 1), token) ? 204 : 409;
+            case "mutes/add":
+                var mute = Body<MuteRequest>(payload);
+                MuteSubjectKind muteKind = mute.Kind switch { "name" => MuteSubjectKind.PlayerName, "account" => MuteSubjectKind.Account, _ => throw new ArgumentException() };
+                return Status(await mutes.CreateAsync(new(MuteId.New(), muteKind, Text(mute.Value), Text(mute.Reason, 512), Actor, now, Expiry(now, mute.DurationSeconds), 1), token));
+            case "mutes/revoke":
+                var revokeMute = Body<RevisionId>(payload);
+                if (revokeMute.Id == Guid.Empty) return 400;
+                return Status(await mutes.RevokeAsync(new(revokeMute.Id), Revision(revokeMute.Revision), Actor, now, token));
+            default: return 404;
+        }
+    }
+
+    private async ValueTask<int> WriteSandboxesAsync(string route, JsonElement payload, CancellationToken token)
+    {
+        switch (route)
+        {
+            case "sandboxes/start":
+            case "sandboxes/stop":
+            case "sandboxes/restart":
+                if (sandboxControl is null) return 404;
+                var target = new WorldId(Text(Body<SandboxTarget>(payload).WorldId));
+                if (target == WorldId.Primary) return 400;
+                SandboxOperationResult result = route switch
+                {
+                    "sandboxes/start" => await sandboxControl.StartAsync(target, token),
+                    "sandboxes/stop" => await sandboxControl.StopAsync(target, token),
+                    _ => await sandboxControl.RestartAsync(target, token)
+                };
+                return Status(result);
+            case "sandboxes/create":
+                if (sandboxControl is null) return 404;
+                var create = Body<CreateSandbox>(payload);
+                var persistence = create.Persistence switch
+                { "temporary" => SandboxPersistenceMode.Temporary, "persistent" => SandboxPersistenceMode.Persistent, _ => throw new ArgumentException() };
+                var ssc = create.SscMode switch
+                { "inherit" => SandboxSscMode.Inherit, "copyOnEnter" => SandboxSscMode.CopyOnEnter,
+                    "isolated" => SandboxSscMode.Isolated, "disabled" => SandboxSscMode.Disabled, _ => throw new ArgumentException() };
+                if (create.Capacity is < 1 or > 255 || create.WorldId.Equals("primary", StringComparison.OrdinalIgnoreCase)) return 400;
+                string? template = ResolveTemplate(create.Template);
+                if (template is null) return 404;
+                return Status(await sandboxControl.CreateAsync(new SandboxCreateRequest(Text(create.WorldId), Text(create.Name), template,
+                    persistence, create.Capacity, new(SandboxAccessMode.Public), null, ssc, new HashSet<string>()), token));
+            case "sandboxes/reset":
+                if (sandboxControl is null) return 404;
+                var reset = Body<ResetSandbox>(payload);
+                if (!reset.Confirm || reset.WorldId.Equals("primary", StringComparison.OrdinalIgnoreCase)) return 400;
+                string? replacement = reset.Template is null ? null : ResolveTemplate(reset.Template);
+                if (reset.Template is not null && replacement is null) return 404;
+                return Status(await sandboxControl.ResetConfirmedAsync(new(Text(reset.WorldId)), Revision(reset.Revision), reset.CreatedAt, replacement, token));
+            case "sandboxes/destroy":
+                if (sandboxControl is null) return 404;
+                var destroy = Body<DestroySandbox>(payload);
+                if (!destroy.Confirm || destroy.WorldId.Equals("primary", StringComparison.OrdinalIgnoreCase)) return 400;
+                return Status(await sandboxControl.DestroyConfirmedAsync(new(Text(destroy.WorldId)), Revision(destroy.Revision), destroy.CreatedAt, token));
+            default: return 404;
+        }
     }
 
     private static string Text(string value, int max = 128) => !string.IsNullOrWhiteSpace(value) && value.Length <= max && !value.Any(char.IsControl)

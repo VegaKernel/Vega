@@ -14,6 +14,8 @@ public readonly record struct PlayerOperationResult(
     string? ErrorCode = null)
 {
     public bool IsSuccess => Status == PlayerOperationStatus.Applied;
+    public int? DeliveredItemStack { get; init; }
+    public string? DeliveredItemName { get; init; }
 
     public static PlayerOperationResult Applied() => new(PlayerOperationStatus.Applied);
 

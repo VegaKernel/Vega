@@ -49,6 +49,7 @@ public sealed partial class TerrariaNpcActorService(IGameThreadDispatcher dispat
             !ValidName(definition.Name) || !ValidPosition(position) || !ValidShop(definition.Shop) || !ValidQuests(definition.Quests) ||
             definition.PersistentQuestScope is { } questScope && (!NpcAccountScope.IsValidName(questScope) || accounts is null || persistentQuests is null) ||
             definition.EconomyScope is { } economyScope && (!NpcAccountScope.IsValidName(economyScope) || accounts is null || economyProvider is null) ||
+            definition.EconomyProvider is { } externalEconomy && (!externalEconomy.IsValid || definition.EconomyScope is null || economyProvider?.SupportsNamedProviders != true) ||
             definition.EconomyScope is null && UsesEconomy(definition.Shop))
             return new(NpcOperationStatus.Invalid, ErrorCode: "npc.actor_invalid_definition");
 
@@ -539,7 +540,7 @@ public sealed partial class TerrariaNpcActorService(IGameThreadDispatcher dispat
             owner.IsCurrent(this) ? new NpcActorSnapshot(Id, owner.Snapshot(this), Native.GivenName, Intent.Kind, Shop, ShopRevision)
                 { SoldOutOffers = Array.AsReadOnly(SoldOut.ToArray()), Dialogue = Interactions.Dialogue,
                     Quests = Interactions.Quests, QuestRevision = Interactions.QuestRevision,
-                    PersistentQuestScope = Definition.PersistentQuestScope, EconomyScope = Definition.EconomyScope } : null,
+                    PersistentQuestScope = Definition.PersistentQuestScope, EconomyScope = Definition.EconomyScope, EconomyProvider = Definition.EconomyProvider } : null,
             null, cancellationToken);
         public ValueTask<bool> RenameAsync(string name, CancellationToken cancellationToken = default) => owner.Dispatch(() =>
         {

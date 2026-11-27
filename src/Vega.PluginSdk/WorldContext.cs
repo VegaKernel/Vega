@@ -1,6 +1,3 @@
-using System.Runtime.CompilerServices;
-using System.Collections.Frozen;
-using Vega.Contracts.Modules;
 using Vega.Contracts.Players;
 using Vega.Contracts.Regions;
 using Vega.Contracts.Scenes;
@@ -19,15 +16,32 @@ public interface IPluginWorld
     IPluginWorldScenes Scenes { get; }
     IPluginWorldSchematics Schematics => throw new NotSupportedException("World schematic capture is unavailable in this host.");
     IPluginFakeProvider FakeProvider => throw new NotSupportedException("FakeProvider is unavailable in this host.");
-    IPluginRegions Regions => throw new NotSupportedException("Region snapshots are unavailable in this host.");
+    IPluginRegions Regions => throw new NotSupportedException("Region access is unavailable in this host.");
 }
 
-/// <summary>Detached, read-only region snapshots from the current world only.</summary>
+/// <summary>Detached region snapshots and audited optimistic mutations in the hosted world only.</summary>
 public interface IPluginRegions
 {
     bool IsAvailable { get; }
     IReadOnlyList<RegionSnapshot> Snapshot();
     RegionSnapshot? FindTop(int tileX, int tileY);
+    /// <summary>All overlapping regions at the tile, ordered by the native protection-region precedence.</summary>
+    IReadOnlyList<RegionSnapshot> FindContaining(int tileX, int tileY) => Array.AsReadOnly(Snapshot()
+        .Where(region => region.Contains(tileX, tileY)).OrderByDescending(region => region.Priority)
+        .ThenBy(region => (long)region.Width * region.Height).ThenBy(region => region.Id).ToArray());
+    /// <summary>Creates a protected region using current-world bounds. The host supplies the audit actor.</summary>
+    ValueTask<RegionMutationResult> CreateAsync(string name, int x, int y, int width, int height, int priority = 0,
+        string? owner = null, CancellationToken cancellationToken = default) =>
+        ValueTask.FromResult(new RegionMutationResult(false, "region.mutation-unavailable"));
+    /// <summary>Pass the observed region including its stable ID and revision. Obtain a fresh snapshot on conflict.</summary>
+    ValueTask<RegionMutationResult> UpdateAsync(RegionSnapshot expected, RegionUpdate update, CancellationToken cancellationToken = default) =>
+        ValueTask.FromResult(new RegionMutationResult(false, "region.mutation-unavailable"));
+    ValueTask<RegionMutationResult> RenameAsync(RegionSnapshot expected, string newName, CancellationToken cancellationToken = default) =>
+        ValueTask.FromResult(new RegionMutationResult(false, "region.mutation-unavailable"));
+    ValueTask<RegionMutationResult> SetAccessAsync(RegionSnapshot expected, RegionAccessKind kind, string subject, bool enabled,
+        CancellationToken cancellationToken = default) => ValueTask.FromResult(new RegionMutationResult(false, "region.mutation-unavailable"));
+    ValueTask<RegionMutationResult> DeleteAsync(RegionSnapshot expected, CancellationToken cancellationToken = default) =>
+        ValueTask.FromResult(new RegionMutationResult(false, "region.mutation-unavailable"));
 }
 
 public interface IPluginWorldEnvironment
@@ -49,6 +63,17 @@ public interface IPluginWorldTiles
         WorldTileAreaSnapshot expected,
         SceneTileArea replacement,
         CancellationToken cancellationToken = default);
+
+    /// <summary>Inverts a successful edit only if its exact after-snapshot is still current. Invert the resulting
+    /// receipt again for redo. No implicit history is retained by the host.</summary>
+    ValueTask<WorldTileMutationResult> UndoAsync(WorldTileMutationResult edit, CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(edit);
+        if (!edit.IsSuccess || edit.Before is not { } before || edit.After is not { } after ||
+            before.WorldId != after.WorldId || before.Bounds != after.Bounds || before.WorldInstanceId != after.WorldInstanceId)
+            return ValueTask.FromResult(new WorldTileMutationResult(WorldTileMutationStatus.Invalid, ErrorCode: "world.tiles.invalid_receipt"));
+        return ReplaceAsync(after, before.Tiles, cancellationToken);
+    }
 }
 
 public interface IPluginWorldChests
@@ -111,451 +136,12 @@ public interface IPluginPlayerInventory
         PlayerId playerId,
         CancellationToken cancellationToken = default);
 
+    /// <summary>Capture only the originally observed player session.</summary>
+    ValueTask<PlayerInventorySnapshot?> CaptureAsync(PlayerSnapshot player, CancellationToken cancellationToken = default) =>
+        ValueTask.FromResult<PlayerInventorySnapshot?>(null);
+
     ValueTask<InventoryMutationResult> ReplaceSlotAsync(
         PlayerInventorySnapshot expected,
         InventorySlotReplacement replacement,
         CancellationToken cancellationToken = default);
-}
-
-internal sealed record VegaPluginRuntimeServices(
-    WorldId WorldId,
-    IWorldEnvironmentService? Environment,
-    IWorldTileService? Tiles,
-    IChestService? Chests,
-    IWorldNpcService? Npcs,
-    ISceneRuntime? Scenes,
-    IPlayerInventoryService? Inventory,
-    ISceneVisibilityRuntime? Visibility = null,
-    IWorldSchematicService? Schematics = null,
-    IWorldNpcActorService? NpcActors = null,
-    IRegionService? Regions = null)
-{
-    public static VegaPluginRuntimeServices Empty { get; } = new(
-        WorldId.Primary,
-        null,
-        null,
-        null,
-        null,
-        null,
-        null);
-}
-
-internal static partial class VegaPluginRuntime
-{
-    private static readonly ConditionalWeakTable<IVegaPluginContext, PluginWorld> Worlds = new();
-    private static VegaPluginRuntimeServices services = VegaPluginRuntimeServices.Empty;
-    private static readonly IPluginPlayerInventory InventoryFacade = new PluginPlayerInventory();
-
-    internal static IPluginWorld World(IVegaPluginContext context)
-    {
-        ArgumentNullException.ThrowIfNull(context);
-        return Worlds.GetValue(context, static value => new PluginWorld(value));
-    }
-
-    internal static IPluginPlayerInventory Inventory => InventoryFacade;
-
-    internal static void Configure(VegaPluginRuntimeServices value)
-    {
-        ArgumentNullException.ThrowIfNull(value);
-        Volatile.Write(ref services, value);
-    }
-
-    private static VegaPluginRuntimeServices Services => Volatile.Read(ref services);
-
-    private static string Actor(IVegaPluginContext context)
-    {
-        string directory = context.Configuration.Directory.TrimEnd(
-            Path.DirectorySeparatorChar,
-            Path.AltDirectorySeparatorChar);
-        string name = Path.GetFileName(directory);
-        return string.IsNullOrWhiteSpace(name) ? "plugin" : name;
-    }
-
-    private sealed class PluginWorld(IVegaPluginContext context) : IPluginWorld
-    {
-        public WorldId Current => Services.WorldId;
-        public IPluginWorldEnvironment Environment { get; } = new PluginEnvironment(context);
-        public IPluginWorldTiles Tiles { get; } = new PluginTiles(context);
-        public IPluginWorldChests Chests { get; } = new PluginChests(context);
-        public IPluginWorldNpcs Npcs { get; } = new PluginNpcs(context);
-        public IPluginWorldScenes Scenes { get; } = new PluginScenes(context);
-        public IPluginWorldSchematics Schematics { get; } = new PluginSchematics();
-        public IPluginFakeProvider FakeProvider { get; } = new PluginFakeProvider(context);
-        public IPluginRegions Regions { get; } = new PluginRegions();
-    }
-
-    private sealed class PluginRegions : IPluginRegions
-    {
-        public bool IsAvailable => Services.Regions is not null;
-
-        public IReadOnlyList<RegionSnapshot> Snapshot()
-        {
-            VegaPluginRuntimeServices current = Services;
-            IRegionService regions = current.Regions ?? throw new NotSupportedException("Region snapshots are unavailable in this host.");
-            return Array.AsReadOnly(regions.SnapshotRegions(current.WorldId)
-                .Where(region => region.WorldId == current.WorldId).Select(Detach).ToArray());
-        }
-
-        public RegionSnapshot? FindTop(int tileX, int tileY)
-        {
-            VegaPluginRuntimeServices current = Services;
-            IRegionService regions = current.Regions ?? throw new NotSupportedException("Region snapshots are unavailable in this host.");
-            RegionSnapshot? region = regions.FindTopRegion(current.WorldId, tileX, tileY);
-            return region is not null && region.WorldId == current.WorldId ? Detach(region) : null;
-        }
-
-        private static RegionSnapshot Detach(RegionSnapshot region) => region with
-        {
-            Members = region.Members.ToFrozenSet(StringComparer.OrdinalIgnoreCase),
-            Groups = region.Groups.ToFrozenSet(StringComparer.OrdinalIgnoreCase),
-            Flags = region.Flags.ToFrozenDictionary(StringComparer.OrdinalIgnoreCase)
-        };
-    }
-
-    private sealed class PluginSchematics : IPluginWorldSchematics
-    {
-        public ValueTask<WorldSchematicCaptureResult> CaptureAsync(SceneBounds bounds, CancellationToken cancellationToken = default)
-        {
-            VegaPluginRuntimeServices current = Services;
-            return current.Schematics?.CaptureAsync(current.WorldId, bounds, cancellationToken) ??
-                ValueTask.FromResult(new WorldSchematicCaptureResult(WorldSchematicCaptureStatus.Unavailable));
-        }
-        public ValueTask<WorldSchematicPlacementResult> PlaceAsync(ReadOnlyMemory<byte> data, int x, int y, CancellationToken cancellationToken = default)
-        {
-            VegaPluginRuntimeServices current = Services;
-            return current.Schematics?.PlaceAsync(current.WorldId, data, x, y, cancellationToken) ??
-                ValueTask.FromResult(new WorldSchematicPlacementResult(WorldSchematicPlacementStatus.Unavailable));
-        }
-    }
-
-    private sealed class PluginEnvironment(IVegaPluginContext context) : IPluginWorldEnvironment
-    {
-        public ValueTask<WorldEnvironmentSnapshot?> CaptureAsync(CancellationToken cancellationToken = default)
-        {
-            VegaPluginRuntimeServices current = Services;
-            return current.Environment?.CaptureAsync(current.WorldId, cancellationToken) ??
-                ValueTask.FromResult<WorldEnvironmentSnapshot?>(null);
-        }
-
-        public ValueTask<WorldEnvironmentMutationResult> PatchAsync(
-            WorldEnvironmentPatch patch,
-            CancellationToken cancellationToken = default)
-        {
-            ArgumentNullException.ThrowIfNull(patch);
-            VegaPluginRuntimeServices current = Services;
-            return current.Environment?.PatchAsync(
-                new WorldEnvironmentMutationRequest(current.WorldId, patch, Actor(context)),
-                cancellationToken) ??
-                ValueTask.FromResult(new WorldEnvironmentMutationResult(
-                    WorldEnvironmentMutationStatus.DispatcherUnavailable,
-                    ErrorCode: "world.environment.unavailable"));
-        }
-    }
-
-    private sealed class PluginTiles(IVegaPluginContext context) : IPluginWorldTiles
-    {
-        public ValueTask<WorldTileAreaSnapshot?> CaptureAsync(
-            SceneBounds bounds,
-            CancellationToken cancellationToken = default)
-        {
-            VegaPluginRuntimeServices current = Services;
-            return current.Tiles?.CaptureAsync(current.WorldId, bounds, cancellationToken) ??
-                ValueTask.FromResult<WorldTileAreaSnapshot?>(null);
-        }
-
-        public ValueTask<WorldTileMutationResult> ReplaceAsync(
-            WorldTileAreaSnapshot expected,
-            SceneTileArea replacement,
-            CancellationToken cancellationToken = default)
-        {
-            ArgumentNullException.ThrowIfNull(expected);
-            ArgumentNullException.ThrowIfNull(replacement);
-            VegaPluginRuntimeServices current = Services;
-            if (expected.WorldId != current.WorldId)
-            {
-                return ValueTask.FromResult(new WorldTileMutationResult(
-                    WorldTileMutationStatus.Invalid,
-                    ErrorCode: "world.tiles.wrong_world"));
-            }
-
-            return current.Tiles?.ReplaceAsync(
-                new WorldTileMutationRequest(
-                    current.WorldId,
-                    expected.Bounds,
-                    expected.Revision,
-                    replacement,
-                    Actor(context)),
-                cancellationToken) ??
-                ValueTask.FromResult(new WorldTileMutationResult(
-                    WorldTileMutationStatus.Failed,
-                    ErrorCode: "world.tiles.unavailable"));
-        }
-    }
-
-    private sealed class PluginChests(IVegaPluginContext context) : IPluginWorldChests
-    {
-        public ValueTask<ChestSnapshot?> CaptureAsync(
-            int x,
-            int y,
-            CancellationToken cancellationToken = default)
-        {
-            VegaPluginRuntimeServices current = Services;
-            return current.Chests?.CaptureAsync(
-                new ChestIdentity(current.WorldId, x, y),
-                cancellationToken) ?? ValueTask.FromResult<ChestSnapshot?>(null);
-        }
-
-        public ValueTask<ChestMutationResult> ReplaceAsync(
-            ChestSnapshot expected,
-            IReadOnlyList<ChestItemSnapshot> items,
-            string? name = null,
-            CancellationToken cancellationToken = default)
-        {
-            ArgumentNullException.ThrowIfNull(expected);
-            ArgumentNullException.ThrowIfNull(items);
-            VegaPluginRuntimeServices current = Services;
-            if (expected.Identity.WorldId != current.WorldId)
-            {
-                return ValueTask.FromResult(new ChestMutationResult(
-                    ChestMutationStatus.Invalid,
-                    ErrorCode: "chest.wrong_world"));
-            }
-
-            return current.Chests?.ReplaceAsync(
-                new ChestMutationRequest(
-                    expected.Identity,
-                    expected.Revision,
-                    items,
-                    Actor(context),
-                    Name: name),
-                cancellationToken) ??
-                ValueTask.FromResult(new ChestMutationResult(
-                    ChestMutationStatus.Failed,
-                    ErrorCode: "chest.unavailable"));
-        }
-    }
-
-    private sealed class PluginNpcs(IVegaPluginContext context) : IPluginWorldNpcs, IDisposable
-    {
-        private readonly object actorSync = new();
-        private readonly HashSet<OwnedActor> actors = [];
-        private bool tracked;
-        private bool disposed;
-
-        public async ValueTask<NpcActorCreationResult> CreateActorAsync(NpcActorDefinition definition, PlayerPosition position,
-            CancellationToken cancellationToken = default)
-        {
-            VegaPluginRuntimeServices current = Services;
-            if (current.NpcActors is null || context is not IHotModuleContext owner)
-                return new(NpcOperationStatus.DispatcherUnavailable, ErrorCode: "npc.actors_unavailable");
-            var result = await current.NpcActors.CreateAsync(current.WorldId, definition, position, cancellationToken).ConfigureAwait(false);
-            if (result.Actor is { } actor)
-            {
-                try
-                {
-                    lock (actorSync)
-                    {
-                        ObjectDisposedException.ThrowIf(disposed, this);
-                        // One aggregate registration per plugin, not one retained registration per retired NPC.
-                        if (!tracked) { owner.Track(this); tracked = true; }
-                        actors.RemoveWhere(static lease => lease.IsRetired);
-                        var lease = new OwnedActor(this, actor);
-                        actors.Add(lease);
-                        return result with { Actor = lease };
-                    }
-                }
-                catch { actor.Dispose(); throw; }
-            }
-            return result;
-        }
-
-        public void Dispose()
-        {
-            OwnedActor[] owned;
-            lock (actorSync)
-            {
-                if (disposed) return;
-                disposed = true;
-                owned = actors.ToArray();
-                actors.Clear();
-            }
-            foreach (var actor in owned) actor.Dispose();
-        }
-
-        private sealed class OwnedActor(PluginNpcs owner, INpcActor actor) : INpcActor
-        {
-            private INpcActor? inner = actor;
-            public NpcActorId Id { get; } = actor.Id;
-            public bool IsRetired => Volatile.Read(ref inner)?.IsRetired != false;
-            public ValueTask<NpcActorSnapshot?> CaptureAsync(CancellationToken cancellationToken = default) =>
-                Volatile.Read(ref inner)?.CaptureAsync(cancellationToken) ?? ValueTask.FromResult<NpcActorSnapshot?>(null);
-            public ValueTask<bool> RenameAsync(string name, CancellationToken cancellationToken = default) =>
-                Volatile.Read(ref inner)?.RenameAsync(name, cancellationToken) ?? ValueTask.FromResult(false);
-            public ValueTask<bool> TeleportAsync(PlayerPosition position, CancellationToken cancellationToken = default) =>
-                Volatile.Read(ref inner)?.TeleportAsync(position, cancellationToken) ?? ValueTask.FromResult(false);
-            public ValueTask<bool> SetIntentAsync(NpcActorIntent intent, CancellationToken cancellationToken = default) =>
-                Volatile.Read(ref inner)?.SetIntentAsync(intent, cancellationToken) ?? ValueTask.FromResult(false);
-            public ValueTask<bool> SetShopAsync(NpcShopCatalog? shop, CancellationToken cancellationToken = default) =>
-                Volatile.Read(ref inner)?.SetShopAsync(shop, cancellationToken) ?? ValueTask.FromResult(false);
-            public ValueTask<NpcShopPresentationStatus> PresentShopAsync(PlayerSnapshot player, CancellationToken cancellationToken = default) =>
-                Volatile.Read(ref inner)?.PresentShopAsync(player, cancellationToken) ?? ValueTask.FromResult(NpcShopPresentationStatus.ActorGone);
-            public ValueTask<NpcShopPurchaseResult> PurchaseAsync(PlayerSnapshot player, string offerId, long expectedShopRevision, CancellationToken cancellationToken = default) =>
-                Volatile.Read(ref inner)?.PurchaseAsync(player, offerId, expectedShopRevision, cancellationToken) ??
-                    ValueTask.FromResult(new NpcShopPurchaseResult(NpcShopPurchaseStatus.ActorGone));
-            public ValueTask<NpcShopPurchaseResult> PurchaseCurrencyAsync(PlayerSnapshot player, string offerId, long expectedShopRevision,
-                Guid operationId, CancellationToken cancellationToken = default) => Volatile.Read(ref inner)?.PurchaseCurrencyAsync(player, offerId,
-                    expectedShopRevision, operationId, cancellationToken) ?? ValueTask.FromResult(new NpcShopPurchaseResult(NpcShopPurchaseStatus.ActorGone));
-            public ValueTask<bool> SetDialogueAsync(NpcDialogueDefinition? dialogue, CancellationToken cancellationToken = default) =>
-                Volatile.Read(ref inner)?.SetDialogueAsync(dialogue, cancellationToken) ?? ValueTask.FromResult(false);
-            public ValueTask<NpcDialogueResult> BeginDialogueAsync(PlayerSnapshot player, CancellationToken cancellationToken = default) =>
-                Volatile.Read(ref inner)?.BeginDialogueAsync(player, cancellationToken) ?? ValueTask.FromResult(new NpcDialogueResult(NpcDialogueStatus.ActorGone));
-            public ValueTask<NpcDialogueResult> ChooseDialogueAsync(PlayerSnapshot player, long expectedViewRevision, string choiceId, CancellationToken cancellationToken = default) =>
-                Volatile.Read(ref inner)?.ChooseDialogueAsync(player, expectedViewRevision, choiceId, cancellationToken) ??
-                    ValueTask.FromResult(new NpcDialogueResult(NpcDialogueStatus.ActorGone));
-            public ValueTask<bool> SetQuestsAsync(NpcQuestCatalog? quests, CancellationToken cancellationToken = default) =>
-                Volatile.Read(ref inner)?.SetQuestsAsync(quests, cancellationToken) ?? ValueTask.FromResult(false);
-            public ValueTask<IReadOnlyList<NpcQuestView>> GetQuestsAsync(PlayerSnapshot player, CancellationToken cancellationToken = default) =>
-                Volatile.Read(ref inner)?.GetQuestsAsync(player, cancellationToken) ?? ValueTask.FromResult<IReadOnlyList<NpcQuestView>>([]);
-            public ValueTask<NpcQuestResult> AcceptQuestAsync(PlayerSnapshot player, string questId, long expectedCatalogRevision, CancellationToken cancellationToken = default) =>
-                Volatile.Read(ref inner)?.AcceptQuestAsync(player, questId, expectedCatalogRevision, cancellationToken) ??
-                    ValueTask.FromResult(new NpcQuestResult(NpcQuestStatus.ActorGone));
-            public ValueTask<NpcQuestResult> TurnInQuestAsync(PlayerSnapshot player, string questId, long expectedCatalogRevision, CancellationToken cancellationToken = default) =>
-                Volatile.Read(ref inner)?.TurnInQuestAsync(player, questId, expectedCatalogRevision, cancellationToken) ??
-                    ValueTask.FromResult(new NpcQuestResult(NpcQuestStatus.ActorGone));
-            public ValueTask<NpcEconomyBalanceResult> GetCurrencyBalanceAsync(PlayerSnapshot player, string currencyId, CancellationToken cancellationToken = default) =>
-                Volatile.Read(ref inner)?.GetCurrencyBalanceAsync(player, currencyId, cancellationToken) ??
-                    ValueTask.FromResult(new NpcEconomyBalanceResult(NpcEconomyStatus.Unavailable));
-            public ValueTask<NpcEconomyBalanceResult> CreditCurrencyAsync(PlayerSnapshot player, NpcEconomyPrice amount, Guid operationId,
-                CancellationToken cancellationToken = default) => Volatile.Read(ref inner)?.CreditCurrencyAsync(player, amount, operationId, cancellationToken) ??
-                    ValueTask.FromResult(new NpcEconomyBalanceResult(NpcEconomyStatus.Unavailable));
-            public void Dispose()
-            {
-                INpcActor? current = Interlocked.Exchange(ref inner, null);
-                if (current is null) return;
-                lock (owner.actorSync) owner.actors.Remove(this);
-                current.Dispose();
-            }
-        }
-
-        public ValueTask<IReadOnlyList<NpcSnapshot>> SnapshotAsync(CancellationToken cancellationToken = default)
-        {
-            VegaPluginRuntimeServices current = Services;
-            return current.Npcs?.SnapshotAsync(current.WorldId, cancellationToken) ??
-                ValueTask.FromResult<IReadOnlyList<NpcSnapshot>>([]);
-        }
-
-        public ValueTask<NpcSnapshot?> CaptureAsync(
-            NpcHandle handle,
-            CancellationToken cancellationToken = default)
-        {
-            VegaPluginRuntimeServices current = Services;
-            if (handle.WorldId != current.WorldId)
-            {
-                return ValueTask.FromResult<NpcSnapshot?>(null);
-            }
-
-            return current.Npcs?.CaptureAsync(handle, cancellationToken) ??
-                ValueTask.FromResult<NpcSnapshot?>(null);
-        }
-
-        public ValueTask<NpcOperationResult> SpawnAsync(
-            int type,
-            PlayerPosition position,
-            int? targetPlayerSlot = null,
-            CancellationToken cancellationToken = default)
-        {
-            VegaPluginRuntimeServices current = Services;
-            return current.Npcs?.SpawnAsync(
-                new NpcSpawnRequest(current.WorldId, type, position, Actor(context), targetPlayerSlot),
-                cancellationToken) ?? Unavailable();
-        }
-
-        public ValueTask<NpcOperationResult> TeleportAsync(
-            NpcHandle expected,
-            PlayerPosition position,
-            CancellationToken cancellationToken = default)
-        {
-            VegaPluginRuntimeServices current = Services;
-            if (expected.WorldId != current.WorldId)
-            {
-                return ValueTask.FromResult(new NpcOperationResult(
-                    NpcOperationStatus.Invalid,
-                    ErrorCode: "npc.wrong_world"));
-            }
-
-            return current.Npcs?.TeleportAsync(
-                new NpcTeleportRequest(expected, position, Actor(context)),
-                cancellationToken) ?? Unavailable();
-        }
-
-        public ValueTask<NpcOperationResult> DespawnAsync(
-            NpcHandle expected,
-            CancellationToken cancellationToken = default)
-        {
-            VegaPluginRuntimeServices current = Services;
-            if (expected.WorldId != current.WorldId)
-            {
-                return ValueTask.FromResult(new NpcOperationResult(
-                    NpcOperationStatus.Invalid,
-                    ErrorCode: "npc.wrong_world"));
-            }
-
-            return current.Npcs?.DespawnAsync(
-                new NpcDespawnRequest(expected, Actor(context)),
-                cancellationToken) ?? Unavailable();
-        }
-
-        private static ValueTask<NpcOperationResult> Unavailable() => ValueTask.FromResult(
-            new NpcOperationResult(
-                NpcOperationStatus.DispatcherUnavailable,
-                ErrorCode: "npc.unavailable"));
-    }
-
-    private sealed class PluginScenes(IVegaPluginContext context) : IPluginWorldScenes
-    {
-        public ISceneLease Create(string name)
-        {
-            ArgumentException.ThrowIfNullOrWhiteSpace(name);
-            VegaPluginRuntimeServices current = Services;
-            if (current.Scenes is null)
-            {
-                throw new InvalidOperationException("Scene capability is unavailable in this Vega host.");
-            }
-
-            ISceneLease lease = current.Scenes.CreateScene(current.WorldId, name, Actor(context));
-            if (context is IHotModuleContext owner)
-            {
-                try { return owner.Track(lease); }
-                catch { lease.Dispose(); throw; }
-            }
-
-            lease.Dispose();
-            throw new InvalidOperationException("Plugin host does not expose a tracked hot-module lifetime.");
-        }
-    }
-
-    private sealed class PluginPlayerInventory : IPluginPlayerInventory
-    {
-        public ValueTask<PlayerInventorySnapshot?> CaptureAsync(
-            PlayerId playerId,
-            CancellationToken cancellationToken = default) =>
-            Services.Inventory?.CaptureAsync(playerId, cancellationToken) ??
-            ValueTask.FromResult<PlayerInventorySnapshot?>(null);
-
-        public ValueTask<InventoryMutationResult> ReplaceSlotAsync(
-            PlayerInventorySnapshot expected,
-            InventorySlotReplacement replacement,
-            CancellationToken cancellationToken = default)
-        {
-            ArgumentNullException.ThrowIfNull(expected);
-            return Services.Inventory?.ReplaceSlotAsync(
-                expected.PlayerId,
-                expected.Revision,
-                replacement,
-                cancellationToken) ??
-                ValueTask.FromResult(new InventoryMutationResult(
-                    InventoryMutationStatus.DispatcherUnavailable,
-                    ErrorCode: "inventory.unavailable"));
-        }
-    }
 }

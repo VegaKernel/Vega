@@ -8,14 +8,18 @@ using Vega.Terraria.Players;
 namespace Vega.Terraria.Hooking;
 
 /// <summary>Converts native gameplay notifications to detached, world-local values.</summary>
-internal sealed class NativeGameplayEventHooks(WorldId world, IWorldGameplayEvents events,
+internal sealed partial class NativeGameplayEventHooks(WorldId world, IWorldGameplayEvents events,
     IGameThreadDispatcher dispatcher, IOperationsLogger logger, TerrariaPlayerBoundary? players = null) : IDisposable
 {
     private bool attached;
     private int attachmentEpoch;
+    private bool? previousHardmode;
+    private Guid? hardmodeWorldFile;
     public void Attach()
     {
         if (attached) return;
+        ResetPlayerStateObservations();
+        previousHardmode = null;
         Interlocked.Increment(ref attachmentEpoch);
         Hooks.NPC.Create += Creating;
         Hooks.NPC.Killed += Killed;
@@ -27,6 +31,8 @@ internal sealed class NativeGameplayEventHooks(WorldId world, IWorldGameplayEven
         Hooks.MessageBuffer.ServerProjectileRemoved += ProjectileRemoved;
         Hooks.Main.DedicatedTickCompleted += TickCompleted;
         Hooks.Main.DedicatedWorldSaveCompleted += SaveCompleted;
+        AttachPlayerHurtHooks();
+        AttachTileChangesHooks();
         Volatile.Write(ref attached, true);
     }
 
@@ -45,14 +51,31 @@ internal sealed class NativeGameplayEventHooks(WorldId world, IWorldGameplayEven
         Hooks.MessageBuffer.ServerProjectileRemoved -= ProjectileRemoved;
         Hooks.Main.DedicatedTickCompleted -= TickCompleted;
         Hooks.Main.DedicatedWorldSaveCompleted -= SaveCompleted;
+        DetachPlayerHurtHooks();
+        DetachTileChangesHooks();
+        ResetPlayerStateObservations();
+        previousHardmode = null;
     }
 
     private bool Observed<T>() where T : struct => dispatcher.IsGameThread && events.HasSubscribers<T>();
 
     private void TickCompleted(TimeSpan duration)
     {
-        if (Volatile.Read(ref attached) && events.HasSubscribers<WorldTickCompletedEvent>() && dispatcher.IsGameThread)
-            Publish(new WorldTickCompletedEvent(world, duration));
+        if (!Volatile.Read(ref attached) || !dispatcher.IsGameThread) return;
+        try { SamplePlayerStates(world, events, players); }
+        catch (Exception ex) { logger.Log(OperationsLogLevel.Error, "world-events", "Player state observation failed.", ex); }
+        if (events.HasSubscribers<WorldHardmodeChangedEvent>())
+        {
+            Guid? file = global::Terraria.Main.ActiveWorldFileData?.UniqueId;
+            bool hardmode = global::Terraria.Main.hardMode;
+            bool? previous = previousHardmode;
+            previousHardmode = hardmode;
+            if (file == hardmodeWorldFile && previous.HasValue && previous.Value != hardmode)
+                Publish(new WorldHardmodeChangedEvent(world, file, previous.Value, hardmode));
+            hardmodeWorldFile = file;
+        }
+        else previousHardmode = null;
+        if (events.HasSubscribers<WorldTickCompletedEvent>()) Publish(new WorldTickCompletedEvent(world, duration));
     }
 
     private void SaveCompleted(bool success, Exception? error)

@@ -31,12 +31,20 @@ internal sealed class RelationalOfflineImport(
             throw new InvalidDataException("A mapped Vega group does not exist. Create and review all target groups before importing.");
 
         foreach (var row in imports)
+        {
             await InsertAsync(connection, transaction, """
                 INSERT INTO vega_accounts (id, name, password_hash, group_name, culture, last_seen_utc, revision)
                 VALUES (@id, @name, @hash, @group, NULL, @seen, 1);
                 """, token, ("@id", row.Id), ("@name", row.Name), ("@hash", row.PasswordHash),
                 ("@group", groups[row.Group]), ("@seen", row.LastSeen?.ToUniversalTime().ToString("O", CultureInfo.InvariantCulture)))
                 .ConfigureAwait(false);
+            if (row.RegisteredUtc is not null || row.LastKnownIp is not null || row.LastKnownUuid is not null)
+                await InsertAsync(connection, transaction,
+                    "INSERT INTO vega_account_metadata (account_id, registered_utc, last_ip, last_uuid) VALUES (@id, @registered, @ip, @uuid);",
+                    token, ("@id", row.Id), ("@registered", row.RegisteredUtc?.ToUniversalTime().ToString("O", CultureInfo.InvariantCulture)),
+                    ("@ip", System.Net.IPAddress.TryParse(row.LastKnownIp, out var ip) ? ip.ToString() : null),
+                    ("@uuid", row.LastKnownUuid is { Length: > 0 and <= 255 } && !row.LastKnownUuid.Any(char.IsControl) ? row.LastKnownUuid : null)).ConfigureAwait(false);
+        }
         await transaction.CommitAsync(token).ConfigureAwait(false);
         return imports.Count;
     }

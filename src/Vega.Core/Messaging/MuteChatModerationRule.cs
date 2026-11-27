@@ -14,9 +14,14 @@ public sealed class MuteChatModerationRule(
     public ChatModerationDecision Evaluate(ChatMessageContext context, string content)
     {
         accounts.TryGetAccount(context.Sender.Id, out AccountSnapshot? account);
+        string? endpoint = context.Sender.Connection?.EffectiveEndpoint ?? context.Sender.RemoteEndpoint;
+        string? ip = System.Net.IPAddress.TryParse(endpoint, out var address) ? address.ToString() :
+            endpoint is not null && System.Net.IPEndPoint.TryParse(endpoint, out var parsed) ? parsed.Address.ToString() : null;
         MuteSnapshot? mute = mutes.FindActive(
             context.Sender.Name,
             account?.Name,
+            ip,
+            context.Sender.Connection?.ClientUuid,
             time.GetUtcNow());
         return mute is null
             ? ChatModerationDecision.Allow

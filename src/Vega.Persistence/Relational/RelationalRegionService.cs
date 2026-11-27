@@ -10,11 +10,12 @@ namespace Vega.Persistence.Relational;
 internal sealed class RelationalRegionService(
     Func<DbConnection> open,
     Func<CancellationToken, ValueTask<DbConnection>> openAsync,
-    Action ensureReady) : IRegionService
+    Action ensureReady) : IRegionService, IRegionChangeObservations
 {
     private readonly SemaphoreSlim mutations = new(1, 1);
     private readonly object cacheSync = new();
     private readonly Dictionary<WorldId, IReadOnlyList<RegionSnapshot>> regionCache = [];
+    public event Action<RegionChangedEvent>? Changed;
 
     public IReadOnlyList<RegionSnapshot> SnapshotRegions() => SnapshotRegions(WorldId.Primary);
 
@@ -65,6 +66,7 @@ internal sealed class RelationalRegionService(
         ValidateActor(actor);
         ensureReady();
         await mutations.WaitAsync(cancellationToken).ConfigureAwait(false);
+        RegionChangedEvent? committed = null;
         try
         {
             await using DbConnection connection = await openAsync(cancellationToken).ConfigureAwait(false);
@@ -105,6 +107,7 @@ internal sealed class RelationalRegionService(
                         0, 1, cancellationToken).ConfigureAwait(false);
                 await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
                 Invalidate(worldId);
+                committed = new(worldId, RegionChangeKind.Created, null, after);
                 return new RegionMutationResult(true, "region.created", After: after);
             }
             catch
@@ -116,6 +119,7 @@ internal sealed class RelationalRegionService(
         finally
         {
             mutations.Release();
+            if (committed is { } change) NotifyChanged(change);
         }
     }
 
@@ -125,6 +129,13 @@ internal sealed class RelationalRegionService(
         long expectedRevision,
         string actor,
         CancellationToken cancellationToken = default) =>
+        DeleteCoreAsync(worldId, name, expectedRevision, actor, cancellationToken);
+
+    public ValueTask<RegionMutationResult> DeleteAsync(RegionSnapshot expected, string actor, CancellationToken cancellationToken = default) =>
+        DeleteCoreAsync(expected.WorldId, expected.Name, expected.Revision, actor, cancellationToken, expected.Id);
+
+    private ValueTask<RegionMutationResult> DeleteCoreAsync(WorldId worldId, string name, long expectedRevision,
+        string actor, CancellationToken cancellationToken, int? expectedId = null) =>
         MutateAsync(
             worldId,
             name,
@@ -136,11 +147,11 @@ internal sealed class RelationalRegionService(
                     connection,
                     transaction,
                     "DELETE FROM vega_regions " +
-                    "WHERE world_id = @world AND name = @name AND revision = @revision;",
+                    "WHERE world_id = @world AND id = @id AND name = @name AND revision = @revision;",
                     before,
                     cancellationToken),
             delete: true,
-            cancellationToken);
+            cancellationToken, expectedId: expectedId);
 
     public ValueTask<RegionMutationResult> UpdateAsync(
         WorldId worldId,
@@ -148,7 +159,14 @@ internal sealed class RelationalRegionService(
         RegionUpdate update,
         long expectedRevision,
         string actor,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default) =>
+        UpdateCoreAsync(worldId, name, update, expectedRevision, actor, cancellationToken);
+
+    public ValueTask<RegionMutationResult> UpdateAsync(RegionSnapshot expected, RegionUpdate update, string actor, CancellationToken cancellationToken = default) =>
+        UpdateCoreAsync(expected.WorldId, expected.Name, update, expected.Revision, actor, cancellationToken, expected.Id);
+
+    private ValueTask<RegionMutationResult> UpdateCoreAsync(WorldId worldId, string name, RegionUpdate update,
+        long expectedRevision, string actor, CancellationToken cancellationToken, int? expectedId = null)
     {
         ArgumentNullException.ThrowIfNull(update);
         return MutateAsync(
@@ -170,7 +188,7 @@ internal sealed class RelationalRegionService(
                 await using DbCommand command = CreateCommand(connection, transaction,
                     "UPDATE vega_regions SET x = @x, y = @y, width = @width, height = @height, " +
                     "priority = @priority, owner = @owner, revision = revision + 1 " +
-                    "WHERE world_id = @world AND name = @name AND revision = @revision;");
+                    "WHERE world_id = @world AND id = @id AND name = @name AND revision = @revision;");
                 AddIdentityParameters(command, before);
                 command.AddParameter("@x", x);
                 command.AddParameter("@y", y);
@@ -187,7 +205,7 @@ internal sealed class RelationalRegionService(
 
                 return changed;
             },
-            cancellationToken: cancellationToken);
+            cancellationToken: cancellationToken, expectedId: expectedId);
     }
 
     public ValueTask<RegionMutationResult> SetAccessAsync(
@@ -198,7 +216,14 @@ internal sealed class RelationalRegionService(
         bool enabled,
         long expectedRevision,
         string actor,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default) =>
+        SetAccessCoreAsync(worldId, name, kind, subject, enabled, expectedRevision, actor, cancellationToken);
+
+    public ValueTask<RegionMutationResult> SetAccessAsync(RegionSnapshot expected, RegionAccessKind kind, string subject, bool enabled, string actor, CancellationToken cancellationToken = default) =>
+        SetAccessCoreAsync(expected.WorldId, expected.Name, kind, subject, enabled, expected.Revision, actor, cancellationToken, expected.Id);
+
+    private ValueTask<RegionMutationResult> SetAccessCoreAsync(WorldId worldId, string name, RegionAccessKind kind, string subject, bool enabled,
+        long expectedRevision, string actor, CancellationToken cancellationToken, int? expectedId = null)
     {
         if (!Enum.IsDefined(kind))
         {
@@ -235,11 +260,18 @@ internal sealed class RelationalRegionService(
 
                 return await IncrementRevisionAsync(connection, transaction, before, token).ConfigureAwait(false);
             },
-            cancellationToken: cancellationToken);
+            cancellationToken: cancellationToken, expectedId: expectedId);
     }
 
     public ValueTask<RegionMutationResult> RenameAsync(WorldId worldId, string name, string newName, long expectedRevision,
-        string actor, CancellationToken cancellationToken = default)
+        string actor, CancellationToken cancellationToken = default) =>
+        RenameCoreAsync(worldId, name, newName, expectedRevision, actor, cancellationToken);
+
+    public ValueTask<RegionMutationResult> RenameAsync(RegionSnapshot expected, string newName, string actor, CancellationToken cancellationToken = default) =>
+        RenameCoreAsync(expected.WorldId, expected.Name, newName, expected.Revision, actor, cancellationToken, expected.Id);
+
+    private ValueTask<RegionMutationResult> RenameCoreAsync(WorldId worldId, string name, string newName, long expectedRevision,
+        string actor, CancellationToken cancellationToken, int? expectedId = null)
     {
         string normalizedNewName = Normalize(newName, nameof(newName));
         return MutateAsync(worldId, name, expectedRevision, actor, "region.rename",
@@ -247,11 +279,11 @@ internal sealed class RelationalRegionService(
             {
                 await using DbCommand command = CreateCommand(connection, transaction,
                     "UPDATE vega_regions SET name = @new_name, revision = revision + 1 " +
-                    "WHERE world_id = @world AND name = @name AND revision = @revision;");
+                    "WHERE world_id = @world AND id = @id AND name = @name AND revision = @revision;");
                 AddIdentityParameters(command, before);
                 command.AddParameter("@new_name", normalizedNewName);
                 return await command.ExecuteNonQueryAsync(token).ConfigureAwait(false);
-            }, cancellationToken: cancellationToken, renameTo: normalizedNewName);
+            }, cancellationToken: cancellationToken, renameTo: normalizedNewName, expectedId: expectedId);
     }
 
     private async ValueTask<RegionMutationResult> MutateAsync(
@@ -263,7 +295,8 @@ internal sealed class RelationalRegionService(
         Func<DbConnection, DbTransaction, RegionSnapshot, CancellationToken, ValueTask<int>> mutate,
         bool delete = false,
         CancellationToken cancellationToken = default,
-        string? renameTo = null)
+        string? renameTo = null,
+        int? expectedId = null)
     {
         ValidateWorld(worldId);
         string normalizedName = Normalize(name, nameof(name));
@@ -271,6 +304,7 @@ internal sealed class RelationalRegionService(
         ValidateActor(actor);
         ensureReady();
         await mutations.WaitAsync(cancellationToken).ConfigureAwait(false);
+        RegionChangedEvent? committed = null;
         try
         {
             await using DbConnection connection = await openAsync(cancellationToken).ConfigureAwait(false);
@@ -282,6 +316,11 @@ internal sealed class RelationalRegionService(
                 if (before is null)
                 {
                     return new RegionMutationResult(false, "region.not-found");
+                }
+
+                if (expectedId is int id && before.Id != id)
+                {
+                    return new RegionMutationResult(false, "region.identity-conflict", before);
                 }
 
                 if (before.Revision != expectedRevision)
@@ -309,6 +348,13 @@ internal sealed class RelationalRegionService(
                     .ConfigureAwait(false);
                 await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
                 Invalidate(worldId);
+                committed = new(worldId, operation switch
+                {
+                    "region.delete" => RegionChangeKind.Deleted,
+                    "region.rename" => RegionChangeKind.Renamed,
+                    "region.member" or "region.group" => RegionChangeKind.AccessChanged,
+                    _ => RegionChangeKind.Updated
+                }, before, after);
                 return new RegionMutationResult(true, operation, before, after);
             }
             catch
@@ -320,8 +366,28 @@ internal sealed class RelationalRegionService(
         finally
         {
             mutations.Release();
+            if (committed is { } change) NotifyChanged(change);
         }
     }
+
+    private void NotifyChanged(RegionChangedEvent change)
+    {
+        // Commit is already durable; an observer cannot roll back a mutation or hold its lock.
+        if (Changed is not { } handlers) return;
+        change = change with { Before = Freeze(change.Before), After = Freeze(change.After) };
+        foreach (Action<RegionChangedEvent> handler in handlers.GetInvocationList())
+        {
+            try { handler(change); }
+            catch (Exception) { System.Diagnostics.Trace.TraceWarning("Region change observer failed."); }
+        }
+    }
+
+    private static RegionSnapshot? Freeze(RegionSnapshot? region) => region is null ? null : region with
+    {
+        Members = region.Members.ToFrozenSet(StringComparer.OrdinalIgnoreCase),
+        Groups = region.Groups.ToFrozenSet(StringComparer.OrdinalIgnoreCase),
+        Flags = region.Flags.ToFrozenDictionary(StringComparer.OrdinalIgnoreCase)
+    };
 
     private static IReadOnlyList<RegionSnapshot> ReadRegions(
         DbConnection connection,
@@ -430,7 +496,7 @@ internal sealed class RelationalRegionService(
             connection,
             transaction,
             "UPDATE vega_regions SET revision = revision + 1 " +
-            "WHERE world_id = @world AND name = @name AND revision = @revision;",
+            "WHERE world_id = @world AND id = @id AND name = @name AND revision = @revision;",
             before,
             cancellationToken);
 
@@ -506,6 +572,7 @@ internal sealed class RelationalRegionService(
     private static void AddIdentityParameters(DbCommand command, RegionSnapshot region)
     {
         command.AddParameter("@world", region.WorldId.Value);
+        command.AddParameter("@id", region.Id);
         command.AddParameter("@name", region.Name);
         command.AddParameter("@revision", region.Revision);
     }

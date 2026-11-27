@@ -10,12 +10,22 @@ namespace Vega.Persistence.Relational;
 internal sealed class RelationalIdentityService(
     Func<DbConnection> open,
     Func<CancellationToken, ValueTask<DbConnection>> openAsync,
-    Action ensureReady) : IAccountService, IAuthorizationService
+    Action ensureReady) : IAccountService, IAuthorizationService, IAccountChangeSource, IGroupChangeSource
 {
     private const int PasswordIterations = 210_000;
     private readonly SemaphoreSlim mutations = new(1, 1);
     private readonly object groupCacheSync = new();
     private IReadOnlyList<GroupSnapshot>? groupCache;
+    public event Action<AccountChange>? AccountChanged;
+    public event Action<GroupChange>? GroupChanged;
+
+    private static void Publish<T>(Action<T>? listeners, T change)
+    {
+        if (listeners is null) return;
+        foreach (Action<T> listener in listeners.GetInvocationList())
+            try { listener(change); } catch (Exception) { System.Diagnostics.Trace.TraceWarning("Identity observation callback failed."); }
+    }
+    private const string AccountSelect = "SELECT a.id, a.name, a.group_name, a.last_seen_utc, a.culture, a.revision, m.registered_utc, m.last_ip, m.last_uuid FROM vega_accounts a LEFT JOIN vega_account_metadata m ON a.id = m.account_id";
 
     public IReadOnlyList<AccountSnapshot> SnapshotAccounts()
     {
@@ -23,7 +33,7 @@ internal sealed class RelationalIdentityService(
         using DbConnection connection = open();
         using DbCommand command = connection.CreateCommand();
         command.CommandText =
-            "SELECT id, name, group_name, last_seen_utc, culture, revision FROM vega_accounts ORDER BY name;";
+            AccountSelect + " ORDER BY a.name;";
         using DbDataReader reader = command.ExecuteReader();
         var accounts = new List<AccountSnapshot>();
         while (reader.Read())
@@ -41,6 +51,17 @@ internal sealed class RelationalIdentityService(
         ensureReady();
         await using DbConnection connection = await openAsync(cancellationToken).ConfigureAwait(false);
         return await FindAccountAsync(connection, null, name, cancellationToken).ConfigureAwait(false);
+    }
+
+    public async ValueTask<AccountSnapshot?> FindByIdAsync(AccountId id, CancellationToken cancellationToken = default)
+    {
+        ensureReady();
+        await using var connection = await openAsync(cancellationToken).ConfigureAwait(false);
+        await using var command = connection.CreateCommand();
+        command.CommandText = AccountSelect + " WHERE a.id = @id;";
+        command.AddParameter("@id", id.Value);
+        await using var reader = await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
+        return await reader.ReadAsync(cancellationToken).ConfigureAwait(false) ? ReadAccount(reader) : null;
     }
 
     public async ValueTask<AccountMutationResult> CreateAsync(
@@ -88,9 +109,17 @@ internal sealed class RelationalIdentityService(
                     await insert.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
                 }
 
+                DateTimeOffset registered = DateTimeOffset.UtcNow;
+                await using (DbCommand metadata = CreateCommand(connection, transaction, "INSERT INTO vega_account_metadata (account_id, registered_utc) VALUES (@id, @registered);"))
+                {
+                    metadata.AddParameter("@id", id);
+                    metadata.AddParameter("@registered", registered.ToString("O", CultureInfo.InvariantCulture));
+                    await metadata.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
+                }
                 AccountSnapshot after = new(new AccountId(id), normalizedName, normalizedGroup, null)
                 {
-                    Revision = 1
+                    Revision = 1,
+                    RegisteredUtc = registered
                 };
                 await WriteAuditAsync(
                     connection,
@@ -102,6 +131,7 @@ internal sealed class RelationalIdentityService(
                     1,
                     cancellationToken).ConfigureAwait(false);
                 await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
+                Publish(AccountChanged, new AccountChange("account.created", actor, null, after));
                 return new AccountMutationResult(true, "account.created", After: after);
             }
             catch
@@ -209,7 +239,10 @@ internal sealed class RelationalIdentityService(
         DateTimeOffset seenAt,
         long expectedRevision,
         string actor,
-        CancellationToken cancellationToken = default) =>
+        CancellationToken cancellationToken = default) => RecordLoginWithConnectionAsync(name, seenAt, expectedRevision, actor, null, null, cancellationToken);
+
+    public ValueTask<AccountMutationResult> RecordLoginWithConnectionAsync(string name, DateTimeOffset seenAt, long expectedRevision,
+        string actor, string? ip, string? uuid, CancellationToken cancellationToken = default) =>
         MutateAccountAsync(
             name,
             expectedRevision,
@@ -222,7 +255,21 @@ internal sealed class RelationalIdentityService(
                     "WHERE name = @name AND revision = @revision;";
                 command.AddParameter("@seen", seenAt.ToUniversalTime().ToString("O", CultureInfo.InvariantCulture));
             },
-            cancellationToken: cancellationToken);
+            cancellationToken: cancellationToken,
+            afterUpdate: async (connection, transaction, account, token) =>
+            {
+                if (ip is null && uuid is null) return;
+                await using DbCommand exists = CreateCommand(connection, transaction, "SELECT COUNT(*) FROM vega_account_metadata WHERE account_id = @id;");
+                exists.AddParameter("@id", account.Id.Value);
+                bool present = Convert.ToInt32(await exists.ExecuteScalarAsync(token).ConfigureAwait(false), CultureInfo.InvariantCulture) != 0;
+                await using DbCommand metadata = CreateCommand(connection, transaction, present
+                    ? "UPDATE vega_account_metadata SET last_ip = COALESCE(@ip, last_ip), last_uuid = COALESCE(@uuid, last_uuid) WHERE account_id = @id;"
+                    : "INSERT INTO vega_account_metadata (account_id, last_ip, last_uuid) VALUES (@id, @ip, @uuid);");
+                metadata.AddParameter("@id", account.Id.Value);
+                metadata.AddParameter("@ip", System.Net.IPAddress.TryParse(ip, out var address) ? address.ToString() : null);
+                metadata.AddParameter("@uuid", uuid is { Length: > 0 and <= 255 } && !uuid.Any(char.IsControl) ? uuid : null);
+                await metadata.ExecuteNonQueryAsync(token).ConfigureAwait(false);
+            });
 
     public async ValueTask<bool> VerifyPasswordAsync(
         string name,
@@ -349,6 +396,7 @@ internal sealed class RelationalIdentityService(
                     .ConfigureAwait(false);
                 await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
                 InvalidateGroups();
+                Publish(GroupChanged, new GroupChange("group.created", actor, null, after));
                 return new GroupMutationResult(true, "group.created", After: after);
             }
             catch
@@ -501,6 +549,7 @@ internal sealed class RelationalIdentityService(
                     .ConfigureAwait(false);
                 await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
                 InvalidateGroups();
+                Publish(GroupChanged, new GroupChange("group.permission-updated", actor, before, after));
                 return new GroupMutationResult(true, "group.permission-updated", before, after);
             }
             catch
@@ -523,7 +572,8 @@ internal sealed class RelationalIdentityService(
         Action<DbCommand, DbTransaction> configure,
         bool delete = false,
         string? requiredGroup = null,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default,
+        Func<DbConnection, DbTransaction, AccountSnapshot, CancellationToken, ValueTask>? afterUpdate = null)
     {
         string normalized = NormalizeName(name, nameof(name));
         ValidateRevision(expectedRevision);
@@ -565,12 +615,14 @@ internal sealed class RelationalIdentityService(
                     return new AccountMutationResult(false, "account.revision-conflict", before);
                 }
 
+                if (afterUpdate is not null) await afterUpdate(connection, transaction, before, cancellationToken).ConfigureAwait(false);
                 AccountSnapshot? after = delete ? null :
                     await FindAccountAsync(connection, transaction, normalized, cancellationToken).ConfigureAwait(false);
                 await WriteAuditAsync(connection, transaction, actor, operation, normalized,
                         before.Revision, after?.Revision ?? checked(before.Revision + 1), cancellationToken)
                     .ConfigureAwait(false);
                 await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
+                Publish(AccountChanged, new AccountChange(operation, actor, before, after));
                 return new AccountMutationResult(true, operation, before, after);
             }
             catch
@@ -666,6 +718,7 @@ internal sealed class RelationalIdentityService(
                     .ConfigureAwait(false);
                 await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
                 InvalidateGroups();
+                Publish(GroupChanged, new GroupChange(operation, actor, before, after));
                 return new GroupMutationResult(true, operation, before, after);
             }
             catch
@@ -746,7 +799,7 @@ internal sealed class RelationalIdentityService(
         CancellationToken cancellationToken)
     {
         await using DbCommand command = CreateCommand(connection, transaction,
-            "SELECT id, name, group_name, last_seen_utc, culture, revision FROM vega_accounts WHERE name = @name;");
+            AccountSelect + " WHERE a.name = @name;");
         command.AddParameter("@name", NormalizeName(name, nameof(name)));
         await using DbDataReader reader = await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
         return await reader.ReadAsync(cancellationToken).ConfigureAwait(false) ? ReadAccount(reader) : null;
@@ -772,7 +825,10 @@ internal sealed class RelationalIdentityService(
             reader.IsDBNull(3) ? null : ParseTime(reader.GetString(3)))
         {
             Culture = reader.IsDBNull(4) ? null : reader.GetString(4),
-            Revision = Convert.ToInt64(reader.GetValue(5), CultureInfo.InvariantCulture)
+            Revision = Convert.ToInt64(reader.GetValue(5), CultureInfo.InvariantCulture),
+            RegisteredUtc = reader.IsDBNull(6) ? null : ParseTime(reader.GetString(6)),
+            LastKnownIp = reader.IsDBNull(7) ? null : reader.GetString(7),
+            LastKnownUuid = reader.IsDBNull(8) ? null : reader.GetString(8)
         };
 
     private static async ValueTask<bool> GroupExistsAsync(

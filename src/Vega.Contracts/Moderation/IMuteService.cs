@@ -21,7 +21,11 @@ public sealed record MuteSnapshot(
     string IssuedBy,
     DateTimeOffset IssuedAt,
     DateTimeOffset ExpiresAt,
-    long Revision);
+    long Revision)
+{
+    [System.Text.Json.Serialization.JsonIgnore] public string? IpAddress { get; init; }
+    [System.Text.Json.Serialization.JsonIgnore] public string? Uuid { get; init; }
+}
 
 public sealed record MuteMutationResult(
     bool Succeeded,
@@ -37,6 +41,9 @@ public interface IMuteService
         string playerName,
         string? accountName,
         DateTimeOffset now);
+
+    MuteSnapshot? FindActive(string playerName, string? accountName, string? ip, string? uuid, DateTimeOffset now) =>
+        FindActive(playerName, accountName, now);
 
     ValueTask<MuteMutationResult> CreateAsync(
         MuteSnapshot mute,

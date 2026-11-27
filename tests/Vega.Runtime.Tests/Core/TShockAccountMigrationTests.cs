@@ -27,8 +27,8 @@ public sealed class TShockAccountMigrationTests
                 connection.Open();
                 using var command = connection.CreateCommand();
                 command.CommandText = """
-                    CREATE TABLE Users (ID INTEGER PRIMARY KEY, Username TEXT, Password TEXT, Usergroup TEXT, LastAccessed TEXT);
-                    INSERT INTO Users VALUES (42,'Example',@hash,'member','2026-10-01T12:00:00');
+                    CREATE TABLE Users (ID INTEGER PRIMARY KEY, Username TEXT, Password TEXT, Usergroup TEXT, LastAccessed TEXT, Registered TEXT, KnownIps TEXT, UUID TEXT);
+                    INSERT INTO Users VALUES (42,'Example',@hash,'member','2026-10-01T12:00:00','2026-09-01T12:00:00','["192.0.2.5"]','fixture-uuid');
                     """;
                 command.Parameters.AddWithValue("@hash", LegacyBCrypt::BCrypt.Net.BCrypt.HashPassword(password, 4));
                 command.ExecuteNonQuery();
@@ -44,6 +44,9 @@ public sealed class TShockAccountMigrationTests
             var account = await db.Accounts.FindByNameAsync("Example");
             Assert.That(account!.Id.Value, Is.EqualTo(42));
             Assert.That(account.GroupName, Is.EqualTo("default"));
+            Assert.That(account.RegisteredUtc, Is.EqualTo(DateTimeOffset.Parse("2026-09-01T12:00:00Z")));
+            Assert.That(account.LastKnownIp, Is.EqualTo("192.0.2.5"));
+            Assert.That(account.LastKnownUuid, Is.EqualTo("fixture-uuid"));
             Assert.That(await db.Accounts.VerifyPasswordAsync("example", "incorrect-test-password"), Is.False);
             Assert.That(await db.Accounts.VerifyPasswordAsync("example", password), Is.True);
 

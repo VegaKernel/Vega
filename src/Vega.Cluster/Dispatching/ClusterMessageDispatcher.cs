@@ -67,7 +67,7 @@ public sealed class ClusterMessageDispatcher
         CancellationToken cancellationToken)
         where TEvent : IClusterEvent
     {
-        if (!deduplicator.TryAccept(envelope.Metadata.MessageId))
+        if (!deduplicator.TryAccept(envelope.Metadata.SenderServerId, envelope.Metadata.MessageId))
         {
             Audit(envelope.Metadata, "event", typeof(TEvent), ClusterDeliveryStatus.Duplicate);
             return ClusterDeliveryResult.Duplicate();
@@ -75,7 +75,7 @@ public sealed class ClusterMessageDispatcher
 
         if (!eventHandlers.TryGetValue(typeof(TEvent), out var handlers) || handlers.Count == 0)
         {
-            deduplicator.Forget(envelope.Metadata.MessageId);
+            deduplicator.Forget(envelope.Metadata.SenderServerId, envelope.Metadata.MessageId);
             return Reject(envelope.Metadata, "event", typeof(TEvent), "No handler registered.");
         }
 
@@ -91,12 +91,12 @@ public sealed class ClusterMessageDispatcher
         }
         catch (OperationCanceledException)
         {
-            deduplicator.Forget(envelope.Metadata.MessageId);
+            deduplicator.Forget(envelope.Metadata.SenderServerId, envelope.Metadata.MessageId);
             throw;
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
-            deduplicator.Forget(envelope.Metadata.MessageId);
+            deduplicator.Forget(envelope.Metadata.SenderServerId, envelope.Metadata.MessageId);
             Audit(envelope.Metadata, "event", typeof(TEvent), ClusterDeliveryStatus.Failed, ex.Message);
             return new ClusterDeliveryResult(ClusterDeliveryStatus.Failed, ex.Message);
         }
@@ -107,7 +107,7 @@ public sealed class ClusterMessageDispatcher
         CancellationToken cancellationToken)
         where TCommand : IClusterCommand
     {
-        if (!deduplicator.TryAccept(envelope.Metadata.MessageId))
+        if (!deduplicator.TryAccept(envelope.Metadata.SenderServerId, envelope.Metadata.MessageId))
         {
             Audit(envelope.Metadata, "command", typeof(TCommand), ClusterDeliveryStatus.Duplicate);
             return ClusterDeliveryResult.Duplicate();
@@ -115,7 +115,7 @@ public sealed class ClusterMessageDispatcher
 
         if (!commandHandlers.TryGetValue(typeof(TCommand), out var handler))
         {
-            deduplicator.Forget(envelope.Metadata.MessageId);
+            deduplicator.Forget(envelope.Metadata.SenderServerId, envelope.Metadata.MessageId);
             return Reject(envelope.Metadata, "command", typeof(TCommand), "No handler registered.");
         }
 
@@ -127,12 +127,12 @@ public sealed class ClusterMessageDispatcher
         }
         catch (OperationCanceledException)
         {
-            deduplicator.Forget(envelope.Metadata.MessageId);
+            deduplicator.Forget(envelope.Metadata.SenderServerId, envelope.Metadata.MessageId);
             throw;
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
-            deduplicator.Forget(envelope.Metadata.MessageId);
+            deduplicator.Forget(envelope.Metadata.SenderServerId, envelope.Metadata.MessageId);
             Audit(envelope.Metadata, "command", typeof(TCommand), ClusterDeliveryStatus.Failed, ex.Message);
             return new ClusterDeliveryResult(ClusterDeliveryStatus.Failed, ex.Message);
         }
@@ -144,16 +144,16 @@ public sealed class ClusterMessageDispatcher
         where TRequest : IClusterRequest<TResponse>
         where TResponse : IClusterResponse
     {
-        if (!deduplicator.TryAccept(envelope.Metadata.MessageId))
+        if (!deduplicator.TryAccept(envelope.Metadata.SenderServerId, envelope.Metadata.MessageId))
         {
-            requestResponses.TryGet(envelope.Metadata.MessageId, out TResponse? cached);
+            requestResponses.TryGet(envelope.Metadata.SenderServerId, envelope.Metadata.MessageId, out TResponse? cached);
             Audit(envelope.Metadata, "request", typeof(TRequest), ClusterDeliveryStatus.Duplicate);
             return new ClusterResponseDispatchResult<TResponse>(ClusterDeliveryResult.Duplicate(), cached);
         }
 
         if (!requestHandlers.TryGetValue(typeof(TRequest), out var handler))
         {
-            deduplicator.Forget(envelope.Metadata.MessageId);
+            deduplicator.Forget(envelope.Metadata.SenderServerId, envelope.Metadata.MessageId);
             ClusterDeliveryResult rejected = Reject(
                 envelope.Metadata,
                 "request",
@@ -165,18 +165,18 @@ public sealed class ClusterMessageDispatcher
         try
         {
             object response = await handler(envelope, cancellationToken).ConfigureAwait(false);
-            requestResponses.Store(envelope.Metadata.MessageId, (TResponse)response);
+            requestResponses.Store(envelope.Metadata.SenderServerId, envelope.Metadata.MessageId, (TResponse)response);
             Audit(envelope.Metadata, "request", typeof(TRequest), ClusterDeliveryStatus.Delivered);
             return new ClusterResponseDispatchResult<TResponse>(ClusterDeliveryResult.Delivered(), (TResponse)response);
         }
         catch (OperationCanceledException)
         {
-            deduplicator.Forget(envelope.Metadata.MessageId);
+            deduplicator.Forget(envelope.Metadata.SenderServerId, envelope.Metadata.MessageId);
             throw;
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
-            deduplicator.Forget(envelope.Metadata.MessageId);
+            deduplicator.Forget(envelope.Metadata.SenderServerId, envelope.Metadata.MessageId);
             Audit(envelope.Metadata, "request", typeof(TRequest), ClusterDeliveryStatus.Failed, ex.Message);
             return new ClusterResponseDispatchResult<TResponse>(
                 new ClusterDeliveryResult(ClusterDeliveryStatus.Failed, ex.Message),

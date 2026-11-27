@@ -35,6 +35,7 @@ public sealed class TerrariaReferenceDataExporter(string runtimeDataRoot, WorldI
     {
         if (string.IsNullOrWhiteSpace(name) || name.Length > 128) return null;
         string key = NormalizeName(name);
+        if (key.Equals("Quick", StringComparison.OrdinalIgnoreCase)) return PrefixID.Quick;
         return UniqueId(PrefixNames.Value.Where(candidate => NormalizeName(candidate.Name).Equals(key, StringComparison.OrdinalIgnoreCase)).Select(candidate => candidate.Id));
     }
 

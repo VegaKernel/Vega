@@ -88,11 +88,12 @@ public sealed class ServerPluginHotReloadHostTests
         File.Copy(pluginPath, Path.Combine(directory, Path.GetFileName(pluginPath)));
         var dispatcher = new CommandDispatcher([]);
         var logger = new RecordingLogger();
+        var routes = new PluginRestRegistry();
         using var host = new ServerPluginHotReloadHost(
             directory,
             new ServerPluginHotReloadOptions(true, 100, 5000),
             dispatcher,
-            logger);
+            logger, pluginRestRegistry: routes);
 
         host.Start();
 
@@ -102,6 +103,9 @@ public sealed class ServerPluginHotReloadHostTests
             Assert.That(dispatcher.CanDispatch("hotprobe"), Is.True);
             Assert.That(host.SnapshotModules().Single().State, Is.EqualTo(ModuleLoadState.Loaded));
         });
+        Assert.That((await dispatcher.DispatchAsync(new CommandInvocation("hotservice", [], new Principal(), new Output()))).Status,
+            Is.EqualTo(CommandExecutionStatus.Success));
+        Assert.That((await routes.DispatchAsync("Vega.Test.HotPlugin", "probe", PluginRestMethod.Query, [])).Status, Is.EqualTo(PluginRestStatus.Success));
 
         var reloaded = await host.ReloadAsync("Vega.Test.HotPlugin");
         Assert.Multiple(() =>
@@ -111,14 +115,19 @@ public sealed class ServerPluginHotReloadHostTests
             Assert.That(dispatcher.CanDispatch("hotprobe"), Is.True);
             Assert.That(host.SnapshotModules().Single().State, Is.EqualTo(ModuleLoadState.Loaded));
         });
+        Assert.That((await dispatcher.DispatchAsync(new CommandInvocation("hotservice", [], new Principal(), new Output()))).Status,
+            Is.EqualTo(CommandExecutionStatus.Success));
+        Assert.That((await routes.DispatchAsync("Vega.Test.HotPlugin", "probe", PluginRestMethod.Query, [])).Status, Is.EqualTo(PluginRestStatus.Success));
 
         var result = await host.UnloadAsync("Vega.Test.HotPlugin");
+        Assert.That((await routes.DispatchAsync("Vega.Test.HotPlugin", "probe", PluginRestMethod.Query, [])).Status, Is.EqualTo(PluginRestStatus.NotFound));
 
         Assert.Multiple(() =>
         {
             Assert.That(result.Succeeded, Is.True, result.Message);
             Assert.That(result.RestartRequired, Is.False);
             Assert.That(dispatcher.CanDispatch("hotprobe"), Is.False);
+            Assert.That(dispatcher.CanDispatch("hotservice"), Is.False);
             Assert.That(host.SnapshotModules().Single().State, Is.EqualTo(ModuleLoadState.Disabled));
         });
     }

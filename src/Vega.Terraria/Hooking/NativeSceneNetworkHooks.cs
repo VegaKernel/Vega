@@ -27,6 +27,8 @@ internal sealed class NativeSceneNetworkHooks(
 
         Hooks.NetMessage.SendData += OnSendData;
         Hooks.Main.DedicatedTickCompleted += OnTickCompleted;
+        Hooks.MessageBuffer.ServerProjectileSynced += OnProjectileSynced;
+        Hooks.MessageBuffer.ServerProjectileRemoved += OnProjectileRemoved;
         attached = true;
     }
 
@@ -39,14 +41,42 @@ internal sealed class NativeSceneNetworkHooks(
 
         Hooks.NetMessage.SendData -= OnSendData;
         Hooks.Main.DedicatedTickCompleted -= OnTickCompleted;
+        Hooks.MessageBuffer.ServerProjectileSynced -= OnProjectileSynced;
+        Hooks.MessageBuffer.ServerProjectileRemoved -= OnProjectileRemoved;
         attached = false;
     }
 
     private void OnTickCompleted(TimeSpan duration)
     {
-        if (!dispatcher.IsGameThread || scenes is not IVirtualChestGuiAuthority { HasManagedChestPlayers: true } authority) return;
-        try { authority.TickManagedChestGuis(players, DateTimeOffset.UtcNow); }
-        catch (Exception ex) { logger.Log(OperationsLogLevel.Warning, "scenes", "Managed virtual chest reconciliation failed.", ex); }
+        if (!dispatcher.IsGameThread) return;
+        if (scenes is IVirtualChestGuiAuthority { HasManagedChestPlayers: true } authority)
+            try { authority.TickManagedChestGuis(players, DateTimeOffset.UtcNow); }
+            catch (Exception ex) { logger.Log(OperationsLogLevel.Warning, "scenes", "Managed virtual chest reconciliation failed.", ex); }
+        if (scenes is ISceneGestureRuntime { HasPendingGestures: true } gestures && players is ISceneGestureToolState tool)
+            try { gestures.TickGestures(players, tool, DateTimeOffset.UtcNow); }
+            catch (Exception ex) { logger.Log(OperationsLogLevel.Warning, "scenes", "Virtual gesture reconciliation failed.", ex); }
+    }
+
+    private void OnProjectileSynced(int sender, global::Terraria.Projectile projectile)
+    {
+        if (!dispatcher.IsGameThread || scenes is not ISceneGestureRuntime { HasGestureTargets: true } gestures ||
+            projectile.owner != sender || projectile.type != global::Terraria.ID.ProjectileID.WireKite ||
+            !projectile.active || players is not ISceneGestureToolState tool || !players.TryGet(new(sender), out var player) ||
+            player is null || player.WorldId != worldId || !tool.IsHoldingGestureTool(player)) return;
+        var position = projectile.Center;
+        if (!float.IsFinite(position.X) || !float.IsFinite(position.Y) || position.X < 0 || position.Y < 0 ||
+            position.X >= global::Terraria.Main.maxTilesX * 16f || position.Y >= global::Terraria.Main.maxTilesY * 16f)
+        { gestures.CancelGesture(player, projectile.whoAmI, projectile.key, DateTimeOffset.UtcNow); return; }
+        try { gestures.ObserveGesturePosition(player, projectile.whoAmI, projectile.key,
+            new((int)(position.X / 16f), (int)(position.Y / 16f)), DateTimeOffset.UtcNow); }
+        catch (Exception ex) { logger.Log(OperationsLogLevel.Warning, "scenes", "Virtual gesture input failed.", ex); }
+    }
+
+    private void OnProjectileRemoved(int sender, global::Terraria.Projectile projectile)
+    {
+        if (!dispatcher.IsGameThread || scenes is not ISceneGestureRuntime { HasPendingGestures: true } gestures ||
+            projectile.owner != sender || !players.TryGet(new(sender), out var player) || player is null || player.WorldId != worldId) return;
+        gestures.CancelGesture(player, projectile.whoAmI, projectile.key, DateTimeOffset.UtcNow);
     }
 
     private void OnSendData(object? sender, Hooks.NetMessage.SendDataEventArgs args)

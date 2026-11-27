@@ -52,3 +52,10 @@ public sealed record GroupMutationResult(
     string Code,
     GroupSnapshot? Before = null,
     GroupSnapshot? After = null);
+
+public interface IGroupChangeSource
+{
+    event Action<GroupChange>? GroupChanged;
+}
+
+public sealed record GroupChange(string Operation, string Actor, GroupSnapshot? Before, GroupSnapshot? After);

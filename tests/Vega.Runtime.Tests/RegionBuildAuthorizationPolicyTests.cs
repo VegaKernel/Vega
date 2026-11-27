@@ -4,9 +4,15 @@ using NUnit.Framework;
 using Vega.Contracts.Authorization;
 using Vega.Contracts.Accounts;
 using Vega.Contracts.Networking;
+using Vega.Contracts.Operations;
 using Vega.Contracts.Players;
 using Vega.Contracts.Regions;
+using Vega.Contracts.Threading;
 using Vega.Contracts.Worlds;
+using Vega.Core.Commands;
+using Vega.Core.Events;
+using Vega.Core.Modules;
+using Vega.Core.Networking;
 using Vega.Regions;
 
 namespace Vega.Runtime.Tests;
@@ -14,6 +20,87 @@ namespace Vega.Runtime.Tests;
 [TestFixture]
 public sealed class RegionBuildAuthorizationPolicyTests
 {
+    [Test]
+    public async Task PluginTilePolicyObservesTypedIntentsAndOnlyRestrictsPreviouslyAuthorizedOperations()
+    {
+        var snapshot = new PlayerSnapshot(new(4), "Player", false, 100, 100, 20, 20, new(160, 160), false, 0)
+        {
+            SessionId = PlayerSessionId.New(),
+            Connection = new(new(4), null, null, ConnectionForwardingProvenance.Direct, ClientPlatformInfo.Unknown, null, ConnectionLoginPhase.FullyConnected)
+        };
+        var players = new FakeDirectory(snapshot);
+        var worldEvents = new WorldGameplayEventHub();
+        var dispatcher = new TilePolicyThread();
+        bool current = true;
+        var pluginPolicy = new PlayerGameplayIntentPolicy(players, new FakeWorldInteractions(new(10, 10)), worldEvents,
+            dispatcher, WorldId.Primary, p => current ? new CurrentPlayerIntentState(p.Position, p.IsHostile, p.Team) : null, new TilePolicyLogger());
+        var seen = new List<PlayerTileInteractionEvent>();
+        var accepted = new List<PlayerTileInteractionAcceptedEvent>();
+        using var acceptance = worldEvents.Subscribe<PlayerTileInteractionAcceptedEvent>(accepted.Add);
+        bool allow = true;
+        await using var scope = new HotModuleRegistrationScope(new CommandDispatcher([]), new TilePolicyLogger(), "Fixture.RegionPolicy", Path.GetTempPath(), worldEvents: worldEvents);
+        scope.WorldEvents.OnTileInteractionRequested(seen.Add);
+        scope.WorldEvents.OnPlayerTileChangesCommitted(_ => { });
+        scope.WorldEvents.AllowTileInteraction(_ => allow);
+        var deniedBase = new PacketProcessorPipeline<PacketView>([CreatePolicy(Region()), pluginPolicy]);
+        var allowedBase = new PacketProcessorPipeline<PacketView>([CreatePolicy(Region(), [RegionBuildAuthorizationPolicy.BypassPermission]), pluginPolicy]);
+        var tile = new Tile { Action = TileAction.PlaceTile, TileX = 12, TileY = 14, Value = 1 };
+
+        Assert.That(Process(deniedBase, tile).Reason, Is.EqualTo("packet.region.build_denied"));
+        Assert.That(seen, Is.Empty, "Never expose rejected built-in operations to plugins.");
+        allow = false;
+        Assert.That(Process(allowedBase, tile).Reason, Is.EqualTo("packet.tile_policy.denied"));
+        Assert.That(seen.Single(), Is.EqualTo(new PlayerTileInteractionEvent(WorldId.Primary, snapshot.Id, snapshot.SessionId!.Value,
+            TileInteractionKind.Tile, TileInteractionAccess.Build, new(12, 14), new(12, 14), TileEditOperation.PlaceTile, 1)));
+
+        Assert.That(accepted, Is.Empty, "Denied intents are never marked accepted.");
+        allow = true;
+        Assert.That(Process(allowedBase, tile).Kind, Is.EqualTo(PacketDecisionKind.Allow));
+        Assert.That(accepted.Single().Intent, Is.EqualTo(seen.Last()));
+        current = false;
+        Assert.That(Process(allowedBase, tile).Reason, Is.EqualTo("packet.tile_policy.session_unavailable"));
+        Assert.That(seen, Has.Count.EqualTo(2));
+        current = true;
+        dispatcher.OnThread = false;
+        Assert.That(Process(allowedBase, tile).Reason, Is.EqualTo("packet.tile_policy.session_unavailable"));
+        Assert.That(seen, Has.Count.EqualTo(2));
+        Assert.That(accepted, Has.Count.EqualTo(1));
+
+        dispatcher.OnThread = true;
+        var pvpSeen = new List<PlayerPvpChangeRequestedEvent>();
+        scope.WorldEvents.OnPlayerPvpChangeRequested(pvpSeen.Add);
+        scope.WorldEvents.AllowPlayerPvpChange(request => request.RequestedHostile != true);
+        var pvp = new PacketProcessorPipeline<PacketView>([new PlayerPacketOwnershipPolicy(), pluginPolicy]);
+        Assert.That(Process(pvp, new TogglePvp { PlayerId = 4, PvpEnabled = true }).Reason, Is.EqualTo("packet.pvp_policy.denied"));
+        Assert.That(pvpSeen.Single(), Is.EqualTo(new PlayerPvpChangeRequestedEvent(WorldId.Primary, snapshot.Id, snapshot.SessionId!.Value,
+            snapshot.Position, PlayerPvpChangeKind.Hostility, false, 0, true)));
+        Assert.That(Process(pvp, new PlayerTeam { PlayerId = 4, Team = 2 }).Kind, Is.EqualTo(PacketDecisionKind.Allow));
+        Assert.That(pvpSeen[^1].RequestedTeam, Is.EqualTo(2));
+        Assert.That(pvpSeen[^1].RequestedHostile, Is.Null);
+
+        await scope.DisposeAsync();
+        Assert.That(Process(allowedBase, tile).Kind, Is.EqualTo(PacketDecisionKind.Allow));
+        Assert.That(worldEvents.HasPolicies<PlayerTileInteractionEvent>(), Is.False);
+        Assert.That(worldEvents.HasSubscribers<PlayerTileInteractionEvent>(), Is.False);
+        Assert.That(worldEvents.HasSubscribers<PlayerTileChangesCommittedEvent>(), Is.False);
+        Assert.That(worldEvents.HasPolicies<PlayerPvpChangeRequestedEvent>(), Is.False);
+        Assert.That(worldEvents.HasSubscribers<PlayerPvpChangeRequestedEvent>(), Is.False);
+    }
+
+    private sealed class TilePolicyThread : IGameThreadDispatcher
+    {
+        public bool OnThread { get; set; } = true;
+        public bool IsGameThreadKnown => true;
+        public bool IsGameThread => OnThread;
+        public void AssertGameThread() => Assert.That(OnThread, Is.True);
+        public bool TryPost(string name, Action action) => throw new NotSupportedException();
+        public bool TrySchedule(string name, Func<bool> step) => throw new NotSupportedException();
+    }
+
+    private sealed class TilePolicyLogger : IOperationsLogger
+    {
+        public void Log(OperationsLogLevel level, string source, string text, Exception? exception = null, string? correlationId = null) { }
+    }
     [Test]
     public void ProtectedRegionRejectsUnknownPlayer()
     {
@@ -213,7 +300,7 @@ public sealed class RegionBuildAuthorizationPolicyTests
         new(new FakeRegions(region), new FakeDirectory(), new FakeAuthorization(permissions ?? []));
 
     private static PacketProcessingDecision Process(
-        RegionBuildAuthorizationPolicy policy,
+        IPacketProcessor<PacketView> policy,
         TerrariaPacket value)
     {
         using var stream = new MemoryStream();
@@ -252,9 +339,9 @@ public sealed class RegionBuildAuthorizationPolicyTests
         public bool HasPermission(PlayerId playerId, string permission) => granted.Contains(permission);
     }
 
-    private sealed class FakeDirectory : IPlayerDirectory
+    private sealed class FakeDirectory(PlayerSnapshot? snapshot = null) : IPlayerDirectory
     {
-        private static readonly PlayerSnapshot Player = new(
+        private readonly PlayerSnapshot Player = snapshot ?? new(
             new PlayerId(4),
             "Player",
             false,

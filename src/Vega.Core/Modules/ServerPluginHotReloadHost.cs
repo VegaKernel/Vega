@@ -39,6 +39,13 @@ public sealed class ServerPluginHotReloadHost :
     private readonly Vega.Contracts.Authorization.IPlayerAuthorizationService? playerPermissions;
     private readonly IWorldPublicWarpReader? warps;
     private readonly IPlayerPlaytimeSessionReader? playtime;
+    private readonly IPluginDocumentStore? pluginDataStore;
+    private readonly Vega.Contracts.Authorization.IRoleLeaseService? roleLeases;
+    private readonly PluginNpcEconomyRegistry? npcEconomyRegistry;
+    private readonly PluginRestRegistry? pluginRestRegistry;
+    private readonly PluginClusterRegistry? pluginClusterRegistry;
+    private readonly Vega.Contracts.Cluster.IClusterNotificationSender? clusterSender;
+    private readonly PluginServiceRegistry pluginServices = new();
     private readonly string pluginDataRoot;
     private readonly string? pluginConfigurationRoot;
     private readonly Dictionary<string, LoadedPlugin> loaded = new(StringComparer.OrdinalIgnoreCase);
@@ -75,7 +82,13 @@ public sealed class ServerPluginHotReloadHost :
         Vega.Contracts.Authorization.IAuthorizationService? groups = null,
         Vega.Contracts.Authorization.IPlayerAuthorizationService? playerPermissions = null,
         IWorldPublicWarpReader? warps = null,
-        IPlayerPlaytimeSessionReader? playtime = null)
+        IPlayerPlaytimeSessionReader? playtime = null,
+        IPluginDocumentStore? pluginDataStore = null,
+        Vega.Contracts.Authorization.IRoleLeaseService? roleLeases = null,
+        PluginNpcEconomyRegistry? npcEconomyRegistry = null,
+        PluginRestRegistry? pluginRestRegistry = null,
+        PluginClusterRegistry? pluginClusterRegistry = null,
+        Vega.Contracts.Cluster.IClusterNotificationSender? clusterSender = null)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(directory);
         this.directory = Path.GetFullPath(directory);
@@ -96,6 +109,12 @@ public sealed class ServerPluginHotReloadHost :
         this.playerPermissions = playerPermissions;
         this.warps = warps;
         this.playtime = playtime;
+        this.pluginDataStore = pluginDataStore;
+        this.roleLeases = roleLeases;
+        this.npcEconomyRegistry = npcEconomyRegistry;
+        this.pluginRestRegistry = pluginRestRegistry;
+        this.pluginClusterRegistry = pluginClusterRegistry;
+        this.clusterSender = clusterSender;
         this.pluginDataRoot = Path.GetFullPath(pluginDataRoot ?? Path.Combine(this.directory, ".data"));
         this.pluginConfigurationRoot = pluginConfigurationRoot is null ? null : Path.GetFullPath(pluginConfigurationRoot);
     }
@@ -458,7 +477,10 @@ public sealed class ServerPluginHotReloadHost :
             faultWindow: TimeSpan.FromSeconds(options.FaultWindowSeconds),
             onQuarantine: () => QueueFaultRetirement(activationPath, activationId), worldEvents: worldEvents,
             activityWorldId: activityWorldId, authentication: authentication, publicChat: publicChat,
-            accounts: accounts, groups: groups, playerPermissions: playerPermissions, warps: warps, playtime: playtime);
+            accounts: accounts, groups: groups, playerPermissions: playerPermissions, warps: warps, playtime: playtime,
+            serviceRegistry: pluginServices, documentStore: pluginDataStore, roleLeases: roleLeases, npcEconomyRegistry: npcEconomyRegistry,
+            identityAssignmentGroups: options.IdentityGroupAssignments.GetValueOrDefault(staged.Name), pluginRestRegistry: pluginRestRegistry,
+            pluginClusterRegistry: pluginClusterRegistry, clusterSender: clusterSender);
         long startedAt = Stopwatch.GetTimestamp();
         string startupFailure;
         try

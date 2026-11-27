@@ -9,6 +9,20 @@ namespace Vega.Runtime.Tests.Core;
 public sealed class CommandDispatcherTests
 {
     [Test]
+    public async Task BatchRegistrationPublishesAtomicallyAndConcurrentRetirementRemovesAllAliases()
+    {
+        var dispatcher = new CommandDispatcher([new FakeHandler(new CommandDescriptor("existing", [], []))]);
+        var first = new FakeHandler(new CommandDescriptor("first", ["f"], []));
+        var duplicate = new FakeHandler(new CommandDescriptor("second", ["existing"], []));
+        Assert.Throws<InvalidOperationException>(() => dispatcher.RegisterBatch([first, duplicate]));
+        Assert.That(dispatcher.CanDispatch("first"), Is.False);
+        var registration = dispatcher.RegisterBatch([first, new FakeHandler(new CommandDescriptor("second", ["s"], []))]);
+        Assert.That(dispatcher.CanDispatch("f") && dispatcher.CanDispatch("s"), Is.True);
+        await Task.WhenAll(Enumerable.Range(0, 16).Select(_ => Task.Run(registration.Dispose)));
+        Assert.That(dispatcher.CanDispatch("first") || dispatcher.CanDispatch("f") || dispatcher.CanDispatch("second") || dispatcher.CanDispatch("s"), Is.False);
+        Assert.That(dispatcher.CanDispatch("existing"), Is.True);
+    }
+    [Test]
     public async Task CompletionObservationUsesCanonicalNameAndContainsNoCommandArguments()
     {
         var dispatcher = new CommandDispatcher([new FakeHandler(new CommandDescriptor("alpha", ["a"], ["admin"]))]);

@@ -113,6 +113,18 @@ internal sealed class PluginExecutionGuard
         finally { Interlocked.Decrement(ref activeCalls); }
     }
 
+    public TResult InvokePolicy<T, TResult>(string operation, Func<T, TResult> callback, T argument) where TResult : struct
+    {
+        if (!TryEnter()) return default;
+        try { return callback(argument); }
+        catch (Exception exception)
+        {
+            Record(operation, exception);
+            return default;
+        }
+        finally { Interlocked.Decrement(ref activeCalls); }
+    }
+
     public async ValueTask<CommandExecutionResult> InvokeCommandAsync(
         string operation,
         ICommandHandler handler,
@@ -136,6 +148,20 @@ internal sealed class PluginExecutionGuard
         {
             Record(operation, exception);
             return CommandExecutionResult.Failed("plugin.callback_failed");
+        }
+        finally { Interlocked.Decrement(ref activeCalls); }
+    }
+
+    internal async ValueTask<(bool Accepted, T? Value)> InvokeServiceAsync<T>(string operation,
+        Func<CancellationToken, ValueTask<T>> callback, CancellationToken cancellationToken)
+    {
+        if (!TryEnter()) return (false, default);
+        try { return (true, await callback(cancellationToken).ConfigureAwait(false)); }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested) { throw; }
+        catch (Exception exception)
+        {
+            Record(operation, exception);
+            return (false, default);
         }
         finally { Interlocked.Decrement(ref activeCalls); }
     }

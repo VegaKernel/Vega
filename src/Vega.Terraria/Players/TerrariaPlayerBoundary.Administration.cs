@@ -41,10 +41,17 @@ public sealed partial class TerrariaPlayerBoundary
 	}
 
 	public ValueTask<PlayerOperationResult> GiveAsync(PlayerSnapshot player, string item, int stack, int prefix, CancellationToken cancellationToken = default) =>
+		GiveItemAsync(player, item, stack, prefix, false, cancellationToken);
+
+	public ValueTask<PlayerOperationResult> GiveCommandAsync(PlayerSnapshot player, string item, int stack, int prefix, CancellationToken cancellationToken = default) =>
+		GiveItemAsync(player, item, stack, prefix, true, cancellationToken);
+
+	private ValueTask<PlayerOperationResult> GiveItemAsync(PlayerSnapshot player, string item, int stack, int prefix, bool command, CancellationToken cancellationToken,
+		CustomWorldItemStats? worldStats = null) =>
 		DispatchAsync("player.give-item", () =>
 		{
 			if (!TryGetSessionPlayer(player, out var live) || live.dead) return PlayerOperationResult.NotFound();
-			if (stack <= 0 || prefix < 0 || prefix >= PrefixID.Count || string.IsNullOrWhiteSpace(item))
+			if (stack < 0 || (!command && stack == 0) || prefix < 0 || prefix >= PrefixID.Count || string.IsNullOrWhiteSpace(item))
 				return PlayerOperationResult.Failed("item.invalid_request");
 			int type;
 			if (!int.TryParse(item, out type))
@@ -60,7 +67,19 @@ public sealed partial class TerrariaPlayerBoundary
 				return PlayerOperationResult.Failed("restriction.item_give");
 			var template = new global::Terraria.Item();
 			template.SetDefaults(type);
+			if (command)
+			{
+				if (live.preventAllItemPickups) return PlayerOperationResult.Failed("item.pickups_disabled");
+				if (!(type is > 70 and < 75 || template.ammo > 0 || type is 58 or 184) &&
+					!live.inventory.Take(50).Any(slot => slot is null || slot.IsAir)) return PlayerOperationResult.Failed("item.inventory_full");
+				if (stack == 0 || stack > template.maxStack) stack = template.maxStack;
+				if (prefix == PrefixID.Quick && template.accessory) prefix = PrefixID.Quick2;
+			}
 			if (stack > template.maxStack || (prefix != 0 && !template.Prefix(prefix))) return PlayerOperationResult.Failed("item.invalid_stack_or_prefix");
+			if (worldStats is not null && (live.preventAllItemPickups || !NativeWorldItemStats.CanApply(template, stack, worldStats)))
+				return PlayerOperationResult.Failed("item.unsupported_world_stats");
+			if (worldStats is not null && template.shoot > 0 && contentRestrictions?.IsAllowed(player.Id, RestrictedContentKind.Projectile, template.shoot) == false)
+				return PlayerOperationResult.Failed("restriction.item_projectile");
 			bool vacant = false;
 			for (int i = 0; i < global::Terraria.Main.maxItems; i++)
 			{
@@ -72,9 +91,17 @@ public sealed partial class TerrariaPlayerBoundary
 			if ((uint)slot >= (uint)global::Terraria.Main.maxItems || !global::Terraria.Main.item[slot].active)
 				return PlayerOperationResult.Failed("item.spawn_failed");
 			global::Terraria.Main.item[slot].playerIndexTheItemIsReservedFor = live.whoAmI;
+			if (worldStats is not null)
+			{
+				var worldItem = global::Terraria.Main.item[slot];
+				if (worldItem.inner.type != type || worldItem.inner.stack != stack || worldItem.inner.prefix != prefix)
+				{ worldItem.TurnToAirAndSync(); return PlayerOperationResult.Failed("item.spawn_changed"); }
+				if (!SendCustomWorldItem(worldItem, slot, live.whoAmI, worldStats)) return PlayerOperationResult.Failed("item.delivery_failed");
+				return PlayerOperationResult.Applied() with { DeliveredItemStack = stack, DeliveredItemName = template.AffixName() };
+			}
 			global::Terraria.NetMessage.SendData(MessageID.SyncItem, live.whoAmI, -1, null, slot, 1);
 			global::Terraria.NetMessage.SendData(MessageID.ItemOwner, live.whoAmI, -1, null, slot);
-			return PlayerOperationResult.Applied();
+			return PlayerOperationResult.Applied() with { DeliveredItemStack = stack, DeliveredItemName = template.AffixName() };
 		}, "item.delivery_failed", cancellationToken);
 
 	public ValueTask<PlayerOperationResult> HealAsync(PlayerSnapshot player, int amount, CancellationToken cancellationToken = default) =>

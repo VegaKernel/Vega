@@ -28,11 +28,7 @@ affect permissions. Unauthenticated sessions and groups without configured
 presentation retain existing chat behavior. Moderation, recipient/world filtering,
 mention rendering and session-bound delivery remain active.
 
-Database schema version 2 creates the additive `vega_group_presentation` table
-for SQLite, PostgreSQL and MySQL. Existing v1 databases migrate when opened;
-presentation mutations use the group's existing revision and audit transaction.
-No reset or re-import is required. As with other schema upgrades, preserve a
-pre-upgrade database backup. Older Vega versions do not support schema v2.
+The initial release schema creates `vega_group_presentation` on SQLite, PostgreSQL and MySQL. Presentation mutations use the group's existing revision and audit transaction.
 
 Group rename and multi-permission creation/grants are deliberately not emulated:
 group names may be referenced by accounts, live sessions, temporary role leases,

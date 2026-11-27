@@ -8,4 +8,7 @@ public sealed class LegacyAccountImport(int id, string name, string group, strin
     public string Group { get; } = group;
     public string PasswordHash { get; } = passwordHash;
     public DateTimeOffset? LastSeen { get; } = lastSeen;
+    public DateTimeOffset? RegisteredUtc { get; init; }
+    public string? LastKnownIp { get; init; }
+    public string? LastKnownUuid { get; init; }
 }

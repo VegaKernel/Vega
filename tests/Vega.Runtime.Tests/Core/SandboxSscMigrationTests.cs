@@ -9,7 +9,6 @@ namespace Vega.Runtime.Tests.Core;
 public sealed class SandboxSscMigrationTests
 {
     private string root = null!;
-    private string legacyPath = null!;
     private string sharedPath = null!;
     private DateTimeOffset now;
 
@@ -17,7 +16,6 @@ public sealed class SandboxSscMigrationTests
     public void SetUp()
     {
         root = Path.Combine(Path.GetTempPath(), "vega-ssc-migration", Guid.NewGuid().ToString("N"));
-        legacyPath = Path.Combine(root, "primary-characters.json");
         sharedPath = Path.Combine(root, "sandboxes", "ssc.json");
         now = DateTimeOffset.UtcNow;
     }
@@ -29,27 +27,21 @@ public sealed class SandboxSscMigrationTests
     }
 
     [Test]
-    public void MigrationPreservesArchiveAndExistingWorldsAndAllocatesNewRevision()
+    public void ImportPreservesExistingWorldsAndAllocatesNewRevision()
     {
-        var legacy = new SandboxSscStore(legacyPath);
         var shared = new SandboxSscStore(sharedPath);
-        Assert.That(legacy.Save("1", WorldId.Primary, SandboxSscMode.Inherit, "first", 0, now).IsSuccess, Is.True);
-        Assert.That(legacy.Save("2", WorldId.Primary, SandboxSscMode.Inherit, "same", 0, now).IsSuccess, Is.True);
         var existing = shared.Save("2", WorldId.Primary, SandboxSscMode.Inherit, "same", 0, now).State!;
         var arena = new WorldId("arena");
         var isolated = shared.Save("1", arena, SandboxSscMode.Isolated, "isolated", 0, now).State!;
-        byte[] original = File.ReadAllBytes(legacyPath);
         byte[] oldShared = File.ReadAllBytes(sharedPath);
 
-        var result = shared.MigrateLegacyPrimary(legacyPath, now);
+        var result = shared.ImportPrimary(new Dictionary<string, string> { ["1"] = "first", ["2"] = "same" }, now);
         var reopened = new SandboxSscStore(sharedPath);
         var restored = reopened.Read("1", arena, SandboxSscMode.Inherit)!;
         Assert.Multiple(() =>
         {
             Assert.That(result.Imported, Is.EqualTo(1));
             Assert.That(result.AlreadyPresent, Is.EqualTo(1));
-            Assert.That(File.Exists(legacyPath), Is.False);
-            Assert.That(File.ReadAllBytes(result.LegacyArchive), Is.EqualTo(original));
             Assert.That(File.ReadAllBytes(result.SharedBackup!), Is.EqualTo(oldShared));
             Assert.That(restored.Payload, Is.EqualTo("first"));
             Assert.That(restored.Revision, Is.GreaterThan(isolated.Revision));
@@ -60,38 +52,30 @@ public sealed class SandboxSscMigrationTests
     }
 
     [Test]
-    public void ConflictingCharacterRejectsWholeMigrationWithoutChangingFiles()
+    public void ConflictingCharacterRejectsWholeImportWithoutChangingFiles()
     {
-        var legacy = new SandboxSscStore(legacyPath);
         var shared = new SandboxSscStore(sharedPath);
-        legacy.Save("1", WorldId.Primary, SandboxSscMode.Inherit, "new", 0, now);
-        legacy.Save("2", WorldId.Primary, SandboxSscMode.Inherit, "old", 0, now);
         shared.Save("2", WorldId.Primary, SandboxSscMode.Inherit, "different", 0, now);
-        byte[] original = File.ReadAllBytes(legacyPath);
         byte[] oldShared = File.ReadAllBytes(sharedPath);
 
-        Assert.Throws<InvalidDataException>(() => shared.MigrateLegacyPrimary(legacyPath, now));
+        Assert.Throws<InvalidDataException>(() => shared.ImportPrimary(new Dictionary<string, string> { ["1"] = "new", ["2"] = "old" }, now));
         Assert.Multiple(() =>
         {
-            Assert.That(File.ReadAllBytes(legacyPath), Is.EqualTo(original));
             Assert.That(File.ReadAllBytes(sharedPath), Is.EqualTo(oldShared));
-            Assert.That(File.Exists(legacyPath + ".migrated"), Is.False);
             Assert.That(shared.Read("1", WorldId.Primary, SandboxSscMode.Inherit), Is.Null);
         });
     }
 
     [Test]
-    public void ActiveTransferBlocksMigrationAndExpiredTransferDoesNot()
+    public void ActiveTransferBlocksImportAndExpiredTransferDoesNot()
     {
-        var legacy = new SandboxSscStore(legacyPath);
         var shared = new SandboxSscStore(sharedPath);
-        legacy.Save("1", WorldId.Primary, SandboxSscMode.Inherit, "first", 0, now);
         Assert.That(shared.PrepareTransfer("1", WorldId.Primary, new WorldId("arena"), SandboxSscMode.Inherit,
             SandboxSscMode.Isolated, now, TimeSpan.FromSeconds(30)).Accepted, Is.True);
         byte[] original = File.ReadAllBytes(sharedPath);
-        Assert.Throws<InvalidDataException>(() => shared.MigrateLegacyPrimary(legacyPath, now));
+        Assert.Throws<InvalidDataException>(() => shared.ImportPrimary(new Dictionary<string, string> { ["1"] = "first" }, now));
         Assert.That(File.ReadAllBytes(sharedPath), Is.EqualTo(original));
-        Assert.That(shared.MigrateLegacyPrimary(legacyPath, now.AddMinutes(1)).Imported, Is.EqualTo(1));
+        Assert.That(shared.ImportPrimary(new Dictionary<string, string> { ["1"] = "first" }, now.AddMinutes(1)).Imported, Is.EqualTo(1));
     }
 
     [Test]

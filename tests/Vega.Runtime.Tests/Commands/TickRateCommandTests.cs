@@ -9,6 +9,17 @@ namespace Vega.Runtime.Tests.Commands;
 public sealed class TickRateCommandTests
 {
     [Test]
+    public async Task TpsAdministrativeAliasesResetAndToggleTheExistingMonitor()
+    {
+        int resets = 0;
+        bool alerts = false;
+        var command = new TickRateCommand(new FixedState(TickRateStatisticsSnapshot.Empty), () => resets++, () => alerts = !alerts);
+        Assert.That((await command.ExecuteAsync(Invocation() with { Name = "tpsreset" }, default)).Status, Is.EqualTo(CommandExecutionStatus.Success));
+        Assert.That((await command.ExecuteAsync(Invocation() with { Name = "tpsalerts" }, default)).Status, Is.EqualTo(CommandExecutionStatus.Success));
+        Assert.That(resets, Is.EqualTo(1));
+        Assert.That(alerts, Is.True);
+    }
+    [Test]
     public async Task CommandReportsRollingRatesExtremesAndTickPercentiles()
     {
         DateTimeOffset now = new(2026, 8, 20, 12, 0, 0, TimeSpan.Zero);
@@ -25,7 +36,7 @@ public sealed class TickRateCommandTests
             24.8)));
 
         CommandExecutionResult result = await command.ExecuteAsync(
-            Invocation(),
+            Invocation() with { Name = "tpsmetrics" },
             CancellationToken.None);
 
         Assert.Multiple(() =>

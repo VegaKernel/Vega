@@ -5,7 +5,9 @@ namespace Vega.Cluster.Dispatching;
 public sealed class ClusterMessageDeduplicator
 {
     private readonly object sync = new();
-    private readonly Dictionary<ClusterMessageId, DateTimeOffset> accepted = [];
+    private readonly Dictionary<(ServerId Sender, ClusterMessageId Id), LinkedListNode<Entry>> accepted = [];
+    private readonly LinkedList<Entry> order = new();
+    private sealed record Entry((ServerId Sender, ClusterMessageId Id) Key, DateTimeOffset ExpiresAt);
     private readonly int capacity;
     private readonly TimeSpan retention;
     private readonly TimeProvider time;
@@ -25,40 +27,42 @@ public sealed class ClusterMessageDeduplicator
         time = timeProvider ?? TimeProvider.System;
     }
 
-    public bool TryAccept(ClusterMessageId messageId)
+    public bool TryAccept(ClusterMessageId messageId) => TryAccept(default, messageId);
+
+    public bool TryAccept(ServerId sender, ClusterMessageId messageId)
     {
         lock (sync)
         {
             DateTimeOffset now = time.GetUtcNow();
-            foreach (ClusterMessageId expired in accepted
-                .Where(pair => pair.Value <= now)
-                .Select(static pair => pair.Key)
-                .ToArray())
+            // Insertion order gives constant-time admission/eviction in the usual nondecreasing clock case.
+            while (order.First is { } expired && expired.Value.ExpiresAt <= now) Remove(expired);
+
+            var key = (sender, messageId);
+            if (accepted.TryGetValue(key, out var existing))
             {
-                accepted.Remove(expired);
+                if (existing.Value.ExpiresAt > now) return false;
+                Remove(existing);
             }
 
-            if (accepted.ContainsKey(messageId))
-            {
-                return false;
-            }
-
-            if (accepted.Count >= capacity)
-            {
-                ClusterMessageId oldest = accepted.MinBy(static pair => pair.Value).Key;
-                accepted.Remove(oldest);
-            }
-
-            accepted.Add(messageId, now + retention);
+            if (accepted.Count >= capacity) Remove(order.First!);
+            accepted.Add(key, order.AddLast(new Entry(key, now + retention)));
             return true;
         }
     }
 
-    public void Forget(ClusterMessageId messageId)
+    public void Forget(ClusterMessageId messageId) => Forget(default, messageId);
+
+    public void Forget(ServerId sender, ClusterMessageId messageId)
     {
         lock (sync)
         {
-            accepted.Remove(messageId);
+            if (accepted.TryGetValue((sender, messageId), out var node)) Remove(node);
         }
+    }
+
+    private void Remove(LinkedListNode<Entry> entry)
+    {
+        accepted.Remove(entry.Value.Key);
+        order.Remove(entry);
     }
 }
