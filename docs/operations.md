@@ -61,7 +61,9 @@ Vega monitors top-level `ServerPlugins/*.dll` deployment changes. Administrative
 
 With the switch off, a DLL change produces a visible `restart required` state. With it on, create/change automatically loads or replaces a conforming plugin, delete unloads it, and rename is handled as an unload/load transition. An assembly is hot-loadable only when it directly exports exactly one public, parameterless `IHotReloadableVegaModule`. Use `plugin list`, `plugin reload <name-or-dll>` or `plugin unload <name-or-dll>` for explicit administration; the permission is `server.plugins.manage`.
 
-An unloadable plugin must register commands through `IHotModuleContext.RegisterCommand` and every hook/resource through `Track` or `RegisterCleanup`. Vega first removes tracked registrations in reverse order so no new callbacks enter the plugin, then calls `StopAsync` to quiesce its own work, calls `DisposeAsync`, requests unload of the collectible context and verifies that it was collected. A static reference or failed cleanup produces `restart required`; Vega does not report a false successful unload. Bundled modules created as `IVegaModule` remain restart-only.
+Plugins may declare their required SDK API generation with `VegaPluginApiGenerationAttribute`. A mismatch is rejected before constructing the plugin and preserves a working activation during explicit replacement. Legacy undeclared assemblies retain best-effort admission; matching API generation is not a stable binary compatibility promise. See the [SDK compatibility policy](plugin-sdk.md#sdk-compatibility-declaration).
+
+An unloadable plugin must register commands through `IHotModuleContext.RegisterCommand` and every hook/resource through `Track` or `RegisterCleanup`. Vega closes the guarded callback boundary, cancels and drains SDK lifetime work, removes tracked registrations in reverse order, calls `StopAsync` and `DisposeAsync`, requests unload of the collectible context and verifies that it was collected. The configured unload deadline bounds waiting for callbacks, cancellation and plugin cleanup; a non-cooperative activation stays degraded and blocks a replacement until retired, but another plugin can still be managed. A static reference or failed cleanup produces `restart required`; Vega does not report a false successful unload. Explicit unload can retry a timed-out activation after its outstanding work finishes. Bundled modules created as `IVegaModule` remain restart-only.
 
 Structured operational events are written independently to the bounded in-memory store, stdout outside headless mode, and `logs/vega-operations.jsonl` when the file sink is available.
 
@@ -95,7 +97,7 @@ Local palette actions control only the view:
 Log retention is bounded and filtering supports minimum level, source and text. Pausing freezes the displayed immutable snapshot; it never pauses server execution or log ingestion.
 # Local scoped REST
 
-An optional primary-world operations listener binds `127.0.0.1` only (`VEGA_REST_PORT`, `VEGA_REST_TOKEN_SHA256`). Clients send a randomly generated bearer token in the Authorization header; the process retains only its SHA-256 fingerprint. `GET /v1/status`, `/v1/players`, `/v1/network`, `/v1/metrics`, `/v1/scheduler`, and `/v1/world` expose bounded immutable snapshots without endpoints or account secrets. Metrics include CPU time, working set and private memory, total allocations, GC collections and pause duration, plus game-thread pending/dropped work, capacity and scheduling budget. A distinct maintenance token (`VEGA_REST_MAINTENANCE_TOKEN_SHA256`) authorizes typed world mutations, never arbitrary commands. `rest status`, `rest listusers`, `rest destroytokens` are permission checked; token revocation lasts until restart. The default is disabled, and sandbox processes do not open this listener. See the [project guide](en/project-guide.md).
+An optional primary-world operations listener binds `127.0.0.1` only (`VEGA_REST_PORT`, `VEGA_REST_TOKEN_SHA256`). Clients send a randomly generated bearer token in the Authorization header; the process retains only its SHA-256 fingerprint. `GET /v1/status`, `/v1/players`, `/v1/network`, `/v1/metrics`, `/v1/scheduler`, and `/v1/world` expose bounded immutable snapshots without endpoints or account secrets. Metrics include CPU time, working set and private memory, total allocations, GC collections and pause duration, plus game-thread pending/dropped work, capacity and scheduling budget. A distinct maintenance token (`VEGA_REST_MAINTENANCE_TOKEN_SHA256`) authorizes typed world and player operations, never arbitrary commands. `rest status`, `rest listusers`, `rest destroytokens` are permission checked; token revocation lasts until restart. The default is disabled, and sandbox processes do not open this listener. See the [project guide](en/project-guide.md).
 
 | Route | Scope | Contract |
 | --- | --- | --- |
@@ -103,8 +105,10 @@ An optional primary-world operations listener binds `127.0.0.1` only (`VEGA_REST
 | `POST /v1/world/save` | Maintenance | Empty body; existing typed native save operation. |
 | `POST /v1/world/time` | Maintenance | JSON `{"isDaytime":true,"timeTicks":12000}`; both fields required, native day/night tick range. |
 | `POST /v1/world/weather` | Maintenance | JSON containing one or more of `raining` (Boolean), `rainIntensity` (0–1), `windSpeed` (-1–1). |
+| `POST /v1/players/message` | Maintenance | JSON with `slot`, `sessionId`, `message` (1–512 characters). Sends to the observed session only. |
+| `POST /v1/players/kick` | Maintenance | JSON with `slot`, `sessionId`, `reason` (1–256 characters). Disconnects the observed session only. |
 
-World changes operate only on the listener's owned ready world and return 204 on
+World and player changes operate only on the listener's owned ready world and return 204 on
 success. JSON mutations require `application/json` with a nonempty, known length
 of at most 4096 bytes; unknown or duplicate fields and out-of-range values are
 rejected. A read token cannot mutate. World snapshot/body reads have a five-second
@@ -113,5 +117,10 @@ dispatcher returns 503; cancelled/timed-out work returns 504. The native game
 thread remains the mutation authority. Each invoked maintenance action is audited
 by world, action and outcome without logging credentials or raw request bodies.
 World read/time/weather and audit are exercised by the clean deployment smoke.
+
+For player operations, copy `id` (as `slot`, 0–254) and non-null `sessionId` (32 hexadecimal characters)
+from the latest `GET /v1/players`. A stale session, reused slot or player in another world returns 404;
+the native game-thread operation revalidates the same session at delivery. Messages and reasons cannot
+contain control characters. Neither the session selector nor text is copied into the REST outcome audit.
 
 `scripts/Measure-LiveVegaServer.ps1` samples readiness, actual connected-player count, p50/p95/p99 tick duration, GC/process/network counters and scheduler depth into a timestamped CSV through the local read API. Supply the read bearer token in `VEGA_REST_READ_TOKEN` in the measurement process. Its `-MinimumPlayers` gate fails qualification if any measured sample falls below the requested connected-player count; loopback transport peers alone do not count as in-game players.

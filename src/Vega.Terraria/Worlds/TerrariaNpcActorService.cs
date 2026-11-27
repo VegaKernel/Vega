@@ -74,7 +74,19 @@ public sealed class TerrariaNpcActorService(IGameThreadDispatcher dispatcher, Wo
     }
 
     private static bool ValidShop(NpcShopCatalog? shop) => shop is null ||
-        shop.Offers.All(offer => offer.ItemType < ItemID.Count && offer.Prefix < PrefixID.Count);
+        shop.Offers.All(offer => TryCreateOfferPrototype(offer, out _));
+
+    private static bool TryCreateOfferPrototype(NpcShopOffer offer, out global::Terraria.Item prototype)
+    {
+        prototype = new global::Terraria.Item();
+        if (offer.ItemType <= 0 || offer.ItemType >= ItemID.Count || offer.Prefix >= PrefixID.Count) return false;
+        prototype.SetDefaults(offer.ItemType);
+        if (offer.Prefix != 0) prototype.Prefix(offer.Prefix);
+        // One presentation slot must describe a real native item, not a stack or prefix that the
+        // stock decoder would accept into its UI but could never deliver as specified.
+        return prototype.type == offer.ItemType && prototype.prefix == offer.Prefix &&
+            offer.Stack > 0 && offer.Stack <= prototype.maxStack;
+    }
     private static bool ValidName(string name) => !string.IsNullOrWhiteSpace(name) && name.Length <= 200 && !name.Any(char.IsControl);
     private static bool ValidPosition(PlayerPosition position) => float.IsFinite(position.X) && float.IsFinite(position.Y) &&
         position.X >= 0 && position.Y >= 0 && position.X < global::Terraria.Main.rightWorld && position.Y < global::Terraria.Main.bottomWorld;
@@ -188,7 +200,7 @@ public sealed class TerrariaNpcActorService(IGameThreadDispatcher dispatcher, Wo
             // Let vanilla process the conversation first, then resolve the exact actor and player again.
             _ = dispatcher.TryPost("npc.actor.interaction", () =>
             {
-                if (IsCurrent(actor) && players.TryGetSessionPlayer(player, out var live) && live.talkNPC == actor.Slot &&
+                if (IsCurrent(actor) && players.TryGetSessionPlayer(player, out var live) && IsNearConversation(actor, live) &&
                     player.SessionId is { } session)
                 {
                     actor.Conversations[player.Id] = session;
@@ -209,7 +221,7 @@ public sealed class TerrariaNpcActorService(IGameThreadDispatcher dispatcher, Wo
         if ((uint)expected.Id.Slot >= (uint)global::Terraria.Netplay.Clients.Length ||
             global::Terraria.Netplay.Clients[expected.Id.Slot] is not { IsActive: true, Socket: { } socket } client)
             return NpcShopPresentationStatus.InvalidSession;
-        byte[] data = EncodeShop(actor.Shop, actor.SoldOut);
+        byte[] data = actor.EncodedShop ??= EncodeShop(actor.Shop, actor.SoldOut);
         if (!IsCurrent(actor) || !client.IsActive || !ReferenceEquals(client.Socket, socket) ||
             !players.TryGetSessionPlayer(expected, out live) || live.talkNPC != actor.Slot) return NpcShopPresentationStatus.InvalidSession;
         try
@@ -224,10 +236,13 @@ public sealed class TerrariaNpcActorService(IGameThreadDispatcher dispatcher, Wo
         }
     }
 
-    private static bool IsInteracting(Actor actor, PlayerSnapshot expected, global::Terraria.Player live) =>
-        !live.dead && live.talkNPC == actor.Slot && actor.Native.townNPC &&
-        actor.Conversations.TryGetValue(expected.Id, out var conversation) && expected.SessionId == conversation &&
+    private static bool IsNearConversation(Actor actor, global::Terraria.Player live) =>
+        !live.dead && live.talkNPC == actor.Slot &&
         Microsoft.Xna.Framework.Vector2.DistanceSquared(live.Center, actor.Native.Center) <= 256f * 256f;
+
+    private static bool IsInteracting(Actor actor, PlayerSnapshot expected, global::Terraria.Player live) =>
+        IsNearConversation(actor, live) && actor.Native.townNPC &&
+        actor.Conversations.TryGetValue(expected.Id, out var conversation) && expected.SessionId == conversation;
 
     private NpcShopPurchaseResult Purchase(Actor actor, PlayerSnapshot expected, string offerId, long revision)
     {
@@ -236,16 +251,17 @@ public sealed class TerrariaNpcActorService(IGameThreadDispatcher dispatcher, Wo
         if (actor.Shop is not { } catalog || actor.ShopRevision != revision) return Failure(NpcShopPurchaseStatus.CatalogChanged);
         if (players is null || !players.TryGetSessionPlayer(expected, out var live) || !IsInteracting(actor, expected, live))
             return Failure(NpcShopPurchaseStatus.NotInteracting);
+        // The stock multiplayer client ignores SyncEquipment for its own unlocked inventory
+        // unless the server advertised SSC. Do not debit or consume stock when the client owns it.
+        if (global::Terraria.Main.netMode == 2 && !global::Terraria.Main.ServerSideCharacter)
+            return Failure(NpcShopPurchaseStatus.InventoryAuthorityRequired);
         NpcShopOffer offer = catalog.Offers.FirstOrDefault(o => o.Id == offerId);
         if (offer.Id is null || offer.CoinPrice is not long price || actor.SoldOut.Contains(offer.Id)) return Failure(NpcShopPurchaseStatus.OfferUnavailable);
         if (live.inventory.Length < NpcShopPurchasePlan.Slots) return Failure(NpcShopPurchaseStatus.InvalidInventory);
         var original = new NpcShopPurchasePlan.Slot[NpcShopPurchasePlan.Slots];
         for (int i = 0; i < original.Length; i++) original[i] = NpcShopPurchasePlan.Snapshot(live.inventory[i]);
 
-        var prototype = new global::Terraria.Item();
-        prototype.SetDefaults(offer.ItemType);
-        if (offer.Prefix != 0) prototype.Prefix(offer.Prefix);
-        if (prototype.type != offer.ItemType || prototype.prefix != offer.Prefix || prototype.maxStack <= 0)
+        if (!TryCreateOfferPrototype(offer, out var prototype))
             return Failure(NpcShopPurchaseStatus.InvalidOffer);
         var status = NpcShopPurchasePlan.Prepare(original, offer, prototype.maxStack,
             coinStackLimits ??= NpcShopPurchasePlan.ReadCoinStackLimits(), out var planned);
@@ -277,14 +293,18 @@ public sealed class TerrariaNpcActorService(IGameThreadDispatcher dispatcher, Wo
             if (NpcShopPurchasePlan.Snapshot(live.inventory[i]) != original[i]) return Failure(NpcShopPurchaseStatus.InventoryChanged);
 
         foreach (var (slot, item) in replacements) live.inventory[slot] = item;
-        if (offer.BuyOnce) { actor.SoldOut.Add(offer.Id); actor.ShopRevision++; }
+        if (offer.BuyOnce) { actor.SoldOut.Add(offer.Id); actor.InvalidateShopPresentation(); }
         var committed = new NpcShopPurchaseResult(NpcShopPurchaseStatus.Committed, actor.ShopRevision, price, offer.ItemType, offer.Stack);
         // Publication is post-commit. A delivery/observer exception must never invite a second debit.
         foreach (var (slot, item) in replacements)
         {
             try
             {
-                if (global::Terraria.Main.netMode == 2) global::Terraria.NetMessage.SendData(5, -1, -1, null, expected.Id.Slot, slot, item.prefix);
+                if (global::Terraria.Main.netMode == 2)
+                {
+                    global::Terraria.NetMessage.SendData(MessageID.SyncEquipment, expected.Id.Slot, -1, null, expected.Id.Slot, slot, item.prefix);
+                    global::Terraria.NetMessage.SendData(MessageID.SyncEquipment, -1, expected.Id.Slot, null, expected.Id.Slot, slot, item.prefix);
+                }
             }
             catch (Exception ex) { LogSafe("Committed shop inventory sync failed.", ex); }
         }
@@ -370,6 +390,12 @@ public sealed class TerrariaNpcActorService(IGameThreadDispatcher dispatcher, Wo
         public NpcActorIntent Intent = new(definition.Stationary ? NpcActorIntentKind.Stop : NpcActorIntentKind.Vanilla);
         public NpcShopCatalog? Shop = definition.Shop;
         public long ShopRevision = 1;
+        public byte[]? EncodedShop;
+        public void InvalidateShopPresentation()
+        {
+            EncodedShop = null;
+            ShopRevision++;
+        }
         public Dictionary<PlayerId, PlayerSessionId> Conversations { get; } = new();
         public HashSet<string> SoldOut { get; } = new(StringComparer.Ordinal);
         public bool RetirementRequested => Volatile.Read(ref retirement) != 0;
@@ -407,7 +433,7 @@ public sealed class TerrariaNpcActorService(IGameThreadDispatcher dispatcher, Wo
             if (!owner.IsCurrent(this) || !ValidShop(shop) || shop is not null && !Native.townNPC) return false;
             Shop = shop;
             SoldOut.Clear();
-            ShopRevision++;
+            InvalidateShopPresentation();
             return true;
         }, false, cancellationToken);
         public ValueTask<NpcShopPresentationStatus> PresentShopAsync(PlayerSnapshot player, CancellationToken cancellationToken = default) =>

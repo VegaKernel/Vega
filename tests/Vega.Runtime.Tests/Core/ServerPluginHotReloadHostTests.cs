@@ -1,4 +1,6 @@
 using NUnit.Framework;
+using System.Diagnostics;
+using System.Collections.Concurrent;
 using System.Text;
 using Vega.Contracts.Commands;
 using Vega.Contracts.Operations;
@@ -8,6 +10,7 @@ using Vega.Core.Commands;
 using Vega.Core.Modules;
 using Vega.Core.Scenes;
 using Vega.Contracts.Worlds;
+using Vega.Contracts.Threading;
 using Vega.PluginSdk;
 
 namespace Vega.Runtime.Tests.Core;
@@ -150,6 +153,219 @@ public sealed class ServerPluginHotReloadHostTests
         });
     }
 
+    [Test]
+    public async Task IndependentPluginFaultSoakKeepsHealthyActivationServingAcrossThirtyTwoRetirements()
+    {
+        DeployTestPlugins();
+        foreach (string name in new[] { "Vega.Test.HotPlugin", "Vega.Test.HealthyPlugin" })
+        {
+            string data = Path.Combine(directory, ".data", name);
+            Directory.CreateDirectory(data);
+            File.WriteAllText(Path.Combine(data, "soak-mode"), "1");
+        }
+        var dispatcher = new CommandDispatcher([]);
+        var lifecycle = new LifecycleProbe();
+        var gameThread = new ScheduledProbe();
+        using var host = new ServerPluginHotReloadHost(directory,
+            new ServerPluginHotReloadOptions(true, 100, 5000) { FaultThreshold = 5 }, dispatcher, new RecordingLogger(),
+            playerLifecycle: lifecycle, gameThread: gameThread);
+        host.Start();
+        var watch = Stopwatch.StartNew();
+        int retiredPeriodic = 0;
+        for (int cycle = 0; cycle < 32; cycle++)
+        {
+            if (cycle != 0)
+            {
+                var replacement = await host.ReloadAsync("Vega.Test.HotPlugin");
+                Assert.That(replacement.Succeeded, Is.True, replacement.Message);
+            }
+            Assert.That(lifecycle.Subscribers, Is.EqualTo((2, 2)));
+            lifecycle.Reconnect();
+            await WaitUntilAsync(() => gameThread.Count("faulty-periodic") > retiredPeriodic);
+            for (int fault = 0; fault < 5; fault++)
+            {
+                Assert.That((await Dispatch(dispatcher, "hotfault")).ErrorCode, Is.EqualTo("plugin.callback_failed"));
+                Assert.That((await Dispatch(dispatcher, "healthyprobe")).Status, Is.EqualTo(CommandExecutionStatus.Success));
+            }
+            await WaitUntilAsync(() => host.SnapshotModules().Single(m => m.Name == "Vega.Test.HotPlugin").State == ModuleLoadState.Disabled);
+            retiredPeriodic = gameThread.Count("faulty-periodic");
+            int healthyPeriodic = gameThread.Count("healthy-periodic");
+            lifecycle.Reconnect();
+            await WaitUntilAsync(() => gameThread.Count("healthy-periodic") > healthyPeriodic);
+            Assert.Multiple(() =>
+            {
+                Assert.That(dispatcher.CanDispatch("hotfault"), Is.False);
+                Assert.That(host.SnapshotModules().Single(m => m.Name == "Vega.Test.HotPlugin").FaultCount, Is.EqualTo(5));
+                Assert.That(host.SnapshotModules().Single(m => m.Name == "Vega.Test.HealthyPlugin").State, Is.EqualTo(ModuleLoadState.Loaded));
+                Assert.That(host.Read().IsRestartRequired, Is.False);
+                Assert.That(lifecycle.Subscribers, Is.EqualTo((1, 1)));
+                Assert.That(gameThread.Count("faulty-joined"), Is.EqualTo(cycle + 1));
+                Assert.That(gameThread.Count("faulty-left"), Is.EqualTo(cycle + 1));
+                Assert.That(gameThread.Count("healthy-joined"), Is.EqualTo(2 * (cycle + 1)));
+                Assert.That(gameThread.Count("healthy-left"), Is.EqualTo(2 * (cycle + 1)));
+                Assert.That(gameThread.Count("faulty-periodic"), Is.EqualTo(retiredPeriodic));
+            });
+        }
+        TestContext.Progress.WriteLine($"Independent plugin soak: 32 retirements, 160 isolated faults, 160 healthy replies, 64 reconnects, " +
+            $"{gameThread.Count("faulty-periodic")} faulty/{gameThread.Count("healthy-periodic")} healthy scheduled callbacks in {watch.Elapsed.TotalSeconds:F2}s.");
+    }
+
+    [TestCase("hold-command")]
+    [TestCase("hold-stop")]
+    [TestCase("hold-stop-cancel")]
+    public async Task NonCooperativePluginDoesNotBlockOtherPluginManagement(string gateName)
+    {
+        DeployTestPlugins();
+        var dispatcher = new CommandDispatcher([]);
+        using var host = new ServerPluginHotReloadHost(directory,
+            new ServerPluginHotReloadOptions(true, 100, 500), dispatcher, new RecordingLogger());
+        host.Start();
+        string data = Path.Combine(directory, ".data", "Vega.Test.HotPlugin");
+        Directory.CreateDirectory(data);
+        string gate = Path.Combine(data, gateName);
+        File.WriteAllText(gate, "1");
+        Task<CommandExecutionResult>? blocked = null;
+        try
+        {
+            if (gateName == "hold-command")
+            {
+                blocked = Dispatch(dispatcher, "hotstall").AsTask();
+                await WaitUntilAsync(() => File.Exists(gate + ".entered"));
+            }
+            var watch = Stopwatch.StartNew();
+            var unload = await host.UnloadAsync("Vega.Test.HotPlugin");
+            Assert.Multiple(() =>
+            {
+                Assert.That(unload.Succeeded, Is.False);
+                Assert.That(unload.RestartRequired, Is.True);
+                Assert.That(unload.Message, Does.Contain("timeout"));
+                Assert.That(watch.Elapsed, Is.LessThan(TimeSpan.FromSeconds(5)));
+                Assert.That(host.SnapshotModules().Single(m => m.Name == "Vega.Test.HotPlugin").State, Is.EqualTo(ModuleLoadState.Degraded));
+            });
+            Assert.That((await Dispatch(dispatcher, "hotprobe")).Status, Is.Not.EqualTo(CommandExecutionStatus.Success));
+            var reloadHealthy = await host.ReloadAsync("Vega.Test.HealthyPlugin");
+            Assert.That(reloadHealthy.Succeeded, Is.True, reloadHealthy.Message);
+            Assert.That((await Dispatch(dispatcher, "healthyprobe")).Status, Is.EqualTo(CommandExecutionStatus.Success));
+        }
+        finally
+        {
+            File.Delete(gate);
+            if (blocked is not null) await blocked;
+            blocked = null;
+        }
+        var retry = await host.UnloadAsync("Vega.Test.HotPlugin");
+        Assert.That(retry.Succeeded, Is.True, retry.Message);
+        Assert.That(dispatcher.CanDispatch("hotprobe"), Is.False);
+    }
+
+    [TestCase(false)]
+    [TestCase(true)]
+    public async Task FailedActivationUsesBoundedRetirementEvenWithPendingIo(bool stallIo)
+    {
+        DeployTestPlugins();
+        string data = Path.Combine(directory, ".data", "Vega.Test.HotPlugin");
+        Directory.CreateDirectory(data);
+        File.WriteAllText(Path.Combine(data, "start-failure"), "1");
+        string gate = Path.Combine(data, "hold-start-io");
+        if (stallIo) File.WriteAllBytes(gate, []);
+        var dispatcher = new CommandDispatcher([]);
+        using var host = new ServerPluginHotReloadHost(directory,
+            new ServerPluginHotReloadOptions(true, 100, 500), dispatcher, new RecordingLogger());
+        try
+        {
+            var watch = Stopwatch.StartNew();
+            host.Start();
+            Assert.That(watch.Elapsed, Is.LessThan(TimeSpan.FromSeconds(5)));
+            Assert.That(host.SnapshotModules().Single(m => m.Name == "Vega.Test.HotPlugin").State,
+                Is.EqualTo(stallIo ? ModuleLoadState.Degraded : ModuleLoadState.Failed));
+            Assert.That(host.Read().IsRestartRequired, Is.EqualTo(stallIo));
+            Assert.That((await Dispatch(dispatcher, "hotprobe")).Status, Is.Not.EqualTo(CommandExecutionStatus.Success));
+            Assert.That((await Dispatch(dispatcher, "healthyprobe")).Status, Is.EqualTo(CommandExecutionStatus.Success));
+        }
+        finally { File.Delete(gate); }
+        if (stallIo)
+        {
+            var retry = await host.UnloadAsync("Vega.Test.HotPlugin");
+            Assert.That(retry.Succeeded, Is.True, retry.Message);
+        }
+    }
+
+    private void DeployTestPlugins()
+    {
+        foreach (string name in new[] { "Vega.HotReload.TestPlugin", "Vega.HotReload.HealthyTestPlugin" })
+        {
+            string path = FindTestPlugin(name);
+            File.Copy(path, Path.Combine(directory, Path.GetFileName(path)));
+        }
+    }
+
+    [Test]
+    public async Task DeclaredSdkGenerationMismatchIsRejectedBeforeConstructionAndKeepsExistingActivation()
+    {
+        string compatible = FindTestPlugin("Vega.HotReload.HealthyTestPlugin");
+        string incompatible = FindTestPlugin("Vega.HotReload.IncompatibleTestPlugin");
+        string deployed = Path.Combine(directory, Path.GetFileName(compatible));
+        File.Copy(compatible, deployed);
+        File.Copy(incompatible, Path.Combine(directory, Path.GetFileName(incompatible)));
+        var dispatcher = new CommandDispatcher([]);
+        using var host = new ServerPluginHotReloadHost(directory,
+            new ServerPluginHotReloadOptions(true, 10000, 5000), dispatcher, new RecordingLogger());
+        host.Start();
+        Assert.Multiple(() =>
+        {
+            Assert.That(host.Read().Failure, Does.Contain($"declares SDK API generation {int.MaxValue}"));
+            Assert.That(host.Read().Failure, Does.Not.Contain("constructor must not run"));
+            Assert.That(host.SnapshotModules().Single().Name, Is.EqualTo("Vega.Test.HealthyPlugin"));
+        });
+        Assert.That((await Dispatch(dispatcher, "healthyprobe")).Status, Is.EqualTo(CommandExecutionStatus.Success));
+
+        File.Copy(incompatible, deployed, overwrite: true);
+        var replacement = await host.ReloadAsync("Vega.Test.HealthyPlugin");
+        Assert.Multiple(() =>
+        {
+            Assert.That(replacement.Succeeded, Is.False);
+            Assert.That(replacement.RestartRequired, Is.False);
+            Assert.That(replacement.Message, Does.Contain($"supports generation {VegaPluginApiGenerationAttribute.Current}"));
+            Assert.That(host.SnapshotModules().Single().State, Is.EqualTo(ModuleLoadState.Loaded));
+        });
+        Assert.That((await Dispatch(dispatcher, "healthyprobe")).Status, Is.EqualTo(CommandExecutionStatus.Success));
+        var unload = await host.UnloadAsync("Vega.Test.HealthyPlugin");
+        Assert.That(unload.Succeeded, Is.True, unload.Message);
+        Assert.That(dispatcher.CanDispatch("healthyprobe"), Is.False);
+    }
+
+    private static ValueTask<CommandExecutionResult> Dispatch(CommandDispatcher dispatcher, string command) =>
+        dispatcher.DispatchAsync(new CommandInvocation(command, [], new Principal(), new Output()));
+
+    private sealed class LifecycleProbe : IPlayerSessionLifecycle
+    {
+        public event Action<PlayerSessionOpened>? Opened;
+        public event Action<PlayerSessionClosed>? Closed;
+        public (int, int) Subscribers => (Opened?.GetInvocationList().Length ?? 0, Closed?.GetInvocationList().Length ?? 0);
+        public void Reconnect()
+        {
+            var session = PlayerSessionId.New();
+            Opened?.Invoke(new(session, new(1), "soak player", DateTimeOffset.UtcNow));
+            Closed?.Invoke(new(session, new(1), "soak player", DateTimeOffset.UtcNow));
+        }
+    }
+
+    private sealed class ScheduledProbe : IGameThreadDispatcher
+    {
+        private readonly ConcurrentDictionary<string, int> calls = new();
+        public int Count(string name) => calls.GetValueOrDefault(name);
+        public bool IsGameThreadKnown => true;
+        public bool IsGameThread => true;
+        public void AssertGameThread() { }
+        public bool TryPost(string name, Action action)
+        {
+            calls.AddOrUpdate(name, 1, static (_, count) => count + 1);
+            action();
+            return true;
+        }
+        public bool TrySchedule(string name, Func<bool> step) => throw new NotSupportedException();
+    }
+
     private sealed class HealthyCommand : ICommandHandler
     {
         public CommandDescriptor Descriptor { get; } = new("healthy", [], []);
@@ -269,7 +485,7 @@ public sealed class ServerPluginHotReloadHostTests
         }
     }
 
-    private static string FindTestPlugin()
+    private static string FindTestPlugin(string name = "Vega.HotReload.TestPlugin")
     {
         DirectoryInfo? current = new(TestContext.CurrentContext.TestDirectory);
         while (current is not null && !File.Exists(Path.Combine(current.FullName, "src", "Vega.sln")))
@@ -283,11 +499,11 @@ public sealed class ServerPluginHotReloadHostTests
         string path = Path.Combine(
             current!.FullName,
             "tests",
-            "Vega.HotReload.TestPlugin",
+            name,
             "bin",
             configuration,
             targetFramework,
-            "Vega.HotReload.TestPlugin.dll");
+            name + ".dll");
         Assert.That(File.Exists(path), Is.True, $"Test plugin was not built: {path}");
         return path;
     }

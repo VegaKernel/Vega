@@ -2,6 +2,7 @@ using Multiplicity.Packets;
 using TerrariaRuntime;
 using Vega.Contracts.Players;
 using Vega.Contracts.Scenes;
+using Vega.Contracts.Threading;
 using Vega.Contracts.Worlds;
 
 namespace Vega.Terraria.Hooking;
@@ -10,7 +11,8 @@ internal sealed class NativeSceneNetworkHooks(
     ISceneRuntime scenes,
     ISceneRenderSink renderer,
     IPlayerDirectory players,
-    WorldId worldId) : IDisposable
+    WorldId worldId,
+    IGameThreadDispatcher dispatcher) : IDisposable
 {
     private bool attached;
 
@@ -40,6 +42,17 @@ internal sealed class NativeSceneNetworkHooks(
     {
         if (args.Result == HookResult.Cancel || !scenes.HasActiveOverlays)
         {
+            return;
+        }
+
+        if (args.MsgType == (int)PacketTypes.UpdateTileEntity && args.Event == HookEvent.After && dispatcher.IsGameThread &&
+            scenes.HasVirtualItemFrames(worldId) && global::Terraria.DataStructures.TileEntity.ByID.TryGetValue(args.Number, out var entity))
+        {
+            // A canonical entity can appear at a previously projected position. Reconcile
+            // after its native update without altering canonical registration or delivery.
+            var bounds = new SceneBounds(entity.Position.X, entity.Position.Y, 2, 2);
+            if (scenes.HasOverlayInRegion(worldId, bounds, args.RemoteClient >= 0 ? new PlayerId(args.RemoteClient) : null))
+                renderer.Invalidate(Request(bounds, args.RemoteClient, args.IgnoreClient));
             return;
         }
 

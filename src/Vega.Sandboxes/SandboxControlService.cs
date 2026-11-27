@@ -16,6 +16,7 @@ public sealed class SandboxControlService : ISandboxControlService
     private readonly SandboxOptions options;
     private readonly SandboxCatalog catalog;
     private readonly SandboxMaterializer materializer;
+    private readonly SandboxSchematicTemplateBuilder schematicBuilder;
     private readonly IOperationsLogger logger;
     private readonly byte[] authenticationKey;
     private readonly ISandboxSscStore sscStore;
@@ -46,6 +47,7 @@ public sealed class SandboxControlService : ISandboxControlService
             instancesRoot,
             options.MaximumInstanceMegabytes,
             availableFreeSpace);
+        schematicBuilder = new SandboxSchematicTemplateBuilder(this.baseDirectory, this.executablePath, options, logger);
         authenticationKey = SandboxKeyFile.LoadOrCreate(Path.Combine(dataRoot, "control.key"));
         this.sscStore = sscStore ?? new SandboxSscStore(Path.Combine(dataRoot, "ssc.json"));
         startGate = new SemaphoreSlim(options.MaximumConcurrentStarts, options.MaximumConcurrentStarts);
@@ -79,12 +81,16 @@ public sealed class SandboxControlService : ISandboxControlService
         }
 
         await operationGate.WaitAsync(cancellationToken).ConfigureAwait(false);
+        string? generatedTemplate = null;
+        bool templateCommitted = false;
         try
         {
             var worldId = new WorldId(request.WorldId.Trim());
             SandboxMaterializer.ValidateWorldId(worldId);
             if (states.ContainsKey(worldId))
             {
+                if (request.Schematic is not null)
+                    return Conflict("sandbox.exists", $"Schematic creation requires an unused sandbox ID; '{worldId}' already exists.");
                 RuntimeState existing = states[worldId];
                 string requestedSource = Path.GetFullPath(request.SourceWorldPath);
                 return string.Equals(existing.Descriptor.DisplayName, request.DisplayName.Trim(), StringComparison.Ordinal) &&
@@ -104,6 +110,20 @@ public sealed class SandboxControlService : ISandboxControlService
             if (states.Values.Any(state => state.Descriptor.ListenerPort == port))
             {
                 return Conflict("sandbox.port_in_use", $"Sandbox port {port} is already assigned.");
+            }
+
+            if (request.Schematic is { } schematic)
+            {
+                if (request.Persistence is not (SandboxPersistenceMode.Temporary or SandboxPersistenceMode.Persistent))
+                    return Rejected("sandbox.schematic_external", "Schematic creation requires a newly managed sandbox, not an external world.");
+                if (Directory.Exists(Path.GetDirectoryName(instance)))
+                    return Conflict("sandbox.instance_exists", "An existing instance directory must be recovered before schematic creation.");
+                int active;
+                lock (sync) active = states.Values.Count(static state => state.Process is { HasExited: false });
+                if (active >= options.MaximumActiveWorlds)
+                    return Rejected("sandbox.admission_budget", "The global active-sandbox budget is full.");
+                generatedTemplate = await schematicBuilder.BuildAsync(worldId, source, schematic, cancellationToken).ConfigureAwait(false);
+                source = generatedTemplate;
             }
 
             var descriptor = new SandboxDescriptor(
@@ -140,12 +160,21 @@ public sealed class SandboxControlService : ISandboxControlService
 
                 state.State = SandboxLifecycleState.Stopped;
                 catalog.Add(descriptor);
+                templateCommitted = true;
                 Log("created", state);
                 return Applied(state, $"Sandbox '{worldId}' created.");
             }
             catch
             {
                 lock (sync) states.Remove(worldId);
+                if (generatedTemplate is not null && !templateCommitted)
+                {
+                    // The directory was proven absent before building; do not leave an instance
+                    // that a later retry could mistake for a successfully created schematic world.
+                    try { materializer.Destroy(descriptor); }
+                    catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+                    { logger.Log(OperationsLogLevel.Warning, "sandbox-schematic", "Could not clean up uncommitted instance.", ex); }
+                }
                 throw;
             }
         }
@@ -156,7 +185,8 @@ public sealed class SandboxControlService : ISandboxControlService
         }
         finally
         {
-            operationGate.Release();
+            try { if (generatedTemplate is not null && !templateCommitted) schematicBuilder.Remove(generatedTemplate); }
+            finally { operationGate.Release(); }
         }
     }
 
@@ -500,6 +530,8 @@ public sealed class SandboxControlService : ISandboxControlService
         start.ArgumentList.Add(descriptor.ListenerPort.ToString());
         start.ArgumentList.Add("-maxplayers");
         start.ArgumentList.Add(descriptor.PlayerCapacity.ToString());
+        // Sandboxes are reached through the configured bind/proxy endpoint, never UPnP discovery.
+        start.ArgumentList.Add("-noupnp");
         start.Environment["VEGA_BACKEND_TOKEN"] = Convert.ToBase64String(authenticationKey);
         var process = new Process { StartInfo = start, EnableRaisingEvents = true };
         process.OutputDataReceived += (_, args) => LogBackend(descriptor.WorldId, args.Data, false);
@@ -724,7 +756,7 @@ public sealed class SandboxControlService : ISandboxControlService
             throw new ArgumentException("Sandbox descriptor contains an invalid display name, capacity, port, TTL or access policy.");
         }
 
-        _ = SandboxMaterializer.ComputeRevision(Path.GetFullPath(request.SourceWorldPath));
+        if (request.Schematic is null) _ = SandboxMaterializer.ComputeRevision(Path.GetFullPath(request.SourceWorldPath));
     }
 
     private bool TryGet(WorldId worldId, [NotNullWhen(true)] out RuntimeState? state)

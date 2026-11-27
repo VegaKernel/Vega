@@ -1,4 +1,5 @@
 using Vega.Contracts.Worlds;
+using Vega.Contracts.Players;
 
 namespace Vega.Contracts.Scenes;
 
@@ -52,3 +53,27 @@ public readonly record struct SceneVirtualChestSnapshot(SceneId SceneId, Overlay
 /// <summary>One observed interaction, not a native chest-index assignment or item transfer.</summary>
 public readonly record struct SceneVirtualChestOpenRequest(SceneVirtualChestSnapshot Chest, SceneSessionObserver Observer,
     DateTimeOffset RequestedAt);
+
+public enum VirtualChestTransferDirection { Withdraw, Deposit }
+
+/// <summary>One explicit server-owned stack transfer following a visible chest interaction.</summary>
+public readonly record struct SceneVirtualChestTransferRequest(SceneVirtualChestOpenRequest Open, long InventoryRevision,
+    int ChestSlot, int InventorySlot, int Amount, VirtualChestTransferDirection Direction);
+
+public enum VirtualChestTransferStatus { Applied, Unavailable, StaleInteraction, RevisionConflict, InvalidItem, InvalidRequest, AuthorityRequired }
+
+public readonly record struct SceneVirtualChestTransferResult(VirtualChestTransferStatus Status,
+    SceneVirtualChestDefinition? Chest = null, long InventoryRevision = 0, string? Error = null);
+
+/// <summary>Host capability; commits native inventory and scene changes on the authoritative game thread.</summary>
+public interface IVirtualChestInventoryTransfer
+{
+    SceneVirtualChestTransferResult TransferVirtualChest(ISceneRuntime scenes, SceneVirtualChestTransferRequest request);
+}
+
+/// <summary>Host-only transaction boundary. The inventory assignment must have been prepared and cannot call external code.</summary>
+public interface IVirtualChestTransferAuthority
+{
+    bool TryCommitVirtualChestTransfer(PlayerSnapshot player, SceneVirtualChestOpenRequest open,
+        SceneVirtualChestDefinition replacement, Action commitInventory);
+}

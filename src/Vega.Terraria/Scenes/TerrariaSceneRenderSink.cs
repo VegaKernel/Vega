@@ -20,6 +20,7 @@ public sealed class TerrariaSceneRenderSink(
     internal const int MaximumTileSquareSide = 46;
     private readonly Queue<RenderJob> pending = new();
     private readonly object admission = new();
+    private readonly SceneItemFrameProjection itemFrames = new();
     private ISceneRuntime? scenes;
     private IPlayerSessionLifecycle? sessions;
     private int queued;
@@ -43,6 +44,7 @@ public sealed class TerrariaSceneRenderSink(
         scenes = runtime ?? throw new ArgumentNullException(nameof(runtime));
         sessions = lifecycle ?? throw new ArgumentNullException(nameof(lifecycle));
         sessions.Opened += OnSessionOpened;
+        sessions.Closed += OnSessionClosed;
     }
 
     public void Invalidate(SceneRenderRequest request) => TryInvalidate(request);
@@ -85,6 +87,7 @@ public sealed class TerrariaSceneRenderSink(
         if (sessions is not null)
         {
             sessions.Opened -= OnSessionOpened;
+            sessions.Closed -= OnSessionClosed;
         }
 
         lock (admission)
@@ -94,7 +97,10 @@ public sealed class TerrariaSceneRenderSink(
         }
 
         sessions = null;
+        itemFrames.Clear();
     }
+
+    private void OnSessionClosed(PlayerSessionClosed closed) => itemFrames.Forget(closed.PlayerId, closed.SessionId);
 
     private void OnSessionOpened(PlayerSessionOpened opened)
     {
@@ -262,6 +268,7 @@ public sealed class TerrariaSceneRenderSink(
     {
         using var cache = new SceneTileSquarePacketCache(bounds.X, bounds.Y, bounds.Width, bounds.Height);
         Func<PlayerId, int, int, SceneTile> resolve = ResolveTile;
+        bool hasItemFrames = scenes!.HasVirtualItemFrames(currentWorld);
         for (int i = offset; i < offset + count; i++)
         {
             var (recipient, socket) = recipients[i];
@@ -272,6 +279,17 @@ public sealed class TerrariaSceneRenderSink(
             if (!client.IsActive || !ReferenceEquals(client.Socket, socket)) continue;
             byte[] data = SceneTileSquarePacketCache.PrepareSendBuffer(socket, packet);
             socket.AsyncSend(data, 0, data.Length, client.ServerWriteCallBack);
+            if ((hasItemFrames || itemFrames.HasPresentations(recipient)) && players.TryGet(recipient, out var player) &&
+                player is { SessionId: { } session } && player.WorldId == currentWorld)
+            {
+                var observer = new SceneSessionObserver(recipient, session);
+                var desired = scenes.SnapshotVisibleVirtualItemFrames(currentWorld, observer, bounds);
+                itemFrames.Reconcile(observer, socket, bounds, desired, framePacket =>
+                {
+                    if (client.IsActive && ReferenceEquals(socket, client.Socket) && ReferenceEquals(global::Terraria.Netplay.Clients[recipient.Slot], client))
+                        socket.AsyncSend(framePacket, 0, framePacket.Length, client.ServerWriteCallBack);
+                });
+            }
         }
     }
 

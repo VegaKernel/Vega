@@ -30,11 +30,16 @@ public sealed class SceneInteractionAuthorityPolicy(ISceneRuntime scenes, WorldI
         // A visible virtual object may produce a plugin-owned intent, but
         // the canonical interaction is still rejected. No native chest, sign
         // or item mutation is performed by this observation path.
-        if (context.Packet.PacketType is PacketTypes.ChestGetContents or PacketTypes.SignRead && players is not null &&
+        if (context.Packet.PacketType is PacketTypes.ChestGetContents or PacketTypes.SignRead or PacketTypes.SignNew && players is not null &&
             players.TryGet(playerId, out var player) && player is not null && player.WorldId == world)
         {
             if (context.Packet.PacketType == PacketTypes.ChestGetContents) scenes.TryRequestVirtualChestOpen(player, x, y);
-            else scenes.TryRequestVirtualSignRead(player, x, y);
+            else if (context.Packet.PacketType == PacketTypes.SignRead) scenes.TryRequestVirtualSignRead(player, x, y);
+            else
+            {
+                var edit = context.Packet.AsSignNewView();
+                if (edit.PlayerId == playerId.Slot) scenes.TryRequestVirtualSignEdit(player, x, y, edit.Text);
+            }
         }
         return PacketProcessingDecision.Reject("scene.phantom_interaction");
     }
@@ -54,6 +59,7 @@ public sealed class SceneInteractionAuthorityPolicy(ISceneRuntime scenes, WorldI
             PacketTypes.SignNew => (packet.AsSignNewView().X, packet.AsSignNewView().Y),
             PacketTypes.LiquidSet => (packet.AsLiquidSetView().X, packet.AsLiquidSetView().Y),
             PacketTypes.PlaceTileEntity => (packet.AsPlaceTileEntityView().X, packet.AsPlaceTileEntityView().Y),
+            PacketTypes.PlaceItemFrame => (packet.AsPlaceItemFrameView().X, packet.AsPlaceItemFrameView().Y),
             _ => (int.MinValue, int.MinValue)
         };
         return x != int.MinValue;

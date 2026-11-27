@@ -26,7 +26,7 @@ internal sealed class NativeNetworkMetricsHooks : IDisposable
         Hooks.Main.DedicatedTickCompleted += OnTickCompleted;
         Hooks.Main.DedicatedWorldSaveCompleted += OnSaveCompleted;
         Hooks.MessageBuffer.GetData += OnReceiveData;
-        Hooks.NetMessage.SendBytes += OnSendBytes;
+        Hooks.NetMessage.SendBytesFast += OnSendBytes;
         attached = true;
     }
 
@@ -40,7 +40,7 @@ internal sealed class NativeNetworkMetricsHooks : IDisposable
         Hooks.Main.DedicatedTickCompleted -= OnTickCompleted;
         Hooks.Main.DedicatedWorldSaveCompleted -= OnSaveCompleted;
         Hooks.MessageBuffer.GetData -= OnReceiveData;
-        Hooks.NetMessage.SendBytes -= OnSendBytes;
+        Hooks.NetMessage.SendBytesFast -= OnSendBytes;
         attached = false;
     }
 
@@ -70,9 +70,9 @@ internal sealed class NativeNetworkMetricsHooks : IDisposable
         }
     }
 
-    private void OnSendBytes(object? sender, Hooks.NetMessage.SendBytesEventArgs args)
+    private void OnSendBytes(ref Hooks.NetMessage.SendBytesContext args)
     {
-        if (args.Result == HookResult.Cancel) return;
+        if (args.Cancelled) return;
         metrics.RecordOutbound(args.Size);
         if (Diagnostics.IsEnabled("Packet.Outbound"))
         {

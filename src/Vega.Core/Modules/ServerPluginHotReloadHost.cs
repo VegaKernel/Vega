@@ -348,11 +348,21 @@ public sealed class ServerPluginHotReloadHost :
         }
 
         LoadedPlugin? previous;
+        bool unreclaimed;
         lock (sync)
         {
             loaded.TryGetValue(path, out previous);
             previous ??= loaded.Values.FirstOrDefault(plugin =>
                 string.Equals(plugin.Name, staged.Name, StringComparison.OrdinalIgnoreCase));
+            unreclaimed = previous is null && snapshots.Any(pair => pair.Value.State == ModuleLoadState.Degraded &&
+                !loaded.ContainsKey(pair.Key) && (string.Equals(pair.Key, path, StringComparison.OrdinalIgnoreCase) ||
+                    string.Equals(pair.Value.Name, staged.Name, StringComparison.OrdinalIgnoreCase)));
+        }
+
+        if (unreclaimed)
+        {
+            await DiscardAsync(staged).ConfigureAwait(false);
+            return new ServerPluginOperationResult(false, true, "The previous plugin activation was not reclaimed; restart is required.");
         }
 
         if (previous is not null)
@@ -424,6 +434,7 @@ public sealed class ServerPluginHotReloadHost :
             faultWindow: TimeSpan.FromSeconds(options.FaultWindowSeconds),
             onQuarantine: () => QueueFaultRetirement(activationPath, activationId), worldEvents: worldEvents);
         long startedAt = Stopwatch.GetTimestamp();
+        string startupFailure;
         try
         {
             await staged.Module!.StartAsync(scope, cancellationToken).ConfigureAwait(false);
@@ -440,42 +451,33 @@ public sealed class ServerPluginHotReloadHost :
         }
         catch (Exception ex)
         {
-            var failedPlugin = new LoadedPlugin(staged, scope);
-            staged.Detach();
-            (WeakReference contextReference, Exception? cleanupFailure) =
-                await ReleaseAsync(failedPlugin, CancellationToken.None).ConfigureAwait(false);
-            bool collected = await WaitForCollectionAsync(contextReference, CancellationToken.None).ConfigureAwait(false);
-            if (cleanupFailure is not null)
-            {
-                ex = new AggregateException(ex, cleanupFailure);
-            }
-            if (!collected)
-            {
-                ex = new AggregateException(
-                    ex,
-                    new InvalidOperationException("The failed plugin's collectible context is still referenced."));
-            }
-            lock (sync)
-            {
-                snapshots[staged.Path] = new ModuleOperationsSnapshot(
-                    staged.Name,
-                    staged.Version,
-                    ModuleLoadState.Failed,
-                    staged.Dependencies,
-                    Stopwatch.GetElapsedTime(startedAt),
-                    ex.Message);
-            }
-
+            startupFailure = ex.Message;
             logger.Log(
                 OperationsLogLevel.Error,
                 "plugin-loader",
                 $"Server plugin '{staged.Name}' failed to start.",
                 ex);
-            return new ServerPluginOperationResult(
-                false,
-                cleanupFailure is not null || !collected,
-                ex.Message);
         }
+
+        // A partially initialized activation may have already registered callbacks or
+        // launched owned tasks. Retain and retire it through the same bounded path.
+        var failedPlugin = new LoadedPlugin(staged, scope);
+        staged.Detach();
+        scope = null!;
+        lock (sync)
+        {
+            loaded.Add(failedPlugin.Path, failedPlugin);
+            snapshots[failedPlugin.Path] = Snapshot(failedPlugin, ModuleLoadState.Failed, Stopwatch.GetElapsedTime(startedAt)) with
+            { Failure = startupFailure };
+        }
+        ServerPluginOperationResult cleanup = await UnloadCoreAsync(failedPlugin, CancellationToken.None).ConfigureAwait(false);
+        string failure = cleanup.Succeeded ? startupFailure : $"{startupFailure} Cleanup: {cleanup.Message}";
+        lock (sync)
+        {
+            snapshots[failedPlugin.Path] = snapshots[failedPlugin.Path] with
+            { State = cleanup.Succeeded ? ModuleLoadState.Failed : ModuleLoadState.Degraded, Failure = failure };
+        }
+        return new ServerPluginOperationResult(false, cleanup.RestartRequired, failure);
     }
 
     private void QueueFaultRetirement(string path, Guid activationId) =>
@@ -493,14 +495,6 @@ public sealed class ServerPluginHotReloadHost :
                 {
                     if (!loaded.TryGetValue(path, out plugin) || plugin.Scope?.ActivationId != activationId ||
                         !plugin.Scope!.Faults.Quarantined) return;
-                }
-                using var deadline = CancellationTokenSource.CreateLinkedTokenSource(shutdown.Token);
-                deadline.CancelAfter(options.UnloadTimeoutMilliseconds);
-                try { await plugin.Scope!.DrainForRetirementAsync(deadline.Token).ConfigureAwait(false); }
-                catch (OperationCanceledException) when (!shutdown.IsCancellationRequested)
-                {
-                    MarkRestartRequired(path, "Quarantined plugin callbacks or lifetime tasks did not drain within the unload timeout.");
-                    return;
                 }
                 if (!shutdown.IsCancellationRequested) await UnloadCoreAsync(plugin, CancellationToken.None).ConfigureAwait(false);
             }
@@ -526,14 +520,44 @@ public sealed class ServerPluginHotReloadHost :
         LoadedPlugin plugin,
         CancellationToken cancellationToken)
     {
-        var faults = plugin.Scope?.Faults ?? default;
-        lock (sync)
+        // Keep the activation in the catalog until cleanup actually completes. This
+        // prevents a replacement from running beside non-cooperative callbacks.
+        TimeSpan timeout = TimeSpan.FromMilliseconds(options.UnloadTimeoutMilliseconds);
+        long retirementStarted = Stopwatch.GetTimestamp();
+        using var deadline = new CancellationTokenSource(timeout);
+        if (plugin.ReleaseTask is null && plugin.Scope is not null)
         {
-            loaded.Remove(plugin.Path);
+            try { await plugin.Scope.DrainForRetirementAsync(deadline.Token).ConfigureAwait(false); }
+            catch (OperationCanceledException) when (deadline.IsCancellationRequested)
+            {
+                return RetirementTimeout(plugin, "Plugin callbacks or lifetime tasks did not drain within the unload timeout.");
+            }
         }
 
-        (WeakReference contextReference, Exception? cleanupFailure) =
-            await ReleaseAsync(plugin, CancellationToken.None).ConfigureAwait(false);
+        var faults = plugin.Scope?.Faults ?? plugin.RetiredFaults;
+        plugin.RetiredFaults = faults;
+        // Even synchronously blocked plugin Stop/Dispose code must not monopolize
+        // the mutation lane. Track the actual release and never execute it twice.
+        if (plugin.ReleaseTask is null)
+        {
+            TimeSpan remaining = timeout - Stopwatch.GetElapsedTime(retirementStarted);
+            // Use a separate token from the host's wait: plugin cancellation callbacks
+            // may themselves block. Its source survives until the actual release ends.
+            var releaseDeadline = new CancellationTokenSource(remaining > TimeSpan.Zero ? remaining : TimeSpan.Zero);
+            plugin.ReleaseTask = Task.Run(async () =>
+            {
+                using (releaseDeadline)
+                    return await ReleaseAsync(plugin, releaseDeadline.Token).ConfigureAwait(false);
+            });
+        }
+        (WeakReference contextReference, Exception? cleanupFailure) release;
+        try { release = await plugin.ReleaseTask.WaitAsync(deadline.Token).ConfigureAwait(false); }
+        catch (OperationCanceledException) when (deadline.IsCancellationRequested)
+        {
+            return RetirementTimeout(plugin, "Plugin stop or disposal did not complete within the unload timeout.");
+        }
+        var (contextReference, cleanupFailure) = release;
+        lock (sync) loaded.Remove(plugin.Path);
         bool collected = await WaitForCollectionAsync(contextReference, CancellationToken.None).ConfigureAwait(false);
         bool succeeded = cleanupFailure is null && collected;
         string? error = cleanupFailure?.Message;
@@ -569,6 +593,22 @@ public sealed class ServerPluginHotReloadHost :
             "plugin-loader",
             $"Server plugin '{plugin.Name}' was stopped, detached and unloaded.");
         return new ServerPluginOperationResult(true, false, $"Server plugin '{plugin.Name}' is unloaded.");
+    }
+
+    private ServerPluginOperationResult RetirementTimeout(LoadedPlugin plugin, string message)
+    {
+        lock (sync)
+        {
+            snapshots[plugin.Path] = WithFaults(snapshots[plugin.Path] with
+            {
+                State = ModuleLoadState.Degraded,
+                Failure = message
+            }, plugin.Scope?.Faults ?? plugin.RetiredFaults);
+        }
+        MarkRestartRequired(plugin.Path, message);
+        logger.Log(OperationsLogLevel.Error, "plugin-loader",
+            $"Server plugin '{plugin.Name}' is quarantined; {message}");
+        return new ServerPluginOperationResult(false, true, message);
     }
 
     [MethodImpl(MethodImplOptions.NoInlining)]
@@ -694,7 +734,7 @@ public sealed class ServerPluginHotReloadHost :
             return null;
         }
 
-        ValidateTargetFramework(image, path);
+        ValidatePluginMetadata(image, path);
 
         var context = new ServerPluginLoadContext(path);
         try
@@ -858,6 +898,16 @@ public sealed class ServerPluginHotReloadHost :
             return Path.GetFullPath(direct);
         }
 
+        // A retired plugin remains in the catalog under its descriptor name, not
+        // necessarily its assembly filename. Permit explicit reactivation by that name.
+        lock (sync)
+        {
+            string[] matches = snapshots.Where(pair =>
+                string.Equals(pair.Value.Name, plugin, StringComparison.OrdinalIgnoreCase) && File.Exists(pair.Key))
+                .Select(static pair => pair.Key).Take(2).ToArray();
+            if (matches.Length == 1) return matches[0];
+        }
+
         return Directory.EnumerateFiles(directory, "*.dll", SearchOption.TopDirectoryOnly)
             .FirstOrDefault(path =>
                 string.Equals(Path.GetFileNameWithoutExtension(path), plugin, StringComparison.OrdinalIgnoreCase));
@@ -962,20 +1012,30 @@ public sealed class ServerPluginHotReloadHost :
         return false;
     }
 
-    private static void ValidateTargetFramework(byte[] image, string path)
+    private static void ValidatePluginMetadata(byte[] image, string path)
     {
         using var stream = new MemoryStream(image, writable: false);
         using var pe = new PEReader(stream);
         MetadataReader metadata = pe.GetMetadataReader();
         string? targetFramework = null;
+        int? declaredGeneration = null;
 
         foreach (CustomAttributeHandle handle in metadata.GetAssemblyDefinition().GetCustomAttributes())
         {
             CustomAttribute attribute = metadata.GetCustomAttribute(handle);
-            if (!IsTargetFrameworkAttribute(metadata, attribute.Constructor))
+            if (IsAttribute(metadata, attribute.Constructor, "Vega.PluginSdk", nameof(VegaPluginApiGenerationAttribute)))
             {
+                BlobReader sdk = metadata.GetBlobReader(attribute.Value);
+                if (declaredGeneration.HasValue || sdk.RemainingBytes != 8 || sdk.ReadUInt16() != 1)
+                    throw new InvalidOperationException($"Server plugin '{Path.GetFileName(path)}' has an invalid or duplicate SDK API generation declaration.");
+                declaredGeneration = sdk.ReadInt32();
+                if (declaredGeneration <= 0 || sdk.ReadUInt16() != 0)
+                    throw new InvalidOperationException($"Server plugin '{Path.GetFileName(path)}' has an invalid SDK API generation declaration.");
                 continue;
             }
+
+            if (targetFramework is not null || !IsAttribute(metadata, attribute.Constructor, "System.Runtime.Versioning", nameof(TargetFrameworkAttribute)))
+                continue;
 
             BlobReader value = metadata.GetBlobReader(attribute.Value);
             if (value.ReadUInt16() == 1)
@@ -983,8 +1043,11 @@ public sealed class ServerPluginHotReloadHost :
                 targetFramework = value.ReadSerializedString();
             }
 
-            break;
         }
+
+        if (declaredGeneration is { } generation && generation != VegaPluginApiGenerationAttribute.Current)
+            throw new InvalidOperationException($"Server plugin '{Path.GetFileName(path)}' declares SDK API generation {generation}, " +
+                $"but this Vega host supports generation {VegaPluginApiGenerationAttribute.Current}. Rebuild and qualify the plugin against the deployed Vega PluginSdk.");
 
         string? hostTargetFramework = typeof(ServerPluginHotReloadHost).Assembly
             .GetCustomAttribute<TargetFrameworkAttribute>()?
@@ -1019,7 +1082,7 @@ public sealed class ServerPluginHotReloadHost :
         }
     }
 
-    private static bool IsTargetFrameworkAttribute(MetadataReader metadata, EntityHandle constructor)
+    private static bool IsAttribute(MetadataReader metadata, EntityHandle constructor, string expectedNamespace, string expectedName)
     {
         EntityHandle declaringType = constructor.Kind switch
         {
@@ -1030,19 +1093,17 @@ public sealed class ServerPluginHotReloadHost :
 
         return declaringType.Kind switch
         {
-            HandleKind.TypeReference => IsTargetFrameworkAttribute(metadata, metadata.GetTypeReference((TypeReferenceHandle)declaringType)),
-            HandleKind.TypeDefinition => IsTargetFrameworkAttribute(metadata, metadata.GetTypeDefinition((TypeDefinitionHandle)declaringType)),
+            HandleKind.TypeReference => AttributeTypeMatches(metadata, metadata.GetTypeReference((TypeReferenceHandle)declaringType), expectedNamespace, expectedName),
+            HandleKind.TypeDefinition => AttributeTypeMatches(metadata, metadata.GetTypeDefinition((TypeDefinitionHandle)declaringType), expectedNamespace, expectedName),
             _ => false
         };
     }
 
-    private static bool IsTargetFrameworkAttribute(MetadataReader metadata, TypeReference type) =>
-        metadata.StringComparer.Equals(type.Namespace, "System.Runtime.Versioning") &&
-        metadata.StringComparer.Equals(type.Name, nameof(TargetFrameworkAttribute));
+    private static bool AttributeTypeMatches(MetadataReader metadata, TypeReference type, string expectedNamespace, string expectedName) =>
+        metadata.StringComparer.Equals(type.Namespace, expectedNamespace) && metadata.StringComparer.Equals(type.Name, expectedName);
 
-    private static bool IsTargetFrameworkAttribute(MetadataReader metadata, TypeDefinition type) =>
-        metadata.StringComparer.Equals(type.Namespace, "System.Runtime.Versioning") &&
-        metadata.StringComparer.Equals(type.Name, nameof(TargetFrameworkAttribute));
+    private static bool AttributeTypeMatches(MetadataReader metadata, TypeDefinition type, string expectedNamespace, string expectedName) =>
+        metadata.StringComparer.Equals(type.Namespace, expectedNamespace) && metadata.StringComparer.Equals(type.Name, expectedName);
 
     private static ServerPluginOperationResult DisabledResult() => new(
         false,
@@ -1105,6 +1166,8 @@ public sealed class ServerPluginHotReloadHost :
         public ServerPluginLoadContext? Context { get; private set; }
         public IHotReloadableVegaModule? Module { get; private set; }
         public HotModuleRegistrationScope? Scope { get; private set; }
+        public Task<(WeakReference ContextReference, Exception? Failure)>? ReleaseTask { get; set; }
+        public PluginExecutionGuard.FaultSnapshot RetiredFaults { get; set; }
 
         public void Detach()
         {

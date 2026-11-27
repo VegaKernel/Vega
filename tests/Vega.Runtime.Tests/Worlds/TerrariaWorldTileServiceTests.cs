@@ -1,4 +1,8 @@
 using NUnit.Framework;
+using System.Reflection;
+using Terraria.DataStructures;
+using Terraria.GameContent.Tile_Entities;
+using Terraria.ID;
 using TerraRuntime.Schematics;
 using Vega.Contracts.Scenes;
 using Vega.Contracts.Threading;
@@ -12,6 +16,148 @@ namespace Vega.Runtime.Tests.Worlds;
 [TestFixture]
 public sealed class TerrariaWorldTileServiceTests
 {
+    [Test]
+    [NonParallelizable]
+    public void SandboxRestoresNativeObjectRegistrationsAndRoundTripsTypedEntities()
+    {
+        var oldGrid = global::Terraria.Main.tile;
+        int oldWidth = global::Terraria.Main.maxTilesX, oldHeight = global::Terraria.Main.maxTilesY, oldMode = global::Terraria.Main.netMode;
+        bool oldMenu = global::Terraria.Main.gameMenu, oldDedicated = global::Terraria.Main.dedServ;
+        var oldChest = global::Terraria.Main.chest;
+        var oldChestCoords = global::Terraria.Chest._chestsByCoords;
+        var oldSigns = global::Terraria.Main.sign;
+        var oldNpc = global::Terraria.Main.npc[0];
+        bool oldSignType = global::Terraria.Main.tileSign[TileID.Signs];
+        var oldManager = TileEntity.manager;
+        var oldById = TileEntity.ByID;
+        var oldByPosition = TileEntity.ByPosition;
+        var oldUpdates = TileEntity.UpdateEntities;
+        int oldNextId = TileEntity.TileEntitiesNextID;
+        var updateStart = typeof(TileEntity).GetField("_UpdateStart", BindingFlags.Static | BindingFlags.NonPublic)!;
+        var updateEnd = typeof(TileEntity).GetField("_UpdateEnd", BindingFlags.Static | BindingFlags.NonPublic)!;
+        object? oldStart = updateStart.GetValue(null), oldEnd = updateEnd.GetValue(null);
+        byte oldDummy = TETrainingDummy.EntityTypeID, oldFrame = TEItemFrame.EntityTypeID, oldDoll = TEDisplayDoll.EntityTypeID,
+            oldWeapon = TEWeaponsRack.EntityTypeID, oldHat = TEHatRack.EntityTypeID, oldPlatter = TEFoodPlatter.EntityTypeID;
+        try
+        {
+            global::Terraria.Main.gameMenu = false;
+            global::Terraria.Main.netMode = 0;
+            global::Terraria.Main.dedServ = true;
+            global::Terraria.Main.maxTilesX = 32;
+            global::Terraria.Main.maxTilesY = 24;
+            global::Terraria.Main.tile = CreateGrid(32, 24);
+            global::Terraria.Main.chest = new global::Terraria.Chest[oldChest.Length];
+            global::Terraria.Chest._chestsByCoords = [];
+            global::Terraria.Main.sign = new global::Terraria.Sign[oldSigns.Length];
+            global::Terraria.Main.tileSign[TileID.Signs] = true;
+            global::Terraria.Main.npc[0] = new global::Terraria.NPC();
+            TileEntity.manager = new TileEntitiesManager();
+            TileEntity.ByID = [];
+            TileEntity.ByPosition = [];
+            TileEntity.UpdateEntities = [];
+            TileEntity.TileEntitiesNextID = 0;
+            TileEntity.manager.Register(new TETrainingDummy());
+            TileEntity.manager.Register(new TEItemFrame());
+            TileEntity.manager.Register(new TEDisplayDoll());
+            TileEntity.manager.Register(new TEWeaponsRack());
+            TileEntity.manager.Register(new TEHatRack());
+            TileEntity.manager.Register(new TEFoodPlatter());
+
+            var bounds = new SceneBounds(4, 4, 20, 12);
+            var source = new SceneTile[bounds.Width * bounds.Height];
+            void AddObject(int x, int y, int width, int height, ushort type)
+            {
+                for (int dy = 0; dy < height; dy++)
+                for (int dx = 0; dx < width; dx++)
+                    source[(y + dy) * bounds.Width + x + dx] = new SceneTile(type, FrameX: (short)(dx * 18), FrameY: (short)(dy * 18), Flags: SceneTileFlags.Active);
+            }
+            AddObject(0, 0, 2, 2, TileID.Containers);
+            AddObject(3, 0, 2, 2, TileID.Signs);
+            AddObject(6, 0, 2, 2, TileID.ItemFrame);
+            AddObject(9, 0, 3, 3, TileID.WeaponsRack2);
+            AddObject(13, 0, 3, 4, TileID.HatRack);
+            AddObject(17, 0, 1, 1, TileID.FoodPlatter);
+            AddObject(0, 5, 2, 3, TileID.TargetDummy);
+            AddObject(3, 5, 2, 3, TileID.DisplayDoll);
+            var area = new SceneTileArea(bounds.Width, bounds.Height, source);
+            var items = new[] { new SchematicItemStack(ItemID.Torch, 4) };
+            var sword = new SchematicItemStack(ItemID.CopperShortsword, 1, PrefixID.Large);
+            SchematicDocument Document(bool failNpc = false, bool omitFrame = false) => new()
+            {
+                ContentVersion = 279, Width = bounds.Width, Height = bounds.Height,
+                Tiles = source.Select(TerrariaSchematicCapture.ToSchematicTile).ToArray(),
+                Chests = [new(0, 0, "Loot", items)], Signs = [new(3, 0, "Arena sign")],
+                TileEntities = new SchematicTileEntity[]
+                {
+                    new SchematicItemFrameTileEntity(6, 0, sword), new SchematicWeaponsRackTileEntity(9, 0, sword),
+                    new SchematicHatRackTileEntity(13, 0, [new(ItemID.CopperHelmet, 1)], []),
+                    new SchematicFoodPlatterTileEntity(17, 0, new(ItemID.Apple, 1)),
+                    new SchematicTrainingDummyTileEntity(0, 5),
+                    new SchematicDisplayDollTileEntity(3, 5, [new(ItemID.CopperHelmet, 1)], [])
+                }.Where(entity => !omitFrame || entity is not SchematicItemFrameTileEntity).ToArray(),
+                Npcs = failNpc ? [new(22, 160, 120)] : []
+            };
+            var placement = new TerrariaSchematicPlacement(new InlineGameThread(), new WorldId("arena"))
+            { SpawnNpc = (_, _, _) => global::Terraria.Main.maxNPCs };
+            var original = TerrariaWorldTileService.CaptureArea(global::Terraria.Main.tile, bounds).Area;
+            Assert.That(placement.Place(Document(omitFrame: true), area, bounds).Status, Is.EqualTo(WorldSchematicPlacementStatus.Invalid));
+            Assert.That(TerrariaWorldTileService.CaptureArea(global::Terraria.Main.tile, bounds).Area.Tiles, Is.EqualTo(original.Tiles));
+            var failure = placement.Place(Document(failNpc: true), area, bounds);
+            Assert.That(failure.Status, Is.EqualTo(WorldSchematicPlacementStatus.Failed), failure.Error);
+            Assert.That(failure.Error, Does.Contain("NPC allocation"));
+            Assert.That(global::Terraria.Chest.FindChest(bounds.X, bounds.Y), Is.EqualTo(-1));
+            Assert.That(global::Terraria.Main.sign.All(sign => sign is null), Is.True);
+            Assert.That(TileEntity.ByPosition, Is.Empty);
+            Assert.That(TileEntity.ByID, Is.Empty);
+            Assert.That(TileEntity.UpdateEntities, Is.Empty);
+            Assert.That(TerrariaWorldTileService.CaptureArea(global::Terraria.Main.tile, bounds).Area.Tiles, Is.EqualTo(original.Tiles));
+
+            var placed = placement.Place(Document(), area, bounds);
+            Assert.That(placed.Status, Is.EqualTo(WorldSchematicPlacementStatus.Applied), placed.Error);
+            Assert.That(global::Terraria.Chest.FindChest(bounds.X, bounds.Y), Is.GreaterThanOrEqualTo(0));
+            Assert.That(global::Terraria.Sign.ReadSign(bounds.X + 3, bounds.Y, false), Is.GreaterThanOrEqualTo(0));
+            Assert.That(TileEntity.ByID.Count, Is.EqualTo(6));
+            var captured = new TerrariaSchematicCapture(new InlineGameThread()).Capture(new SchematicBounds(bounds.X, bounds.Y, bounds.Width, bounds.Height));
+            captured = SchematicBinary.Deserialize(SchematicBinary.Serialize(captured));
+            Assert.That(captured.Chests.Single().Name, Is.EqualTo("Loot"));
+            Assert.That(captured.Chests.Single().Items[0], Is.EqualTo(items[0]));
+            Assert.That(captured.Signs.Single().Text, Is.EqualTo("Arena sign"));
+            Assert.That(captured.TileEntities.OfType<SchematicItemFrameTileEntity>().Single().Item, Is.EqualTo(sword));
+            Assert.That(captured.TileEntities.OfType<SchematicWeaponsRackTileEntity>().Single().Item, Is.EqualTo(sword));
+            Assert.That(captured.TileEntities.OfType<SchematicHatRackTileEntity>().Single().Items[0].ItemType, Is.EqualTo(ItemID.CopperHelmet));
+            Assert.That(captured.TileEntities.OfType<SchematicFoodPlatterTileEntity>().Single().Item.ItemType, Is.EqualTo(ItemID.Apple));
+            Assert.That(captured.TileEntities.OfType<SchematicDisplayDollTileEntity>().Single().Items[0].ItemType, Is.EqualTo(ItemID.CopperHelmet));
+            Assert.That(captured.TileEntities.OfType<SchematicTrainingDummyTileEntity>().Count(), Is.EqualTo(1));
+        }
+        finally
+        {
+            global::Terraria.Main.tile = oldGrid;
+            global::Terraria.Main.maxTilesX = oldWidth;
+            global::Terraria.Main.maxTilesY = oldHeight;
+            global::Terraria.Main.netMode = oldMode;
+            global::Terraria.Main.gameMenu = oldMenu;
+            global::Terraria.Main.dedServ = oldDedicated;
+            global::Terraria.Main.chest = oldChest;
+            global::Terraria.Chest._chestsByCoords = oldChestCoords;
+            global::Terraria.Main.sign = oldSigns;
+            global::Terraria.Main.npc[0] = oldNpc;
+            global::Terraria.Main.tileSign[TileID.Signs] = oldSignType;
+            TileEntity.manager = oldManager;
+            TileEntity.ByID = oldById;
+            TileEntity.ByPosition = oldByPosition;
+            TileEntity.UpdateEntities = oldUpdates;
+            TileEntity.TileEntitiesNextID = oldNextId;
+            updateStart.SetValue(null, oldStart);
+            updateEnd.SetValue(null, oldEnd);
+            TETrainingDummy.EntityTypeID = oldDummy;
+            TEItemFrame.EntityTypeID = oldFrame;
+            TEDisplayDoll.EntityTypeID = oldDoll;
+            TEWeaponsRack.EntityTypeID = oldWeapon;
+            TEHatRack.EntityTypeID = oldHat;
+            TEFoodPlatter.EntityTypeID = oldPlatter;
+        }
+    }
+
     [Test]
     [NonParallelizable]
     public void SandboxPlacementRestoresNpcFieldsAndRollsBackOwnedTilesOnAllocationFailure()

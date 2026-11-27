@@ -181,7 +181,8 @@ public sealed record SceneOverlayDefinition(
         {
             ArgumentNullException.ThrowIfNull(value);
             var signs = VirtualSigns;
-            virtualObjects = value.Count == 0 && signs.Count == 0 ? null : new(value, signs);
+            var frames = VirtualItemFrames;
+            virtualObjects = value.Count == 0 && signs.Count == 0 && frames.Count == 0 ? null : new(value, signs, frames);
         }
     }
     public IReadOnlyList<SceneVirtualSignDefinition> VirtualSigns
@@ -191,11 +192,23 @@ public sealed record SceneOverlayDefinition(
         {
             ArgumentNullException.ThrowIfNull(value);
             var chests = VirtualChests;
-            virtualObjects = value.Count == 0 && chests.Count == 0 ? null : new(chests, value);
+            var frames = VirtualItemFrames;
+            virtualObjects = value.Count == 0 && chests.Count == 0 && frames.Count == 0 ? null : new(chests, value, frames);
+        }
+    }
+    public IReadOnlyList<SceneVirtualItemFrameDefinition> VirtualItemFrames
+    {
+        get => virtualObjects?.ItemFrames ?? Array.Empty<SceneVirtualItemFrameDefinition>();
+        init
+        {
+            ArgumentNullException.ThrowIfNull(value);
+            var chests = VirtualChests;
+            var signs = VirtualSigns;
+            virtualObjects = value.Count == 0 && chests.Count == 0 && signs.Count == 0 ? null : new(chests, signs, value);
         }
     }
     private sealed record VirtualObjects(IReadOnlyList<SceneVirtualChestDefinition> Chests,
-        IReadOnlyList<SceneVirtualSignDefinition> Signs);
+        IReadOnlyList<SceneVirtualSignDefinition> Signs, IReadOnlyList<SceneVirtualItemFrameDefinition> ItemFrames);
 }
 
 public sealed record SceneSnapshot(
@@ -248,6 +261,10 @@ public interface ISceneRuntime
     bool HasActiveOverlays { get; }
     bool SupportsVirtualChests => false;
     bool SupportsVirtualSigns => false;
+    bool SupportsVirtualSignEdits => false;
+    bool SupportsVirtualItemFrames => false;
+    bool HasVirtualItemFrames(WorldId worldId) => false;
+    IReadOnlyList<SceneVirtualItemFrameSnapshot> SnapshotVisibleVirtualItemFrames(WorldId worldId, SceneSessionObserver observer, SceneBounds region) => [];
 
     bool TryResolveVirtualChest(WorldId worldId, SceneSessionObserver observer, int tileX, int tileY,
         out SceneVirtualChestSnapshot? chest) { chest = null; return false; }
@@ -264,6 +281,11 @@ public interface ISceneRuntime
 
     bool TryTakeVirtualSignRead(SceneId scene, OverlayId overlay, VirtualSignId sign,
         out SceneVirtualSignReadRequest? request) { request = null; return false; }
+    bool TryRequestVirtualSignEdit(PlayerSnapshot player, int tileX, int tileY, string text) => false;
+    bool TryTakeVirtualSignEdit(SceneId scene, OverlayId overlay, VirtualSignId sign,
+        out SceneVirtualSignEditRequest? request) { request = null; return false; }
+    bool TryApplyVirtualSignEdit(PlayerSnapshot player, SceneVirtualSignEditRequest edit,
+        out SceneVirtualSignDefinition? definition) { definition = null; return false; }
 
     bool HasPersonalAirMask(WorldId worldId, PlayerId observer) =>
         SnapshotScenes().Any(scene => scene.WorldId == worldId && scene.Overlays.Any(overlay =>

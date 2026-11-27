@@ -25,6 +25,7 @@ internal sealed class HotModuleRegistrationScope : IHotModuleContext, IVegaPlugi
     private readonly string logSource;
     private readonly PluginExecutionGuard executionGuard;
     private Exception? earlyCancellationFailure;
+    private Task? retirementCancellation;
     private bool disposed;
 
     public HotModuleRegistrationScope(
@@ -94,9 +95,12 @@ internal sealed class HotModuleRegistrationScope : IHotModuleContext, IVegaPlugi
     internal PluginExecutionGuard.FaultSnapshot Faults => executionGuard.Snapshot();
     internal async Task DrainForRetirementAsync(CancellationToken token)
     {
-        // Quarantine already prevents new callbacks. Cancel owned I/O before waiting for it,
-        // without letting a stuck callback or task monopolize the host's mutation lane.
-        try { await lifetime.CancelAsync().WaitAsync(token).ConfigureAwait(false); }
+        executionGuard.StopAcceptingCallbacks();
+        // All retirement attempts share the original cancellation operation. A timeout
+        // must not allow a retry to skip an outstanding non-cooperative cancel callback.
+        Task cancellation;
+        lock (sync) cancellation = retirementCancellation ??= lifetime.CancelAsync();
+        try { await cancellation.WaitAsync(token).ConfigureAwait(false); }
         catch (Exception ex) when (!token.IsCancellationRequested) { earlyCancellationFailure = ex; }
         await executionGuard.WaitForIdleAsync(token).ConfigureAwait(false);
         Task[] running;
@@ -130,6 +134,7 @@ internal sealed class HotModuleRegistrationScope : IHotModuleContext, IVegaPlugi
 
     public async ValueTask DisposeAsync()
     {
+        executionGuard.StopAcceptingCallbacks();
         IDisposable[] owned;
         Task[] running;
         lock (sync)
@@ -412,7 +417,7 @@ internal sealed class HotModuleRegistrationScope : IHotModuleContext, IVegaPlugi
         public bool Post(string name, Action action)
         {
             Validate(name, action);
-            if (owner.executionGuard.IsQuarantined) return false;
+            if (!owner.executionGuard.AcceptsCallbacks) return false;
             return gameThread?.TryPost(name, () =>
             {
                 if (!owner.lifetime.IsCancellationRequested)
@@ -430,7 +435,7 @@ internal sealed class HotModuleRegistrationScope : IHotModuleContext, IVegaPlugi
                 throw new ArgumentOutOfRangeException(nameof(interval), "The interval must be positive.");
             }
 
-            if (!owner.executionGuard.IsQuarantined) owner.TrackTask(RepeatAsync(name, interval, action));
+            owner.executionGuard.TryInvoke($"schedule:{name}", () => owner.TrackTask(RepeatAsync(name, interval, action)));
         }
 
         public void RunIo<T>(string name, Func<CancellationToken, ValueTask<T>> operation, Action<T> apply)
@@ -438,7 +443,7 @@ internal sealed class HotModuleRegistrationScope : IHotModuleContext, IVegaPlugi
             ArgumentException.ThrowIfNullOrWhiteSpace(name);
             ArgumentNullException.ThrowIfNull(operation);
             ArgumentNullException.ThrowIfNull(apply);
-            if (!owner.executionGuard.IsQuarantined) owner.TrackTask(RunIoCoreAsync(name, operation, apply));
+            owner.executionGuard.TryInvoke($"schedule:{name}", () => owner.TrackTask(RunIoCoreAsync(name, operation, apply)));
         }
 
         private async Task RepeatAsync(string name, TimeSpan interval, Action action)

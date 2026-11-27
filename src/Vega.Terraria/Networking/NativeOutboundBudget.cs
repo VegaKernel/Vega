@@ -3,7 +3,6 @@ namespace Vega.Terraria.Networking;
 /// <summary>Per-world process cap shared by all candidate TCP connections.</summary>
 internal sealed class NativeOutboundBudget
 {
-    private readonly object gate = new();
     private readonly int maxEntries;
     private readonly long maxBytes;
     private int outstanding;
@@ -19,32 +18,37 @@ internal sealed class NativeOutboundBudget
 
     public (int Entries, long Bytes) Snapshot
     {
-        get { lock (gate) return (outstanding, retained); }
+        // Each credit is exact; a concurrent reader may sample the two counters
+        // at slightly different instants. Only diagnostics/pressure hints use both.
+        get => (Volatile.Read(ref outstanding), Volatile.Read(ref retained));
     }
 
     public NativeOutboundEnqueueResult TryReserve(int bytes)
     {
-        lock (gate)
+        while (true)
         {
-            if (outstanding >= maxEntries) return NativeOutboundEnqueueResult.EntryLimit;
-            if (bytes > maxBytes - retained) return NativeOutboundEnqueueResult.ByteLimit;
-            outstanding++;
-            retained += bytes;
-            return NativeOutboundEnqueueResult.Accepted;
+            int current = Volatile.Read(ref outstanding);
+            if (current >= maxEntries) return NativeOutboundEnqueueResult.EntryLimit;
+            if (Interlocked.CompareExchange(ref outstanding, current + 1, current) == current) break;
         }
+        if (TryReserveBytes(bytes)) return NativeOutboundEnqueueResult.Accepted;
+        // A failed byte reservation never leaves an entry charged. Both caps are
+        // enforced independently, including in-progress reservations.
+        ReleaseEntries(1);
+        return NativeOutboundEnqueueResult.ByteLimit;
     }
 
     /// <summary>Charge a temporary coalescing rental without claiming another request credit.</summary>
     public bool TryReserveBytes(int bytes)
     {
-        lock (gate)
+        while (true)
         {
-            if (bytes > maxBytes - retained) return false;
-            retained += bytes;
-            return true;
+            long current = Volatile.Read(ref retained);
+            if (bytes > maxBytes - current) return false;
+            if (Interlocked.CompareExchange(ref retained, current + bytes, current) == current) return true;
         }
     }
 
-    public void ReleaseBytes(long bytes) { lock (gate) retained -= bytes; }
-    public void ReleaseEntries(int count) { lock (gate) outstanding -= count; }
+    public void ReleaseBytes(long bytes) => Interlocked.Add(ref retained, -bytes);
+    public void ReleaseEntries(int count) => Interlocked.Add(ref outstanding, -count);
 }

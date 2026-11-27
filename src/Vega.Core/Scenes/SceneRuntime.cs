@@ -96,6 +96,8 @@ public sealed partial class SceneRuntime(ISceneRenderSink? sink = null) : IScene
     {
         pendingVirtualChestOpens.Remove((world, player));
         pendingVirtualSignReads.Remove((world, player));
+        virtualSignEditors.Remove((world, player));
+        pendingVirtualSignEdits.Remove((world, player));
         foreach (var scene in scenes.Values)
         {
             if (scene.WorldId != world) continue;
@@ -220,14 +222,16 @@ public sealed partial class SceneRuntime(ISceneRenderSink? sink = null) : IScene
 
     private static WorldLookup BuildWorldLookup(SceneOverlayDefinition[] sorted)
     {
+        bool hasItemFrames = false;
         Dictionary<PlayerId, OverlayId>? masks = null;
         foreach (var overlay in sorted)
         {
+            hasItemFrames |= overlay.VirtualItemFrames.Count != 0;
             if (!overlay.FillOutsideWithAir) continue;
             foreach (PlayerId observer in overlay.Observers.Players)
                 (masks ??= []).TryAdd(observer, overlay.Id);
         }
-        if (sorted.Length < 8) return new(sorted, null, masks);
+        if (sorted.Length < 8) return new(sorted, null, masks, hasItemFrames);
 
         // Sparse 64x64 buckets, not a dimensions-sized tile map. Bound memory for
         // large/overlapping overlays; oversized sets retain the priority-sorted scan.
@@ -237,7 +241,7 @@ public sealed partial class SceneRuntime(ISceneRenderSink? sink = null) : IScene
             var bounds = overlay.Bounds;
             entries += (long)(((bounds.Right - 1) >> ChunkShift) - (bounds.X >> ChunkShift) + 1) *
                 (((bounds.Bottom - 1) >> ChunkShift) - (bounds.Y >> ChunkShift) + 1);
-            if (entries > MaximumIndexedChunkEntries) return new(sorted, null, masks);
+            if (entries > MaximumIndexedChunkEntries) return new(sorted, null, masks, hasItemFrames);
         }
 
         var chunks = new Dictionary<(int X, int Y), List<SceneOverlayDefinition>>();
@@ -252,11 +256,11 @@ public sealed partial class SceneRuntime(ISceneRenderSink? sink = null) : IScene
                 bucket.Add(overlay);
             }
         }
-        return new(sorted, chunks.ToDictionary(static pair => pair.Key, static pair => pair.Value.ToArray()), masks);
+        return new(sorted, chunks.ToDictionary(static pair => pair.Key, static pair => pair.Value.ToArray()), masks, hasItemFrames);
     }
 
     private sealed record WorldLookup(SceneOverlayDefinition[] All, Dictionary<(int X, int Y), SceneOverlayDefinition[]>? Chunks,
-        Dictionary<PlayerId, OverlayId>? AirMasks);
+        Dictionary<PlayerId, OverlayId>? AirMasks, bool HasItemFrames);
 
     private OverlayId Add(SceneId sceneId, SceneOverlayDefinition definition)
     {

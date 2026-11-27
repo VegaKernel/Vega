@@ -23,10 +23,6 @@ public sealed class TerrariaSchematicPlacement(IGameThreadDispatcher dispatcher,
             bounds.Width != document.Width || bounds.Height != document.Height || tiles.Width != bounds.Width || tiles.Height != bounds.Height ||
             tiles.Tiles.Any(static tile => !TerrariaWorldTileService.IsValid(tile)))
             return Invalid(error ?? "Schematic tile bounds or native tile fields are invalid.");
-        if (document.Chests.Length != 0 || document.Signs.Length != 0 || document.TileEntities.Length != 0 || document.WorldItems.Length != 0)
-            return Invalid("Placement supports tiles and NPCs only.");
-        if (tiles.Tiles.Any(NeedsRegisteredObject))
-            return Invalid("Schematic tile area requires native object registrations not yet supported by placement.");
 
         bool Overlaps(int x, int y, int width, int height) => x < bounds.Right && y < bounds.Bottom &&
             x + width > bounds.X && y + height > bounds.Y;
@@ -46,12 +42,16 @@ public sealed class TerrariaSchematicPlacement(IGameThreadDispatcher dispatcher,
         if (document.Npcs.Length > occupied.Count(static active => !active) ||
             document.Npcs.Any(npc => npc.NpcType <= 0 || npc.NpcType >= NPCID.Count))
             return Invalid("Insufficient native NPC slots or unsupported NPC type.");
+        TerrariaSchematicObjects objects;
+        try { objects = TerrariaSchematicObjects.Prepare(document, tiles, bounds); }
+        catch (SchematicFormatException ex) { return Invalid(ex.Message); }
         // Keep the original tile array and track only this operation's exact new NPC generations.
         var (before, _) = TerrariaWorldTileService.CaptureArea(global::Terraria.Main.tile, bounds);
         var created = new List<(int Slot, int Generation)>(document.Npcs.Length);
         try
         {
             ApplyTiles(tiles, bounds);
+            objects.Apply();
             foreach (var record in document.Npcs)
             {
                 float x = bounds.X * 16f + record.X, y = bounds.Y * 16f + record.Y;
@@ -80,21 +80,12 @@ public sealed class TerrariaSchematicPlacement(IGameThreadDispatcher dispatcher,
             // side effects are not transactional. A failed placement is not a ready world template.
             foreach (var (slot, generation) in created)
                 if (global::Terraria.Main.npc[slot] is { } npc && npc.generation == generation) npc.active = false;
-            ApplyTiles(before, bounds);
-            return new(WorldSchematicPlacementStatus.Failed, Error: ex.Message);
+            Exception? rollbackError = objects.Rollback();
+            try { ApplyTiles(before, bounds); }
+            catch (Exception tileRestoreError) { rollbackError ??= tileRestoreError; }
+            return new(WorldSchematicPlacementStatus.Failed, Error: rollbackError is null ? ex.Message :
+                $"{ex.Message} Rollback was incomplete: {rollbackError.Message}");
         }
-    }
-
-    private static bool NeedsRegisteredObject(SceneTile tile)
-    {
-        if (!tile.Flags.HasFlag(SceneTileFlags.Active)) return false;
-        int type = tile.TileType;
-        return global::Terraria.Main.tileContainer[type] || global::Terraria.Main.tileSign[type] ||
-            type is TileID.Containers or TileID.Containers2 or TileID.Dressers or TileID.Signs or TileID.Tombstones or
-                TileID.AnnouncementBox or TileID.ArrowSign or TileID.PaintedArrowSign or TileID.TatteredWoodSign or
-                TileID.TargetDummy or TileID.ItemFrame or TileID.LogicSensor or TileID.DisplayDoll or TileID.WeaponsRack2 or
-                TileID.HatRack or TileID.FoodPlatter or TileID.TeleportationPylon or TileID.DeadCellsDisplayJar or
-                TileID.KiteAnchor or TileID.CritterAnchor;
     }
 
     private static void ApplyTiles(SceneTileArea area, SceneBounds bounds)

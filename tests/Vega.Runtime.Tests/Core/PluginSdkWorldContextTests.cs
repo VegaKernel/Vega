@@ -252,7 +252,7 @@ public sealed class PluginSdkWorldContextTests
         byte[] Encode(bool unsupported) => SchematicBinary.Serialize(new SchematicDocument
         {
             ContentVersion = 279, Width = 2, Height = 2, Tiles = new SchematicTile[4], Npcs = [new(22, 16, 16)],
-            Signs = unsupported ? [new(0, 0, "must not disappear")] : []
+            WorldItems = unsupported ? [new(new(8, 1), 0, 0)] : []
         });
         Assert.That((await service.PlaceAsync(WorldId.Primary, Encode(false), 50, 60)).Status, Is.EqualTo(WorldSchematicPlacementStatus.Unavailable));
         Assert.That((await service.PlaceAsync(world, Encode(true), 50, 60)).Status, Is.EqualTo(WorldSchematicPlacementStatus.Invalid));

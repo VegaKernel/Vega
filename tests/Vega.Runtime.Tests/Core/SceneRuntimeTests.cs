@@ -115,6 +115,72 @@ public sealed class SceneRuntimeTests
     }
 
     [Test]
+    [NonParallelizable]
+    public void VirtualItemFrameRenderSendsMetadataAfterTilesAndDeletesItOnRemoval()
+    {
+        const int slot = 1;
+        var previous = global::Terraria.Netplay.Clients[slot];
+        var previousTiles = global::Terraria.Main.tile;
+        int previousWidth = global::Terraria.Main.maxTilesX, previousHeight = global::Terraria.Main.maxTilesY;
+        var previousById = global::Terraria.DataStructures.TileEntity.ByID;
+        var previousPositions = global::Terraria.DataStructures.TileEntity.ByPosition;
+        int previousNextId = global::Terraria.DataStructures.TileEntity.TileEntitiesNextID;
+        bool previousFrameImportant = global::Terraria.Main.tileFrameImportant[395];
+        var socket = new RecordingRenderSocket();
+        try
+        {
+            global::Terraria.DataStructures.TileEntity.ByID = [];
+            global::Terraria.DataStructures.TileEntity.ByPosition = [];
+            global::Terraria.DataStructures.TileEntity.TileEntitiesNextID = 100;
+            global::Terraria.Netplay.Clients[slot] = new global::Terraria.RemoteClient { Id = slot, State = 10 };
+            global::Terraria.Netplay.Clients[slot].Activate(socket);
+            global::Terraria.Main.maxTilesX = 4;
+            global::Terraria.Main.maxTilesY = 4;
+            global::Terraria.Main.tileFrameImportant[395] = true;
+            var tiles = new global::TerrariaRuntime.DefaultCollection<global::Terraria.ITile>(4,4);
+            for (int x = 0; x < 4; x++) for (int y = 0; y < 4; y++) tiles[x,y] = new global::Terraria.Tile();
+            global::Terraria.Main.tile = tiles;
+            var dispatcher = new AdmissionDispatcher { Accept = true };
+            var opened = new PlayerSessionOpened(PlayerSessionId.New(),new(slot),"viewer",DateTimeOffset.UtcNow);
+            var player = new PlayerSnapshot(opened.PlayerId,opened.PlayerName,false,100,100,20,20,new(0,0),false,0) { SessionId = opened.SessionId };
+            using var renderer = new TerrariaSceneRenderSink(dispatcher,new PlayerDirectory(player),new QuietLogger());
+            var runtime = new SceneRuntime(renderer);
+            renderer.Attach(runtime,new TestSessions());
+            runtime.OpenSession(WorldId.Primary,opened);
+            using var scene = runtime.CreateScene(WorldId.Primary,"frames","test");
+            var area = new SceneTileArea(2,2,[new(395,FrameX:0,FrameY:0,Flags:SceneTileFlags.Active),
+                new(395,FrameX:18,FrameY:0,Flags:SceneTileFlags.Active),new(395,FrameX:0,FrameY:18,Flags:SceneTileFlags.Active),
+                new(395,FrameX:18,FrameY:18,Flags:SceneTileFlags.Active)]);
+            var frame = new SceneVirtualItemFrameDefinition(VirtualItemFrameId.New(),0,0,8,1,0,1);
+            var overlay = scene.AddOverlay(new SceneOverlayDefinition(default,"frame",new(1,1,2,2),1,
+                SceneObserverScope.PersonalSessions([SceneSessionObserver.From(opened)]),area) { VirtualItemFrames = [frame] });
+            for (int i = 0; i < 20 && !dispatcher.Step!(); i++) { }
+            Assert.That(socket.Packets.Select(packet => packet[2]),Is.EqualTo(new byte[] { 20, (byte)PacketTypes.UpdateTileEntity }));
+            var create = (UpdateTileEntity)TerrariaPacket.Deserialize(socket.Packets[1],0,socket.Packets[1].Length);
+            Assert.That(create.Exists,Is.True);
+            Assert.That(global::Terraria.DataStructures.TileEntity.ByID,Is.Empty);
+            socket.Packets.Clear();
+            scene.RemoveOverlay(overlay);
+            for (int i = 0; i < 20 && !dispatcher.Step!(); i++) { }
+            Assert.That(socket.Packets.Select(packet => packet[2]),Is.EqualTo(new byte[] { 20, (byte)PacketTypes.UpdateTileEntity }));
+            var remove = (UpdateTileEntity)TerrariaPacket.Deserialize(socket.Packets[1],0,socket.Packets[1].Length);
+            Assert.That(remove.Exists,Is.False);
+            Assert.That(remove.Key,Is.EqualTo(create.Key));
+        }
+        finally
+        {
+            global::Terraria.Netplay.Clients[slot] = previous;
+            global::Terraria.Main.tile = previousTiles;
+            global::Terraria.Main.maxTilesX = previousWidth;
+            global::Terraria.Main.maxTilesY = previousHeight;
+            global::Terraria.Main.tileFrameImportant[395] = previousFrameImportant;
+            global::Terraria.DataStructures.TileEntity.ByID = previousById;
+            global::Terraria.DataStructures.TileEntity.ByPosition = previousPositions;
+            global::Terraria.DataStructures.TileEntity.TileEntitiesNextID = previousNextId;
+        }
+    }
+
+    [Test]
     public void PersonalAirMaskSuppressesGlobalTilesAndRefreshesOnlyChangedObservers()
     {
         var sink = new RecordingSink();
@@ -684,6 +750,7 @@ public sealed class SceneRuntimeTests
     private sealed class RecordingRenderSocket : global::Terraria.Net.Sockets.ISocket
     {
         public List<int> XCoordinates { get; } = [];
+        public List<byte[]> Packets { get; } = [];
         public void Close() { }
         public bool IsConnected() => true;
         public bool IsDataAvailable() => false;
@@ -692,7 +759,10 @@ public sealed class SceneRuntimeTests
         public bool StartListening(global::Terraria.Net.Sockets.SocketConnectionAccepted callback) => throw new NotSupportedException();
         public void StopListening() => throw new NotSupportedException();
         public void AsyncSend(byte[] data, int offset, int size, global::Terraria.Net.Sockets.SocketSendCallback callback, object? state = null)
-            => XCoordinates.Add(BitConverter.ToInt16(data, offset + 3));
+        {
+            XCoordinates.Add(BitConverter.ToInt16(data, offset + 3));
+            Packets.Add(data.AsSpan(offset, size).ToArray());
+        }
         public void AsyncReceive(byte[] data, int offset, int size, global::Terraria.Net.Sockets.SocketReceiveCallback callback, object? state = null) => throw new NotSupportedException();
     }
 

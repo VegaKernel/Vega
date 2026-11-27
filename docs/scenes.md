@@ -77,7 +77,7 @@ contents and bounds (`ReplaceTiles`), changes observers and layer, and removes p
 Plugins can continue to create their own scoped providers with `context.World.Scenes`
 (scene leases are tied to plugin ownership). These are **visual, observer-scoped layers**;
 server-side world interaction on phantom tiles is still denied. They are not extra
-physics worlds, native virtual chest inventories/tile entities, nor binary compatibility with the
+physics worlds, native virtual chest UI/full tile-entity simulation, nor binary compatibility with the
 legacy FakeProvider API. Independent simulation remains process-isolated.
 
 ### Logical virtual chests for plugins
@@ -103,12 +103,34 @@ An open intent is recorded only for a living, exact-session observer within
 eight tiles of the container; this is a conservative logical interaction range.
 
 The ordinary chest-open interaction is **observed, not forwarded to a canonical
-chest**. This API does not assign native chest indices, open the vanilla inventory
-UI, transfer items, or persist data in `.wld`; logical item counts are not native
-item validation. Plugins can implement their own read-only display/actions and
-persist data using their storage API. A native inventory interface will require a
-separate authoritative transaction design and real-client qualification, particularly
-with SSC. See `samples/Vega.PluginSamples/VirtualChestPreviewCommand.cs` (`samplechest`).
+chest**. The plugin chooses whether to display, accept or exchange a stack.
+`SupportsVirtualChestTransfers` advertises explicit server-owned inventory transfers.
+The virtual chest's `Transfer` method takes the open intent, expected native
+inventory revision, chest slot, main inventory slot (0–49), amount and direction.
+Call it on the game thread and with authoritative native SSC enabled. For example,
+after receiving `open` and capturing a native `inventory` snapshot for its exact
+session inside the game-thread callback:
+
+```csharp
+var result = chest.Transfer(new SceneVirtualChestTransferRequest(open,
+    inventory.Revision, ChestSlot: 0, InventorySlot: 5, Amount: 1,
+    Direction: VirtualChestTransferDirection.Withdraw));
+if (result.Status == VirtualChestTransferStatus.Applied)
+    plugin.Log.Write(OperationsLogLevel.Information, "Transferred one item.");
+```
+
+The transaction rechecks the current visible chest definition, revision, both
+inventories' stack compatibility, native max stack/prefix, live session and reach.
+It publishes both state changes together before syncing the native inventory slot.
+Deposits of favorited items are rejected. The result's `Applied` status is final,
+including when the subsequent inventory notification failed (`Error` is set).
+Only standard item type, stack and prefix are represented in logical chests.
+This does not assign native chest indices, open the vanilla inventory UI, or
+persist data in `.wld`. Plugins own the UI/policies and storage. Native fixture
+tests exercise both directions and reject stale/hidden/out-of-range requests;
+interactive SSC client qualification remains open. See
+`samples/Vega.PluginSamples/VirtualChestPreviewCommand.cs` (`samplechest`) for the
+read-only display example.
 
 ### Logical virtual signs
 
@@ -119,20 +141,50 @@ with SSC. See `samples/Vega.PluginSamples/VirtualChestPreviewCommand.cs` (`sampl
 `TryTakeReadRequest` returns the latest, exact-session read intent. The same
 visibility, active-footprint, world, reach, expiry and unload rules apply as for
 logical chests. A provider supports up to 256 combined virtual objects; their
-footprints cannot overlap. Chests and signs share one optional metadata reference
+footprints cannot overlap. Chests, signs and item frames share one optional metadata reference
 on the overlay, so ordinary tile-only providers do not gain a field for every kind.
 
 The ordinary sign-read interaction is observed by the plugin, and sign reads/edits
 in virtual terrain do not reach canonical sign state. Existing signs outside an
 overlay remain native. Text is owned by the plugin, not written to the `.wld` or
-assigned a native sign index. This is not the vanilla sign editor or a native
-tile-entity implementation. See `samples/Vega.PluginSamples/VirtualSignPreviewCommand.cs`
+assigned a native sign index. `SupportsVirtualSignEdits` advertises the opt-in
+`CreateVirtualSign(..., allowEdits: true)` overload. A sign read opens a bounded
+two-minute edit observation window for that exact sign and connection; one
+matching text edit produces a five-second `TryTakeEditRequest` intent. The plugin
+may authorize it by calling `TryAcceptEdit(request)`, which rechecks the live
+session, world, reach, visibility and original immutable revision before publishing
+text. Read-only signs remain the default; text never mutates in the packet path.
+This is not the vanilla sign editor or a native tile-entity implementation; native
+UI presentation and stock-client qualification remain open. See
+`samples/Vega.PluginSamples/VirtualSignPreviewCommand.cs`
 (`samplesign`), which displays text through chat from a tracked game-thread task.
 Both virtual-object samples use `plugin.Players.Message(playerSnapshot, text)`;
 the snapshot overload checks the observed session/world and preserves the exact
 native target when dispatching the tracked message operation. Hosts without an
 explicit session-bound messenger capability return unavailable rather than
 falling back to a reusable numeric slot.
+
+### Read-only virtual item-frame presentation
+
+`SupportsVirtualItemFrames` advertises `CreateVirtualItemFrame(localX, localY,
+itemType, stack, prefix)` and a revisioned `IPluginVirtualItemFrame.TryReplace`.
+The caller supplies the actual 2×2 native item-frame tiles (tile type 395, complete
+18-pixel frames). Item updates schedule a redraw; the SDK lease follows provider
+movement, observer visibility, and plugin unload. Portable `.trschem` item-frame
+records are imported as the same non-canonical metadata by `/fake schematic`
+and `/pfake schematic`; other tile-entity kinds are not spawned by that path.
+
+After redrawing the tiles, the native renderer sends standard tile-entity metadata
+to the exact observing connection. It reserves IDs via the native allocator but
+does not insert entities into server `TileEntity.ByID` or `ByPosition`. The
+presentation is bounded to 256 active frames per observer; hidden/removed frames
+receive a removal packet when the affected tiles are redrawn. A canonical tile
+entity already at that position suppresses the virtual projection; a canonical
+collision detected during redraw removes the virtual ID and restores canonical
+metadata. Ordinary placement into a phantom frame remains blocked, with no native
+inventory transfer. There is no graphical client UI qualification, independent
+simulation, or guarantee of confidentiality of canonical section data. This slice
+does not implement mannequins, racks, pylons, sensors or interactive tile entities.
 
 Personal providers can enable `FillOutsideWithAir` with `pfake air <name> on`,
 `IPluginFakeProvider.CreatePersonal(..., fillOutsideWithAir: true)`, or

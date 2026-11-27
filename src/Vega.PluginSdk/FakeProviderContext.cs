@@ -9,7 +9,10 @@ public interface IPluginFakeProvider
 {
     bool IsAvailable { get; }
     bool SupportsVirtualChests => false;
+    bool SupportsVirtualChestTransfers => false;
     bool SupportsVirtualSigns => false;
+    bool SupportsVirtualSignEdits => false;
+    bool SupportsVirtualItemFrames => false;
     IPluginTileProvider CreateGlobal(string name, SceneBounds bounds, SceneTileArea tiles, int layer = 0);
     IPluginTileProvider CreatePersonal(string name, SceneBounds bounds, SceneTileArea tiles,
         IEnumerable<SceneSessionObserver> observers, int layer = 0);
@@ -38,15 +41,21 @@ public interface IPluginTileProvider : IDisposable
         throw new NotSupportedException("Virtual chests are unavailable.");
     IPluginVirtualSign CreateVirtualSign(int localX, int localY, string text) =>
         throw new NotSupportedException("Virtual signs are unavailable.");
+    IPluginVirtualSign CreateVirtualSign(int localX, int localY, string text, bool allowEdits) =>
+        allowEdits ? throw new NotSupportedException("Virtual sign edits are unavailable.") : CreateVirtualSign(localX, localY, text);
+    IPluginVirtualItemFrame CreateVirtualItemFrame(int localX, int localY, int itemType, int stack, byte prefix = 0) =>
+        throw new NotSupportedException("Virtual item frames are unavailable.");
 }
 
-/// <summary>Logical container owned by its provider, not a native inventory or item-transfer surface.</summary>
+/// <summary>Logical container owned by its provider. Explicit transfers use native inventory on the game thread.</summary>
 public interface IPluginVirtualChest : IDisposable
 {
     VirtualChestId Id { get; }
     SceneVirtualChestDefinition Definition { get; }
     bool TryReplace(long expectedRevision, string name, IReadOnlyList<ChestItemSnapshot> items);
     bool TryTakeOpenRequest(out SceneVirtualChestOpenRequest? request);
+    /// <summary>Requires a current interaction and the native inventory revision. Invoke on the game thread (Tasks.Post).</summary>
+    SceneVirtualChestTransferResult Transfer(SceneVirtualChestTransferRequest request) => new(VirtualChestTransferStatus.Unavailable);
 }
 
 /// <summary>Scoped entity visibility lease. NPC/projectile IDs remain native slot identities.</summary>
@@ -74,7 +83,10 @@ internal static partial class VegaPluginRuntime
 
         public bool IsAvailable { get { lock (sync) return !disposed && Services.Scenes is not null; } }
         public bool SupportsVirtualChests { get { lock (sync) return !disposed && Services.Scenes?.SupportsVirtualChests == true; } }
+        public bool SupportsVirtualChestTransfers { get { lock (sync) return !disposed && Services.Scenes is IVirtualChestTransferAuthority && Services.Inventory is IVirtualChestInventoryTransfer; } }
         public bool SupportsVirtualSigns { get { lock (sync) return !disposed && Services.Scenes?.SupportsVirtualSigns == true; } }
+        public bool SupportsVirtualSignEdits { get { lock (sync) return !disposed && Services.Scenes?.SupportsVirtualSignEdits == true; } }
+        public bool SupportsVirtualItemFrames { get { lock (sync) return !disposed && Services.Scenes?.SupportsVirtualItemFrames == true; } }
 
         public IPluginTileProvider CreateGlobal(string name, SceneBounds bounds, SceneTileArea tiles, int layer = 0) =>
             Create(name, bounds, tiles, SceneObserverScope.Global, layer);
@@ -276,6 +288,11 @@ internal static partial class VegaPluginRuntime
                     request = result.Request;
                     return result.Found;
                 }
+                public SceneVirtualChestTransferResult Transfer(SceneVirtualChestTransferRequest request)
+                {
+                    AssertOpen();
+                    return provider.TransferChest(id, request);
+                }
                 public void Dispose()
                 {
                     if (Interlocked.Exchange(ref disposed, 1) != 0) return;
@@ -284,6 +301,23 @@ internal static partial class VegaPluginRuntime
                 }
                 private void AssertOpen() => ObjectDisposedException.ThrowIf(Volatile.Read(ref disposed) != 0, this);
             }
+
+            private SceneVirtualChestTransferResult TransferChest(VirtualChestId id, SceneVirtualChestTransferRequest request) => Read(() =>
+            {
+                if (request.Open.Chest.SceneId != Scene.Id || request.Open.Chest.OverlayId != Id ||
+                    request.Open.Chest.Definition?.Id != id || !definition.VirtualChests.Any(chest => chest.Id == id))
+                    return new SceneVirtualChestTransferResult(VirtualChestTransferStatus.StaleInteraction);
+                if (Services.Inventory is not IVirtualChestInventoryTransfer transfer)
+                    return new SceneVirtualChestTransferResult(VirtualChestTransferStatus.Unavailable);
+                var result = transfer.TransferVirtualChest(sceneRuntime, request);
+                if (result.Status == VirtualChestTransferStatus.Applied && result.Chest is { } updated)
+                {
+                    // The runtime already published this revision as part of the native transaction.
+                    var chests = definition.VirtualChests.Select(chest => chest.Id == id ? updated : chest).ToArray();
+                    definition = definition with { VirtualChests = Array.AsReadOnly(chests) };
+                }
+                return result;
+            });
 
             private void Update(Func<SceneOverlayDefinition, SceneOverlayDefinition> edit) => Mutate(() =>
             {

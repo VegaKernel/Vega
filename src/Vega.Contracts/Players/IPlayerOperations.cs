@@ -5,6 +5,9 @@ namespace Vega.Contracts.Players;
 /// </summary>
 public interface IPlayerOperations
 {
+    /// <summary>True only when the session-bound kick overload revalidates the original session at delivery.</summary>
+    bool SupportsSessionBoundKicks => false;
+
     ValueTask<PlayerOperationResult> KickAsync(
         PlayerId id,
         string reason,

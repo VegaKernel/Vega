@@ -50,7 +50,7 @@ public sealed record NpcActorCreationResult(NpcOperationStatus Status, INpcActor
 
 public enum NpcShopPresentationStatus { Sent, Unavailable, NotInteracting, NoCatalog, InvalidSession, ActorGone }
 public enum NpcShopPurchaseStatus { Committed, Unavailable, ActorGone, NotInteracting, CatalogChanged, OfferUnavailable,
-    InvalidInventory, InsufficientFunds, InventoryFull, InvalidOffer, InventoryChanged }
+    InvalidInventory, InsufficientFunds, InventoryFull, InvalidOffer, InventoryChanged, InventoryAuthorityRequired }
 public sealed record NpcShopPurchaseResult(NpcShopPurchaseStatus Status, long ShopRevision = 0, long CoinsPaid = 0,
     int ItemType = 0, int Stack = 0);
 public readonly record struct NpcActorPurchasedEvent(NpcActorId Actor, PlayerSnapshot Buyer, string OfferId, NpcShopPurchaseResult Purchase);
@@ -67,7 +67,7 @@ public interface INpcActor : IDisposable
     ValueTask<bool> SetShopAsync(NpcShopCatalog? shop, CancellationToken cancellationToken = default);
     /// <summary>Send catalog presentation to a player's already open vanilla shop. Does not open UI or commit a purchase.</summary>
     ValueTask<NpcShopPresentationStatus> PresentShopAsync(PlayerSnapshot player, CancellationToken cancellationToken = default);
-    /// <summary>Explicit server inventory transaction. Independent of vanilla client shop purchases.</summary>
+    /// <summary>Explicit server inventory transaction requiring native authoritative SSC for multiplayer. Independent of vanilla client shop purchases.</summary>
     ValueTask<NpcShopPurchaseResult> PurchaseAsync(PlayerSnapshot player, string offerId, long expectedShopRevision,
         CancellationToken cancellationToken = default);
 }

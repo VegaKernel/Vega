@@ -115,6 +115,7 @@ Assembly? ResolveFromRuntimeDirectories(System.Runtime.Loader.AssemblyLoadContex
 int Start()
 {
     if (OfflineMigrationCommands.TryRun(args, AppContext.BaseDirectory) is { } migrationExitCode) return migrationExitCode;
+    if (OfflineSchematicTemplateCommand.TryRun(args) is { } schematicExitCode) return schematicExitCode;
 
     SandboxBackendLaunchOptions backendLaunch;
     try

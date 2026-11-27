@@ -4,7 +4,7 @@ using Vega.Contracts.Worlds;
 
 namespace Vega.Core.Scenes;
 
-public sealed partial class SceneRuntime
+public sealed partial class SceneRuntime : IVirtualChestTransferAuthority
 {
     private const int MaximumVirtualObjectsPerOverlay = 256;
     private const double VirtualObjectReachPixels = 8 * 16;
@@ -13,24 +13,28 @@ public sealed partial class SceneRuntime
     private readonly Dictionary<(WorldId World, PlayerId Player), SceneVirtualChestOpenRequest> pendingVirtualChestOpens = [];
     public bool SupportsVirtualChests => true;
 
-    private static bool HasVirtualObjects(SceneOverlayDefinition definition) => definition.VirtualChests.Count != 0 || definition.VirtualSigns.Count != 0;
+    private static bool HasVirtualObjects(SceneOverlayDefinition definition) => definition.VirtualChests.Count != 0 || definition.VirtualSigns.Count != 0 || definition.VirtualItemFrames.Count != 0;
 
     private static SceneOverlayDefinition FreezeVirtualObjects(SceneOverlayDefinition definition)
     {
         ArgumentNullException.ThrowIfNull(definition);
         var chests = definition.VirtualChests;
         var signs = definition.VirtualSigns;
-        if (chests.Count == 0 && signs.Count == 0)
-            return ReferenceEquals(chests, Array.Empty<SceneVirtualChestDefinition>()) && ReferenceEquals(signs, Array.Empty<SceneVirtualSignDefinition>())
-                ? definition : definition with { VirtualChests = Array.Empty<SceneVirtualChestDefinition>(), VirtualSigns = Array.Empty<SceneVirtualSignDefinition>() };
-        if ((long)chests.Count + signs.Count > MaximumVirtualObjectsPerOverlay || definition.Bounds.Width < 2 || definition.Bounds.Height < 2)
+        var frames = definition.VirtualItemFrames;
+        if (chests.Count == 0 && signs.Count == 0 && frames.Count == 0)
+            return ReferenceEquals(chests, Array.Empty<SceneVirtualChestDefinition>()) && ReferenceEquals(signs, Array.Empty<SceneVirtualSignDefinition>()) &&
+                ReferenceEquals(frames, Array.Empty<SceneVirtualItemFrameDefinition>())
+                ? definition : definition with { VirtualChests = Array.Empty<SceneVirtualChestDefinition>(), VirtualSigns = Array.Empty<SceneVirtualSignDefinition>(), VirtualItemFrames = Array.Empty<SceneVirtualItemFrameDefinition>() };
+        if ((long)chests.Count + signs.Count + frames.Count > MaximumVirtualObjectsPerOverlay || definition.Bounds.Width < 2 || definition.Bounds.Height < 2)
             throw new ArgumentException("Too many virtual objects or invalid provider bounds.", nameof(definition));
         var frozenChests = chests.ToArray();
         var frozenSigns = signs.ToArray();
-        if ((long)frozenChests.Length + frozenSigns.Length > MaximumVirtualObjectsPerOverlay)
+        var frozenFrames = frames.ToArray();
+        if ((long)frozenChests.Length + frozenSigns.Length + frozenFrames.Length > MaximumVirtualObjectsPerOverlay)
             throw new ArgumentException("Too many virtual objects in one provider.", nameof(definition));
         var chestIds = new HashSet<VirtualChestId>();
         var signIds = new HashSet<VirtualSignId>();
+        HashSet<VirtualItemFrameId>? frameIds = null;
         var occupied = new HashSet<(int X, int Y)>();
         foreach (var chest in frozenChests)
         {
@@ -42,10 +46,18 @@ public sealed partial class SceneRuntime
             if (sign is null || !signIds.Add(sign.Id)) throw new ArgumentException("Virtual sign identity must be unique.", nameof(definition));
             ValidateFootprint(definition.Bounds, sign.LocalX, sign.LocalY, occupied);
         }
+        foreach (var frame in frozenFrames)
+        {
+            if (frame is null || !(frameIds ??= []).Add(frame.Id)) throw new ArgumentException("Virtual item frame identity must be unique.", nameof(definition));
+            ValidateFootprint(definition.Bounds, frame.LocalX, frame.LocalY, occupied);
+            if (!ValidItemFrameTiles(definition.Tiles, frame.LocalX, frame.LocalY))
+                throw new ArgumentException("Virtual item frames require a complete native item-frame tile footprint.", nameof(definition));
+        }
         return definition with
         {
             VirtualChests = frozenChests.Length == 0 ? Array.Empty<SceneVirtualChestDefinition>() : Array.AsReadOnly(frozenChests),
-            VirtualSigns = frozenSigns.Length == 0 ? Array.Empty<SceneVirtualSignDefinition>() : Array.AsReadOnly(frozenSigns)
+            VirtualSigns = frozenSigns.Length == 0 ? Array.Empty<SceneVirtualSignDefinition>() : Array.AsReadOnly(frozenSigns),
+            VirtualItemFrames = frozenFrames.Length == 0 ? Array.Empty<SceneVirtualItemFrameDefinition>() : Array.AsReadOnly(frozenFrames)
         };
     }
 
@@ -61,7 +73,7 @@ public sealed partial class SceneRuntime
     private static bool SameVisualProvider(SceneOverlayDefinition a, SceneOverlayDefinition b) =>
         a.Bounds == b.Bounds && a.Order == b.Order && a.Enabled == b.Enabled && a.FillOutsideWithAir == b.FillOutsideWithAir &&
         ReferenceEquals(a.Tiles, b.Tiles) && a.Observers.IsGlobal == b.Observers.IsGlobal &&
-        a.Observers.Players.SetEquals(b.Observers.Players);
+        a.Observers.Players.SetEquals(b.Observers.Players) && a.VirtualItemFrames.SequenceEqual(b.VirtualItemFrames);
 
     public bool TryResolveVirtualChest(WorldId worldId, SceneSessionObserver observer, int tileX, int tileY,
         out SceneVirtualChestSnapshot? chest)
@@ -186,5 +198,36 @@ public sealed partial class SceneRuntime
                 (removed ??= []).Add(pair.Key);
         if (removed is not null)
             foreach (var key in removed) pendingVirtualChestOpens.Remove(key);
+    }
+
+    public bool TryCommitVirtualChestTransfer(PlayerSnapshot player, SceneVirtualChestOpenRequest open,
+        SceneVirtualChestDefinition replacement, Action commitInventory)
+    {
+        var identity = open.Chest.Identity;
+        if (player.WorldId != identity.WorldId || player.SessionId != open.Observer.Session ||
+            player.Id != open.Observer.Player || !TryGetInteractionObserver(player, identity.X, identity.Y, out var observer) ||
+            !WithinObjectReach(player, identity.X, identity.Y) || DateTimeOffset.UtcNow - open.RequestedAt > VirtualInteractionLifetime)
+            return false;
+        lock (sync)
+        {
+            if (!TryResolveVirtualChestLocked(identity.WorldId, observer, identity.X, identity.Y, out var resolved) ||
+                resolved is not { } current || current.SceneId != open.Chest.SceneId || current.OverlayId != open.Chest.OverlayId ||
+                current.Identity != identity || !ReferenceEquals(current.Definition, open.Chest.Definition) ||
+                replacement.Id != current.Definition.Id || replacement.Revision != current.Definition.Revision + 1 ||
+                replacement.LocalX != current.Definition.LocalX || replacement.LocalY != current.Definition.LocalY ||
+                replacement.Name != current.Definition.Name)
+                return false;
+
+            var scene = scenes[current.SceneId];
+            var previous = scene.Overlays[current.OverlayId];
+            var definitions = previous.Definition.VirtualChests.Select(chest => chest.Id == replacement.Id ? replacement : chest).ToArray();
+            var next = previous with { Definition = previous.Definition with { VirtualChests = Array.AsReadOnly(definitions) } };
+            // Allocate and validate all scene state before the non-throwing native assignment.
+            // No tile redraw is required for a logical item movement.
+            commitInventory();
+            scene.Overlays[current.OverlayId] = next;
+            Volatile.Write(ref lookup, null);
+            return true;
+        }
     }
 }

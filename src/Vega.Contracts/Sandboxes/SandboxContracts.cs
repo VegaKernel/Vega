@@ -71,7 +71,13 @@ public sealed record SandboxCreateRequest(
     TimeSpan? IdleTimeToLive,
     SandboxSscMode SscMode,
     IReadOnlySet<string> EnabledModules,
-    int? ListenerPort = null);
+    int? ListenerPort = null)
+{
+    /// <summary>Build a new immutable template from SourceWorldPath and a supported portable schematic.</summary>
+    public SandboxSchematicBootstrap? Schematic { get; init; }
+}
+
+public sealed record SandboxSchematicBootstrap(string SchematicPath, int X, int Y);
 
 public sealed record SandboxEndpoint(string Host, int Port);
 

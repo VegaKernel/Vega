@@ -21,7 +21,7 @@ public sealed class SandboxCommand(
         "sandbox",
         ["worlds"],
         ["vega.sandboxes.manage"],
-        Syntax: "sandbox list | status <id> | create <id> <name> <source.wld> <temporary|persistent|external> <capacity> [disabled|inherit|copyonenter|isolated] [port] | start|stop|restart <id> | reset <id> [source.wld] confirm | destroy <id> confirm | rolling-update confirm | transfer <account> <origin> <target>");
+        Syntax: "sandbox list | status <id> | create <id> <name> <source.wld> <temporary|persistent|external> <capacity> [ssc-mode] [port] | create-schematic <id> <name> <base.wld> <file.trschem> <x> <y> <temporary|persistent> <capacity> [ssc-mode] [port] | start|stop|restart <id> | reset <id> [source.wld] confirm | destroy <id> confirm | rolling-update confirm | transfer <account> <origin> <target>");
 
     public async ValueTask<CommandExecutionResult> ExecuteAsync(
         CommandInvocation invocation,
@@ -33,7 +33,8 @@ public sealed class SandboxCommand(
         {
             "list" => List(),
             "status" => Status(invocation.Arguments),
-            "create" => await CreateAsync(invocation.Arguments, cancellationToken).ConfigureAwait(false),
+            "create" => await CreateAsync(invocation.Arguments, null, cancellationToken).ConfigureAwait(false),
+            "create-schematic" => await CreateSchematicAsync(invocation.Arguments, cancellationToken).ConfigureAwait(false),
             "start" => await RunAsync(invocation.Arguments, sandboxes.StartAsync, cancellationToken).ConfigureAwait(false),
             "stop" => await RunAsync(invocation.Arguments, sandboxes.StopAsync, cancellationToken).ConfigureAwait(false),
             "restart" => await RunAsync(invocation.Arguments, sandboxes.RestartAsync, cancellationToken).ConfigureAwait(false),
@@ -67,8 +68,19 @@ public sealed class SandboxCommand(
         return status is null ? Failure("sandbox.not_found", $"Sandbox '{arguments[1]}' was not found.") : Success(Render(status));
     }
 
+    private async ValueTask<CommandExecutionResult> CreateSchematicAsync(IReadOnlyList<string> arguments, CancellationToken cancellationToken)
+    {
+        if (arguments.Count is < 9 or > 11 ||
+            !int.TryParse(arguments[5], NumberStyles.None, CultureInfo.InvariantCulture, out int x) ||
+            !int.TryParse(arguments[6], NumberStyles.None, CultureInfo.InvariantCulture, out int y)) return Usage();
+        // Reuse the existing create descriptor parser for ownership, capacity, SSC and port.
+        string[] create = ["create", arguments[1], arguments[2], arguments[3], .. arguments.Skip(7)];
+        return await CreateAsync(create, new(arguments[4], x, y), cancellationToken).ConfigureAwait(false);
+    }
+
     private async ValueTask<CommandExecutionResult> CreateAsync(
         IReadOnlyList<string> arguments,
+        SandboxSchematicBootstrap? schematic,
         CancellationToken cancellationToken)
     {
         if (arguments.Count is < 6 or > 8 ||
@@ -114,7 +126,7 @@ public sealed class SandboxCommand(
             null,
             sscMode,
             new HashSet<string>(StringComparer.OrdinalIgnoreCase),
-            port);
+            port) { Schematic = schematic };
         return Result(await sandboxes.CreateAsync(request, cancellationToken).ConfigureAwait(false));
     }
 

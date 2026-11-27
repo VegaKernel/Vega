@@ -4,7 +4,7 @@ using Vega.Contracts.Threading;
 
 namespace Vega.Terraria.Players;
 
-public sealed class TerrariaPlayerInventoryService(IGameThreadDispatcher dispatcher, TerrariaPlayerBoundary players) : IPlayerInventoryService
+public sealed partial class TerrariaPlayerInventoryService(IGameThreadDispatcher dispatcher, TerrariaPlayerBoundary players) : IPlayerInventoryService
 {
     private readonly long[] revisions = new long[global::Terraria.Main.maxPlayers];
     private readonly long[] fingerprints = new long[global::Terraria.Main.maxPlayers];

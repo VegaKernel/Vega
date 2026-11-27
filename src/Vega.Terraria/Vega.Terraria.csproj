@@ -12,15 +12,17 @@
   <ItemGroup>
     <ProjectReference Include="..\Vega.Contracts\Vega.Contracts.csproj" />
     <ProjectReference Include="..\TerraRuntime.Schematics\TerraRuntime.Schematics.csproj" />
-    <PackageReference Include="TerrariaRuntime" Version="1.1.5" />
+    <PackageReference Include="TerrariaRuntime" Version="1.1.6" />
     <PackageReference Include="Multiplicity" Version="4.0.1" />
   </ItemGroup>
 
   <ItemGroup>
+    <InternalsVisibleTo Include="Vega.Server" />
     <InternalsVisibleTo Include="Vega.Runtime.Tests" />
     <InternalsVisibleTo Include="Vega.WorldImage.Benchmarks" />
     <InternalsVisibleTo Include="Vega.PacketPipeline.Benchmarks" />
     <InternalsVisibleTo Include="Vega.NativeTcp.Benchmarks" />
+    <InternalsVisibleTo Include="Vega.MixedGameplay.Benchmarks" />
   </ItemGroup>
 
 </Project>

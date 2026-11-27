@@ -19,8 +19,8 @@ using Vega.PluginSdk;
 
 namespace Vega.MixedGameplay.Benchmarks;
 
-// Test-only plugin. No client connection or packet input is generated; all output is
-// counted by in-process sockets on a disposable server, on its authoritative thread.
+// Test-only plugin. No inbound client packets are generated; output is either recorded
+// in-process or sent to a private localhost-only passive receiver fixture.
 public sealed class MixedGameplayBenchmark : VegaPlugin
 {
     public override VegaModuleDescriptor Descriptor { get; } = new("Vega.Benchmarks.MixedGameplay", "1.0.0", ["Vega.PluginSdk"]);
@@ -33,22 +33,24 @@ public sealed class MixedGameplayBenchmark : VegaPlugin
 
     private sealed class RunCommand(IVegaPluginContext plugin) : ICommandHandler
     {
-        public CommandDescriptor Descriptor { get; } = new("mixedbench", [], [], Syntax: "mixedbench <legacy|optimized> <ticks>");
+        public CommandDescriptor Descriptor { get; } = new("mixedbench", [], [], Syntax: "mixedbench <legacy|optimized> <ticks> [recording|native|ordered]");
 
         public ValueTask<CommandExecutionResult> ExecuteAsync(CommandInvocation invocation, CancellationToken cancellationToken)
         {
-            if (!invocation.Principal.IsServer || invocation.Arguments.Count != 2 ||
+            if (!invocation.Principal.IsServer || invocation.Arguments.Count is < 2 or > 3 ||
                 invocation.Arguments[0] is not ("legacy" or "optimized") ||
-                !int.TryParse(invocation.Arguments[1], out int ticks) || ticks is < 120 or > 3600)
+                !int.TryParse(invocation.Arguments[1], out int ticks) || ticks is < 120 or > 3600 ||
+                invocation.Arguments.Count == 3 && invocation.Arguments[2] is not ("recording" or "native" or "ordered"))
                 return ValueTask.FromResult(CommandExecutionResult.Failed("benchmark.invalid_arguments"));
 
             string mode = invocation.Arguments[0];
+            string transport = invocation.Arguments.Count == 3 ? invocation.Arguments[2] : "recording";
             bool posted = plugin.Tasks.Post("mixed-gameplay", () =>
             {
                 string path = Path.GetFullPath($"mixed-{mode}.json");
                 try
                 {
-                    File.WriteAllText(path, JsonSerializer.Serialize(Run(mode, ticks), new JsonSerializerOptions { WriteIndented = true }));
+                    File.WriteAllText(path, JsonSerializer.Serialize(Run(mode, ticks, transport), new JsonSerializerOptions { WriteIndented = true }));
                 }
                 catch (Exception ex)
                 {
@@ -61,7 +63,7 @@ public sealed class MixedGameplayBenchmark : VegaPlugin
 
     private const int Count = 255;
 
-    private static object Run(string mode, int ticks)
+    private static object Run(string mode, int ticks, string transport)
     {
         if (!Main.dedServ || Main.netMode != 2 || Netplay.Clients.Any(c => c?.IsActive == true))
             throw new InvalidOperationException("A fresh dedicated server without real connections is required.");
@@ -71,16 +73,18 @@ public sealed class MixedGameplayBenchmark : VegaPlugin
         bool day = Main.dayTime;
         double time = Main.time;
         var sockets = new RecordingSocket[Count];
+        PacedLoopbackTransport? loopback = null;
         int bossSlot = -1;
         try
         {
+            if (transport != "recording") loopback = new(transport, Count);
             float x = Main.spawnTileX * 16, y = Main.spawnTileY * 16 - 250;
             var players = new PlayerSnapshot[Count];
             for (int i = 0; i < Count; i++)
             {
                 string name = $"P{i:D3}";
                 Main.player[i] = new Player { whoAmI = i, active = true, name = name, statLife = 400, statLifeMax = 400, position = new Vector2(x, y) };
-                sockets[i] = new RecordingSocket();
+                sockets[i] = new RecordingSocket(loopback?.GetPeer(i));
                 var client = new RemoteClient { Id = i };
                 client.Activate(sockets[i]);
                 client.State = 10;
@@ -101,6 +105,7 @@ public sealed class MixedGameplayBenchmark : VegaPlugin
             var combat = new double[ticks];
             var chat = new double[ticks];
             var delivery = new double[ticks];
+            var completionPump = new double[ticks];
             var total = new double[ticks];
             long movementUpdates = 0, hits = 0, damage = 0, messages = 0, mentions = 0, rendered = 0, chatAllocated = 0;
             long allocated = 0, movementAllocated = 0, combatAllocated = 0, deliveryAllocated = 0;
@@ -112,6 +117,7 @@ public sealed class MixedGameplayBenchmark : VegaPlugin
             {
                 if (tick == 0)
                 {
+                    loopback?.ResetMeasurement();
                     foreach (var socket in sockets) socket.Reset();
                     allocated = GC.GetTotalAllocatedBytes(true);
                     for (int g = 0; g < 3; g++) gc[g] = GC.CollectionCount(g);
@@ -120,6 +126,8 @@ public sealed class MixedGameplayBenchmark : VegaPlugin
                     started = Stopwatch.GetTimestamp();
                 }
                 long t0 = Stopwatch.GetTimestamp();
+                loopback?.Pump();
+                long movementStarted = loopback is null ? t0 : Stopwatch.GetTimestamp();
                 long a0 = GC.GetAllocatedBytesForCurrentThread();
                 for (int i = 0; i < Count; i++)
                 {
@@ -166,21 +174,30 @@ public sealed class MixedGameplayBenchmark : VegaPlugin
                     deliverMs += Stopwatch.GetElapsedTime(cd).TotalMilliseconds;
                     if (tick >= 0) { messages++; if (mention) mentions++; rendered += result.Deliveries.Count; }
                 }
-                if (tick < 0) continue;
-                movement[tick] = Stopwatch.GetElapsedTime(t0, t1).TotalMilliseconds;
-                combat[tick] = Stopwatch.GetElapsedTime(t1, t2).TotalMilliseconds;
-                chat[tick] = renderMs;
-                delivery[tick] = deliverMs;
-                total[tick] = Stopwatch.GetElapsedTime(t0).TotalMilliseconds;
+                if (tick >= 0)
+                {
+                    completionPump[tick] = Stopwatch.GetElapsedTime(t0, movementStarted).TotalMilliseconds;
+                    movement[tick] = Stopwatch.GetElapsedTime(movementStarted, t1).TotalMilliseconds;
+                    combat[tick] = Stopwatch.GetElapsedTime(t1, t2).TotalMilliseconds;
+                    chat[tick] = renderMs;
+                    delivery[tick] = deliverMs;
+                    total[tick] = Stopwatch.GetElapsedTime(t0).TotalMilliseconds;
+                }
+                loopback?.Pace();
             }
+            PacedLoopbackTransport.Result? transportResult = loopback?.Finish();
             var wallMs = Stopwatch.GetElapsedTime(started).TotalMilliseconds;
             long sends = sockets.Sum(s => s.Sends);
             long movementSends = sockets.Sum(s => s.Movement);
+            long outputBytes = sockets.Sum(s => s.Bytes);
             if (movementSends != movementUpdates * (Count - 1) || damage <= 0 || rendered != messages * Count)
                 throw new InvalidOperationException($"Incomplete scenario: movement deliveries={movementSends}, damage={damage}, rendered={rendered}.");
+            if (transportResult is not null && (transportResult.CompletedCallbacks != sends || transportResult.ScheduledCallbacks != sends ||
+                transportResult.ReceivedBytes != outputBytes || transportResult.SentBytes != outputBytes))
+                throw new InvalidOperationException("Loopback transport measurements differ from native output.");
             return new
             {
-                Mode = mode, Players = Count, WarmupTicks = warmup, Ticks = ticks, WallMs = wallMs,
+                Mode = mode, Transport = transport, Paced = loopback is not null, Players = Count, WarmupTicks = warmup, Ticks = ticks, WallMs = wallMs,
                 CpuMs = (process.TotalProcessorTime - cpu).TotalMilliseconds,
                 AllocatedBytes = GC.GetTotalAllocatedBytes(true) - allocated,
                 GcCounts = gc.Select((n,g) => GC.CollectionCount(g) - n).ToArray(), GcPauseMs = (GC.GetTotalPauseDuration() - pause).TotalMilliseconds,
@@ -188,18 +205,24 @@ public sealed class MixedGameplayBenchmark : VegaPlugin
                 MovementUpdates = movementUpdates, Hits = hits, Damage = damage, BossRemainingLife = boss.life,
                 Messages = messages, Mentions = mentions, RenderedRecipients = rendered, ChatAllocatedBytes = chatAllocated,
                 MovementAllocatedBytes = movementAllocated, CombatAllocatedBytes = combatAllocated, ChatDeliveryAllocatedBytes = deliveryAllocated,
-                Sends = sends, MovementSends = movementSends, OutputBytes = sockets.Sum(s => s.Bytes),
+                Sends = sends, MovementSends = movementSends, OutputBytes = outputBytes,
+                CallbackChanges = sockets.Sum(s => s.CallbackChanges),
+                Loopback = transportResult, CompletionPump = Stats(completionPump),
                 Total = Stats(total), Movement = Stats(movement), Combat = Stats(combat), ChatRendering = Stats(chat), ChatDelivery = Stats(delivery)
             };
         }
         finally
         {
-            if ((uint)bossSlot < Main.npc.Length) Main.npc[bossSlot].active = false;
-            Array.Copy(originalPlayers, Main.player, originalPlayers.Length);
-            Array.Copy(originalClients, Netplay.Clients, originalClients.Length);
-            for (int i = 0; i < Count; i++) NetMessage.buffer[i].broadcast = originalBroadcast[i];
-            Main.dayTime = day;
-            Main.time = time;
+            try { loopback?.Dispose(); }
+            finally
+            {
+                if ((uint)bossSlot < Main.npc.Length) Main.npc[bossSlot].active = false;
+                Array.Copy(originalPlayers, Main.player, originalPlayers.Length);
+                Array.Copy(originalClients, Netplay.Clients, originalClients.Length);
+                for (int i = 0; i < Count; i++) NetMessage.buffer[i].broadcast = originalBroadcast[i];
+                Main.dayTime = day;
+                Main.time = time;
+            }
         }
     }
 
@@ -210,14 +233,15 @@ public sealed class MixedGameplayBenchmark : VegaPlugin
         return new { MeanMs = values.Average(), P50Ms = P(.5), P95Ms = P(.95), P99Ms = P(.99), MaxMs = values[^1] };
     }
 
-    private sealed class RecordingSocket : ISocket
+    private sealed class RecordingSocket(PacedLoopbackTransport.Peer? peer) : ISocket
     {
-        public long Sends, Bytes, Movement;
-        public void Reset() => Sends = Bytes = Movement = 0;
-        public void Close() { }
-        public bool IsConnected() => true;
+        public long Sends, Bytes, Movement, CallbackChanges;
+        private SocketSendCallback? previousCallback;
+        public void Reset() => Sends = Bytes = Movement = CallbackChanges = 0;
+        public void Close() => peer?.Socket.Close();
+        public bool IsConnected() => peer?.Socket.IsConnected() ?? true;
         public bool IsDataAvailable() => false;
-        public RemoteAddress GetRemoteAddress() => new TcpAddress(System.Net.IPAddress.Loopback, 0);
+        public RemoteAddress GetRemoteAddress() => peer?.Socket.GetRemoteAddress() ?? new TcpAddress(System.Net.IPAddress.Loopback, 0);
         public void Connect(RemoteAddress address) => throw new NotSupportedException();
         public bool StartListening(SocketConnectionAccepted callback) => throw new NotSupportedException();
         public void StopListening() => throw new NotSupportedException();
@@ -225,8 +249,14 @@ public sealed class MixedGameplayBenchmark : VegaPlugin
         public void AsyncSend(byte[] data, int offset, int size, SocketSendCallback callback, object? state = null)
         {
             Sends++; Bytes += size;
+            if (!ReferenceEquals(previousCallback, callback))
+            {
+                CallbackChanges++;
+                previousCallback = callback;
+            }
             if (size >= 3 && data[offset + 2] == MessageID.PlayerControls) Movement++;
-            callback(state);
+            if (peer is null) callback(state);
+            else peer.Send(data, offset, size, callback, state);
         }
     }
 

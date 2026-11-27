@@ -22,6 +22,7 @@ internal sealed class PluginExecutionGuard
     private string? lastOperation;
     private string? lastFailure;
     private int quarantined;
+    private int stopping;
     private int activeCalls;
 
     public PluginExecutionGuard(IOperationsLogger logger, string pluginName, int threshold = 5,
@@ -38,6 +39,8 @@ internal sealed class PluginExecutionGuard
 
     public long FaultCount => Interlocked.Read(ref faultCount);
     public bool IsQuarantined => Volatile.Read(ref quarantined) != 0;
+    public bool AcceptsCallbacks => !IsQuarantined && Volatile.Read(ref stopping) == 0;
+    public void StopAcceptingCallbacks() => Volatile.Write(ref stopping, 1);
 
     public FaultSnapshot Snapshot()
     {
@@ -48,9 +51,9 @@ internal sealed class PluginExecutionGuard
 
     private bool TryEnter()
     {
-        if (IsQuarantined) return false;
+        if (!AcceptsCallbacks) return false;
         Interlocked.Increment(ref activeCalls);
-        if (!IsQuarantined) return true;
+        if (AcceptsCallbacks) return true;
         Interlocked.Decrement(ref activeCalls);
         return false;
     }

@@ -30,7 +30,8 @@ internal sealed class SandboxCatalog
     public void Add(SandboxDescriptor descriptor)
     {
         descriptors.Add(descriptor.WorldId, descriptor);
-        Save();
+        try { Save(); }
+        catch { descriptors.Remove(descriptor.WorldId); throw; }
     }
 
     public void Replace(SandboxDescriptor descriptor)

@@ -3,6 +3,18 @@ using Vega.Contracts.Players;
 using Vega.Contracts.Runtime;
 using Vega.Sandboxes;
 
+// Simulate the typed one-shot native builder contract for supervisor tests. The
+// native placement/save path itself is separately exercised in a server smoke.
+if (args is ["--vega-build-schematic-template", var baseWorld, var schematic, var destination, _, _, _])
+{
+    Directory.CreateDirectory(destination);
+    await File.WriteAllBytesAsync(Path.Combine(destination, "world.wld"),
+        [.. await File.ReadAllBytesAsync(baseWorld), .. await File.ReadAllBytesAsync(schematic)]);
+    if (Path.GetFileName(schematic) != "fail.trschem") File.WriteAllText(Path.Combine(destination, "complete"), "1");
+    else Environment.ExitCode = 1;
+    return;
+}
+
 SandboxBackendLaunchOptions launch = SandboxBackendLaunchOptions.Parse(args);
 Console.InputEncoding = OperatingSystem.IsWindows() ? System.Text.Encoding.Unicode : System.Text.Encoding.UTF8;
 File.WriteAllText(Path.Combine(Environment.CurrentDirectory, "backend-working-directory.txt"), Environment.CurrentDirectory);

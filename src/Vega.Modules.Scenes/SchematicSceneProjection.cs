@@ -4,7 +4,7 @@ using Vega.Contracts.Worlds;
 
 namespace Vega.Modules.Scenes;
 
-/// <summary>Projects a portable schematic into a non-canonical scene. Entity records remain in the document.</summary>
+/// <summary>Projects a portable schematic into a non-canonical scene. Supported item-frame records are observer-scoped presentations.</summary>
 public static class SchematicSceneProjection
 {
     public static SceneOverlayDefinition Create(SchematicDocument document, string name, int x, int y,
@@ -23,10 +23,13 @@ public static class SchematicSceneProjection
         var chests = document.Chests.Select(chest => new SceneVirtualChestDefinition(VirtualChestId.New(), chest.X, chest.Y,
             chest.Name, 1, chest.Items.Select((item, slot) => new ChestItemSnapshot(slot, item.ItemType, item.Stack, item.Prefix)).ToArray())).ToArray();
         var signs = document.Signs.Select(sign => new SceneVirtualSignDefinition(VirtualSignId.New(), sign.X, sign.Y, sign.Text, 1)).ToArray();
+        var frames = document.TileEntities.OfType<SchematicItemFrameTileEntity>().Select(frame =>
+            new SceneVirtualItemFrameDefinition(VirtualItemFrameId.New(), frame.X, frame.Y, frame.Item.ItemType, frame.Item.Stack, frame.Item.Prefix, 1)).ToArray();
         return new SceneOverlayDefinition(default, name.Trim(), new(x, y, document.Width, document.Height), layer, observers, tiles)
         {
             VirtualChests = Array.AsReadOnly(chests),
-            VirtualSigns = Array.AsReadOnly(signs)
+            VirtualSigns = Array.AsReadOnly(signs),
+            VirtualItemFrames = Array.AsReadOnly(frames)
         };
     }
 

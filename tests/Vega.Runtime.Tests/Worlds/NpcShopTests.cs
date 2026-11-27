@@ -1,4 +1,5 @@
 using System.Buffers.Binary;
+using System.Runtime.CompilerServices;
 using Multiplicity.Packets;
 using NUnit.Framework;
 using Terraria.ID;
@@ -24,15 +25,19 @@ public sealed class NpcShopTests
         const int playerSlot = 2, npcSlot = 0;
         var oldPlayer = global::Terraria.Main.player[playerSlot];
         var oldClient = global::Terraria.Netplay.Clients[playerSlot];
+        var oldPlayerBuffer = global::Terraria.NetMessage.buffer[playerSlot];
+        var oldBroadcastBuffer = global::Terraria.NetMessage.buffer[256];
         var oldNpc = global::Terraria.Main.npc[npcSlot];
         var oldMode = global::Terraria.Main.netMode;
         bool oldDedicated = global::Terraria.Main.dedServ;
+        bool oldSsc = global::Terraria.Main.ServerSideCharacter;
         float oldRight = global::Terraria.Main.rightWorld, oldBottom = global::Terraria.Main.bottomWorld;
         var dispatcher = new InlineDispatcher();
         var world = new WorldId("shop");
         using var boundary = new TerrariaPlayerBoundary(dispatcher, new TerrariaConnectionMetadataRegistry(), world);
         var events = new WorldGameplayEventHub();
-        using var actors = new TerrariaNpcActorService(dispatcher, world, boundary, events, new QuietLogger())
+        var logger = new QuietLogger();
+        using var actors = new TerrariaNpcActorService(dispatcher, world, boundary, events, logger)
         {
             SpawnNative = (x, y, type) =>
             {
@@ -52,6 +57,8 @@ public sealed class NpcShopTests
             global::Terraria.Main.netMode = 2;
             var client = new global::Terraria.RemoteClient { Id = playerSlot, State = 10 };
             global::Terraria.Netplay.Clients[playerSlot] = client;
+            global::Terraria.NetMessage.buffer[playerSlot] = new global::Terraria.MessageBuffer { whoAmI = playerSlot, broadcast = true };
+            global::Terraria.NetMessage.buffer[256] = new global::Terraria.MessageBuffer { whoAmI = 256 };
             client.Activate(socket);
             boundary.Attach();
             global::TerrariaRuntime.Hooks.Netplay.NotifyServerPlayerEnteringWorld(playerSlot);
@@ -59,9 +66,18 @@ public sealed class NpcShopTests
             Assert.That(buyer!.SessionId, Is.Not.Null);
             global::Terraria.Main.netMode = 0;
             var catalog = new NpcShopCatalog([new("stone", 1, 2, 125, BuyOnce: true, CoinPrice: 125)]);
+            var oversized = new NpcShopCatalog([new("sword", ItemID.CopperShortsword, short.MaxValue, 100)]);
+            var invalidPrefix = new NpcShopCatalog([new("stone", ItemID.StoneBlock, 1, 100, Prefix: PrefixID.Large)]);
+            Assert.That((await actors.CreateAsync(world, new(17, "Merchant", Shop: oversized), new(100, 100))).Status,
+                Is.EqualTo(NpcOperationStatus.Invalid));
+            Assert.That((await actors.CreateAsync(world, new(17, "Merchant", Shop: invalidPrefix), new(100, 100))).Status,
+                Is.EqualTo(NpcOperationStatus.Invalid));
             var created = await actors.CreateAsync(world, new(17, "Merchant", Shop: catalog), new(100, 100));
             var actor = created.Actor!;
             Assert.That(created.Status, Is.EqualTo(NpcOperationStatus.Applied));
+            Assert.That(await actor.SetShopAsync(oversized), Is.False);
+            Assert.That(await actor.SetShopAsync(invalidPrefix), Is.False);
+            Assert.That((await actor.CaptureAsync())!.ShopRevision, Is.EqualTo(1));
             player.inventory[50].SetDefaults(ItemID.GoldCoin);
             player.inventory[50].stack = 1;
             Assert.That((await actor.PurchaseAsync(buyer, "stone", 1)).Status, Is.EqualTo(NpcShopPurchaseStatus.NotInteracting));
@@ -72,21 +88,43 @@ public sealed class NpcShopTests
             using var stream = new MemoryStream();
             new NpcTalk { PlayerId = playerSlot, NpcTalkTarget = npcSlot }.ToStream(stream, false);
             var buffer = new global::Terraria.MessageBuffer { whoAmI = playerSlot };
-            byte packetId = (byte)PacketTypes.NpcTalk;
-            int start = 0, readOffset = 1, length = checked((int)stream.Length + 1), messageType = packetId;
-            buffer.readBuffer[0] = packetId;
-            stream.ToArray().CopyTo(buffer.readBuffer, readOffset);
-            Assert.That(global::TerrariaRuntime.Hooks.MessageBuffer.InvokeGetData(buffer, ref packetId, ref readOffset, ref start, ref length, ref messageType, 256), Is.True);
-            player.talkNPC = npcSlot;
-            dispatcher.RunPending();
+            void ObserveConversation()
+            {
+                byte packetId = (byte)PacketTypes.NpcTalk;
+                int start = 0, readOffset = 1, length = checked((int)stream.Length + 1), messageType = packetId;
+                buffer.readBuffer[0] = packetId;
+                stream.ToArray().CopyTo(buffer.readBuffer, readOffset);
+                Assert.That(global::TerrariaRuntime.Hooks.MessageBuffer.InvokeGetData(buffer, ref packetId, ref readOffset, ref start, ref length, ref messageType, 256), Is.True);
+                player.talkNPC = npcSlot;
+                dispatcher.RunPending();
+            }
+            player.position = new(1000, 1000);
+            ObserveConversation();
+            Assert.That(interaction, Is.Null);
+            player.position = new(100, 100);
+            Assert.That(await actor.PresentShopAsync(buyer), Is.EqualTo(NpcShopPresentationStatus.NotInteracting));
+            ObserveConversation();
             Assert.That(interaction!.Value.Actor, Is.EqualTo(actor.Id));
             Assert.That(interaction.Value.Player.SessionId, Is.EqualTo(buyer.SessionId));
             Assert.That(await actor.PresentShopAsync(buyer), Is.EqualTo(NpcShopPresentationStatus.Sent));
             Assert.That(socket.LastSend, Is.Not.Empty);
+            var firstPresentation = socket.LastBuffer;
+            var firstBytes = socket.LastSend;
+            Assert.That(await actor.PresentShopAsync(buyer), Is.EqualTo(NpcShopPresentationStatus.Sent));
+            Assert.That(socket.LastBuffer, Is.SameAs(firstPresentation));
             Assert.That(await actor.PresentShopAsync(buyer with { SessionId = PlayerSessionId.New() }), Is.EqualTo(NpcShopPresentationStatus.InvalidSession));
             int committed = 0;
             using var subscription = events.Subscribe<NpcActorPurchasedEvent>(_ => committed++);
             using var failingObserver = events.Subscribe<NpcActorPurchasedEvent>(_ => throw new InvalidOperationException("post-commit observer"));
+            var beforePurchase = player.inventory.Take(NpcShopPurchasePlan.Slots).Select(NpcShopPurchasePlan.Snapshot).ToArray();
+            global::Terraria.Main.netMode = 2;
+            global::Terraria.Main.ServerSideCharacter = false;
+            Assert.That((await actor.PurchaseAsync(buyer, "stone", 1)).Status, Is.EqualTo(NpcShopPurchaseStatus.InventoryAuthorityRequired));
+            Assert.That(player.inventory.Take(NpcShopPurchasePlan.Slots).Select(NpcShopPurchasePlan.Snapshot), Is.EqualTo(beforePurchase));
+            Assert.That((await actor.CaptureAsync())!.ShopRevision, Is.EqualTo(1));
+            Assert.That(committed, Is.Zero);
+            global::Terraria.Main.ServerSideCharacter = true;
+            socket.Sends.Clear();
             var purchase = await actor.PurchaseAsync(buyer, "stone", 1);
             Assert.That(purchase.Status, Is.EqualTo(NpcShopPurchaseStatus.Committed));
             Assert.That(purchase.CoinsPaid, Is.EqualTo(125));
@@ -98,15 +136,42 @@ public sealed class NpcShopTests
             Assert.That((await actor.PurchaseAsync(buyer, "stone", 1)).Status, Is.EqualTo(NpcShopPurchaseStatus.CatalogChanged));
             Assert.That((await actor.PurchaseAsync(buyer, "stone", 2)).Status, Is.EqualTo(NpcShopPurchaseStatus.OfferUnavailable));
             Assert.That(committed, Is.EqualTo(1));
+            var changedSlots = Enumerable.Range(0, NpcShopPurchasePlan.Slots)
+                .Where(i => NpcShopPurchasePlan.Snapshot(player.inventory[i]) != beforePurchase[i]).ToArray();
+            var slotPackets = socket.Sends.Where(packet => packet.Length > 2 && packet[2] == MessageID.SyncEquipment)
+                .Select(packet => (PlayerSlot)TerrariaPacket.Deserialize(packet, 0, packet.Length)).ToArray();
+            Assert.That(slotPackets.Select(packet => (int)packet.SlotId), Is.EqualTo(changedSlots),
+                "Native transaction must send each changed slot exactly once to the buying client. " + string.Join("\n", logger.Errors));
+            foreach (var packet in slotPackets)
+            {
+                var item = player.inventory[packet.SlotId];
+                Assert.That(packet.PlayerId, Is.EqualTo(playerSlot));
+                Assert.That(packet.ItemNetId, Is.EqualTo(item.type));
+                Assert.That(packet.Stack, Is.EqualTo(item.stack));
+                Assert.That(packet.Prefix, Is.EqualTo(item.prefix));
+            }
+            Assert.That(await actor.PresentShopAsync(buyer), Is.EqualTo(NpcShopPresentationStatus.Sent));
+            Assert.That(socket.LastBuffer, Is.Not.SameAs(firstPresentation));
+            Assert.That(firstPresentation, Is.EqualTo(firstBytes), "Retained asynchronous sends must not be mutated.");
+            int soldOutLength = BinaryPrimitives.ReadUInt16LittleEndian(socket.LastSend);
+            Assert.That(((NpcShopItem)TerrariaPacket.Deserialize(socket.LastSend, 0, soldOutLength)).ItemType, Is.Zero);
+            byte[] soldOutBuffer = socket.LastBuffer!;
+            Assert.That(await actor.SetShopAsync(catalog), Is.True);
+            Assert.That(await actor.PresentShopAsync(buyer), Is.EqualTo(NpcShopPresentationStatus.Sent));
+            Assert.That(socket.LastBuffer, Is.Not.SameAs(soldOutBuffer));
+            Assert.That(socket.LastSend, Is.EqualTo(firstBytes));
             actor.Dispose();
         }
         finally
         {
             global::Terraria.Main.player[playerSlot] = oldPlayer;
             global::Terraria.Netplay.Clients[playerSlot] = oldClient;
+            global::Terraria.NetMessage.buffer[playerSlot] = oldPlayerBuffer;
+            global::Terraria.NetMessage.buffer[256] = oldBroadcastBuffer;
             global::Terraria.Main.npc[npcSlot] = oldNpc;
             global::Terraria.Main.netMode = oldMode;
             global::Terraria.Main.dedServ = oldDedicated;
+            global::Terraria.Main.ServerSideCharacter = oldSsc;
             global::Terraria.Main.rightWorld = oldRight;
             global::Terraria.Main.bottomWorld = oldBottom;
         }
@@ -124,11 +189,15 @@ public sealed class NpcShopTests
     }
     private sealed class QuietLogger : IOperationsLogger
     {
-        public void Log(OperationsLogLevel level, string source, string text, Exception? exception = null, string? correlationId = null) { }
+        public List<string> Errors { get; } = [];
+        public void Log(OperationsLogLevel level, string source, string text, Exception? exception = null, string? correlationId = null)
+        { if (exception is not null) Errors.Add($"{text} {exception}"); }
     }
     private sealed class RecordingSocket : global::Terraria.Net.Sockets.ISocket
     {
         public byte[] LastSend { get; private set; } = [];
+        public byte[]? LastBuffer { get; private set; }
+        public List<byte[]> Sends { get; } = [];
         public void Close() { }
         public bool IsConnected() => true;
         public bool IsDataAvailable() => false;
@@ -136,8 +205,12 @@ public sealed class NpcShopTests
         public void Connect(global::Terraria.Net.RemoteAddress remoteAddress) => throw new NotSupportedException();
         public bool StartListening(global::Terraria.Net.Sockets.SocketConnectionAccepted callback) => throw new NotSupportedException();
         public void StopListening() => throw new NotSupportedException();
-        public void AsyncSend(byte[] data, int offset, int size, global::Terraria.Net.Sockets.SocketSendCallback callback, object? state = null) =>
+        public void AsyncSend(byte[] data, int offset, int size, global::Terraria.Net.Sockets.SocketSendCallback callback, object? state = null)
+        {
+            LastBuffer = data;
             LastSend = data.AsSpan(offset, size).ToArray();
+            Sends.Add(LastSend);
+        }
         public void AsyncReceive(byte[] data, int offset, int size, global::Terraria.Net.Sockets.SocketReceiveCallback callback, object? state = null) => throw new NotSupportedException();
     }
 
@@ -166,6 +239,81 @@ public sealed class NpcShopTests
             offset += length;
         }
         Assert.That(offset, Is.EqualTo(data.Length));
+    }
+
+    [Test]
+    [NonParallelizable]
+    public void NativeClientShopDecoderAppliesCatalogAndIgnoresClosedShop()
+    {
+        var oldMain = global::Terraria.Main.instance;
+        int oldShop = global::Terraria.Main.npcShop;
+        int oldMode = global::Terraria.Main.netMode;
+        bool oldDedicated = global::Terraria.Main.dedServ;
+        var oldConnection = global::Terraria.Netplay.Connection;
+        var oldDiagnostics = global::Terraria.Main._activeNetDiagnosticsUI;
+        try
+        {
+            // Only the data structures consumed by the pinned native decoder are needed.
+            // Do not construct a graphical game or connect to a network.
+            global::Terraria.Main.instance = (global::Terraria.Main)RuntimeHelpers.GetUninitializedObject(typeof(global::Terraria.Main));
+            global::Terraria.Main.instance.shop = [new global::Terraria.Chest(), new global::Terraria.Chest()];
+            global::Terraria.Netplay.Connection = new global::Terraria.RemoteServer();
+            global::Terraria.Main.dedServ = true;
+            global::Terraria.Main.netMode = 1;
+            global::Terraria.Main._activeNetDiagnosticsUI = new global::Terraria.UI.EmptyDiagnosticsUI();
+            var shop = global::Terraria.Main.instance.shop[1];
+            for (int i = 0; i < shop.item.Length; i++)
+            {
+                shop.item[i] = new global::Terraria.Item();
+                shop.item[i].SetDefaults(ItemID.Torch);
+            }
+
+            var catalog = new NpcShopCatalog([
+                new("stone", ItemID.StoneBlock, 2, 125, BuyOnce: true),
+                new("sword", ItemID.CopperShortsword, 1, 100, Prefix: PrefixID.Large),
+                new("sold", ItemID.Wood, 1, 25)]);
+            byte[] output = TerrariaNpcActorService.EncodeShop(catalog, new HashSet<string> { "sold" });
+            var buffer = new global::Terraria.MessageBuffer { whoAmI = 256 };
+            void Decode()
+            {
+                for (int offset = 0; offset < output.Length;)
+                {
+                    int length = BinaryPrimitives.ReadUInt16LittleEndian(output.AsSpan(offset));
+                    output.AsSpan(offset + 2, length - 2).CopyTo(buffer.readBuffer);
+                    int type;
+                    buffer.GetData(0, length - 2, out type);
+                    Assert.That(type, Is.EqualTo((int)PacketTypes.NpcShopItem));
+                    offset += length;
+                }
+            }
+
+            global::Terraria.Main.npcShop = 0;
+            Decode();
+            Assert.That(shop.item.All(i => i.type == ItemID.Torch), Is.True, "A closed shop must remain untouched.");
+
+            global::Terraria.Main.npcShop = 1;
+            Decode();
+            Assert.Multiple(() =>
+            {
+                Assert.That(shop.item[0].type, Is.EqualTo(ItemID.StoneBlock));
+                Assert.That(shop.item[0].stack, Is.EqualTo(2));
+                Assert.That(shop.item[0].value, Is.EqualTo(125));
+                Assert.That(shop.item[0].buyOnce, Is.True);
+                Assert.That(shop.item[1].type, Is.EqualTo(ItemID.CopperShortsword));
+                Assert.That(shop.item[1].prefix, Is.EqualTo(PrefixID.Large));
+                Assert.That(shop.item[1].value, Is.EqualTo(100));
+                Assert.That(shop.item.Skip(2).All(i => i.IsAir), Is.True, "Sold-out and unused slots clear vanilla stock.");
+            });
+        }
+        finally
+        {
+            global::Terraria.Main.instance = oldMain;
+            global::Terraria.Main.npcShop = oldShop;
+            global::Terraria.Main.netMode = oldMode;
+            global::Terraria.Main.dedServ = oldDedicated;
+            global::Terraria.Netplay.Connection = oldConnection;
+            global::Terraria.Main._activeNetDiagnosticsUI = oldDiagnostics;
+        }
     }
 
     [Test]

@@ -23,6 +23,64 @@ namespace Vega.Runtime.Tests.Operations;
 public sealed class LoopbackRestServiceTests
 {
     [Test]
+    public async Task PlayerMaintenanceRequiresExactWorldSessionAndNeverFallsBackToSlotOnlyMutation()
+    {
+        var world = new WorldId("moderated");
+        var session = PlayerSessionId.New();
+        var player = Player(4, "Alice", world) with { SessionId = session };
+        var boundary = new PlayerBoundary([player, Player(5, "OtherWorld", WorldId.Primary) with { SessionId = session }]);
+        string reader = Convert.ToHexString(RandomNumberGenerator.GetBytes(32));
+        string writer = Convert.ToHexString(RandomNumberGenerator.GetBytes(32));
+        static string Fingerprint(string token) => Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(token)));
+        using var probe = new TcpListener(IPAddress.Loopback, 0);
+        probe.Start();
+        int port = ((IPEndPoint)probe.LocalEndpoint).Port;
+        probe.Stop();
+        var lifetime = new RuntimeLifecycleTracker(Stopwatch.GetTimestamp());
+        var logger = new RecordingLogger();
+        using var service = new LoopbackRestService(world, lifetime, new State(), boundary, new NetworkMetricsCounter(), logger: logger);
+        service.Start(port, Fingerprint(reader), Fingerprint(writer));
+        using var http = new HttpClient { BaseAddress = new Uri($"http://127.0.0.1:{port}/"), Timeout = TimeSpan.FromSeconds(5) };
+        async Task<HttpStatusCode> Post(string path, string json)
+        {
+            using var body = new StringContent(json, Encoding.UTF8, "application/json");
+            using var response = await http.PostAsync("v1/players/" + path, body);
+            return response.StatusCode;
+        }
+        string message = $$"""{"slot":4,"sessionId":"{{session}}","message":"test notice"}""";
+        string kick = $$"""{"slot":4,"sessionId":"{{session}}","reason":"maintenance notice"}""";
+        http.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", reader);
+        Assert.That(await Post("kick", kick), Is.EqualTo(HttpStatusCode.Forbidden));
+        http.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", writer);
+        Assert.That(await Post("kick", kick), Is.EqualTo(HttpStatusCode.ServiceUnavailable));
+        for (int stage = 1; stage <= (int)RuntimeLifecycleStage.NetworkReady; stage++) lifetime.Advance((RuntimeLifecycleStage)stage);
+        using (var view = JsonDocument.Parse(await http.GetStringAsync("v1/players")))
+        {
+            Assert.That(view.RootElement.GetArrayLength(), Is.EqualTo(1));
+            Assert.That(view.RootElement[0].GetProperty("sessionId").GetString(), Is.EqualTo(session.ToString()));
+            Assert.That(view.RootElement[0].TryGetProperty("remoteEndpoint", out _), Is.False);
+        }
+        foreach (string bad in new[] { "{}", kick.Replace("4,", "255,"), kick.Replace("4,", "4,\"slot\":4,"),
+                     kick.Replace("maintenance notice", "\\u000a"), kick.Replace("reason", "message"), new string(' ', 4097) })
+            Assert.That(await Post("kick", bad), Is.EqualTo(bad.Length > 4096 ? HttpStatusCode.RequestEntityTooLarge : HttpStatusCode.BadRequest));
+        Assert.That(await Post("kick", kick.Replace("4,", "5,")), Is.EqualTo(HttpStatusCode.NotFound));
+        Assert.That(await Post("message", message.Replace(session.ToString(), PlayerSessionId.New().ToString())), Is.EqualTo(HttpStatusCode.NotFound));
+        Assert.That(boundary.Calls, Is.Empty);
+        Assert.That(await Post("message", message), Is.EqualTo(HttpStatusCode.NoContent));
+        Assert.That(await Post("kick", kick), Is.EqualTo(HttpStatusCode.NoContent));
+        Assert.That(boundary.Calls, Is.EqualTo(new[] { $"message:4:{session}:test notice", $"kick:4:{session}:maintenance notice" }));
+        // The native boundary revalidates again on the game thread, after our read.
+        boundary.Result = PlayerOperationResult.NotFound();
+        Assert.That(await Post("message", message), Is.EqualTo(HttpStatusCode.NotFound));
+        boundary.Result = PlayerOperationResult.DispatcherUnavailable();
+        Assert.That(await Post("kick", kick), Is.EqualTo(HttpStatusCode.ServiceUnavailable));
+        boundary.Result = PlayerOperationResult.Cancelled();
+        Assert.That(await Post("kick", kick), Is.EqualTo(HttpStatusCode.GatewayTimeout));
+        Assert.That(logger.Entries.Any(entry => entry.Contains("action=player.kick status=204")), Is.True);
+        Assert.That(logger.Entries.Any(entry => entry.Contains("maintenance notice") || entry.Contains(session.ToString())), Is.False);
+    }
+
+    [Test]
     public async Task WorldRestReadsAreScopedAndMaintenanceChangesUseTypedWorldBoundary()
     {
         var world = new WorldId("rest-world");
@@ -206,6 +264,24 @@ public sealed class LoopbackRestServiceTests
         public IReadOnlyList<PlayerSnapshot> SnapshotOnlinePlayers() => values;
         public bool TryGet(PlayerId id, out PlayerSnapshot? player) => (player = values.FirstOrDefault(p => p.Id == id)) is not null;
         public bool TryFindExact(string name, out PlayerSnapshot? player) => (player = values.FirstOrDefault(p => p.Name == name)) is not null;
+    }
+
+    private sealed class PlayerBoundary(PlayerSnapshot[] values) : IPlayerDirectory, IPlayerOperations, IPlayerMessenger
+    {
+        public bool SupportsSessionBoundKicks => true;
+        public bool SupportsSessionBoundMessages => true;
+        public List<string> Calls { get; } = [];
+        public PlayerOperationResult Result { get; set; } = PlayerOperationResult.Applied();
+        public IReadOnlyList<PlayerSnapshot> SnapshotOnlinePlayers() => values;
+        public bool TryGet(PlayerId id, out PlayerSnapshot? player) => (player = values.FirstOrDefault(p => p.Id == id)) is not null;
+        public bool TryFindExact(string name, out PlayerSnapshot? player) => (player = values.FirstOrDefault(p => p.Name == name)) is not null;
+        public ValueTask<PlayerOperationResult> KickAsync(PlayerId id, string reason, CancellationToken cancellationToken = default) => throw new NotSupportedException();
+        public ValueTask<PlayerOperationResult> KickAsync(PlayerId id, PlayerSessionId sessionId, string reason, CancellationToken cancellationToken = default)
+        { Calls.Add($"kick:{id.Slot}:{sessionId}:{reason}"); return ValueTask.FromResult(Result); }
+        public ValueTask<PlayerOperationResult> SendMessageAsync(PlayerId id, string message, CancellationToken cancellationToken = default) => throw new NotSupportedException();
+        public ValueTask<PlayerOperationResult> SendMessageAsync(PlayerSnapshot player, string message, CancellationToken cancellationToken = default)
+        { Calls.Add($"message:{player.Id.Slot}:{player.SessionId}:{message}"); return ValueTask.FromResult(Result); }
+        public ValueTask<PlayerOperationResult> TeleportAsync(PlayerId id, PlayerPosition destination, CancellationToken cancellationToken = default) => throw new NotSupportedException();
     }
 
     private sealed class Principal(bool allowed) : ICommandPrincipal

@@ -133,6 +133,8 @@ public sealed partial class TerrariaPlayerBoundary :
 		CancellationToken cancellationToken = default) => KickCoreAsync(id,
 		TryGet(id, out var snapshot) ? snapshot?.SessionId : null, reason, cancellationToken);
 
+	public bool SupportsSessionBoundKicks => true;
+
 	public ValueTask<PlayerOperationResult> KickAsync(PlayerId id, PlayerSessionId sessionId, string reason,
 		CancellationToken cancellationToken = default) => KickCoreAsync(id, sessionId, reason, cancellationToken);
 

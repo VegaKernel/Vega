@@ -12,6 +12,69 @@ namespace Vega.Runtime.Tests.Core;
 public sealed class SandboxControlTests
 {
     [Test]
+    public async Task SchematicCreationPublishesOnlyCompletedFreshTemplateAndResetUsesIt()
+    {
+        string root = Path.Combine(Path.GetTempPath(), "vega-schematic-create-tests", Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(root);
+        string source = Path.Combine(root, "base.wld"), schematic = Path.Combine(root, "fixture.trschem");
+        string bad = Path.Combine(root, "fail.trschem");
+        byte[] sourceBytes = [1, 2, 3], schemaBytes = [4, 5, 6], generated = [1, 2, 3, 4, 5, 6];
+        await File.WriteAllBytesAsync(source, sourceBytes);
+        await File.WriteAllBytesAsync(schematic, schemaBytes);
+        await File.WriteAllBytesAsync(bad, schemaBytes);
+        try
+        {
+            using var control = new SandboxControlService(root, SandboxOptions.Default, new RecordingLogger(), FindTestBackend());
+            SandboxCreateRequest Request(string id, string input) => new SandboxCreateRequest(id, "Arena", source,
+                SandboxPersistenceMode.Persistent, 8, new(SandboxAccessMode.Public), null, SandboxSscMode.Disabled,
+                new HashSet<string>()) { Schematic = new(input, 10, 20) };
+            var created = await control.CreateAsync(Request("arena", schematic));
+            Assert.That(created.Status, Is.EqualTo(SandboxOperationStatus.Applied), created.Message);
+            var descriptor = created.Sandbox!.Descriptor;
+            Assert.That(descriptor.SourceWorldPath, Is.Not.EqualTo(source));
+            Assert.That(await File.ReadAllBytesAsync(source), Is.EqualTo(sourceBytes));
+            Assert.That(await File.ReadAllBytesAsync(schematic), Is.EqualTo(schemaBytes));
+            Assert.That(await File.ReadAllBytesAsync(descriptor.SourceWorldPath), Is.EqualTo(generated));
+            Assert.That(await File.ReadAllBytesAsync(descriptor.InstanceWorldPath), Is.EqualTo(generated));
+
+            await File.WriteAllBytesAsync(descriptor.InstanceWorldPath, [9]);
+            Assert.That((await control.CreateAsync(Request("arena", schematic))).Status, Is.EqualTo(SandboxOperationStatus.Conflict));
+            Assert.That(await File.ReadAllBytesAsync(descriptor.InstanceWorldPath), Is.EqualTo(new byte[] { 9 }));
+            Assert.That((await control.ResetAsync(descriptor.WorldId)).IsSuccess, Is.True);
+            Assert.That(await File.ReadAllBytesAsync(descriptor.InstanceWorldPath), Is.EqualTo(generated));
+            Assert.That(await File.ReadAllBytesAsync(descriptor.SourceWorldPath), Is.EqualTo(generated));
+
+            Assert.That((await control.CreateAsync(Request("external", schematic) with { Persistence = SandboxPersistenceMode.External })).Status,
+                Is.EqualTo(SandboxOperationStatus.Rejected));
+            string orphan = Path.Combine(root, "data", "sandboxes", "instances", "orphan");
+            Directory.CreateDirectory(orphan);
+            string orphanWorld = Path.Combine(orphan, "world.wld");
+            await File.WriteAllBytesAsync(orphanWorld, [7]);
+            Assert.That((await control.CreateAsync(Request("orphan", schematic))).Status, Is.EqualTo(SandboxOperationStatus.Conflict));
+            Assert.That(await File.ReadAllBytesAsync(orphanWorld), Is.EqualTo(new byte[] { 7 }));
+
+            Assert.That((await control.CreateAsync(Request("failed", bad))).Status, Is.EqualTo(SandboxOperationStatus.Failed));
+            Assert.That(control.Snapshot().Select(status => status.Descriptor.WorldId), Is.EqualTo(new[] { descriptor.WorldId }));
+            Assert.That(Directory.Exists(Path.Combine(root, "data", "sandboxes", "instances", "failed")), Is.False);
+            Assert.That(Directory.GetDirectories(Path.Combine(root, "data", "sandboxes", "templates")), Has.Length.EqualTo(1));
+
+            // Fail catalog persistence after a completed child and instance copy, then verify
+            // an exact retry is possible and no partial catalog/instance/template survives.
+            string blockedCatalog = Path.Combine(root, "data", "sandboxes", "catalog.json.tmp");
+            Directory.CreateDirectory(blockedCatalog);
+            Assert.That((await control.CreateAsync(Request("catalog-fail", schematic))).Status, Is.EqualTo(SandboxOperationStatus.Failed));
+            Directory.Delete(blockedCatalog);
+            Assert.That(Directory.Exists(Path.Combine(root, "data", "sandboxes", "instances", "catalog-fail")), Is.False);
+            Assert.That(Directory.GetDirectories(Path.Combine(root, "data", "sandboxes", "templates")), Has.Length.EqualTo(1));
+            Assert.That((await control.CreateAsync(Request("catalog-fail", schematic))).IsSuccess, Is.True);
+            Assert.That((await control.DestroyAsync(new WorldId("catalog-fail"))).IsSuccess, Is.True);
+            Assert.That((await control.DestroyAsync(descriptor.WorldId)).IsSuccess, Is.True);
+            Assert.That(File.Exists(descriptor.SourceWorldPath), Is.True, "Generated immutable reset source is retained like any external template.");
+        }
+        finally { Directory.Delete(root, true); }
+    }
+
+    [Test]
     public async Task CreateResetAndDestroyPreserveImmutableSourceAndPersistentCatalog()
     {
         string root = Path.Combine(Path.GetTempPath(), "vega-sandbox-tests", Guid.NewGuid().ToString("N"));
@@ -321,6 +384,7 @@ public sealed class SandboxControlTests
             int bindIndex = Array.IndexOf(backendArguments, "-ip");
             Assert.That(bindIndex, Is.GreaterThanOrEqualTo(0));
             Assert.That(backendArguments[bindIndex + 1], Is.EqualTo("127.0.0.1"));
+            Assert.That(backendArguments, Does.Contain("-noupnp"));
             Assert.That(File.ReadAllText(Path.Combine(isolatedRuntime, "backend-working-directory.txt")), Is.EqualTo(isolatedRuntime));
             Assert.That(File.ReadAllText(Path.Combine(isolatedRuntime, "backend-graceful-stop.txt")), Does.StartWith("shutdown"));
             Assert.That(Directory.Exists(Path.Combine(isolatedRuntime, "saves")), Is.True);

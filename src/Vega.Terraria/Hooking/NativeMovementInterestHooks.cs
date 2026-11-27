@@ -21,14 +21,14 @@ internal sealed class NativeMovementInterestHooks(int updatesPerSecond, Func<boo
     public void Attach()
     {
         Hooks.NetMessage.SendData += OnSendData;
-        Hooks.NetMessage.SendBytes += OnSendBytes;
+        Hooks.NetMessage.SendBytesFast += OnSendBytes;
         Hooks.Netplay.ServerConnectionActivated += OnActivated;
     }
 
     public void Dispose()
     {
         Hooks.NetMessage.SendData -= OnSendData;
-        Hooks.NetMessage.SendBytes -= OnSendBytes;
+        Hooks.NetMessage.SendBytesFast -= OnSendBytes;
         Hooks.Netplay.ServerConnectionActivated -= OnActivated;
     }
 
@@ -48,10 +48,10 @@ internal sealed class NativeMovementInterestHooks(int updatesPerSecond, Func<boo
         now = Stopwatch.GetTimestamp();
     }
 
-    private void OnSendBytes(object? sender, Hooks.NetMessage.SendBytesEventArgs args)
+    private void OnSendBytes(ref Hooks.NetMessage.SendBytesContext args)
     {
         if (args.Size < 17 || args.Data[args.Offset + 2] != MovementPacket || !isGameThread() ||
-            relay is not { } current || current.Result == HookResult.Cancel || args.Result == HookResult.Cancel ||
+            relay is not { } current || current.Result == HookResult.Cancel || args.Cancelled ||
             args.Data[args.Offset + 3] != current.Number || (uint)args.RemoteClient >= Slots) return;
 
         int source = current.Number, target = args.RemoteClient;
@@ -75,7 +75,7 @@ internal sealed class NativeMovementInterestHooks(int updatesPerSecond, Func<boo
         if (!sample.ShouldSend(origin.position, viewer.position, state, special,
                 Volatile.Read(ref generations[source]), Volatile.Read(ref generations[target]), now, interval))
         {
-            args.Result = HookResult.Cancel;
+            args.Cancel();
             args.Callback(args.State);
         }
     }

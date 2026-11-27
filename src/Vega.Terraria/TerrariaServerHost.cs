@@ -178,7 +178,8 @@ public static class TerrariaServerHost
             scenes,
             sceneRenderer,
             playerBoundary,
-            runtimeWorldId);
+            runtimeWorldId,
+            gameThreadDispatcher);
         using var sceneVisibilityHooks = new NativeSceneVisibilityHooks(
             visibility,
             playerBoundary,
@@ -367,7 +368,7 @@ public static class TerrariaServerHost
             : Platform.Get<IPathService>().GetStoragePath("Terraria");
     }
 
-    private static void InitialiseTerrariaInternals()
+    internal static void InitialiseTerrariaInternals()
     {
         ItemID.Sets.Explosives = ItemID.Sets.Factory.CreateBoolSet(
         [

@@ -179,6 +179,36 @@ public sealed class NativeOutboundQueueTests
     }
 
     [Test]
+    public void SharedBudgetConcurrentReservationsNeverExceedCapsOrLeakCredits()
+    {
+        const int entryCap = 7, byteCap = 96;
+        var budget = new NativeOutboundBudget(entryCap, byteCap);
+        int accepted = 0;
+        int invalid = 0;
+        Parallel.For(0, 16, worker =>
+        {
+            int requestBytes = 8 + worker % 4 * 8;
+            for (int i = 0; i < 2000; i++)
+            {
+                if (budget.TryReserve(requestBytes) == NativeOutboundEnqueueResult.Accepted)
+                {
+                    Interlocked.Increment(ref accepted);
+                    bool merged = budget.TryReserveBytes(16);
+                    var (entries, bytes) = budget.Snapshot;
+                    if (entries is < 0 or > entryCap || bytes is < 0 or > byteCap)
+                        Interlocked.Increment(ref invalid);
+                    if (merged) budget.ReleaseBytes(16);
+                    budget.ReleaseBytes(requestBytes);
+                    budget.ReleaseEntries(1);
+                }
+            }
+        });
+        Assert.That(accepted, Is.GreaterThan(0));
+        Assert.That(invalid, Is.Zero);
+        Assert.That(budget.Snapshot, Is.EqualTo((0, 0L)));
+    }
+
+    [Test]
     public async Task FaultAfterPartialWriteRetiresAllUncompletedRequests()
     {
         var pool = new TrackingPool();

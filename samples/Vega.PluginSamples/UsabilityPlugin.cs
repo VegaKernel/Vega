@@ -4,6 +4,8 @@ using Vega.Contracts.Operations;
 using Vega.Contracts.Scenes;
 using Vega.PluginSdk;
 
+[assembly: VegaPluginApiGeneration(VegaPluginApiGenerationAttribute.Current)]
+
 namespace Vega.PluginSamples;
 
 public sealed class UsabilityPlugin : VegaPlugin

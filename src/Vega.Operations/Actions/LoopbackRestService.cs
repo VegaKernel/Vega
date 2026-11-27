@@ -24,7 +24,7 @@ public sealed class LoopbackRestService(
     IWorldEnvironmentService? environment = null,
     IOperationsLogger? logger = null) : IDisposable, ICommandHandler
 {
-    private const int MaximumWorldPatchBytes = 4096;
+    private const int MaximumMutationBytes = 4096;
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
     private HttpListener? listener;
     private Task? serveTask;
@@ -44,7 +44,9 @@ public sealed class LoopbackRestService(
             throw new InvalidDataException("REST requires a valid port and SHA-256 token fingerprint.");
         byte[] hash = ParseFingerprint(expectedTokenSha256);
         byte[]? writerHash = maintenanceTokenSha256 is null ? null : ParseFingerprint(maintenanceTokenSha256);
-        if (writerHash is not null && (maintenance is null && environment is null || CryptographicOperations.FixedTimeEquals(hash, writerHash)))
+        if (writerHash is not null && ((maintenance is null && environment is null &&
+            players is not IPlayerOperations { SupportsSessionBoundKicks: true } &&
+            players is not IPlayerMessenger { SupportsSessionBoundMessages: true }) || CryptographicOperations.FixedTimeEquals(hash, writerHash)))
             throw new InvalidDataException("REST maintenance requires a distinct token and an available maintenance service.");
 
         var next = new HttpListener();
@@ -109,6 +111,12 @@ public sealed class LoopbackRestService(
                     await ApplyWorldPatchAsync(request, response, url.AbsolutePath == "/v1/world/time").ConfigureAwait(false);
                     continue;
                 }
+                if (request.HttpMethod == "POST" && url.AbsolutePath is "/v1/players/kick" or "/v1/players/message")
+                {
+                    if (access != Access.Maintenance) { response.StatusCode = 403; continue; }
+                    await ApplyPlayerActionAsync(request, response, url.AbsolutePath == "/v1/players/kick").ConfigureAwait(false);
+                    continue;
+                }
                 if (request.HttpMethod != "GET") { response.StatusCode = 405; continue; }
                 if (url.AbsolutePath == "/v1/world" && environment is not null)
                 {
@@ -136,7 +144,7 @@ public sealed class LoopbackRestService(
                         online = players.SnapshotOnlinePlayers().Count(player => player.WorldId == worldId)
                     },
                     "/v1/players" => players.SnapshotOnlinePlayers().Where(player => player.WorldId == worldId)
-                        .Select(player => new { id = player.Id.Slot, player.Name, player.IsDead, player.Life, player.MaxLife, player.Team })
+                        .Select(player => new { id = player.Id.Slot, sessionId = player.SessionId?.ToString(), player.Name, player.IsDead, player.Life, player.MaxLife, player.Team })
                         .Take(255).ToArray(),
                     "/v1/network" => network.Read(),
                     "/v1/metrics" when runtimeMetrics is not null => ReadMetrics(runtimeMetrics),
@@ -164,18 +172,13 @@ public sealed class LoopbackRestService(
     private async Task ApplyWorldPatchAsync(HttpListenerRequest request, HttpListenerResponse response, bool time)
     {
         if (!WorldReady()) { response.StatusCode = 503; return; }
-        if (request.ContentLength64 > MaximumWorldPatchBytes) { response.StatusCode = 413; return; }
-        if (!request.HasEntityBody || request.ContentLength64 <= 0) { response.StatusCode = 400; return; }
-        if (!string.Equals(request.ContentType?.Split(';', 2)[0].Trim(), "application/json", StringComparison.OrdinalIgnoreCase))
-        { response.StatusCode = 415; return; }
-
         using var deadline = CancellationTokenSource.CreateLinkedTokenSource(stopping.Token);
         deadline.CancelAfter(TimeSpan.FromSeconds(5));
         WorldEnvironmentPatch? patch;
         try
         {
-            byte[] body = new byte[(int)request.ContentLength64];
-            await request.InputStream.ReadExactlyAsync(body, deadline.Token).ConfigureAwait(false);
+            byte[]? body = await ReadMutationBodyAsync(request, response, deadline.Token).ConfigureAwait(false);
+            if (body is null) return;
             patch = ParseWorldPatch(body, time);
         }
         catch (OperationCanceledException) { response.StatusCode = 504; return; }
@@ -201,6 +204,90 @@ public sealed class LoopbackRestService(
         catch (OperationCanceledException) { response.StatusCode = 504; }
         catch (Exception) { response.StatusCode = 500; }
         AuditMaintenance(time ? "time" : "weather", response.StatusCode);
+    }
+
+    private async Task ApplyPlayerActionAsync(HttpListenerRequest request, HttpListenerResponse response, bool kick)
+    {
+        if (kick ? players is not IPlayerOperations { SupportsSessionBoundKicks: true }
+                 : players is not IPlayerMessenger { SupportsSessionBoundMessages: true })
+        { response.StatusCode = 404; return; }
+        if (!WorldReady()) { response.StatusCode = 503; return; }
+        using var deadline = CancellationTokenSource.CreateLinkedTokenSource(stopping.Token);
+        deadline.CancelAfter(TimeSpan.FromSeconds(5));
+        PlayerAction? action;
+        try
+        {
+            byte[]? body = await ReadMutationBodyAsync(request, response, deadline.Token).ConfigureAwait(false);
+            if (body is null) return;
+            action = ParsePlayerAction(body, kick);
+        }
+        catch (OperationCanceledException) { response.StatusCode = 504; return; }
+        catch (Exception ex) when (ex is IOException or JsonException) { response.StatusCode = 400; return; }
+        if (action is null) { response.StatusCode = 400; return; }
+        if (Authenticate(request.Headers["Authorization"]) != Access.Maintenance) { response.StatusCode = 401; return; }
+        if (!WorldReady()) { response.StatusCode = 503; return; }
+        deadline.CancelAfter(TimeSpan.FromSeconds(30));
+        try
+        {
+            if (!players.TryGet(action.Id, out var player) || player is null || player.WorldId != worldId || player.SessionId != action.Session)
+            { response.StatusCode = 404; }
+            else
+            {
+                PlayerOperationResult result = kick
+                    ? await ((IPlayerOperations)players).KickAsync(action.Id, action.Session, action.Text, deadline.Token).ConfigureAwait(false)
+                    : await ((IPlayerMessenger)players).SendMessageAsync(player, action.Text, deadline.Token).ConfigureAwait(false);
+                response.StatusCode = result.Status switch
+                {
+                    PlayerOperationStatus.Applied => 204,
+                    PlayerOperationStatus.PlayerNotFound => 404,
+                    PlayerOperationStatus.DispatcherUnavailable => 503,
+                    PlayerOperationStatus.Cancelled => 504,
+                    _ => 500
+                };
+            }
+        }
+        catch (OperationCanceledException) { response.StatusCode = 504; }
+        catch (Exception) { response.StatusCode = 500; }
+        AuditMaintenance(kick ? "player.kick" : "player.message", response.StatusCode);
+    }
+
+    private static async Task<byte[]?> ReadMutationBodyAsync(HttpListenerRequest request, HttpListenerResponse response, CancellationToken token)
+    {
+        if (request.ContentLength64 > MaximumMutationBytes) { response.StatusCode = 413; return null; }
+        if (!request.HasEntityBody || request.ContentLength64 <= 0) { response.StatusCode = 400; return null; }
+        if (!string.Equals(request.ContentType?.Split(';', 2)[0].Trim(), "application/json", StringComparison.OrdinalIgnoreCase))
+        { response.StatusCode = 415; return null; }
+        byte[] body = new byte[(int)request.ContentLength64];
+        await request.InputStream.ReadExactlyAsync(body, token).ConfigureAwait(false);
+        return body;
+    }
+
+    private sealed record PlayerAction(PlayerId Id, PlayerSessionId Session, string Text);
+
+    private static PlayerAction? ParsePlayerAction(byte[] body, bool kick)
+    {
+        using JsonDocument json = JsonDocument.Parse(body);
+        if (json.RootElement.ValueKind != JsonValueKind.Object) return null;
+        int? slot = null;
+        Guid? session = null;
+        string? text = null;
+        foreach (var field in json.RootElement.EnumerateObject())
+        {
+            switch (field.Name)
+            {
+                case "slot" when slot is null && field.Value.ValueKind == JsonValueKind.Number && field.Value.TryGetInt32(out int id) && id is >= 0 and < 255:
+                    slot = id; break;
+                case "sessionId" when session is null && field.Value.ValueKind == JsonValueKind.String && Guid.TryParseExact(field.Value.GetString(), "N", out Guid value) && value != Guid.Empty:
+                    session = value; break;
+                case "reason" when kick && text is null && field.Value.ValueKind == JsonValueKind.String:
+                case "message" when !kick && text is null && field.Value.ValueKind == JsonValueKind.String:
+                    text = field.Value.GetString(); break;
+                default: return null;
+            }
+        }
+        return slot is { } target && session is { } generation && !string.IsNullOrWhiteSpace(text) &&
+            text.Length <= (kick ? 256 : 512) && !text.Any(char.IsControl)
+            ? new(new(target), new(generation), text) : null;
     }
 
     private static WorldEnvironmentPatch? ParseWorldPatch(byte[] body, bool time)

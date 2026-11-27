@@ -2,6 +2,8 @@ using Vega.Contracts.Commands;
 using Vega.Contracts.Modules;
 using Vega.PluginSdk;
 
+[assembly: VegaPluginApiGeneration(VegaPluginApiGenerationAttribute.Current)]
+
 namespace Vega.PluginTemplate;
 
 public sealed class HelloPlugin : VegaPlugin

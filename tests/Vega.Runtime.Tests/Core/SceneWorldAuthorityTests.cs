@@ -62,6 +62,52 @@ public sealed class SceneWorldAuthorityTests
     }
 
     [Test]
+    public void OptedInVirtualSignEditRequiresPriorReadAndExplicitCurrentRevisionApproval()
+    {
+        var scenes = new SceneRuntime();
+        var opened = new PlayerSessionOpened(PlayerSessionId.New(), Viewer, "Viewer", DateTimeOffset.UtcNow);
+        scenes.OpenSession(Arena, opened);
+        var player = new PlayerSnapshot(Viewer, "Viewer", false, 100, 100, 20, 20, new(1600, 1600), false, 0)
+        { WorldId = Arena, SessionId = opened.SessionId };
+        using var scene = scenes.CreateScene(Arena, "editable", "test");
+        var sign = new SceneVirtualSignDefinition(VirtualSignId.New(), 0, 0, "Welcome", 1, true);
+        var overlay = scene.AddOverlay(new SceneOverlayDefinition(default, "sign", new(100, 100, 2, 2), 1,
+            SceneObserverScope.Global, SceneTileArea.Fill(2, 2, new SceneTile(55, Flags: SceneTileFlags.Active))) { VirtualSigns = [sign] });
+        var policy = new SceneInteractionAuthorityPolicy(scenes, Arena, new Directory(player));
+        void Edit(string text, byte playerId) => Assert.That(Process(policy, new SignNew { X = 100, Y = 100, Text = text, PlayerId = playerId },
+            PacketTypes.SignNew, Viewer), Is.EqualTo(PacketProcessingDecision.Reject("scene.phantom_interaction")));
+        Edit("without read", (byte)Viewer.Slot);
+        Assert.That(scenes.TryTakeVirtualSignEdit(scene.Id, overlay, sign.Id, out _), Is.False);
+        Assert.That(Process(policy, new SignRead { X = 100, Y = 100 }, PacketTypes.SignRead, Viewer), Is.EqualTo(PacketProcessingDecision.Reject("scene.phantom_interaction")));
+        Edit("wrong claimed player", (byte)(Viewer.Slot + 1));
+        Assert.That(scenes.TryTakeVirtualSignEdit(scene.Id, overlay, sign.Id, out _), Is.False);
+        Edit("new text", (byte)Viewer.Slot);
+        Edit("second edit", (byte)Viewer.Slot);
+        Assert.That(scenes.TryTakeVirtualSignEdit(scene.Id, overlay, sign.Id, out var request), Is.True);
+        Assert.That(request!.Value.Text, Is.EqualTo("new text"));
+        Assert.That(scenes.TryResolveVirtualSign(Arena, SceneSessionObserver.From(opened), 100, 100, out var current), Is.True);
+        Assert.That(current!.Value.Definition.Text, Is.EqualTo("Welcome"));
+        Assert.That(scenes.TryApplyVirtualSignEdit(player with { SessionId = PlayerSessionId.New() }, request.Value, out _), Is.False);
+        Assert.That(scenes.TryApplyVirtualSignEdit(player with { Position = new(0, 0) }, request.Value, out _), Is.False);
+        using (var covering = scenes.CreateScene(Arena, "cover", "test"))
+        {
+            covering.AddOverlay(new(default, "cover", new(101, 101, 1, 1), 5, SceneObserverScope.Global, SceneTileArea.Fill(1, 1, SceneTile.Air)));
+            Assert.That(scenes.TryApplyVirtualSignEdit(player, request.Value, out _), Is.False);
+        }
+        Assert.That(scenes.TryApplyVirtualSignEdit(player, request.Value, out var updated), Is.True);
+        Assert.That(updated!.Text, Is.EqualTo("new text"));
+        Assert.That(updated.Revision, Is.EqualTo(2));
+        Assert.That(scenes.TryApplyVirtualSignEdit(player, request.Value, out _), Is.False);
+        Assert.That(scenes.TryTakeVirtualSignEdit(scene.Id, overlay, sign.Id, out _), Is.False);
+        Assert.That(scenes.TryRequestVirtualSignRead(player, 100, 100), Is.True);
+        Assert.That(scenes.TryRequestVirtualSignEdit(player, 100, 100, new string('X', 1025)), Is.False);
+        Assert.That(scenes.TryRequestVirtualSignEdit(player, 100, 100, "pending"), Is.True);
+        scenes.CloseSession(Arena, new(opened.SessionId, opened.PlayerId, opened.PlayerName, DateTimeOffset.UtcNow));
+        scenes.OpenSession(Arena, opened with { SessionId = PlayerSessionId.New() });
+        Assert.That(scenes.TryTakeVirtualSignEdit(scene.Id, overlay, sign.Id, out _), Is.False);
+    }
+
+    [Test]
     public void TileInteractionUsesTheSceneInTheOwnedWorld()
     {
         var scenes = new SceneRuntime();

@@ -5,6 +5,7 @@ param(
     [string]$BenchmarkPlugin,
     [ValidateRange(120,3600)][int]$Ticks = 1800,
     [ValidateSet('legacy','optimized')][string[]]$Modes = @('legacy','optimized','optimized','legacy'),
+    [ValidateSet('recording','native','ordered')][string[]]$TransportModes = @('recording'),
     [int]$TimeoutSeconds = 300
 )
 $ErrorActionPreference = 'Stop'
@@ -22,9 +23,14 @@ function Send-Console($process, [string]$command) {
     $process.StandardInput.BaseStream.Flush()
 }
 
-for ($i = 0; $i -lt $Modes.Count; $i++) {
-    $mode = $Modes[$i]
-    $deploy = Join-Path $output ('{0:D2}-{1}-{2}' -f $i,$mode,[Guid]::NewGuid().ToString('N').Substring(0,8))
+$runs = @(foreach ($transport in $TransportModes) {
+    foreach ($mode in $Modes) { [pscustomobject]@{ Mode = $mode; Transport = $transport } }
+})
+for ($i = 0; $i -lt $runs.Count; $i++) {
+    $mode = $runs[$i].Mode
+    $transport = $runs[$i].Transport
+    $label = if ($transport -eq 'recording') { $mode } else { "$mode-$transport" }
+    $deploy = Join-Path $output ('{0:D2}-{1}-{2}' -f $i,$label,[Guid]::NewGuid().ToString('N').Substring(0,8))
     New-Item -ItemType Directory -Path $deploy | Out-Null
     Copy-Item -Path (Join-Path $source '*') -Destination $deploy -Recurse
     # Never run the fixture against existing production state.
@@ -76,7 +82,7 @@ for ($i = 0; $i -lt $Modes.Count; $i++) {
         }
         if ($process.HasExited -or [DateTime]::UtcNow -ge $deadline) { throw 'Server failed to become ready.' }
         Start-Sleep -Seconds 5
-        Send-Console $process "mixedbench $mode $Ticks"
+        Send-Console $process "mixedbench $mode $Ticks $transport"
         $resultPath = Join-Path $deploy "mixed-$mode.json"
         $deadline = [DateTime]::UtcNow.AddSeconds($TimeoutSeconds)
         $result = $null

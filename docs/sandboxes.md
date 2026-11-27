@@ -49,6 +49,7 @@ The authorized `sandbox` command supports:
 sandbox list
 sandbox status <id>
 sandbox create <id> <name> <template.wld> <temporary|persistent|external> <capacity> [disabled|inherit|copyonenter|isolated] [port]
+sandbox create-schematic <id> <name> <base.wld> <file.trschem> <x> <y> <temporary|persistent> <capacity> [ssc-mode] [port]
 sandbox start|stop|restart <id>
 sandbox reset <id> [replacement.wld] confirm
 sandbox destroy <id> confirm
@@ -63,6 +64,29 @@ bound to `WorldId`, process, instance, state and version. Stale heartbeats, proc
 exits, resource pressure and version mismatches are degraded/failed states, not silent
 reroutes. Parent restart adopts a live signed PID; orphan instance directories are
 reported and preserved for manual recovery.
+
+`create-schematic` is a one-shot creation action for a new managed world ID,
+not an in-place edit or an idempotent retry on an existing ID. A portable
+schematic is a region, not a complete `.wld`; provide a compatible base world
+and destination tile coordinates with no existing registered objects or active
+entities. The supervisor runs a separate native child in a fresh template
+directory, with only a private loopback listener, random password and no
+ordinary Vega modules or database. It copies the base, then uses the same
+validated idle-world native placement and saves the staged copy. Only a
+successful child exit and native save completion marker permit descriptor and
+instance publication. Failed children and uncommitted instance/template files
+are cleaned up after the child exits; if a failed child cannot be terminated,
+its incomplete directory is retained for recovery. Existing world IDs and
+orphaned instance directories are refused.
+
+Generated native `.wld` templates are retained under
+`data/sandboxes/templates/<id>-<unique-id>/world.wld` as the immutable source of
+the new managed instance. Normal `start` loads the instance without replaying
+the schematic. Normal `reset <id> confirm` copies the generated template, not
+the original base. The source base and `.trschem` file are unchanged. Destroy
+removes only the instance; generated templates remain available for reset of
+other instances or operator recovery. See [schematics](schematics.md) for
+supported object types and placement constraints.
 
 Temporary backends stop after their idle TTL. Persistent instance files are retained;
 controller shutdown stops processes but does not remove world data. Rolling update
