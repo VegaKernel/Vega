@@ -13,6 +13,213 @@ public sealed class NativeOutboundQueueTests
 
     [TestCase(false)]
     [TestCase(true)]
+    public async Task ProducerBlockOwnsBorrowedBytesOnceAndPreservesEveryPartialWriteCompletion(bool edgeWake)
+    {
+        var pool = new TrackingPool();
+        var budget = new NativeOutboundBudget(8, 256);
+        var queue = new NativeOutboundQueue(8, 256, 16, pool, budget, maxBatchRequests: 4,
+            edgeTriggeredWake: edgeWake, producerBatching: true);
+        byte[] source = [0, 0, 0];
+        for (int i = 0; i < 4; i++)
+        {
+            source[0] = (byte)i; source[1] = (byte)(i + 10); source[2] = (byte)(i + 20);
+            Assert.That(queue.TryEnqueue(source.AsSpan(), 19, callbackState: i, deferWake: true), Is.EqualTo(NativeOutboundEnqueueResult.Accepted));
+            Array.Fill(source, (byte)255);
+        }
+        Assert.That(pool.RentCalls, Is.EqualTo(1));
+        Assert.That(pool.Retained, Is.EqualTo(1));
+        Assert.That(budget.Snapshot, Is.EqualTo((4, 128L)));
+        var received = new List<byte>();
+        var writer = queue.RunWriterAsync((data, _) =>
+        {
+            int count = Math.Min(2, data.Length);
+            received.AddRange(data.Span[..count].ToArray());
+            return ValueTask.FromResult(count);
+        });
+        queue.Complete();
+        Assert.That(await writer.WaitAsync(Timeout), Is.EqualTo(new NativeOutboundWriterResult(NativeOutboundWriterStatus.Completed, 4, 12)));
+        Assert.That(received, Is.EqualTo(new byte[] { 0, 10, 20, 1, 11, 21, 2, 12, 22, 3, 13, 23 }));
+        Assert.That(pool.RentCalls, Is.EqualTo(1), "Writer must not allocate a second merged block.");
+        Assert.That(pool.Retained, Is.Zero);
+        Assert.That(budget.Snapshot, Is.EqualTo((4, 0L)));
+        for (int i = 0; i < 4; i++)
+        {
+            Assert.That(queue.TryReadCompletion(out var completion), Is.True);
+            Assert.That(completion.Sequence, Is.EqualTo(i + 1));
+            Assert.That(completion.Generation, Is.EqualTo(19));
+            Assert.That(completion.State, Is.EqualTo(i));
+        }
+        Assert.That(queue.TryReadCompletion(out _), Is.False);
+        Assert.That(budget.Snapshot, Is.EqualTo((0, 0L)));
+    }
+
+    [Test]
+    public async Task AbortedProducerBlockRemainsOwnedUntilActualIoReturnsAndNeverAcceptsNewTailBytes()
+    {
+        var pool = new TrackingPool();
+        var budget = new NativeOutboundBudget(8, 256);
+        var queue = new NativeOutboundQueue(8, 256, 16, pool, budget, maxBatchRequests: 4, producerBatching: true);
+        Assert.That(queue.TryEnqueue(new byte[] { 1, 2 }.AsSpan(), 1, deferWake: true), Is.EqualTo(NativeOutboundEnqueueResult.Accepted));
+        Assert.That(queue.TryEnqueue(new byte[] { 3, 4 }.AsSpan(), 1, deferWake: true), Is.EqualTo(NativeOutboundEnqueueResult.Accepted));
+        var entered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var writer = queue.RunWriterAsync(async (data, _) =>
+        {
+            entered.TrySetResult();
+            await release.Task.ConfigureAwait(false);
+            Assert.That(data.ToArray(), Is.EqualTo(new byte[] { 1, 2, 3, 4 }));
+            return data.Length;
+        });
+        try
+        {
+            await entered.Task.WaitAsync(Timeout);
+            Assert.That(queue.TryEnqueue(new byte[] { 5, 6 }.AsSpan(), 1, deferWake: true), Is.EqualTo(NativeOutboundEnqueueResult.Accepted));
+            Assert.That(pool.Retained, Is.EqualTo(2));
+            queue.Abort();
+            Assert.That(pool.Retained, Is.EqualTo(1));
+            Assert.That(budget.Snapshot, Is.EqualTo((2, 128L)));
+        }
+        finally { release.TrySetResult(); }
+        Assert.That((await writer.WaitAsync(Timeout)).Status, Is.EqualTo(NativeOutboundWriterStatus.Aborted));
+        Assert.That(queue.TryReadCompletion(out _), Is.False);
+        Assert.That(pool.Retained, Is.Zero);
+        Assert.That(budget.Snapshot, Is.EqualTo((0, 0L)));
+    }
+
+    [TestCase(false)]
+    [TestCase(true)]
+    public async Task ProducerSpeculativeCapacityFallsBackWhenLocalOrSharedByteCapWouldReject(bool sharedCap)
+    {
+        var pool = new TrackingPool(padding: 4);
+        var budget = new NativeOutboundBudget(4, sharedCap ? 8 : 128);
+        var queue = new NativeOutboundQueue(4, sharedCap ? 128 : 12, 8, pool, budget,
+            maxBatchRequests: 4, producerBatching: true);
+        Assert.That(queue.TryEnqueue(new byte[] { 1, 2, 3, 4 }.AsSpan(), 1, deferWake: true), Is.EqualTo(NativeOutboundEnqueueResult.Accepted));
+        Assert.That(pool.RentCalls, Is.EqualTo(2)); // failed expansion, exact fallback
+        Assert.That(queue.TryEnqueue(new byte[] { 5, 6, 7, 8 }.AsSpan(), 1, deferWake: true), Is.EqualTo(NativeOutboundEnqueueResult.Accepted));
+        Assert.That(pool.Retained, Is.EqualTo(1));
+        Assert.That(budget.Snapshot, Is.EqualTo((2, 8L)));
+        var writer = queue.RunWriterAsync((data, _) =>
+        {
+            Assert.That(data.ToArray(), Is.EqualTo(new byte[] { 1, 2, 3, 4, 5, 6, 7, 8 }));
+            return ValueTask.FromResult(data.Length);
+        });
+        queue.Complete();
+        Assert.That((await writer.WaitAsync(Timeout)).Status, Is.EqualTo(NativeOutboundWriterStatus.Completed));
+        Assert.That(pool.RentCalls, Is.EqualTo(2));
+        Assert.That(queue.TryReadCompletion(out _), Is.True);
+        Assert.That(queue.TryReadCompletion(out _), Is.True);
+        Assert.That(pool.Retained, Is.Zero);
+        Assert.That(budget.Snapshot, Is.EqualTo((0, 0L)));
+    }
+
+    [Test]
+    public void ProducerBlockStillConsumesEveryEntryAndRetiresSharedRentalOnlyOnce()
+    {
+        var pool = new TrackingPool();
+        var budget = new NativeOutboundBudget(3, 256);
+        var queue = new NativeOutboundQueue(8, 256, 16, pool, budget, maxBatchRequests: 4, producerBatching: true);
+        for (int i = 0; i < 3; i++)
+            Assert.That(queue.TryEnqueue(new byte[] { 1, 2 }.AsSpan(), 1, deferWake: true), Is.EqualTo(NativeOutboundEnqueueResult.Accepted));
+        Assert.That(budget.Snapshot, Is.EqualTo((3, 128L)));
+        Assert.That(pool.RentCalls, Is.EqualTo(1));
+        Assert.That(queue.TryEnqueue(new byte[] { 3 }.AsSpan(), 1, deferWake: true), Is.EqualTo(NativeOutboundEnqueueResult.EntryLimit));
+        Assert.That(queue.Snapshot.IsAborted, Is.True);
+        Assert.That(queue.Snapshot.OutstandingRequests, Is.Zero);
+        Assert.That(budget.Snapshot, Is.EqualTo((0, 0L)));
+        Assert.That(pool.Retained, Is.Zero);
+    }
+
+    [Test]
+    public async Task ProducerBlockPreservesMixedLargeAndSmallRequestFifoAcrossBlockBoundaries()
+    {
+        var pool = new TrackingPool();
+        var budget = new NativeOutboundBudget(16, 2048);
+        var queue = new NativeOutboundQueue(16, 2048, 512, pool, budget, maxBatchRequests: 4, producerBatching: true);
+        byte[][] messages = [[1], [2, 3], Enumerable.Repeat((byte)4, 300).ToArray(), [5], [6, 7], [8]];
+        foreach (byte[] message in messages)
+            Assert.That(queue.TryEnqueue(message.AsSpan(), 9, callbackState: message.Length, deferWake: true), Is.EqualTo(NativeOutboundEnqueueResult.Accepted));
+        var received = new List<byte>();
+        var writer = queue.RunWriterAsync((data, _) =>
+        {
+            received.AddRange(data.ToArray());
+            return ValueTask.FromResult(data.Length);
+        });
+        queue.Complete();
+        Assert.That((await writer.WaitAsync(Timeout)).Status, Is.EqualTo(NativeOutboundWriterStatus.Completed));
+        Assert.That(received, Is.EqualTo(messages.SelectMany(packet => packet)));
+        foreach (byte[] message in messages)
+        {
+            Assert.That(queue.TryReadCompletion(out var completion), Is.True);
+            Assert.That(completion.Length, Is.EqualTo(message.Length));
+            Assert.That(completion.Generation, Is.EqualTo(9));
+        }
+        Assert.That(budget.Snapshot, Is.EqualTo((0, 0L)));
+        Assert.That(pool.Retained, Is.Zero);
+    }
+
+    [Test]
+    public async Task CompletionDrainDoesNotWaitForAnUnrelatedPayloadRental()
+    {
+        using var pool = new BlockingRentPool();
+        var budget = new NativeOutboundBudget(8, 128);
+        var queue = new NativeOutboundQueue(8, 128, 16, pool, budget);
+        var writer = queue.RunWriterAsync((bytes, _) => ValueTask.FromResult(bytes.Length));
+        Task<NativeOutboundEnqueueResult>? enqueue = null;
+        try
+        {
+            Assert.That(queue.TryEnqueue([1], 0, 1, 7), Is.EqualTo(NativeOutboundEnqueueResult.Accepted));
+            Assert.That(SpinWait.SpinUntil(() => queue.Snapshot.PendingCompletions == 1, Timeout), Is.True);
+            pool.BlockNextRent = true;
+            enqueue = Task.Factory.StartNew(() => queue.TryEnqueue([2], 0, 1, 7), CancellationToken.None,
+                TaskCreationOptions.LongRunning, TaskScheduler.Default);
+            Assert.That(pool.RentEntered.Wait(Timeout), Is.True);
+            // The producer holds the payload gate. Consumption must still progress and release
+            // the exact first entry, without invoking its callback or releasing the blocked rental.
+            var consumed = await Task.Run(() => queue.TryReadCompletion(out var completion) ? completion : default).WaitAsync(Timeout);
+            Assert.That(consumed.Sequence, Is.EqualTo(1));
+            Assert.That(consumed.Generation, Is.EqualTo(7));
+            Assert.That(budget.Snapshot, Is.EqualTo((0, 0L)));
+            pool.ReleaseRent.Set();
+            Assert.That(await enqueue.WaitAsync(Timeout), Is.EqualTo(NativeOutboundEnqueueResult.Accepted));
+            queue.Complete();
+            Assert.That((await writer.WaitAsync(Timeout)).Status, Is.EqualTo(NativeOutboundWriterStatus.Completed));
+            Assert.That(queue.TryReadCompletion(out var second), Is.True);
+            Assert.That(second.Sequence, Is.EqualTo(2));
+            Assert.That(queue.TryReadCompletion(out _), Is.False);
+            Assert.That(queue.Snapshot.OutstandingRequests, Is.Zero);
+            Assert.That(budget.Snapshot, Is.EqualTo((0, 0L)));
+        }
+        finally
+        {
+            pool.ReleaseRent.Set();
+            if (enqueue is not null) await enqueue.WaitAsync(Timeout);
+            queue.Abort();
+            await writer.WaitAsync(Timeout);
+        }
+    }
+
+    private sealed class BlockingRentPool : ArrayPool<byte>, IDisposable
+    {
+        public bool BlockNextRent { get; set; }
+        public ManualResetEventSlim RentEntered { get; } = new(false);
+        public ManualResetEventSlim ReleaseRent { get; } = new(false);
+        public override byte[] Rent(int minimumLength)
+        {
+            if (BlockNextRent)
+            {
+                BlockNextRent = false;
+                RentEntered.Set();
+                if (!ReleaseRent.Wait(Timeout)) throw new TimeoutException("Fixture rental was not released.");
+            }
+            return new byte[minimumLength];
+        }
+        public override void Return(byte[] array, bool clearArray = false) { }
+        public void Dispose() { RentEntered.Dispose(); ReleaseRent.Dispose(); }
+    }
+
+    [TestCase(false)]
+    [TestCase(true)]
     public async Task BorrowedDeferredWakeCopiesBeforeReturnAndFlushesInOrder(bool normalSendReleasesWake)
     {
         var pool = new TrackingPool();
@@ -562,10 +769,13 @@ public sealed class NativeOutboundQueueTests
     private sealed class TrackingPool(int padding = 0) : ArrayPool<byte>
     {
         private readonly ConcurrentDictionary<byte[], byte> retained = new();
+        private int rentCalls;
+        public int RentCalls => Volatile.Read(ref rentCalls);
         public int Retained => retained.Count;
 
         public override byte[] Rent(int minimumLength)
         {
+            Interlocked.Increment(ref rentCalls);
             var buffer = new byte[minimumLength + padding];
             if (!retained.TryAdd(buffer, 0)) throw new InvalidOperationException("Unexpected duplicate rental.");
             return buffer;

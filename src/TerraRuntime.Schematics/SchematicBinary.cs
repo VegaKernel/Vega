@@ -18,7 +18,8 @@ public enum SchematicSectionKind : ushort
 public static class SchematicBinary
 {
     public const uint Magic = 0x43535254; // "TRSC" in little-endian bytes.
-    public const ushort CurrentVersion = 1;
+    public const ushort LegacyVersion = 1;
+    public const ushort CurrentVersion = 2;
     public const int HeaderSize = 32;
     public const int DirectoryEntrySize = 24;
 
@@ -40,11 +41,15 @@ public static class SchematicBinary
     {
         ArgumentNullException.ThrowIfNull(document);
         document.Validate();
+        // Ordinary 40-slot documents remain byte-for-byte v1 compatible. The
+        // explicit capacity field is required only for expanded chests.
+        ushort version = document.Chests.Any(chest => chest.Capacity != SchematicLimits.DefaultChestCapacity)
+            ? CurrentVersion : LegacyVersion;
 
         SectionData[] sections =
         [
             BuildSection(SchematicSectionKind.Tiles, writer => WriteTiles(writer, document.Tiles)),
-            BuildSection(SchematicSectionKind.Chests, writer => WriteChests(writer, document.Chests)),
+            BuildSection(SchematicSectionKind.Chests, writer => WriteChests(writer, document.Chests, version)),
             BuildSection(SchematicSectionKind.Signs, writer => WriteSigns(writer, document.Signs)),
             BuildSection(SchematicSectionKind.TileEntities, writer => WriteTileEntities(writer, document.TileEntities)),
             BuildSection(SchematicSectionKind.Npcs, writer => WriteNpcs(writer, document.Npcs)),
@@ -68,7 +73,7 @@ public static class SchematicBinary
         byte[] result = new byte[(int)totalLength];
         Span<byte> output = result;
         BinaryPrimitives.WriteUInt32LittleEndian(output, Magic);
-        BinaryPrimitives.WriteUInt16LittleEndian(output[4..], CurrentVersion);
+        BinaryPrimitives.WriteUInt16LittleEndian(output[4..], version);
         BinaryPrimitives.WriteUInt16LittleEndian(output[6..], HeaderSize);
         BinaryPrimitives.WriteInt32LittleEndian(output[8..], document.ContentVersion);
         BinaryPrimitives.WriteInt32LittleEndian(output[12..], document.Width);
@@ -107,10 +112,10 @@ public static class SchematicBinary
             throw new SchematicFormatException("Schematic magic is invalid.");
 
         ushort version = BinaryPrimitives.ReadUInt16LittleEndian(data[4..]);
-        if (version != CurrentVersion)
+        if (version is not (LegacyVersion or CurrentVersion))
             throw new SchematicFormatException($"Unsupported schematic version {version}.");
         if (BinaryPrimitives.ReadUInt16LittleEndian(data[6..]) != HeaderSize)
-            throw new SchematicFormatException("Schematic header size is invalid for version 1.");
+            throw new SchematicFormatException($"Schematic header size is invalid for version {version}.");
 
         int contentVersion = BinaryPrimitives.ReadInt32LittleEndian(data[8..]);
         int width = BinaryPrimitives.ReadInt32LittleEndian(data[12..]);
@@ -148,7 +153,7 @@ public static class SchematicBinary
             if (rawStoredLength > (uint)SchematicLimits.MaxSectionBytes || rawDecodedLength > (uint)SchematicLimits.MaxSectionBytes)
                 throw new SchematicFormatException($"Section {rawKind} exceeds the supported size ceiling.");
             if (rawStoredLength != rawDecodedLength)
-                throw new SchematicFormatException("Version 1 does not support compressed sections.");
+                throw new SchematicFormatException($"Version {version} does not support compressed sections.");
             if (rawOffset < (uint)directoryEnd)
                 throw new SchematicFormatException($"Section {rawKind} overlaps the header/directory.");
 
@@ -191,7 +196,7 @@ public static class SchematicBinary
         }
 
         SchematicTile[] tiles = ReadTiles(GetSection(data, known, SchematicSectionKind.Tiles), width, height);
-        SchematicChest[] chests = ReadChests(GetSection(data, known, SchematicSectionKind.Chests));
+        SchematicChest[] chests = ReadChests(GetSection(data, known, SchematicSectionKind.Chests), version);
         SchematicSign[] signs = ReadSigns(GetSection(data, known, SchematicSectionKind.Signs));
         SchematicTileEntity[] tileEntities = ReadTileEntities(GetSection(data, known, SchematicSectionKind.TileEntities));
         SchematicNpc[] npcs = ReadNpcs(GetSection(data, known, SchematicSectionKind.Npcs));
@@ -369,7 +374,7 @@ public static class SchematicBinary
         return tiles;
     }
 
-    private static void WriteChests(BinaryWriter writer, SchematicChest[] chests)
+    private static void WriteChests(BinaryWriter writer, SchematicChest[] chests, ushort version)
     {
         writer.Write(chests.Length);
         foreach (SchematicChest chest in chests)
@@ -377,11 +382,12 @@ public static class SchematicBinary
             writer.Write(chest.X);
             writer.Write(chest.Y);
             WriteString(writer, chest.Name, SchematicLimits.MaxChestNameUtf8Bytes, allowNull: false);
+            if (version == CurrentVersion) writer.Write(chest.Capacity);
             WriteItems(writer, chest.Items);
         }
     }
 
-    private static SchematicChest[] ReadChests(ReadOnlySpan<byte> bytes)
+    private static SchematicChest[] ReadChests(ReadOnlySpan<byte> bytes, ushort version)
     {
         var reader = new SpanReader(bytes);
         int count = reader.ReadCount(SchematicLimits.MaxChests, "chests");
@@ -391,8 +397,10 @@ public static class SchematicBinary
             int x = reader.ReadInt32();
             int y = reader.ReadInt32();
             string name = reader.ReadString(SchematicLimits.MaxChestNameUtf8Bytes, allowNull: false)!;
-            SchematicItemStack[] items = reader.ReadItems(SchematicLimits.MaxChestItems);
-            result[index] = new SchematicChest(x, y, name, items);
+            int capacity = version == CurrentVersion ? reader.ReadInt32() : SchematicLimits.DefaultChestCapacity;
+            SchematicValidator.ValidateChestCapacity(capacity);
+            SchematicItemStack[] items = reader.ReadItems(capacity);
+            result[index] = new SchematicChest(x, y, name, items) { Capacity = capacity };
         }
         reader.EnsureEnd("chests");
         return result;

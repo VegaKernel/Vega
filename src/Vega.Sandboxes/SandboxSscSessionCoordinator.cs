@@ -368,6 +368,19 @@ public sealed class SandboxSscSessionCoordinator : IDisposable
             SaveCurrentAsync(session, authorized, cancellationToken);
     }
 
+    /// <summary>Persist native inventory after an actor transaction before its external ledger may finalize.</summary>
+    public async ValueTask<bool> CheckpointActorTransactionAsync(PlayerSnapshot player, PlayerAccountBinding expectedBinding,
+        CancellationToken cancellationToken = default)
+    {
+        var session = ManagementSession(player);
+        if (session is null || session.AccountBinding != expectedBinding) return false;
+        bool StillBound() => accounts.TryGetBinding(player, out var binding) && binding == expectedBinding;
+        using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        timeout.CancelAfter(TimeSpan.FromSeconds(10));
+        try { return (await SaveCurrentAsync(session, StillBound, timeout.Token, waitForGate: true).ConfigureAwait(false)).Succeeded; }
+        catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested) { return false; }
+    }
+
     internal async ValueTask<SscManagementResult> UploadJoinAsync(PlayerSnapshot target, Func<bool> authorized, CancellationToken cancellationToken)
     {
         var session = ManagementSession(target);
@@ -494,10 +507,11 @@ public sealed class SandboxSscSessionCoordinator : IDisposable
     }
 
     private async ValueTask<SscManagementResult> SaveCurrentAsync(SessionState session, Func<bool>? authorized, CancellationToken cancellationToken,
-        bool checkpoint = false)
+        bool checkpoint = false, bool waitForGate = false)
     {
         if (!Ready(session)) return SscManagementResult.Failure("ssc.authenticated_session_not_ready");
-        if (!session.OperationGate.Wait(0)) return SscManagementResult.Failure("ssc.operation_busy");
+        if (waitForGate) await session.OperationGate.WaitAsync(cancellationToken).ConfigureAwait(false);
+        else if (!session.OperationGate.Wait(0)) return SscManagementResult.Failure("ssc.operation_busy");
         try
         {
             if (!Ready(session) || authorized?.Invoke() == false) return SscManagementResult.Failure("ssc.command_identity_changed");

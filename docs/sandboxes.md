@@ -41,6 +41,8 @@ login/initial character provisioning and complete live-client SSC authority are 
 
 The `config/primary-character-persistence.json` option (`enabled: false` by default) restores and saves authenticated primary sessions. Legacy persistence without `authoritative` uses `data/primary-characters.json`; opt-in authority sets the native SSC flag, keeps a blank server-owned pending character, checks readiness before gameplay, and uses the shared `data/sandboxes/ssc.json` primary scope. Non-disabled sandbox SSC modes set the native flag as well. Initial data is server-created rather than implicitly imported from the client inventory. Use the [offline migration command](migration.md) before switching from legacy primary state. The server-side lifecycle and synthetic migration are tested; stock-client login, restore and cross-world transfer remain qualification gates.
 
+The [stock-client SSC qualification fixture](stock-client-ssc-qualification.md) prepares separate local cases for the actual 1.4.6.1 client, both authority settings and both password modes. Server readiness passes are recorded separately from manual client behavior.
+
 ## Lifecycle and commands
 
 The authorized `sandbox` command supports:
@@ -64,6 +66,8 @@ bound to `WorldId`, process, instance, state and version. Stale heartbeats, proc
 exits, resource pressure and version mismatches are degraded/failed states, not silent
 reroutes. Parent restart adopts a live signed PID; orphan instance directories are
 reported and preserved for manual recovery.
+
+The [typed REST administration surface](operations.md#typed-administration) additionally supports managed create, start, stop, restart, reset and destroy through a separately configured administration token. Source selections are limited to the operator-curated REST template directory; reset/destroy require the exact observed revision and creation time plus confirmation, checked under the operation gate. No external world ownership or arbitrary source path is accepted by REST.
 
 `create-schematic` is a one-shot creation action for a new managed world ID,
 not an in-place edit or an idempotent retry on an existing ID. A portable

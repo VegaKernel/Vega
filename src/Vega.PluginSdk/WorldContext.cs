@@ -361,6 +361,9 @@ internal static partial class VegaPluginRuntime
             public ValueTask<NpcShopPurchaseResult> PurchaseAsync(PlayerSnapshot player, string offerId, long expectedShopRevision, CancellationToken cancellationToken = default) =>
                 Volatile.Read(ref inner)?.PurchaseAsync(player, offerId, expectedShopRevision, cancellationToken) ??
                     ValueTask.FromResult(new NpcShopPurchaseResult(NpcShopPurchaseStatus.ActorGone));
+            public ValueTask<NpcShopPurchaseResult> PurchaseCurrencyAsync(PlayerSnapshot player, string offerId, long expectedShopRevision,
+                Guid operationId, CancellationToken cancellationToken = default) => Volatile.Read(ref inner)?.PurchaseCurrencyAsync(player, offerId,
+                    expectedShopRevision, operationId, cancellationToken) ?? ValueTask.FromResult(new NpcShopPurchaseResult(NpcShopPurchaseStatus.ActorGone));
             public ValueTask<bool> SetDialogueAsync(NpcDialogueDefinition? dialogue, CancellationToken cancellationToken = default) =>
                 Volatile.Read(ref inner)?.SetDialogueAsync(dialogue, cancellationToken) ?? ValueTask.FromResult(false);
             public ValueTask<NpcDialogueResult> BeginDialogueAsync(PlayerSnapshot player, CancellationToken cancellationToken = default) =>
@@ -378,6 +381,12 @@ internal static partial class VegaPluginRuntime
             public ValueTask<NpcQuestResult> TurnInQuestAsync(PlayerSnapshot player, string questId, long expectedCatalogRevision, CancellationToken cancellationToken = default) =>
                 Volatile.Read(ref inner)?.TurnInQuestAsync(player, questId, expectedCatalogRevision, cancellationToken) ??
                     ValueTask.FromResult(new NpcQuestResult(NpcQuestStatus.ActorGone));
+            public ValueTask<NpcEconomyBalanceResult> GetCurrencyBalanceAsync(PlayerSnapshot player, string currencyId, CancellationToken cancellationToken = default) =>
+                Volatile.Read(ref inner)?.GetCurrencyBalanceAsync(player, currencyId, cancellationToken) ??
+                    ValueTask.FromResult(new NpcEconomyBalanceResult(NpcEconomyStatus.Unavailable));
+            public ValueTask<NpcEconomyBalanceResult> CreditCurrencyAsync(PlayerSnapshot player, NpcEconomyPrice amount, Guid operationId,
+                CancellationToken cancellationToken = default) => Volatile.Read(ref inner)?.CreditCurrencyAsync(player, amount, operationId, cancellationToken) ??
+                    ValueTask.FromResult(new NpcEconomyBalanceResult(NpcEconomyStatus.Unavailable));
             public void Dispose()
             {
                 INpcActor? current = Interlocked.Exchange(ref inner, null);

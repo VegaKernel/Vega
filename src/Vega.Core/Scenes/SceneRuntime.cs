@@ -95,6 +95,7 @@ public sealed partial class SceneRuntime(ISceneRenderSink? sink = null) : IScene
     private void RemoveObserver(WorldId world, PlayerId player)
     {
         pendingVirtualChestOpens.Remove((world, player));
+        RemoveManagedChestPlayer(world, player);
         pendingVirtualSignReads.Remove((world, player));
         virtualSignEditors.Remove((world, player));
         pendingVirtualSignEdits.Remove((world, player));

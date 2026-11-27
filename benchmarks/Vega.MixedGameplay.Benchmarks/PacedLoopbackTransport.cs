@@ -35,6 +35,8 @@ internal sealed class PacedLoopbackTransport : IDisposable
         if (mode == "ordered")
             ordered = new NativeTcpTransportHost(new NativeTcpTransportOptions { MaxBatchRequests = 16, MeasureQueueAge = true,
                 DeferWriterWake = Environment.GetEnvironmentVariable("VEGA_BENCH_DEFER_WAKE") == "1",
+                ProducerBatching = Environment.GetEnvironmentVariable("VEGA_BENCH_DEFER_WAKE") == "1" &&
+                    Environment.GetEnvironmentVariable("VEGA_BENCH_PRODUCER_BATCHING") == "1",
                 DeferredWakeFlushInterval = TimeSpan.FromMilliseconds(double.TryParse(Environment.GetEnvironmentVariable("VEGA_BENCH_DEFER_MS"),
                     System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out double interval) ? interval : 1) },
                 currentSocket: slot => (uint)slot < peers.Length ? peers[slot]?.Socket : null);

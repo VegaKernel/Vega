@@ -31,7 +31,7 @@ internal sealed class NativeOutboundBudget
             if (current >= maxEntries) return NativeOutboundEnqueueResult.EntryLimit;
             if (Interlocked.CompareExchange(ref outstanding, current + 1, current) == current) break;
         }
-        if (TryReserveBytes(bytes)) return NativeOutboundEnqueueResult.Accepted;
+        if (bytes == 0 || TryReserveBytes(bytes)) return NativeOutboundEnqueueResult.Accepted;
         // A failed byte reservation never leaves an entry charged. Both caps are
         // enforced independently, including in-progress reservations.
         ReleaseEntries(1);

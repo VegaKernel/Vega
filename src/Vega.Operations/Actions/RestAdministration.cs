@@ -15,7 +15,7 @@ namespace Vega.Operations.Actions;
 /// <summary>Typed maintenance-only administrative routes. Authority and validation remain in the domain services.</summary>
 public sealed class RestAdministration(WorldId world, IAccountService accounts, IAuthorizationService groups,
     IRegionService regions, IBanService bans, IMuteService mutes, ISandboxDirectory sandboxes,
-    ISandboxControlService? sandboxControl = null)
+    ISandboxControlService? sandboxControl = null, string? sandboxTemplateRoot = null)
 {
     private const string Actor = "rest:administration";
     private const int PageSize = 100;
@@ -51,7 +51,8 @@ public sealed class RestAdministration(WorldId world, IAccountService accounts, 
             "sandboxes" => Page(sandboxes.Snapshot().OrderBy(s => s.Descriptor.WorldId.Value, StringComparer.Ordinal).Select(s => new
                 { world = s.Descriptor.WorldId.Value, name = s.Descriptor.DisplayName, state = s.State.ToString(),
                     persistence = s.Descriptor.Persistence.ToString(), s.Descriptor.PlayerCapacity, s.Descriptor.Revision,
-                    sscMode = s.Descriptor.SscMode.ToString(), s.OnlinePlayers, s.TicksPerSecond, s.Resources, s.DesiredRunning }), page),
+                    s.Descriptor.CreatedAt, sscMode = s.Descriptor.SscMode.ToString(), s.OnlinePlayers, s.TicksPerSecond, s.Resources, s.DesiredRunning }), page),
+            "sandboxTemplates" => Page(Templates().OrderBy(f => f.Name, StringComparer.OrdinalIgnoreCase).Select(f => new { f.Name, bytes = f.Length }), page),
             _ => null
         };
     }
@@ -66,7 +67,8 @@ public sealed class RestAdministration(WorldId world, IAccountService accounts, 
         "accounts/create" or "accounts/delete" or "accounts/group" or "accounts/password" or "accounts/culture" or
         "groups/create" or "groups/delete" or "groups/parent" or "groups/permission" or
         "regions/create" or "regions/delete" or "regions/resize" or "regions/priority" or "regions/owner" or "regions/flag" or "regions/access" or
-        "bans/add" or "bans/revoke" or "mutes/add" or "mutes/revoke" or "sandboxes/start" or "sandboxes/stop" or "sandboxes/restart";
+        "bans/add" or "bans/revoke" or "mutes/add" or "mutes/revoke" or "sandboxes/start" or "sandboxes/stop" or "sandboxes/restart" or
+        "sandboxes/create" or "sandboxes/reset" or "sandboxes/destroy";
 
     public async ValueTask<int> WriteAsync(string route, JsonElement payload, CancellationToken token)
     {
@@ -168,12 +170,32 @@ public sealed class RestAdministration(WorldId world, IAccountService accounts, 
                         "sandboxes/stop" => await sandboxControl.StopAsync(target, token),
                         _ => await sandboxControl.RestartAsync(target, token)
                     };
-                    return result.Status switch
-                    {
-                        SandboxOperationStatus.Applied or SandboxOperationStatus.AlreadyInDesiredState => 204,
-                        SandboxOperationStatus.NotFound => 404, SandboxOperationStatus.Conflict => 409,
-                        SandboxOperationStatus.Rejected => 400, SandboxOperationStatus.TimedOut => 504, _ => 500
-                    };
+                    return Status(result);
+                case "sandboxes/create":
+                    if (sandboxControl is null) return 404;
+                    var create = Body<CreateSandbox>();
+                    var persistence = create.Persistence switch
+                    { "temporary" => SandboxPersistenceMode.Temporary, "persistent" => SandboxPersistenceMode.Persistent, _ => throw new ArgumentException() };
+                    var ssc = create.SscMode switch
+                    { "inherit" => SandboxSscMode.Inherit, "copyOnEnter" => SandboxSscMode.CopyOnEnter,
+                        "isolated" => SandboxSscMode.Isolated, "disabled" => SandboxSscMode.Disabled, _ => throw new ArgumentException() };
+                    if (create.Capacity is < 1 or > 255 || create.WorldId.Equals("primary", StringComparison.OrdinalIgnoreCase)) return 400;
+                    string? template = ResolveTemplate(create.Template);
+                    if (template is null) return 404;
+                    return Status(await sandboxControl.CreateAsync(new SandboxCreateRequest(Text(create.WorldId), Text(create.Name), template,
+                        persistence, create.Capacity, new(SandboxAccessMode.Public), null, ssc, new HashSet<string>()), token));
+                case "sandboxes/reset":
+                    if (sandboxControl is null) return 404;
+                    var reset = Body<ResetSandbox>();
+                    if (!reset.Confirm || reset.WorldId.Equals("primary", StringComparison.OrdinalIgnoreCase)) return 400;
+                    string? replacement = reset.Template is null ? null : ResolveTemplate(reset.Template);
+                    if (reset.Template is not null && replacement is null) return 404;
+                    return Status(await sandboxControl.ResetConfirmedAsync(new(Text(reset.WorldId)), Revision(reset.Revision), reset.CreatedAt, replacement, token));
+                case "sandboxes/destroy":
+                    if (sandboxControl is null) return 404;
+                    var destroy = Body<DestroySandbox>();
+                    if (!destroy.Confirm || destroy.WorldId.Equals("primary", StringComparison.OrdinalIgnoreCase)) return 400;
+                    return Status(await sandboxControl.DestroyConfirmedAsync(new(Text(destroy.WorldId)), Revision(destroy.Revision), destroy.CreatedAt, token));
                 default: return 404;
             }
         }
@@ -190,9 +212,34 @@ public sealed class RestAdministration(WorldId world, IAccountService accounts, 
     private static int Status(GroupMutationResult result) => MutationStatus(result.Succeeded, result.Code);
     private static int Status(RegionMutationResult result) => MutationStatus(result.Succeeded, result.Code);
     private static int Status(MuteMutationResult result) => MutationStatus(result.Succeeded, result.Code);
+    private static int Status(SandboxOperationResult result) => result.Status switch
+    {
+        SandboxOperationStatus.Applied or SandboxOperationStatus.AlreadyInDesiredState => 204,
+        SandboxOperationStatus.NotFound => 404, SandboxOperationStatus.Conflict => 409,
+        SandboxOperationStatus.Rejected => 400, SandboxOperationStatus.TimedOut => 504, _ => 500
+    };
     private static int MutationStatus(bool succeeded, string code) => succeeded ? 204 :
         code.EndsWith("not-found", StringComparison.Ordinal) ? 404 :
         code.EndsWith("revision-conflict", StringComparison.Ordinal) || code.EndsWith("exists", StringComparison.Ordinal) ? 409 : 400;
+
+    private IEnumerable<FileInfo> Templates()
+    {
+        if (sandboxTemplateRoot is null || !Directory.Exists(sandboxTemplateRoot)) return [];
+        var root = new DirectoryInfo(Path.GetFullPath(sandboxTemplateRoot));
+        if ((root.Attributes & FileAttributes.ReparsePoint) != 0) return [];
+        return root.EnumerateFiles("*", SearchOption.TopDirectoryOnly)
+            .Where(file => file.Extension.Equals(".wld", StringComparison.OrdinalIgnoreCase) &&
+                (file.Attributes & FileAttributes.ReparsePoint) == 0);
+    }
+
+    private string? ResolveTemplate(string name)
+    {
+        if (Text(name) != Path.GetFileName(name) || name.IndexOfAny(['/', '\\', ':']) >= 0 ||
+            name.IndexOfAny(Path.GetInvalidFileNameChars()) >= 0 || !Path.GetExtension(name).Equals(".wld", StringComparison.OrdinalIgnoreCase))
+            throw new ArgumentException("Use a curated template file name, not a path.");
+        return Templates().FirstOrDefault(file => string.Equals(file.Name, name,
+            OperatingSystem.IsWindows() ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal))?.FullName;
+    }
 
     private sealed record CreateAccount(string Name, string Password, string Group);
     private sealed record RevisionTarget(string Name, long Revision);
@@ -212,4 +259,7 @@ public sealed class RestAdministration(WorldId world, IAccountService accounts, 
     private sealed record MuteRequest(string Kind, string Value, string Reason, int DurationSeconds);
     private sealed record RevisionId(Guid Id, long Revision);
     private sealed record SandboxTarget(string WorldId);
+    private sealed record CreateSandbox(string WorldId, string Name, string Template, string Persistence, int Capacity, string SscMode);
+    private sealed record ResetSandbox(string WorldId, long Revision, DateTimeOffset CreatedAt, bool Confirm, string? Template);
+    private sealed record DestroySandbox(string WorldId, long Revision, DateTimeOffset CreatedAt, bool Confirm);
 }

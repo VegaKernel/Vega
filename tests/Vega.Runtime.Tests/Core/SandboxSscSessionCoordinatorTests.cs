@@ -15,6 +15,33 @@ namespace Vega.Runtime.Tests.Core;
 [TestFixture]
 public sealed class SandboxSscSessionCoordinatorTests
 {
+    [Test]
+    public async Task ActorTransactionCheckpointPersistsExactAuthenticatedInventoryAndRejectsOldTenure()
+    {
+        string root = Path.Combine(Path.GetTempPath(), "vega-actor-ssc-checkpoint", Guid.NewGuid().ToString("N"));
+        var player = Player(new PlayerId(7), PlayerSessionId.New(), null, WorldId.Primary);
+        var binding = new PlayerAccountBinding(player.Id, player.SessionId!.Value, new AccountId(42), Guid.NewGuid());
+        try
+        {
+            var store = new SandboxSscStore(Path.Combine(root, "ssc.json"));
+            var accounts = new FakeAccounts();
+            accounts.SetBinding(binding);
+            var characters = new FakeCharacters();
+            var logger = new RecordingLogger();
+            using var coordinator = new SandboxSscSessionCoordinator(new FakePlayers(player), new FakeLifecycle(), accounts,
+                new FakeOperations(), store, characters, WorldId.Primary, SandboxSscMode.Inherit, logger, primaryCharacterStore: store);
+            await EventuallyAsync(() => logger.PrimaryRestores == 1 && coordinator.IsCharacterReady(player));
+            characters.CapturePayload = "actor-reward-checkpoint";
+            Assert.That(await coordinator.CheckpointActorTransactionAsync(player, binding), Is.True);
+            Assert.That(store.Read("42", WorldId.Primary, SandboxSscMode.Inherit)?.Payload, Is.EqualTo("actor-reward-checkpoint"));
+            accounts.SetBinding(new(player.Id, player.SessionId!.Value, new AccountId(43), Guid.NewGuid()));
+            characters.CapturePayload = "replacement-auth-inventory";
+            Assert.That(await coordinator.CheckpointActorTransactionAsync(player, binding), Is.False);
+            Assert.That(store.Read("42", WorldId.Primary, SandboxSscMode.Inherit)?.Payload, Is.EqualTo("actor-reward-checkpoint"));
+        }
+        finally { if (Directory.Exists(root)) Directory.Delete(root, true); }
+    }
+
     [TestCase(true, true)]
     [TestCase(false, true)]
     [TestCase(true, false)]

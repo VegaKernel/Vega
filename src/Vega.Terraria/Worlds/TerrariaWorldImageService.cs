@@ -331,7 +331,7 @@ public sealed class TerrariaWorldImageService : IDisposable, IWorldLoadMetricsRe
             logger.Log(
                 OperationsLogLevel.Information,
                 "world-image",
-                $"world_image snapshot=captured tile_bytes={runtimeSnapshot.TileRuns.Length} " +
+                $"world_image snapshot=captured tile_bytes={runtimeSnapshot.TileBytes} " +
                 $"liquid_bytes={runtimeSnapshot.LiquidState.Length} duration_ms={elapsed.TotalMilliseconds:F1}");
             ScheduleBuild(
                 sourcePath,

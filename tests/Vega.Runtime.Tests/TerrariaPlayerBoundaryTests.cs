@@ -10,6 +10,41 @@ namespace Vega.Runtime.Tests;
 public sealed class TerrariaPlayerBoundaryTests
 {
 	[Test]
+	[NonParallelizable]
+	public void NativeChestCapacityReadsExactRegisteredStorageOnOwningThread()
+	{
+		var oldChests = global::Terraria.Main.chest;
+		var oldCoordinates = global::Terraria.Chest._chestsByCoords;
+		var dispatcher = new FakeGameThreadDispatcher(isGameThreadKnown: true);
+		using var boundary = new TerrariaPlayerBoundary(dispatcher);
+		try
+		{
+			global::Terraria.Main.chest = new global::Terraria.Chest[oldChests.Length];
+			global::Terraria.Chest._chestsByCoords = [];
+			var chest = global::Terraria.Chest.CreateWorldChest(0, 10, 10);
+			Assert.That(boundary.TryGetChestCapacity(0, out _), Is.False);
+			dispatcher.TryPost("test native chest capacity", () =>
+			{
+				foreach (int size in new[] { 40, 80, 200 })
+				{
+					chest.Resize(size);
+					Assert.That(boundary.TryGetChestCapacity(0, out var capacity), Is.True);
+					Assert.That(capacity, Is.EqualTo(size));
+				}
+				Assert.That(boundary.TryGetChestCapacity(1, out _), Is.False);
+				global::Terraria.Chest.RemoveChest(0);
+				Assert.That(boundary.TryGetChestCapacity(0, out _), Is.False);
+			});
+			dispatcher.RunPending();
+		}
+		finally
+		{
+			global::Terraria.Main.chest = oldChests;
+			global::Terraria.Chest._chestsByCoords = oldCoordinates;
+		}
+	}
+
+	[Test]
 	public void Combat_read_model_reuses_unchanged_slots_and_does_not_mutate_published_tick()
 	{
 		PlayerCombatSnapshot?[] previous = [new(new PlayerId(0), 10, 1, false), null, new(new PlayerId(2), 20, 0, true)];

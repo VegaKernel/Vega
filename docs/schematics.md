@@ -1,12 +1,16 @@
 # TerraRuntime schematics in Vega
 
-Vega consumes the standalone `.trschem` v1 codec from TerraRuntime unchanged
+Vega consumes the standalone `.trschem` codec from TerraRuntime and extends it
+with a backward-compatible v2 chest-capacity field
 ([source snapshot](../src/TerraRuntime.Schematics/UPSTREAM.md)). The codec is
 independent of the Terraria version and of the server's simulation. It stores
 the source content version, row-major tiles, chests, signs, eight typed tile
 entity kinds, NPCs, dropped world items, markers and metadata. Inspecting or
 resaving a document preserves all these records. The codec is bounded and uses
-the same section directory, integrity checks and format as TerraRuntime.
+the same section directory and integrity checks as TerraRuntime. Standard
+40-slot chest documents are still encoded byte-for-byte as v1; expanded
+chests use v2, preserving explicit capacity separately from the counted item
+slots. Vega reads both versions. Older v1-only tools reject v2 files explicitly.
 `TerraRuntime.Schematics.dll` is bundled with Vega's server and `Vega` SDK
 package. Plugins can use `SchematicFile` / `SchematicBinary`; the optional
 `SchematicSceneProjection.Create` helper produces a shared `SceneOverlayDefinition`.
@@ -45,6 +49,9 @@ personal preview is bound to the selected connection session. NPCs, dropped
 items and tile entities remain in the document and are **not spawned by a
 preview**. The command reports their counts. In particular, the operator cannot
 accidentally alter canonical tiles or spawn entities merely by previewing a file.
+Expanded chest documents are rejected for virtual preview: the current virtual
+chest presentation/transfer API deliberately supports forty slots only. Native
+placement and automatic template creation do not depend on the virtual preview.
 The sandbox supervisor can create a new managed `.wld` instance from a base
 world and supported `.trschem` region in one operation; see `create-schematic`
 in [sandbox lifecycle](sandboxes.md). A portable region still cannot represent
@@ -53,7 +60,8 @@ full-world metadata or replace the native `.wld` format.
 Native `schematic place` is now available from the console of an isolated sandbox
 with no connected clients. `plugin.World.Schematics.PlaceAsync` exposes the same
 operation with encoded data. The materializer supports tiles, NPCs (relative
-position, direction, name, home and life), native 40-slot chests, signs and all
+position, direction, name, home and life), native chests with 40–200 slots,
+signs and all
 eight typed v1 tile entities: training dummy, item frame, logic sensor, display
 doll, weapons rack, hat rack, food platter and teleportation pylon. It also
 materializes dropped world items through the native allocator for an idle
@@ -61,7 +69,9 @@ running sandbox. Each registered object requires a complete matching standard
 18-pixel framed footprint within the document; unsupported frame layouts,
 missing records, overlaps or invalid native inventory items are rejected.
 Native chest/sign registrations and tile entity IDs are assigned by the actual
-game APIs, not reconstructed from source-world slot IDs. Logic sensor record
+game APIs, not reconstructed from source-world slot IDs. Expanded native
+chests are resized through `Chest.Resize` before copying indexed items; empty
+trailing slots remain empty at the original capacity. Logic sensor record
 type/state must match its native tile frame; the native subsequent simulation
 may recalculate its state. Pylon types must be valid and unique across the
 target world and document. Dropped items require vacant reusable native item
@@ -108,16 +118,30 @@ with the chest, sign, item frame and NPC. Raw local evidence:
 `artifacts/bootstrap-isolated-477ee9ca/control-entities-642f3b` and
 `artifacts/bootstrap-isolated-477ee9ca/reloaded-entities-be6570`.
 
+The version 2 expanded chest fixture also runs actual native schematic sandbox
+creation, canonical save, start/stop/reset, separate server reload and export.
+An independently encoded 200-slot chest retained the name `BootChest`, Torch
+stacks 12, 23 and 17 at slots 0, 79 and 199, and empty intervening slots. Both
+source files remained unchanged, and reset restored the template fingerprint.
+Raw evidence is in `artifacts/account-npc-isolated-34301d9b/expanded-chest-smoke`.
+
 One file operation per world process is admitted at a time (import, export or
 inspect), bounding simultaneous detached document and codec buffers. Full game
 simulation and mutable native objects remain on the owning world thread.
 
 ## Next integration boundaries
 
-TerraRuntime `.trschem` v1 has a forty-item chest limit and no chest-capacity
-field. Vega refuses expanded/nonstandard native chest capacities on capture,
-rather than truncating them; use native `.wld` for those worlds, or a future
-versioned shared codec. Noncanonical object frame layouts not covered by the
+The v2 chest field is bounded by the pinned native maximum of 200 slots, with
+minimum 40, and the codec rejects a represented item count above capacity.
+Inconsistent or out-of-range native chest capacities reject capture rather
+than losing data. The native placement/capture fixture exercises the final
+expanded slot and the actual native `.wld` chest-section save/load APIs.
+Canonical chest item validation now uses the current size of the exact native
+registered chest opened by the player, up to 200 slots. Missing or inconsistent
+storage fails closed, and clients cannot alter the server-owned chest size.
+Expanded virtual chest presentation/transfer and stock graphical client
+gameplay qualification remain open.
+Noncanonical object frame layouts not covered by the
 verified native top-left/footprint checks are also rejected pending additional
 native fixtures. Comprehensive persistent-world qualification remains open.
 Dropped world items remain ephemeral under vanilla `.wld` persistence.

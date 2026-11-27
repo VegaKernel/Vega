@@ -53,11 +53,10 @@ public sealed class TerrariaSchematicCapture(IGameThreadDispatcher dispatcher) :
 
     private static SchematicChest CaptureChest(global::Terraria.Chest chest, SceneBounds bounds)
     {
-        // Native Terraria supports larger containers, but TerraRuntime .trschem v1
-        // stores only up to forty slots and does not encode chest capacity.
-        if (chest.maxItems != global::Terraria.Chest.DefaultMaxItems || chest.item.Length < chest.maxItems)
-            throw new SchematicFormatException("Expanded or nonstandard native chest capacity cannot be represented by .trschem v1; use a native .wld.");
-        return new(chest.x - bounds.X, chest.y - bounds.Y, chest.name ?? "", chest.item.Take(chest.maxItems).Select(Item).ToArray());
+        if (chest.maxItems is < SchematicLimits.DefaultChestCapacity or > SchematicLimits.MaxChestItems ||
+            chest.maxItems > global::Terraria.Chest.AbsoluteMaxItemsWeCanEverReachInAChestForNow || chest.item.Length != chest.maxItems)
+            throw new SchematicFormatException("Unsupported or inconsistent native chest capacity.");
+        return new(chest.x - bounds.X, chest.y - bounds.Y, chest.name ?? "", chest.item.Select(Item).ToArray()) { Capacity = chest.maxItems };
     }
 
     private static SchematicTileEntity CaptureEntity(TileEntity entity, SceneBounds bounds)

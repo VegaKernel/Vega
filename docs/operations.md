@@ -130,7 +130,7 @@ All `/v1/admin/...` routes require a separately configured **administration toke
 token fingerprints. Existing maintenance token privileges are unchanged; only the explicitly
 configured administration token can access account identities, authorization, moderation or
 sandbox administration. The administration token also permits ordinary read/maintenance actions.
-`GET /v1/admin/{accounts|groups|regions|bans|mutes|sandboxes}` returns the first page; append `/0`,
+`GET /v1/admin/{accounts|groups|regions|bans|mutes|sandboxes|sandboxTemplates}` returns the first page; append `/0`,
 `/1`, etc. for a page of up to 100 records with `page`, `nextPage` (or `null`) and `items`.
 Account records never include passwords or password hashes. Sandbox records exclude source/instance
 file paths and private endpoints. Regions are local to the listener's world; accounts, bans and mutes
@@ -161,14 +161,24 @@ Typed JSON `POST` routes (prefix `/v1/admin/`):
 | `mutes/add` | `kind` (`name`, `account`), `value`, `reason`, `durationSeconds` |
 | `mutes/revoke` | `id` (GUID), `revision` |
 | `sandboxes/start`, `sandboxes/stop`, `sandboxes/restart` | `worldId` |
+| `sandboxes/create` | `worldId`, `name`, `template`, `persistence` (`temporary`, `persistent`), `capacity`, `sscMode` (`inherit`, `copyOnEnter`, `isolated`, `disabled`) |
+| `sandboxes/reset` | `worldId`, `revision`, `createdAt`, `confirm` (`true`), `template` (nullable) |
+| `sandboxes/destroy` | `worldId`, `revision`, `createdAt`, `confirm` (`true`) |
 
 Revisions come from the latest catalog; stale writes return 409. Finite moderation durations
 must be between one second and 366 days. Unknown/duplicate fields, wrong types, missing fields and
 invalid values are rejected; all mutated records use the fixed actor `rest:administration` and normal
 domain validation/audit. Success returns 204, missing targets 404, invalid input 400, conflicts 409,
 unavailable worlds 503 and timeout/cancellation 504. Sandbox operations use their existing typed
-lifecycle authority and a 120-second operation deadline; they do not accept world paths or arbitrary
-commands. Template-based create/reset/destroy remain console operations. The HTTP body, account
+lifecycle authority and a 120-second operation deadline. Supply a `.wld` leaf filename listed in the
+`sandboxTemplates` catalog, from the operator-curated `data/sandboxes/rest-templates/` directory.
+Arbitrary source paths and reparse points are not accepted. REST creates managed public-access worlds
+with the normal automatic port and module defaults; external ownership and schematic-specific creation
+remain explicit console operations. Reset and destruction require confirmation against the current
+descriptor `revision` and `createdAt`, validated together under the lifecycle operation gate; this
+also prevents stale requests after destroying and recreating a world ID. Reset with `template: null`
+uses the existing retained template; replacement sources are limited to the curated catalog. Confirmed
+REST destruction rejects external worlds. The HTTP body, account
 passwords, ban identities and moderation reasons are not copied into the REST outcome log.
 
 `scripts/Measure-LiveVegaServer.ps1` samples readiness, actual connected-player count, p50/p95/p99 tick duration, GC/process/network counters and scheduler depth into a timestamped CSV through the local read API. Supply the read bearer token in `VEGA_REST_READ_TOKEN` in the measurement process. Its `-MinimumPlayers` gate fails qualification if any measured sample falls below the requested connected-player count; loopback transport peers alone do not count as in-game players.

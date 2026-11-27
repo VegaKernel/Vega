@@ -11,8 +11,30 @@ public static class SchematicSceneProjection
         SceneObserverScope observers, int layer = 0)
     {
         ArgumentNullException.ThrowIfNull(document);
-        document.Validate();
         ArgumentException.ThrowIfNullOrWhiteSpace(name);
+        if (document.Chests.Any(chest => chest.Capacity != SceneVirtualChestDefinition.SlotCount))
+            throw new SchematicFormatException("Expanded schematic chests require native placement; virtual preview supports forty slots only.");
+        var (tiles, bounds) = CreateMaterialization(document, x, y);
+        var chests = document.Chests.Select(chest => new SceneVirtualChestDefinition(VirtualChestId.New(), chest.X, chest.Y,
+            chest.Name, 1, chest.Items.Select((item, slot) => new ChestItemSnapshot(slot, item.ItemType, item.Stack, item.Prefix)).ToArray())).ToArray();
+        var signs = document.Signs.Select(sign => new SceneVirtualSignDefinition(VirtualSignId.New(), sign.X, sign.Y, sign.Text, 1)).ToArray();
+        var frames = document.TileEntities.OfType<SchematicItemFrameTileEntity>().Select(frame =>
+            new SceneVirtualItemFrameDefinition(VirtualItemFrameId.New(), frame.X, frame.Y, frame.Item.ItemType, frame.Item.Stack, frame.Item.Prefix, 1)).ToArray();
+        var displays = document.TileEntities.Select(ToDisplay).Where(display => display is not null).Select(display => display!).ToArray();
+        return new SceneOverlayDefinition(default, name.Trim(), bounds, layer, observers, tiles)
+        {
+            VirtualChests = Array.AsReadOnly(chests),
+            VirtualSigns = Array.AsReadOnly(signs),
+            VirtualItemFrames = Array.AsReadOnly(frames),
+            VirtualDisplays = Array.AsReadOnly(displays)
+        };
+    }
+
+    /// <summary>Prepare canonical placement tiles without constructing virtual chest or display projections.</summary>
+    public static (SceneTileArea Tiles, SceneBounds Bounds) CreateMaterialization(SchematicDocument document, int x, int y)
+    {
+        ArgumentNullException.ThrowIfNull(document);
+        document.Validate();
         if (x < 0 || y < 0) throw new ArgumentOutOfRangeException(nameof(x), "Placement must be non-negative.");
         _ = checked(x + document.Width);
         _ = checked(y + document.Height);
@@ -20,19 +42,7 @@ public static class SchematicSceneProjection
         {
             for (int i = 0; i < source.Length; i++) destination[i] = ToSceneTile(source[i]);
         });
-        var chests = document.Chests.Select(chest => new SceneVirtualChestDefinition(VirtualChestId.New(), chest.X, chest.Y,
-            chest.Name, 1, chest.Items.Select((item, slot) => new ChestItemSnapshot(slot, item.ItemType, item.Stack, item.Prefix)).ToArray())).ToArray();
-        var signs = document.Signs.Select(sign => new SceneVirtualSignDefinition(VirtualSignId.New(), sign.X, sign.Y, sign.Text, 1)).ToArray();
-        var frames = document.TileEntities.OfType<SchematicItemFrameTileEntity>().Select(frame =>
-            new SceneVirtualItemFrameDefinition(VirtualItemFrameId.New(), frame.X, frame.Y, frame.Item.ItemType, frame.Item.Stack, frame.Item.Prefix, 1)).ToArray();
-        var displays = document.TileEntities.Select(ToDisplay).Where(display => display is not null).Select(display => display!).ToArray();
-        return new SceneOverlayDefinition(default, name.Trim(), new(x, y, document.Width, document.Height), layer, observers, tiles)
-        {
-            VirtualChests = Array.AsReadOnly(chests),
-            VirtualSigns = Array.AsReadOnly(signs),
-            VirtualItemFrames = Array.AsReadOnly(frames),
-            VirtualDisplays = Array.AsReadOnly(displays)
-        };
+        return (tiles, new(x, y, document.Width, document.Height));
     }
 
     private static SceneVirtualDisplayDefinition? ToDisplay(SchematicTileEntity entity)

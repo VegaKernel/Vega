@@ -405,6 +405,21 @@ public sealed partial class TerrariaPlayerBoundary :
 		return true;
 	}
 
+	public bool TryGetChestCapacity(int chestId, out int capacity)
+	{
+		capacity = 0;
+		// Read only on the owning thread, where the native chest registry cannot
+		// be concurrently replaced between the policy check and vanilla handling.
+		if (!dispatcher.IsGameThread) return false;
+		global::Terraria.Chest?[] chests = global::Terraria.Main.chest;
+		if ((uint)chestId >= (uint)chests.Length || chests[chestId] is not { } chest || chest.index != chestId ||
+			!NativeChestCapacity.IsSupported(chest.maxItems) || chest.maxItems > global::Terraria.Chest.AbsoluteMaxItemsWeCanEverReachInAChestForNow ||
+			chest.item is not { } items || items.Length != chest.maxItems || global::Terraria.Chest.FindChest(chest.x, chest.y) != chestId)
+			return false;
+		capacity = chest.maxItems;
+		return true;
+	}
+
 	public bool TryGetTileEntityPosition(int tileEntityId, out WorldTilePosition position)
 	{
 		if (!global::Terraria.DataStructures.TileEntity.ByID.TryGetValue(

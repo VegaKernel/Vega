@@ -29,7 +29,10 @@ public sealed class MixedGameplayBenchmark : VegaPlugin
     protected override void Configure(IVegaPluginContext plugin)
     {
         if (Environment.GetEnvironmentVariable("VEGA_SYNTHETIC_BENCHMARK") == "1")
+        {
             plugin.Commands.Register(new RunCommand(plugin));
+            plugin.Commands.Register(new FullWorldMixedCommand(plugin));
+        }
     }
 
     private sealed class RunCommand(IVegaPluginContext plugin) : ICommandHandler

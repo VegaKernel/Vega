@@ -1,6 +1,7 @@
 using Multiplicity.Packets;
 using Multiplicity.Packets.Views;
 using Vega.Contracts.Networking;
+using Vega.Contracts.Worlds;
 
 namespace Vega.Core.Networking;
 
@@ -18,7 +19,6 @@ public sealed class WorldMutationSanityPolicy(
     int prefixCount,
     int paintColorCount = 32) : IPacketProcessor<PacketView>
 {
-    private const int MaximumChestSlots = 40;
     private const int MaximumStack = 9_999;
 
     public PacketProcessingDecision Process(scoped in PacketProcessingContext<PacketView> context)
@@ -197,7 +197,7 @@ public sealed class WorldMutationSanityPolicy(
             return id;
         }
 
-        if (value.ItemSlot >= MaximumChestSlots)
+        if (!IsNativeChestSlot(value.ItemSlot))
         {
             return PacketProcessingDecision.Violation("packet.chest.slot_out_of_range");
         }
@@ -216,6 +216,8 @@ public sealed class WorldMutationSanityPolicy(
             ? PacketProcessingDecision.Violation("packet.chest.prefix_out_of_range")
             : PacketProcessingDecision.Allow;
     }
+
+    internal static bool IsNativeChestSlot(int slot) => (uint)slot < NativeChestCapacity.Maximum;
 
     private PacketProcessingDecision ValidateChestOpen(ChestOpenView value)
     {
@@ -254,7 +256,7 @@ public sealed class WorldMutationSanityPolicy(
             return id;
         }
 
-        return value.NewSize is < 0 or > MaximumChestSlots
+        return !NativeChestCapacity.IsSupported(value.NewSize)
             ? PacketProcessingDecision.Violation("packet.chest.size_out_of_range")
             : PacketProcessingDecision.Allow;
     }

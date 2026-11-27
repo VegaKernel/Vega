@@ -10,6 +10,8 @@ public interface IPluginFakeProvider
     bool IsAvailable { get; }
     bool SupportsVirtualChests => false;
     bool SupportsVirtualChestTransfers => false;
+    bool SupportsManagedVirtualChestGui => false;
+    bool SupportsManagedDisplayInteractions => false;
     bool SupportsVirtualSigns => false;
     bool SupportsVirtualSignEdits => false;
     bool SupportsVirtualSignUi => false;
@@ -60,6 +62,12 @@ public interface IPluginVirtualChest : IDisposable
     bool TryTakeOpenRequest(out SceneVirtualChestOpenRequest? request);
     /// <summary>Requires a current interaction and the native inventory revision. Invoke on the game thread (Tasks.Post).</summary>
     SceneVirtualChestTransferResult Transfer(SceneVirtualChestTransferRequest request) => new(VirtualChestTransferStatus.Unavailable);
+    /// <summary>Opt an exact session into server-managed inventory until disconnect and present its stock chest GUI.</summary>
+    bool TryPresentManagedGui(SceneVirtualChestOpenRequest open) => false;
+    bool TryTakeManagedGuiTransfer(out SceneVirtualChestGuiTransferIntent? intent) { intent = null; return false; }
+    SceneVirtualChestTransferResult AcceptManagedGuiTransfer(SceneVirtualChestGuiTransferIntent intent) => new(VirtualChestTransferStatus.Unavailable);
+    bool RejectManagedGuiTransfer(SceneVirtualChestGuiTransferIntent intent) => false;
+    bool TryCloseManagedGui(SceneSessionObserver observer) => false;
 }
 
 /// <summary>Scoped entity visibility lease. NPC/projectile IDs remain native slot identities.</summary>
@@ -88,6 +96,8 @@ internal static partial class VegaPluginRuntime
         public bool IsAvailable { get { lock (sync) return !disposed && Services.Scenes is not null; } }
         public bool SupportsVirtualChests { get { lock (sync) return !disposed && Services.Scenes?.SupportsVirtualChests == true; } }
         public bool SupportsVirtualChestTransfers { get { lock (sync) return !disposed && Services.Scenes is IVirtualChestTransferAuthority && Services.Inventory is IVirtualChestInventoryTransfer; } }
+        public bool SupportsManagedVirtualChestGui { get { lock (sync) return !disposed && Services.Scenes is IVirtualChestGuiAuthority && Services.Inventory is IVirtualChestGuiHost; } }
+        public bool SupportsManagedDisplayInteractions { get { lock (sync) return !disposed && Services.Scenes is IManagedDisplayAuthority && Services.Inventory is IManagedDisplayInventoryHost; } }
         public bool SupportsVirtualSigns { get { lock (sync) return !disposed && Services.Scenes?.SupportsVirtualSigns == true; } }
         public bool SupportsVirtualSignEdits { get { lock (sync) return !disposed && Services.Scenes?.SupportsVirtualSignEdits == true; } }
         public bool SupportsVirtualSignUi { get { lock (sync) return !disposed && Services.Scenes?.SupportsVirtualSignUi == true; } }
@@ -277,7 +287,7 @@ internal static partial class VegaPluginRuntime
                 }
             }
 
-            private sealed class VirtualChest(TileProvider provider, VirtualChestId id) : IPluginVirtualChest
+            private sealed partial class VirtualChest(TileProvider provider, VirtualChestId id) : IPluginVirtualChest
             {
                 private int disposed;
                 public VirtualChestId Id => id;
@@ -316,14 +326,19 @@ internal static partial class VegaPluginRuntime
                 if (Services.Inventory is not IVirtualChestInventoryTransfer transfer)
                     return new SceneVirtualChestTransferResult(VirtualChestTransferStatus.Unavailable);
                 var result = transfer.TransferVirtualChest(sceneRuntime, request);
+                ApplyCommittedChestResult(id, result);
+                return result;
+            });
+
+            private void ApplyCommittedChestResult(VirtualChestId id, SceneVirtualChestTransferResult result)
+            {
                 if (result.Status == VirtualChestTransferStatus.Applied && result.Chest is { } updated)
                 {
                     // The runtime already published this revision as part of the native transaction.
                     var chests = definition.VirtualChests.Select(chest => chest.Id == id ? updated : chest).ToArray();
                     definition = definition with { VirtualChests = Array.AsReadOnly(chests) };
                 }
-                return result;
-            });
+            }
 
             private void Update(Func<SceneOverlayDefinition, SceneOverlayDefinition> edit) => Mutate(() =>
             {

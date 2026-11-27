@@ -27,6 +27,21 @@ public sealed class NetworkSchedulingTests
         Assert.That(ServerNetworkOptions.Normalize(new() { OrderedBatchRequests = 4 }).OrderedBatchRequests, Is.EqualTo(4));
     }
     [Test]
+    public void ProducerBatchingRequiresOrderedDeferredWakeAndMoreThanOneRequest()
+    {
+        Assert.That(new ServerNetworkOptions().OrderedProducerBatching, Is.False);
+        Assert.That(ServerNetworkOptions.Normalize(new() { OrderedProducerBatching = true }).OrderedProducerBatching, Is.False);
+        var enabled = new ServerNetworkOptions { UseOrderedTcp = true, OrderedDeferredWake = true, OrderedProducerBatching = true };
+        Assert.That(ServerNetworkOptions.Normalize(enabled).OrderedProducerBatching, Is.True);
+        Assert.That(ServerNetworkOptions.Normalize(enabled with { UseOrderedTcp = false }).OrderedProducerBatching, Is.False);
+        Assert.That(ServerNetworkOptions.Normalize(enabled with { OrderedDeferredWake = false }).OrderedProducerBatching, Is.False);
+        Assert.That(ServerNetworkOptions.Normalize(enabled with { OrderedBatchRequests = 1 }).OrderedProducerBatching, Is.False);
+        Assert.That(() => new NativeTcpTransportOptions { ProducerBatching = true, MaxBatchRequests = 16 }.Validate(), Throws.TypeOf<ArgumentOutOfRangeException>());
+        Assert.That(() => new NativeTcpTransportOptions { ProducerBatching = true, DeferWriterWake = true }.Validate(), Throws.TypeOf<ArgumentOutOfRangeException>());
+        Assert.That(() => new NativeTcpTransportOptions { ProducerBatching = true, DeferWriterWake = true, MaxBatchRequests = 16 }.Validate(), Throws.Nothing);
+    }
+
+    [Test]
     public void YieldingWorkRunsAtMostOncePerTickAndRetainsItsQueueReservation()
     {
         using var dispatcher = new TerrariaRuntimeGameThreadDispatcher(1, 128, TimeSpan.FromSeconds(1));

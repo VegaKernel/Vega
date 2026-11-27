@@ -248,13 +248,16 @@ public sealed class PluginSdkWorldContextTests
                 Assert.That(bounds, Is.EqualTo(new SceneBounds(50, 60, 2, 2)));
                 Assert.That(document.Npcs.Single().NpcType, Is.EqualTo(22));
                 Assert.That(document.WorldItems.Single().Item, Is.EqualTo(new SchematicItemStack(8, 1)));
+                Assert.That(document.Chests.Single().Capacity, Is.EqualTo(80));
+                Assert.That(document.Chests.Single().Items[79], Is.EqualTo(new SchematicItemStack(8, 2)));
                 return new(WorldSchematicPlacementStatus.Applied, document.Npcs.Length);
             });
         byte[] Encode(bool unsupported) => SchematicBinary.Serialize(new SchematicDocument
         {
             ContentVersion = 279, Width = 2, Height = 2,
             Tiles = [default(SchematicTile) with { Shape = unsupported ? (byte)6 : (byte)0 }, default, default, default],
-            Npcs = [new(22, 16, 16)], WorldItems = [new(new(8, 1), 0, 0)]
+            Npcs = [new(22, 16, 16)], WorldItems = [new(new(8, 1), 0, 0)],
+            Chests = [new(0, 0, "Expanded", Enumerable.Repeat(default(SchematicItemStack), 79).Append(new(8, 2)).ToArray()) { Capacity = 80 }]
         });
         Assert.That((await service.PlaceAsync(WorldId.Primary, Encode(false), 50, 60)).Status, Is.EqualTo(WorldSchematicPlacementStatus.Unavailable));
         Assert.That((await service.PlaceAsync(world, Encode(true), 50, 60)).Status, Is.EqualTo(WorldSchematicPlacementStatus.Invalid));

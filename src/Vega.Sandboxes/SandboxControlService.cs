@@ -96,7 +96,15 @@ public sealed class SandboxControlService : ISandboxControlService
                 return string.Equals(existing.Descriptor.DisplayName, request.DisplayName.Trim(), StringComparison.Ordinal) &&
                        string.Equals(existing.Descriptor.SourceWorldPath, requestedSource, StringComparison.OrdinalIgnoreCase) &&
                        existing.Descriptor.Persistence == request.Persistence &&
-                       existing.Descriptor.PlayerCapacity == request.PlayerCapacity
+                       existing.Descriptor.PlayerCapacity == request.PlayerCapacity &&
+                       existing.Descriptor.SscMode == request.SscMode &&
+                       existing.Descriptor.Access.Mode == request.Access.Mode &&
+                       string.Equals(existing.Descriptor.Access.Permission, request.Access.Permission, StringComparison.OrdinalIgnoreCase) &&
+                       (existing.Descriptor.Access.AllowedAccounts ?? new HashSet<string>()).SetEquals(request.Access.AllowedAccounts ?? new HashSet<string>()) &&
+                       existing.Descriptor.EnabledModules.SetEquals(request.EnabledModules) &&
+                       existing.Descriptor.IdleTimeToLive == (request.IdleTimeToLive ?? (request.Persistence == SandboxPersistenceMode.Temporary
+                           ? TimeSpan.FromMinutes(options.DefaultIdleTtlMinutes) : null)) &&
+                       (request.ListenerPort is null || existing.Descriptor.ListenerPort == request.ListenerPort)
                     ? Already(existing, $"Sandbox '{worldId}' already exists with the requested descriptor.")
                     : Conflict("sandbox.exists", $"Sandbox '{worldId}' already exists with a different descriptor.");
             }
@@ -241,16 +249,25 @@ public sealed class SandboxControlService : ISandboxControlService
         }
     }
 
-    public async ValueTask<SandboxOperationResult> ResetAsync(
+    public ValueTask<SandboxOperationResult> ResetAsync(
         WorldId worldId,
         string? replacementSource = null,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default) => ResetCoreAsync(worldId, replacementSource, null, cancellationToken);
+
+    public ValueTask<SandboxOperationResult> ResetConfirmedAsync(WorldId worldId, long expectedRevision, DateTimeOffset expectedCreatedAt,
+        string? replacementSource = null, CancellationToken cancellationToken = default) =>
+        ResetCoreAsync(worldId, replacementSource, (expectedRevision, expectedCreatedAt), cancellationToken);
+
+    private async ValueTask<SandboxOperationResult> ResetCoreAsync(WorldId worldId, string? replacementSource,
+        (long Revision, DateTimeOffset CreatedAt)? expected, CancellationToken cancellationToken)
     {
         ThrowIfDisposed();
         await operationGate.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
         {
             if (!TryGet(worldId, out RuntimeState? state)) return NotFound(worldId);
+            if (expected is { } identity && (state.Descriptor.Revision != identity.Revision || state.Descriptor.CreatedAt != identity.CreatedAt))
+                return Conflict("sandbox.revision_conflict", "The observed sandbox descriptor has changed.");
             if (state.Descriptor.Persistence == SandboxPersistenceMode.External)
             {
                 return Rejected("sandbox.external_reset", "Externally managed worlds cannot be reset by Vega.");
@@ -289,15 +306,28 @@ public sealed class SandboxControlService : ISandboxControlService
         }
     }
 
-    public async ValueTask<SandboxOperationResult> DestroyAsync(
+    public ValueTask<SandboxOperationResult> DestroyAsync(
         WorldId worldId,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default) => DestroyCoreAsync(worldId, null, cancellationToken);
+
+    public ValueTask<SandboxOperationResult> DestroyConfirmedAsync(WorldId worldId, long expectedRevision, DateTimeOffset expectedCreatedAt,
+        CancellationToken cancellationToken = default) => DestroyCoreAsync(worldId, (expectedRevision, expectedCreatedAt), cancellationToken);
+
+    private async ValueTask<SandboxOperationResult> DestroyCoreAsync(WorldId worldId,
+        (long Revision, DateTimeOffset CreatedAt)? expected, CancellationToken cancellationToken)
     {
         ThrowIfDisposed();
         await operationGate.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
         {
             if (!TryGet(worldId, out RuntimeState? state)) return NotFound(worldId);
+            if (expected is { } identity)
+            {
+                if (state.Descriptor.Revision != identity.Revision || state.Descriptor.CreatedAt != identity.CreatedAt)
+                    return Conflict("sandbox.revision_conflict", "The observed sandbox descriptor has changed.");
+                if (state.Descriptor.Persistence == SandboxPersistenceMode.External)
+                    return Rejected("sandbox.external_destroy", "Confirmed management only applies to Vega-owned sandbox instances.");
+            }
             SandboxOperationResult stopped = await StopCoreAsync(worldId, false, cancellationToken).ConfigureAwait(false);
             if (!stopped.IsSuccess) return stopped;
             state.State = SandboxLifecycleState.Destroying;

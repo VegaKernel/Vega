@@ -4,6 +4,7 @@ using Terraria.DataStructures;
 using Terraria.ID;
 using Terraria.Localization;
 using TerrariaRuntime;
+using Vega.Contracts.Accounts;
 using Vega.Contracts.Operations;
 using Vega.Contracts.Players;
 using Vega.Contracts.Threading;
@@ -15,9 +16,17 @@ using Vega.Terraria.Players;
 namespace Vega.Terraria.Worlds;
 
 /// <summary>Owns plugin actors while leaving normal Terraria NPC state and motion integration native.</summary>
-public sealed class TerrariaNpcActorService(IGameThreadDispatcher dispatcher, WorldId worldId,
-    TerrariaPlayerBoundary? players, IWorldGameplayEvents events, IOperationsLogger logger) : IWorldNpcActorService, IDisposable
+public sealed partial class TerrariaNpcActorService(IGameThreadDispatcher dispatcher, WorldId worldId,
+    TerrariaPlayerBoundary? players, IWorldGameplayEvents events, IOperationsLogger logger,
+    IPlayerAccountSessionService? accountSessions = null, INpcQuestProgressStore? questStore = null,
+    INpcEconomyProvider? economy = null, Func<PlayerSnapshot, bool>? inventoryReadiness = null,
+    Func<PlayerSnapshot, PlayerAccountBinding, CancellationToken, ValueTask<bool>>? inventoryCheckpoint = null) : IWorldNpcActorService, IDisposable
 {
+    private readonly IPlayerAccountSessionService? accounts = accountSessions;
+    private readonly INpcQuestProgressStore? persistentQuests = questStore;
+    private readonly INpcEconomyProvider? economyProvider = economy;
+    private readonly Func<PlayerSnapshot, bool>? sscReady = inventoryReadiness;
+    private readonly Func<PlayerSnapshot, PlayerAccountBinding, CancellationToken, ValueTask<bool>>? persistInventory = inventoryCheckpoint;
     private readonly WorldId ownedWorld = worldId;
     private readonly Actor?[] bySlot = new Actor[global::Terraria.Main.maxNPCs];
     private readonly long[] conversationEpoch = new long[global::Terraria.Main.maxPlayers];
@@ -37,7 +46,10 @@ public sealed class TerrariaNpcActorService(IGameThreadDispatcher dispatcher, Wo
         dispatcher.AssertGameThread();
         if (disposed || requestedWorld != ownedWorld) return new(NpcOperationStatus.DispatcherUnavailable);
         if (definition is null || definition.BaseType <= 0 || definition.BaseType >= NPCID.Count ||
-            !ValidName(definition.Name) || !ValidPosition(position) || !ValidShop(definition.Shop) || !ValidQuests(definition.Quests))
+            !ValidName(definition.Name) || !ValidPosition(position) || !ValidShop(definition.Shop) || !ValidQuests(definition.Quests) ||
+            definition.PersistentQuestScope is { } questScope && (!NpcAccountScope.IsValidName(questScope) || accounts is null || persistentQuests is null) ||
+            definition.EconomyScope is { } economyScope && (!NpcAccountScope.IsValidName(economyScope) || accounts is null || economyProvider is null) ||
+            definition.EconomyScope is null && UsesEconomy(definition.Shop))
             return new(NpcOperationStatus.Invalid, ErrorCode: "npc.actor_invalid_definition");
 
         Span<bool> occupied = stackalloc bool[bySlot.Length];
@@ -77,6 +89,7 @@ public sealed class TerrariaNpcActorService(IGameThreadDispatcher dispatcher, Wo
     private static bool ValidShop(NpcShopCatalog? shop) => shop is null ||
         shop.Offers.All(offer => TryCreateOfferPrototype(offer, out _) &&
             (offer.ItemPrice is not { } currency || TryCreateItemPrototype(currency.ItemType, currency.Prefix, out _)));
+    private static bool UsesEconomy(NpcShopCatalog? shop) => shop?.Offers.Any(offer => offer.EconomyPrice is not null) == true;
 
     private static bool ValidQuests(NpcQuestCatalog? quests) => quests is null || quests.Quests.All(quest =>
         TryCreateItemPrototype(quest.Required.ItemType, quest.Required.Prefix, out _) &&
@@ -289,6 +302,8 @@ public sealed class TerrariaNpcActorService(IGameThreadDispatcher dispatcher, Wo
         return false;
     }
 
+    private bool HasLiveSession(PlayerSnapshot expected) => players?.TryGetSessionPlayer(expected, out _) == true;
+
     private NpcDialogueResult BeginDialogue(Actor actor, PlayerSnapshot expected)
     {
         if (!IsCurrent(actor)) return new(NpcDialogueStatus.ActorGone);
@@ -364,7 +379,7 @@ public sealed class TerrariaNpcActorService(IGameThreadDispatcher dispatcher, Wo
     {
         // The stock multiplayer client ignores SyncEquipment for its own unlocked inventory
         // unless the server advertised SSC. Do not debit or consume stock when the client owns it.
-        if (global::Terraria.Main.netMode == 2 && !global::Terraria.Main.ServerSideCharacter)
+        if (!HasInventoryAuthority(expected))
             return NpcShopPurchaseStatus.InventoryAuthorityRequired;
         if (live.inventory.Length < NpcShopPurchasePlan.Slots) return NpcShopPurchaseStatus.InvalidInventory;
         var original = new NpcShopPurchasePlan.Slot[NpcShopPurchasePlan.Slots];
@@ -397,7 +412,7 @@ public sealed class TerrariaNpcActorService(IGameThreadDispatcher dispatcher, Wo
             item.stack = target.Stack;
             replacements.Add((i, item));
         }
-        if (!IsCurrent(actor) || players?.TryGetSessionPlayer(expected, out var current) != true ||
+        if (!IsCurrent(actor) || !HasInventoryAuthority(expected) || players?.TryGetSessionPlayer(expected, out var current) != true ||
             !ReferenceEquals(live, current) || !HasConversation(actor, expected, live) || !stillCurrent()) return NpcShopPurchaseStatus.InventoryChanged;
         for (int i = 0; i < original.Length; i++)
             if (NpcShopPurchasePlan.Snapshot(live.inventory[i]) != original[i]) return NpcShopPurchaseStatus.InventoryChanged;
@@ -420,6 +435,9 @@ public sealed class TerrariaNpcActorService(IGameThreadDispatcher dispatcher, Wo
         return NpcShopPurchaseStatus.Committed;
     }
 
+    private bool HasInventoryAuthority(PlayerSnapshot expected) => global::Terraria.Main.netMode != 2 ||
+        global::Terraria.Main.ServerSideCharacter && (sscReady?.Invoke(expected) ?? true);
+
     internal static byte[] EncodeShop(NpcShopCatalog catalog, IReadOnlySet<string>? soldOut = null)
     {
         using var stream = new MemoryStream(NpcShopCatalog.MaximumOffers * 14);
@@ -428,7 +446,7 @@ public sealed class TerrariaNpcActorService(IGameThreadDispatcher dispatcher, Wo
         for (byte i = 0; i < NpcShopCatalog.MaximumOffers; i++)
         {
             NpcShopOffer offer = i < catalog.Offers.Count ? catalog.Offers[i] : default;
-            if (offer.ItemPrice is not null || offer.Id is not null && soldOut?.Contains(offer.Id) == true) offer = default;
+            if (offer.ItemPrice is not null || offer.EconomyPrice is not null || offer.Id is not null && soldOut?.Contains(offer.Id) == true) offer = default;
             packet.Slot = i;
             packet.ItemType = offer.ItemType;
             packet.Stack = offer.Stack;
@@ -520,7 +538,8 @@ public sealed class TerrariaNpcActorService(IGameThreadDispatcher dispatcher, Wo
         public ValueTask<NpcActorSnapshot?> CaptureAsync(CancellationToken cancellationToken = default) => owner.Dispatch<NpcActorSnapshot?>(() =>
             owner.IsCurrent(this) ? new NpcActorSnapshot(Id, owner.Snapshot(this), Native.GivenName, Intent.Kind, Shop, ShopRevision)
                 { SoldOutOffers = Array.AsReadOnly(SoldOut.ToArray()), Dialogue = Interactions.Dialogue,
-                    Quests = Interactions.Quests, QuestRevision = Interactions.QuestRevision } : null,
+                    Quests = Interactions.Quests, QuestRevision = Interactions.QuestRevision,
+                    PersistentQuestScope = Definition.PersistentQuestScope, EconomyScope = Definition.EconomyScope } : null,
             null, cancellationToken);
         public ValueTask<bool> RenameAsync(string name, CancellationToken cancellationToken = default) => owner.Dispatch(() =>
         {
@@ -555,7 +574,8 @@ public sealed class TerrariaNpcActorService(IGameThreadDispatcher dispatcher, Wo
         }, false, cancellationToken);
         public ValueTask<bool> SetShopAsync(NpcShopCatalog? shop, CancellationToken cancellationToken = default) => owner.Dispatch(() =>
         {
-            if (!owner.IsCurrent(this) || !ValidShop(shop) || shop is not null && !Native.townNPC) return false;
+            if (!owner.IsCurrent(this) || !ValidShop(shop) || shop is not null && !Native.townNPC ||
+                Definition.EconomyScope is null && UsesEconomy(shop)) return false;
             Shop = shop;
             SoldOut.Clear();
             InvalidateShopPresentation();
@@ -564,8 +584,14 @@ public sealed class TerrariaNpcActorService(IGameThreadDispatcher dispatcher, Wo
         public ValueTask<NpcShopPresentationStatus> PresentShopAsync(PlayerSnapshot player, CancellationToken cancellationToken = default) =>
             owner.Dispatch(() => owner.PresentShop(this, player), NpcShopPresentationStatus.Unavailable, cancellationToken);
         public ValueTask<NpcShopPurchaseResult> PurchaseAsync(PlayerSnapshot player, string offerId, long expectedShopRevision,
-            CancellationToken cancellationToken = default) => owner.Dispatch(() => owner.Purchase(this, player, offerId, expectedShopRevision),
+            CancellationToken cancellationToken = default) => Definition.EconomyScope is not null
+                ? owner.PurchaseWithEconomyAsync(this, player, offerId, expectedShopRevision, null, cancellationToken)
+                : owner.Dispatch(() => owner.Purchase(this, player, offerId, expectedShopRevision),
                 new NpcShopPurchaseResult(NpcShopPurchaseStatus.Unavailable), cancellationToken);
+        public ValueTask<NpcShopPurchaseResult> PurchaseCurrencyAsync(PlayerSnapshot player, string offerId, long expectedShopRevision,
+            Guid operationId, CancellationToken cancellationToken = default) => Definition.EconomyScope is not null && operationId != Guid.Empty
+                ? owner.PurchaseWithEconomyAsync(this, player, offerId, expectedShopRevision, operationId, cancellationToken)
+                : ValueTask.FromResult(new NpcShopPurchaseResult(NpcShopPurchaseStatus.InvalidOffer));
         public ValueTask<bool> SetDialogueAsync(NpcDialogueDefinition? dialogue, CancellationToken cancellationToken = default) => owner.Dispatch(() =>
         {
             if (!owner.IsCurrent(this)) return false;
@@ -584,14 +610,23 @@ public sealed class TerrariaNpcActorService(IGameThreadDispatcher dispatcher, Wo
             return true;
         }, false, cancellationToken);
         public ValueTask<IReadOnlyList<NpcQuestView>> GetQuestsAsync(PlayerSnapshot player, CancellationToken cancellationToken = default) =>
-            owner.Dispatch<IReadOnlyList<NpcQuestView>>(() => owner.IsCurrent(this) && owner.TryConversation(this, player, out _)
+            Definition.PersistentQuestScope is not null ? owner.GetPersistentQuestsAsync(this, player, cancellationToken) :
+                owner.Dispatch<IReadOnlyList<NpcQuestView>>(() => owner.IsCurrent(this) && owner.TryConversation(this, player, out _)
                 ? Interactions.GetQuests(player) : [], [], cancellationToken);
         public ValueTask<NpcQuestResult> AcceptQuestAsync(PlayerSnapshot player, string questId, long expectedCatalogRevision,
-            CancellationToken cancellationToken = default) => owner.Dispatch(() => owner.AcceptQuest(this, player, questId, expectedCatalogRevision),
+            CancellationToken cancellationToken = default) => Definition.PersistentQuestScope is not null
+                ? owner.AcceptPersistentQuestAsync(this, player, questId, expectedCatalogRevision, cancellationToken)
+                : owner.Dispatch(() => owner.AcceptQuest(this, player, questId, expectedCatalogRevision),
                 new NpcQuestResult(NpcQuestStatus.Unavailable), cancellationToken);
         public ValueTask<NpcQuestResult> TurnInQuestAsync(PlayerSnapshot player, string questId, long expectedCatalogRevision,
-            CancellationToken cancellationToken = default) => owner.Dispatch(() => owner.TurnInQuest(this, player, questId, expectedCatalogRevision),
+            CancellationToken cancellationToken = default) => Definition.PersistentQuestScope is not null
+                ? owner.TurnInPersistentQuestAsync(this, player, questId, expectedCatalogRevision, cancellationToken)
+                : owner.Dispatch(() => owner.TurnInQuest(this, player, questId, expectedCatalogRevision),
                 new NpcQuestResult(NpcQuestStatus.Unavailable), cancellationToken);
+        public ValueTask<NpcEconomyBalanceResult> GetCurrencyBalanceAsync(PlayerSnapshot player, string currencyId, CancellationToken cancellationToken = default) =>
+            owner.CurrencyBalanceAsync(this, player, currencyId, cancellationToken);
+        public ValueTask<NpcEconomyBalanceResult> CreditCurrencyAsync(PlayerSnapshot player, NpcEconomyPrice amount, Guid operationId,
+            CancellationToken cancellationToken = default) => owner.CreditCurrencyAsync(this, player, amount, operationId, cancellationToken);
         public void Dispose()
         {
             if (Interlocked.Exchange(ref retirement, 1) == 0) owner.Retire(this);

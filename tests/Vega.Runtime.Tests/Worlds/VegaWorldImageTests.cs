@@ -82,7 +82,64 @@ public sealed class VegaWorldImageTests
     }
 
     [Test]
-    public void RuntimeSnapshotPublishesLiquidStateBoundToCanonicalSource()
+    [NonParallelizable]
+    public async Task NativeSnapshotEncodesDetachedRunsOnWorkerAndPreservesExactLegacyBytes()
+    {
+        using var directory = new TemporaryDirectory();
+        string sourcePath = Path.Combine(directory.Path, "snapshot.wld");
+        File.WriteAllBytes(sourcePath, [1, 2, 3]);
+        var oldTiles = global::Terraria.Main.tile;
+        int oldX = global::Terraria.Main.maxTilesX, oldY = global::Terraria.Main.maxTilesY;
+        int oldLiquid = global::Terraria.Liquid.numLiquid, oldBuffer = global::Terraria.LiquidBuffer.numLiquidBuffer;
+        try
+        {
+            const int width = 3, height = 5;
+            var native = new PagedNativeTileCollection(width, height);
+            global::Terraria.Main.tile = native;
+            global::Terraria.Main.maxTilesX = width;
+            global::Terraria.Main.maxTilesY = height;
+            global::Terraria.Liquid.numLiquid = global::Terraria.LiquidBuffer.numLiquidBuffer = 0;
+            for (int x = 0; x < width; x++)
+                for (int y = 0; y < height; y++)
+                    native[x, y] = new global::Terraria.Tile { type = (ushort)(x + (y < 3 ? 1 : 2)), wall = 4 };
+            using var expected = new MemoryStream();
+            using (var writer = new BinaryWriter(expected, Encoding.UTF8, leaveOpen: true))
+            {
+                writer.Write(1); writer.Write(0); writer.Write(width); writer.Write(width * 2);
+                for (int x = 0; x < width; x++)
+                {
+                    WriteRun(native[x, 0], 2); WriteRun(native[x, 3], 1);
+                }
+                void WriteRun(global::Terraria.ITile tile, ushort run)
+                {
+                    writer.Write(tile.type); writer.Write(tile.wall); writer.Write(tile.liquid); writer.Write(tile.sTileHeader);
+                    writer.Write(tile.bTileHeader); writer.Write(tile.bTileHeader2); writer.Write(tile.bTileHeader3);
+                    writer.Write(tile.frameX); writer.Write(tile.frameY); writer.Write(run);
+                }
+            }
+            var snapshot = WorldImageRuntimeSnapshot.Capture(sourcePath);
+            Assert.That(snapshot.TileRuns, Is.Empty, "Live capture must not materialize the binary section on the world thread.");
+            Assert.That(snapshot.TileBytes, Is.EqualTo(expected.Length));
+            for (int x = 0; x < width; x++) for (int y = 0; y < height; y++) native[x, y].type = 99;
+            byte[] actual = await Task.Run(() =>
+            {
+                using var output = new MemoryStream(); snapshot.WriteTileRuns(output); return output.ToArray();
+            });
+            Assert.That(actual, Is.EqualTo(expected.ToArray()));
+        }
+        finally
+        {
+            global::Terraria.Main.tile = oldTiles;
+            global::Terraria.Main.maxTilesX = oldX;
+            global::Terraria.Main.maxTilesY = oldY;
+            global::Terraria.Liquid.numLiquid = oldLiquid;
+            global::Terraria.LiquidBuffer.numLiquidBuffer = oldBuffer;
+        }
+    }
+
+    [TestCase(false)]
+    [TestCase(true)]
+    public void RuntimeSnapshotPublishesLiquidStateBoundToCanonicalSource(bool native329)
     {
         using var directory = new TemporaryDirectory();
         string sourcePath = Path.Combine(directory.Path, "world.wld");
@@ -96,6 +153,13 @@ public sealed class VegaWorldImageTests
             checked((int)fileManifest.TileRuns.Offset),
             checked((int)fileManifest.TileRuns.Length)).ToArray();
         byte[] liquidState = CreateEmptyLiquidState();
+        if (native329)
+        {
+            byte[] source = File.ReadAllBytes(sourcePath);
+            System.Buffers.Binary.BinaryPrimitives.WriteInt32LittleEndian(source, 329);
+            File.WriteAllBytes(sourcePath, source);
+            Assert.Throws<InvalidDataException>(() => VegaWorldImageCompiler.Build(sourcePath, imagePath));
+        }
         var runtimeSnapshot = new WorldImageRuntimeSnapshot(
             VegaWorldImageReader.HashFile(sourcePath),
             4,

@@ -4,6 +4,7 @@
   "useOrderedTcp": false,
   "orderedQueueDiagnostics": false,
   "orderedDeferredWake": false,
+  "orderedProducerBatching": false,
   "orderedDeferredWakeMilliseconds": 1,
   "distantMovementUpdatesPerSecond": 0,
   "orderedCallbacksPerPass": 8192,

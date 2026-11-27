@@ -41,7 +41,8 @@ internal static class SchematicValidator
             ArgumentNullException.ThrowIfNull(chest);
             ValidateTilePosition(chest.X, chest.Y, document.Width, document.Height, "chest");
             ValidateString(chest.Name, SchematicLimits.MaxChestNameUtf8Bytes, allowNull: false, "chest name");
-            ValidateItems(chest.Items, SchematicLimits.MaxChestItems, allowEmpty: true, "chest");
+            ValidateChestCapacity(chest.Capacity);
+            ValidateItems(chest.Items, chest.Capacity, allowEmpty: true, "chest");
         }
 
         ValidateCount(document.Signs.Length, SchematicLimits.MaxSigns, "signs");
@@ -135,6 +136,12 @@ internal static class SchematicValidator
             ValidateString(entry.Key, SchematicLimits.MaxMetadataKeyUtf8Bytes, allowNull: false, "metadata key");
             ValidateString(entry.Value, SchematicLimits.MaxMetadataValueUtf8Bytes, allowNull: false, "metadata value");
         }
+    }
+
+    internal static void ValidateChestCapacity(int capacity)
+    {
+        if (capacity is < SchematicLimits.DefaultChestCapacity or > SchematicLimits.MaxChestItems)
+            throw new SchematicFormatException($"Unsupported schematic chest capacity {capacity}.");
     }
 
     public static void ValidateHeader(int contentVersion, int width, int height, int originX, int originY)

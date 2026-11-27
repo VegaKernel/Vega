@@ -2,6 +2,7 @@ using Multiplicity.Packets;
 using TerrariaRuntime;
 using Vega.Contracts.Players;
 using Vega.Contracts.Scenes;
+using Vega.Contracts.Operations;
 using Vega.Contracts.Threading;
 using Vega.Contracts.Worlds;
 
@@ -12,7 +13,8 @@ internal sealed class NativeSceneNetworkHooks(
     ISceneRenderSink renderer,
     IPlayerDirectory players,
     WorldId worldId,
-    IGameThreadDispatcher dispatcher) : IDisposable
+    IGameThreadDispatcher dispatcher,
+    IOperationsLogger logger) : IDisposable
 {
     private bool attached;
 
@@ -24,6 +26,7 @@ internal sealed class NativeSceneNetworkHooks(
         }
 
         Hooks.NetMessage.SendData += OnSendData;
+        Hooks.Main.DedicatedTickCompleted += OnTickCompleted;
         attached = true;
     }
 
@@ -35,7 +38,15 @@ internal sealed class NativeSceneNetworkHooks(
         }
 
         Hooks.NetMessage.SendData -= OnSendData;
+        Hooks.Main.DedicatedTickCompleted -= OnTickCompleted;
         attached = false;
+    }
+
+    private void OnTickCompleted(TimeSpan duration)
+    {
+        if (!dispatcher.IsGameThread || scenes is not IVirtualChestGuiAuthority { HasManagedChestPlayers: true } authority) return;
+        try { authority.TickManagedChestGuis(players, DateTimeOffset.UtcNow); }
+        catch (Exception ex) { logger.Log(OperationsLogLevel.Warning, "scenes", "Managed virtual chest reconciliation failed.", ex); }
     }
 
     private void OnSendData(object? sender, Hooks.NetMessage.SendDataEventArgs args)

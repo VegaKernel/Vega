@@ -68,12 +68,18 @@ public sealed class NpcQuestCatalog
     public IReadOnlyList<NpcQuestDefinition> Quests { get; }
 }
 
-public enum NpcQuestState { Available, Accepted, Completed }
+public enum NpcQuestState { Available, Accepted, Completed, CompletionPending }
 public enum NpcQuestStatus { Applied, Unavailable, ActorGone, NotInteracting, CatalogChanged, UnknownQuest, AlreadyAccepted,
-    AlreadyCompleted, NotAccepted, InventoryRejected }
-public sealed record NpcQuestView(NpcQuestDefinition Definition, NpcQuestState State);
+    AlreadyCompleted, NotAccepted, InventoryRejected, AccountRequired, RecoveryRequired, PersistenceUnavailable }
+public sealed record NpcQuestView(NpcQuestDefinition Definition, NpcQuestState State)
+{
+    public Guid? PendingOperationId { get; init; }
+}
 public sealed record NpcQuestResult(NpcQuestStatus Status, long CatalogRevision = 0, NpcQuestView? Quest = null,
-    NpcShopPurchaseStatus? InventoryFailure = null);
+    NpcShopPurchaseStatus? InventoryFailure = null)
+{
+    public Guid? OperationId { get; init; }
+}
 public readonly record struct NpcActorQuestEvent(NpcActorId Actor, PlayerSnapshot Player, string QuestId, NpcQuestState State);
 /// <summary>Optional bounded actor behavior notification, emitted once per 60 native AI visits.</summary>
 public readonly record struct NpcActorThinkEvent(NpcActorId Actor, NpcEventSnapshot Npc, NpcActorIntentKind Intent);

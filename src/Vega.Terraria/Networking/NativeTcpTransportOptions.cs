@@ -17,6 +17,8 @@ internal sealed record NativeTcpTransportOptions
     public TimeSpan CallbackBudget { get; init; } = TimeSpan.FromMilliseconds(2);
     /// <summary>Experimental adjacent-send coalescing, disabled until measured.</summary>
     public int MaxBatchRequests { get; init; } = 1;
+    /// <summary>Experimental producer-owned contiguous blocks, avoiding writer-side merge copies.</summary>
+    public bool ProducerBatching { get; init; }
     /// <summary>Use one wake for an idle writer instead of counting each queued request.</summary>
     public bool EdgeTriggeredWake { get; init; } = true;
     /// <summary>Experimental world-thread burst batching; flushes during and after native ticks.</summary>
@@ -35,6 +37,7 @@ internal sealed record NativeTcpTransportOptions
             MaxOutstandingPerWorld < MaxOutstandingPerConnection || MaxRetainedBytesPerWorld < MaxRetainedBytesPerConnection ||
             MaxSendBytes <= 0 || MaxSendBytes > MaxRetainedBytesPerConnection || MaxReceiveBytes <= 0 ||
             MaxCallbacksPerPass <= 0 || CallbackBudget <= TimeSpan.Zero || MaxBatchRequests is < 1 or > NativeOutboundQueue.BatchRequestLimit ||
+            (ProducerBatching && (!DeferWriterWake || MaxBatchRequests <= 1)) ||
             DeferredWakeFlushInterval <= TimeSpan.Zero || DeferredWakeFlushInterval > TimeSpan.FromMilliseconds(2))
             throw new ArgumentOutOfRangeException(nameof(NativeTcpTransportOptions), "Invalid native TCP transport limits.");
     }

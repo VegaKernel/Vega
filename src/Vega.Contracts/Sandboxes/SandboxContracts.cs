@@ -145,6 +145,15 @@ public interface ISandboxControlService : ISandboxDirectory, IDisposable
         CancellationToken cancellationToken = default);
 
     ValueTask<SandboxOperationResult> DestroyAsync(WorldId worldId, CancellationToken cancellationToken = default);
+
+    /// <summary>Destructive external administration must revalidate the observed descriptor under the service's mutation gate.</summary>
+    ValueTask<SandboxOperationResult> ResetConfirmedAsync(WorldId worldId, long expectedRevision, DateTimeOffset expectedCreatedAt,
+        string? replacementSource = null, CancellationToken cancellationToken = default) =>
+        ValueTask.FromResult(new SandboxOperationResult(SandboxOperationStatus.Rejected, ErrorCode: "sandbox.confirmed_mutation_unsupported"));
+
+    ValueTask<SandboxOperationResult> DestroyConfirmedAsync(WorldId worldId, long expectedRevision, DateTimeOffset expectedCreatedAt,
+        CancellationToken cancellationToken = default) =>
+        ValueTask.FromResult(new SandboxOperationResult(SandboxOperationStatus.Rejected, ErrorCode: "sandbox.confirmed_mutation_unsupported"));
 }
 
 public sealed record SandboxTransferTicket(

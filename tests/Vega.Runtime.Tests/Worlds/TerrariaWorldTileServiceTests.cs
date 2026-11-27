@@ -33,6 +33,8 @@ public sealed class TerrariaWorldTileServiceTests
         var oldPylons = global::Terraria.Main.PylonSystem;
         var oldRandom = global::Terraria.Main.rand;
         bool oldSignType = global::Terraria.Main.tileSign[TileID.Signs];
+        bool oldContainerType = global::Terraria.Main.tileContainer[TileID.Containers];
+        int oldWorldVersion = global::Terraria.IO.WorldFile._versionNumber;
         var oldManager = TileEntity.manager;
         var oldById = TileEntity.ByID;
         var oldByPosition = TileEntity.ByPosition;
@@ -56,6 +58,7 @@ public sealed class TerrariaWorldTileServiceTests
             global::Terraria.Chest._chestsByCoords = [];
             global::Terraria.Main.sign = new global::Terraria.Sign[oldSigns.Length];
             global::Terraria.Main.tileSign[TileID.Signs] = true;
+            global::Terraria.Main.tileContainer[TileID.Containers] = true;
             global::Terraria.Main.npc[0] = new global::Terraria.NPC();
             global::Terraria.Main.item = Enumerable.Range(0, oldItems.Length).Select(i => new global::Terraria.WorldItem { whoAmI = i }).ToArray();
             global::Terraria.Main.timeItemSlotCannotBeReusedFor = new int[oldItemCooldowns.Length];
@@ -95,13 +98,15 @@ public sealed class TerrariaWorldTileServiceTests
             AddObject(8, 5, 3, 4, TileID.TeleportationPylon);
             source[5 * bounds.Width + 12] = new SceneTile(TileID.LogicSensor, FrameX: 18, FrameY: 18, Flags: SceneTileFlags.Active);
             var area = new SceneTileArea(bounds.Width, bounds.Height, source);
-            var items = new[] { new SchematicItemStack(ItemID.Torch, 4) };
+            var items = new SchematicItemStack[80];
+            items[0] = new(ItemID.Torch, 4);
             var sword = new SchematicItemStack(ItemID.CopperShortsword, 1, PrefixID.Large);
+            items[^1] = sword;
             SchematicDocument Document(bool failNpc = false, bool omitFrame = false, bool duplicatePylon = false, bool badSensor = false) => new()
             {
                 ContentVersion = 279, Width = bounds.Width, Height = bounds.Height,
                 Tiles = source.Select(TerrariaSchematicCapture.ToSchematicTile).ToArray(),
-                Chests = [new(0, 0, "Loot", items)], Signs = [new(3, 0, "Arena sign")],
+                Chests = [new(0, 0, "Loot", items) { Capacity = 80 }], Signs = [new(3, 0, "Arena sign")],
                 TileEntities = new SchematicTileEntity[]
                 {
                     new SchematicItemFrameTileEntity(6, 0, sword), new SchematicWeaponsRackTileEntity(9, 0, sword),
@@ -143,7 +148,8 @@ public sealed class TerrariaWorldTileServiceTests
             var captured = new TerrariaSchematicCapture(new InlineGameThread()).Capture(new SchematicBounds(bounds.X, bounds.Y, bounds.Width, bounds.Height));
             captured = SchematicBinary.Deserialize(SchematicBinary.Serialize(captured));
             Assert.That(captured.Chests.Single().Name, Is.EqualTo("Loot"));
-            Assert.That(captured.Chests.Single().Items[0], Is.EqualTo(items[0]));
+            Assert.That(captured.Chests.Single().Capacity, Is.EqualTo(80));
+            Assert.That(captured.Chests.Single().Items, Is.EqualTo(items));
             Assert.That(captured.Signs.Single().Text, Is.EqualTo("Arena sign"));
             Assert.That(captured.TileEntities.OfType<SchematicItemFrameTileEntity>().Single().Item, Is.EqualTo(sword));
             Assert.That(captured.TileEntities.OfType<SchematicWeaponsRackTileEntity>().Single().Item, Is.EqualTo(sword));
@@ -155,7 +161,33 @@ public sealed class TerrariaWorldTileServiceTests
             Assert.That(captured.TileEntities.OfType<SchematicLogicSensorTileEntity>().Single(), Is.EqualTo(new SchematicLogicSensorTileEntity(12, 5, 2, true)));
             Assert.That(captured.WorldItems.Single(), Is.EqualTo(new SchematicWorldItem(new(ItemID.Torch, 3), 240, 128)));
             int expandedChest = global::Terraria.Chest.FindChest(bounds.X, bounds.Y);
-            global::Terraria.Main.chest[expandedChest].Resize(80);
+            var native = global::Terraria.Main.chest[expandedChest];
+            native.Resize(SchematicLimits.MaxChestItems);
+            native.item[^1].SetDefaults(ItemID.Torch);
+            native.item[^1].stack = 17;
+            var max = new TerrariaSchematicCapture(new InlineGameThread()).Capture(new SchematicBounds(bounds.X, bounds.Y, bounds.Width, bounds.Height));
+            max = SchematicBinary.Deserialize(SchematicBinary.Serialize(max));
+            Assert.That(max.Chests.Single().Capacity, Is.EqualTo(SchematicLimits.MaxChestItems));
+            Assert.That(max.Chests.Single().Items[^1], Is.EqualTo(new SchematicItemStack(ItemID.Torch, 17)));
+            // The actual native .wld chest writer/reader runs the same section used by
+            // automatic sandbox template save/reload. Preserve the last expanded slot.
+            using var chestSection = new MemoryStream();
+            using var chestWriter = new BinaryWriter(chestSection, System.Text.Encoding.UTF8, leaveOpen: true);
+            global::Terraria.IO.WorldFile.SaveChests(chestWriter);
+            chestWriter.Flush();
+            global::Terraria.Chest.RemoveChest(expandedChest);
+            global::Terraria.IO.WorldFile._versionNumber = 326; // native per-chest capacity since 294
+            chestSection.Position = 0;
+            using var chestReader = new BinaryReader(chestSection, System.Text.Encoding.UTF8, leaveOpen: true);
+            global::Terraria.IO.WorldFile.LoadChests(chestReader);
+            Assert.That(chestSection.Position, Is.EqualTo(chestSection.Length));
+            expandedChest = global::Terraria.Chest.FindChest(bounds.X, bounds.Y);
+            Assert.That(expandedChest, Is.GreaterThanOrEqualTo(0));
+            var reloaded = new TerrariaSchematicCapture(new InlineGameThread()).Capture(new SchematicBounds(bounds.X, bounds.Y, bounds.Width, bounds.Height));
+            Assert.That(reloaded.Chests.Single().Capacity, Is.EqualTo(SchematicLimits.MaxChestItems));
+            Assert.That(reloaded.Chests.Single().Items, Is.EqualTo(max.Chests.Single().Items));
+            Assert.That(reloaded.Chests.Single().Name, Is.EqualTo("Loot"));
+            global::Terraria.Main.chest[expandedChest].Resize(SchematicLimits.MaxChestItems + 1);
             Assert.That(() => new TerrariaSchematicCapture(new InlineGameThread()).Capture(new SchematicBounds(bounds.X, bounds.Y, bounds.Width, bounds.Height)),
                 Throws.TypeOf<SchematicFormatException>().With.Message.Contains("capacity"));
         }
@@ -176,6 +208,8 @@ public sealed class TerrariaWorldTileServiceTests
             global::Terraria.Main.PylonSystem = oldPylons;
             global::Terraria.Main.rand = oldRandom;
             global::Terraria.Main.tileSign[TileID.Signs] = oldSignType;
+            global::Terraria.Main.tileContainer[TileID.Containers] = oldContainerType;
+            global::Terraria.IO.WorldFile._versionNumber = oldWorldVersion;
             TileEntity.manager = oldManager;
             TileEntity.ByID = oldById;
             TileEntity.ByPosition = oldByPosition;

@@ -40,6 +40,60 @@ FakeProvider added exact-session native sign presentation/refresh, read-only wea
 | P2 | 23 | NativeAOT for a future fixed-function operational tool only if measurement justifies it. CoreCLR retains hot-loaded plugins. No server rewrite or standalone worker executable merely to check a roadmap box. |
 | Deferred research | 11 / 17 | Memory-mapped/chunked storage or single-process multiple mutable vanilla worlds. Per-world processes provide the isolation required today; paged tiles continue as a measured optional alternative, not a proven general speedup. |
 
+## 27 November follow-up
+
+- **P0 native gameplay load:** real native world counter now verifies a 255-slot
+  mixed fixture, including boss AI, movement, chat and native background traffic.
+  Ordered loopback completed all 1,800 updates and 24.8 million sends with exact
+  per-peer hashes, but averaged 39.15 TPS. An opt-in deferred-wake producer-block
+  pipeline removes the second coalescing copy: same-binary 600-tick ABBA averaged
+  60.48 verified updates/s versus 43.71 before, CPU −37.2%, writes −21.6%.
+  The final integrated 1,800-update run averaged 64.35 updates/s (27.97 s),
+  with p95 18.19 ms and 240 of 1,800 busy ticks over budget. Stable 60 TPS
+  and ingress/real-client/WAN qualification remain open. Previous paced
+  output-only results are not full TPS.
+- **P0 SSC:** `scripts/New-StockSscQualification.ps1` prepares four isolated
+  stock Terraria 1.4.6.1 cases (password/passwordless × SSC on/off); server
+  readiness passed in all cases. [The acceptance guide](stock-client-ssc-qualification.md)
+  records the still-pending actual login, character restore, disconnect/reconnect
+  and trusted-transfer checks. No graphical client pass is asserted.
+- **P1 FakeProvider:** managed native 40-slot chest GUI now sends real metadata,
+  opens, refreshes and closes through the stock client decoder. Plugin-approved
+  balanced single-slot transfers use exact SSC session ownership; unsupported
+  operations close/correct, with managed inventory remaining authoritative until
+  disconnect. Item frames and weapon racks now support plugin-armed deposit
+  into an empty virtual entity with the same exact-session inventory authority;
+  native inventory commit and stock client metadata decoder are tested. Ordinary
+  drag timing, sorting, multi-slot interactions, stock display removal/swap,
+  mannequin/hat-rack inventories and graphical behavior remain open.
+- **P1 NPC:** durable world/account quest ledger and named wallet, injectable
+  economy provider, stable operation receipts, exact-session SSC checkpoint and
+  pending reconciliation are implemented. Dynamic provider registration and
+  cross-store recovery automation remain open; no cross-store atomicity claim.
+- **P1 REST:** curated `.wld` templates, managed sandbox create/reset/destroy,
+  revision + creation identity confirmations and isolated source checks tested.
+  Arbitrary paths and externally owned world destruction remain intentionally absent.
+- **P1 worker isolation:** runtime tile runs are detached before worker encoding;
+  native file format 329 snapshot save/reload is fixed and verified. Owner-thread
+  capture fell 45.9% in same-world ABBA (631.8 → 341.65 ms). Full tile scan and
+  canonical hash still run under world ownership; fast liquid restoration is off.
+- **P1 schemas/SDK:** `.trschem` v2 adds expanded native chest capacity through
+  200 slots, preserving byte-compatible v1 for ordinary chests. Native sandbox
+  template creation, save, reload/export and reset verified slots 0, 79 and 199
+  and unchanged input fingerprints. Canonical expanded-chest ingress now
+  checks the exact active native chest's current capacity, with no client
+  resize authority. Graphical qualification, expanded virtual GUI and
+  ephemeral dropped-item template persistence remain distinct limits.
+  The new account NPC and managed chest contracts extend the plugin SDK, while
+  broader compatibility/event qualification remains open. See
+  [performance evidence](performance-2026-11-26.md).
+
+Final integrated Windows verification: Release solution build, 872 tests
+passed (two external PostgreSQL/MySQL cases skipped without local connection
+settings), native deployment smoke with producer batching and sandbox isolation,
+and all four isolated stock-SSC server readiness cases passed. The actual
+graphical client acceptance fields remain `pending-manual`.
+
 ## Stale assumptions to remove
 
 - Protocol 326 / Terraria 1.4.5.8 is historical comparison evidence, not the current production protocol. Preserve the pinned ledger, and independently qualify 329.

@@ -20,12 +20,98 @@ using Vega.Operations;
 using Vega.Operations.Actions;
 using Vega.Operations.Metrics;
 using Vega.Persistence.Sqlite;
+using Vega.Sandboxes;
 
 namespace Vega.Runtime.Tests.Operations;
 
 [TestFixture]
 public sealed class LoopbackRestServiceTests
 {
+    [Test]
+    public async Task ConfirmedSandboxRestUsesCuratedTemplatesAndRejectsStaleOrExternalDestruction()
+    {
+        string root = Path.Combine(Path.GetTempPath(), "vega-rest-sandbox", Guid.NewGuid().ToString("N"));
+        try
+        {
+            string templates = Path.Combine(root, "rest-templates");
+            Directory.CreateDirectory(templates);
+            string source = Path.Combine(templates, "base.wld"), replacement = Path.Combine(templates, "replacement.wld");
+            File.WriteAllBytes(source, [1, 2, 3]); File.WriteAllBytes(replacement, [4, 5, 6]);
+            var database = await SqliteVegaDatabase.OpenAsync(new SqliteVegaDatabaseOptions(Path.Combine(root, "vega.db")));
+            var logger = new RecordingLogger();
+            using var sandboxes = new SandboxControlService(root, SandboxOptions.Default, logger);
+            var admin = new RestAdministration(WorldId.Primary, database.Accounts, database.Authorization, database.Regions,
+                new GlobalBanService(database.GlobalBans), database.Mutes, sandboxes, sandboxes, templates);
+            var lifetime = new RuntimeLifecycleTracker(Stopwatch.GetTimestamp());
+            for (int stage = 1; stage <= (int)RuntimeLifecycleStage.NetworkReady; stage++) lifetime.Advance((RuntimeLifecycleStage)stage);
+            using var listener = new TcpListener(IPAddress.Loopback, 0);
+            listener.Start(); int port = ((IPEndPoint)listener.LocalEndpoint).Port; listener.Stop();
+            string reader = Convert.ToHexString(RandomNumberGenerator.GetBytes(32)), administrator = Convert.ToHexString(RandomNumberGenerator.GetBytes(32));
+            static string Fingerprint(string token) => Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(token)));
+            using var service = new LoopbackRestService(WorldId.Primary, lifetime, new State(), new Players([]), new NetworkMetricsCounter(),
+                logger: logger, administration: admin);
+            service.Start(port, Fingerprint(reader), adminTokenSha256: Fingerprint(administrator));
+            using var http = new HttpClient { BaseAddress = new Uri($"http://127.0.0.1:{port}/"), Timeout = TimeSpan.FromSeconds(10) };
+            http.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", administrator);
+            async Task<HttpStatusCode> Post(string route, object payload)
+            {
+                using var content = new StringContent(JsonSerializer.Serialize(payload), Encoding.UTF8, "application/json");
+                using var response = await http.PostAsync("v1/admin/sandboxes/" + route, content);
+                return response.StatusCode;
+            }
+            object Create(string template, string persistence = "persistent", string sscMode = "copyOnEnter") =>
+                new { worldId = "arena", name = "Arena", template, persistence, capacity = 8, sscMode };
+            using (var catalog = JsonDocument.Parse(await http.GetStringAsync("v1/admin/sandboxTemplates")))
+            {
+                Assert.That(catalog.RootElement.GetProperty("items").GetArrayLength(), Is.EqualTo(2));
+                Assert.That(catalog.RootElement.ToString(), Does.Not.Contain(root));
+            }
+            Assert.That(await Post("create", Create("../base.wld")), Is.EqualTo(HttpStatusCode.BadRequest));
+            Assert.That(await Post("create", Create(source)), Is.EqualTo(HttpStatusCode.BadRequest));
+            Assert.That(await Post("create", Create("missing.wld")), Is.EqualTo(HttpStatusCode.NotFound));
+            Assert.That(await Post("create", Create("base.wld", "external")), Is.EqualTo(HttpStatusCode.BadRequest));
+            Assert.That(await Post("create", Create("base.wld")), Is.EqualTo(HttpStatusCode.NoContent));
+            Assert.That(await Post("create", Create("base.wld")), Is.EqualTo(HttpStatusCode.NoContent));
+            Assert.That(await Post("create", Create("base.wld", sscMode: "isolated")), Is.EqualTo(HttpStatusCode.Conflict));
+            var first = sandboxes.Snapshot().Single().Descriptor;
+            Assert.That(File.ReadAllBytes(first.InstanceWorldPath), Is.EqualTo(new byte[] { 1, 2, 3 }));
+            File.WriteAllBytes(first.InstanceWorldPath, [9, 9, 9]);
+            object Reset(bool confirm, long revision, DateTimeOffset createdAt) => new
+            { worldId = "arena", revision, createdAt, confirm, template = "replacement.wld" };
+            Assert.That(await Post("reset", Reset(false, first.Revision, first.CreatedAt)), Is.EqualTo(HttpStatusCode.BadRequest));
+            Assert.That(await Post("reset", Reset(true, first.Revision + 1, first.CreatedAt)), Is.EqualTo(HttpStatusCode.Conflict));
+            Assert.That(await Post("reset", Reset(true, first.Revision, first.CreatedAt.AddSeconds(-1))), Is.EqualTo(HttpStatusCode.Conflict));
+            Assert.That(File.ReadAllBytes(first.InstanceWorldPath), Is.EqualTo(new byte[] { 9, 9, 9 }));
+            Assert.That(await Post("reset", Reset(true, first.Revision, first.CreatedAt)), Is.EqualTo(HttpStatusCode.NoContent));
+            var second = sandboxes.Snapshot().Single().Descriptor;
+            Assert.That(second.Revision, Is.EqualTo(first.Revision + 1));
+            Assert.That(File.ReadAllBytes(second.InstanceWorldPath), Is.EqualTo(new byte[] { 4, 5, 6 }));
+            object Destroy(SandboxDescriptor descriptor, bool confirm) => new
+            { worldId = descriptor.WorldId.Value, revision = descriptor.Revision, createdAt = descriptor.CreatedAt, confirm };
+            Assert.That(await Post("destroy", Destroy(second, false)), Is.EqualTo(HttpStatusCode.BadRequest));
+            Assert.That(await Post("destroy", Destroy(first, true)), Is.EqualTo(HttpStatusCode.Conflict));
+            Assert.That(await Post("destroy", Destroy(second, true)), Is.EqualTo(HttpStatusCode.NoContent));
+            Assert.That(File.Exists(second.InstanceWorldPath), Is.False);
+            Assert.That(File.ReadAllBytes(source), Is.EqualTo(new byte[] { 1, 2, 3 }));
+            Assert.That(File.ReadAllBytes(replacement), Is.EqualTo(new byte[] { 4, 5, 6 }));
+            Assert.That(await Post("create", Create("base.wld")), Is.EqualTo(HttpStatusCode.NoContent));
+            var recreated = sandboxes.Snapshot().Single().Descriptor;
+            Assert.That(recreated.Revision, Is.EqualTo(first.Revision));
+            Assert.That(await Post("destroy", Destroy(first, true)), Is.EqualTo(HttpStatusCode.Conflict));
+            Assert.That(await Post("destroy", Destroy(recreated, true)), Is.EqualTo(HttpStatusCode.NoContent));
+            var external = await sandboxes.CreateAsync(new("external", "External", source, SandboxPersistenceMode.External, 8,
+                new(SandboxAccessMode.Public), null, SandboxSscMode.Disabled, new HashSet<string>()));
+            Assert.That(external.IsSuccess, Is.True, external.Message);
+            Assert.That(await Post("destroy", Destroy(external.Sandbox!.Descriptor, true)), Is.EqualTo(HttpStatusCode.BadRequest));
+            Assert.That(File.Exists(source), Is.True);
+        }
+        finally
+        {
+            SqliteConnection.ClearAllPools();
+            if (Directory.Exists(root)) Directory.Delete(root, true);
+        }
+    }
+
     [Test]
     public async Task AdministrativeRestUsesRealPersistenceAndWorldScopedTypedMutations()
     {

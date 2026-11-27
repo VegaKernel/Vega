@@ -14,6 +14,14 @@ internal sealed record WorldImageRuntimeSnapshot(
     byte[] TileRuns,
     byte[] LiquidState)
 {
+    // Captured lists are owned by this snapshot and never touched after the
+    // authoritative thread publishes it. The existing encoded constructor is
+    // retained for fixtures; live capture leaves binary encoding to the worker.
+    private TileRunChunk[]? CapturedTileChunks { get; init; }
+    public long TileBytes => CapturedTileChunks is { } chunks
+        ? 4L + chunks.Sum(chunk => 12L + 16L * chunk.Runs.Count)
+        : TileRuns.LongLength;
+
     public static WorldImageRuntimeSnapshot Capture(string sourcePath)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(sourcePath);
@@ -25,64 +33,74 @@ internal sealed record WorldImageRuntimeSnapshot(
             throw new InvalidOperationException("Terraria world dimensions are unavailable for a runtime snapshot.");
         }
 
-        byte[] tileRuns = CaptureTileRuns(maxTilesX, maxTilesY);
+        TileRunChunk[] tileRuns = CaptureTileRuns(maxTilesX, maxTilesY);
         byte[] liquidState = CaptureLiquidState(maxTilesX, maxTilesY);
         byte[] sourceSha256 = VegaWorldImageReader.HashFile(sourcePath);
         return new WorldImageRuntimeSnapshot(
             sourceSha256,
             maxTilesX,
             maxTilesY,
-            tileRuns,
-            liquidState);
+            [],
+            liquidState) { CapturedTileChunks = tileRuns };
     }
 
-    private static byte[] CaptureTileRuns(int maxTilesX, int maxTilesY)
+    private static TileRunChunk[] CaptureTileRuns(int maxTilesX, int maxTilesY)
     {
-        using var stream = new MemoryStream();
-        using var writer = new BinaryWriter(stream, Encoding.UTF8, leaveOpen: true);
         int chunkCount = (maxTilesX + VegaWorldImageFormat.TileChunkColumns - 1) /
             VegaWorldImageFormat.TileChunkColumns;
-        writer.Write(chunkCount);
+        var chunks = new TileRunChunk[chunkCount];
 
         for (int chunk = 0; chunk < chunkCount; chunk++)
         {
             int startX = chunk * VegaWorldImageFormat.TileChunkColumns;
             int columnCount = Math.Min(VegaWorldImageFormat.TileChunkColumns, maxTilesX - startX);
-            writer.Write(startX);
-            writer.Write(columnCount);
-            long recordCountPosition = stream.Position;
-            writer.Write(0);
-            int recordCount = 0;
+            var runs = new List<PackedTileRun>();
 
             for (int x = startX; x < startX + columnCount; x++)
             {
-                int y = 0;
-                while (y < maxTilesY)
+                PackedTile current = PackedTile.From(global::Terraria.Main.tile[x, 0]);
+                ushort runLength = 0;
+                // Read each native tile exactly once, including the tile at a
+                // run boundary. The detached records contain values, not ITile references.
+                for (int y = 1; y < maxTilesY; y++)
                 {
-                    PackedTile current = PackedTile.From(global::Terraria.Main.tile[x, y]);
-                    int runLength = 0;
-                    while (y + runLength + 1 < maxTilesY &&
-                           runLength < ushort.MaxValue &&
-                           current == PackedTile.From(global::Terraria.Main.tile[x, y + runLength + 1]))
+                    PackedTile next = PackedTile.From(global::Terraria.Main.tile[x, y]);
+                    if (runLength < ushort.MaxValue && current == next)
                     {
                         runLength++;
+                        continue;
                     }
-
-                    current.Write(writer, (ushort)runLength);
-                    recordCount++;
-                    y += runLength + 1;
+                    runs.Add(new(current, runLength));
+                    current = next;
+                    runLength = 0;
                 }
+                runs.Add(new(current, runLength));
             }
-
-            long end = stream.Position;
-            stream.Position = recordCountPosition;
-            writer.Write(recordCount);
-            stream.Position = end;
+            chunks[chunk] = new(startX, columnCount, runs);
         }
-
-        writer.Flush();
-        return stream.ToArray();
+        return chunks;
     }
+
+    public void WriteTileRuns(Stream output)
+    {
+        if (CapturedTileChunks is not { } chunks)
+        {
+            output.Write(TileRuns);
+            return;
+        }
+        using var writer = new BinaryWriter(output, Encoding.UTF8, leaveOpen: true);
+        writer.Write(chunks.Length);
+        foreach (TileRunChunk chunk in chunks)
+        {
+            writer.Write(chunk.StartX);
+            writer.Write(chunk.ColumnCount);
+            writer.Write(chunk.Runs.Count);
+            foreach (PackedTileRun run in chunk.Runs) run.Tile.Write(writer, run.Length);
+        }
+    }
+
+    private sealed record TileRunChunk(int StartX, int ColumnCount, List<PackedTileRun> Runs);
+    private readonly record struct PackedTileRun(PackedTile Tile, ushort Length);
 
     private static byte[] CaptureLiquidState(int maxTilesX, int maxTilesY)
     {

@@ -5,8 +5,8 @@ using Vega.PluginSdk;
 
 namespace Vega.PluginSamples;
 
-// Example: a personal logical container; clicking it displays its server-owned
-// contents in chat, without opening a native inventory or granting items.
+// Example: default read-only chat view; the explicit managed-GUI mode is for
+// plugin-owned minigame inventory sessions, not ordinary unrestricted gameplay.
 internal sealed class VirtualChestPreviewCommand : ICommandHandler
 {
     private readonly IVegaPluginContext plugin;
@@ -14,6 +14,7 @@ internal sealed class VirtualChestPreviewCommand : ICommandHandler
     private IPluginTileProvider? provider;
     private IPluginVirtualChest? chest;
     private PlayerSessionId? session;
+    private bool managedGui;
 
     public VirtualChestPreviewCommand(IVegaPluginContext plugin)
     {
@@ -23,7 +24,7 @@ internal sealed class VirtualChestPreviewCommand : ICommandHandler
     }
 
     public CommandDescriptor Descriptor { get; } = new("samplechest", [], ["vega.samples.world"],
-        Syntax: "samplechest <player> <tileX> <tileY> | clear");
+        Syntax: "samplechest <player> <tileX> <tileY> [--managed-gui] | clear");
 
     public ValueTask<CommandExecutionResult> ExecuteAsync(CommandInvocation invocation, CancellationToken cancellationToken)
     {
@@ -35,7 +36,9 @@ internal sealed class VirtualChestPreviewCommand : ICommandHandler
                 Clear();
                 return ValueTask.FromResult(CommandExecutionResult.Success);
             }
-            if (args.Count != 3 || !plugin.World.FakeProvider.SupportsVirtualChests ||
+            bool useManagedGui = args.Count == 4 && args[3].Equals("--managed-gui", StringComparison.OrdinalIgnoreCase);
+            if ((args.Count != 3 && !useManagedGui) || !plugin.World.FakeProvider.SupportsVirtualChests ||
+                useManagedGui && !plugin.World.FakeProvider.SupportsManagedVirtualChestGui ||
                 !plugin.Players.TryFindExact(args[0], out var player) || player is not { SessionId: not null } ||
                 !int.TryParse(args[1], out int x) || !int.TryParse(args[2], out int y) || x < 0 || y < 0)
                 return ValueTask.FromResult(CommandExecutionResult.Failed("command.invalid_usage"));
@@ -55,6 +58,7 @@ internal sealed class VirtualChestPreviewCommand : ICommandHandler
                 provider = next;
                 chest = nextChest;
                 session = player.SessionId;
+                managedGui = useManagedGui;
             }
             catch { next.Dispose(); throw; }
             return ValueTask.FromResult(CommandExecutionResult.Success);
@@ -67,9 +71,17 @@ internal sealed class VirtualChestPreviewCommand : ICommandHandler
         // sending a message to a reusable player slot.
         lock (sync)
         {
-            if (chest is null || !chest.TryTakeOpenRequest(out var pending) || pending is not { } request ||
+            if (chest is null) return;
+            if (managedGui && chest.TryTakeManagedGuiTransfer(out var movement) && movement is { } intent && intent.Transfer.Open.Observer.Session == session)
+                chest.AcceptManagedGuiTransfer(intent);
+            if (!chest.TryTakeOpenRequest(out var pending) || pending is not { } request ||
                 !plugin.Players.TryGet(request.Observer.Player, out var player) || player is null ||
                 player.SessionId != request.Observer.Session || player.WorldId != request.Chest.Identity.WorldId) return;
+            if (managedGui)
+            {
+                plugin.Players.Message(player,"Managed GUI uses server-controlled inventory until you reconnect.");
+                if (chest.TryPresentManagedGui(request)) return;
+            }
             var contents = request.Chest.Definition;
             plugin.Players.Message(player, $"{contents.Name}: " + string.Join(", ", contents.Items
                 .Where(item => item.ItemType != 0).Select(item => $"item {item.ItemType} x{item.Stack}")));
@@ -82,5 +94,6 @@ internal sealed class VirtualChestPreviewCommand : ICommandHandler
         provider = null;
         chest = null;
         session = null;
+        managedGui = false;
     }
 }

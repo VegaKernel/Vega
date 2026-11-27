@@ -125,6 +125,7 @@ public static class TerrariaServerHost
                 MeasureQueueAge = networkLimits.OrderedQueueDiagnostics,
                 MaxBatchRequests = networkLimits.OrderedBatchRequests,
                 DeferWriterWake = networkLimits.OrderedDeferredWake,
+                ProducerBatching = networkLimits.OrderedProducerBatching,
                 DeferredWakeFlushInterval = TimeSpan.FromMilliseconds(networkLimits.OrderedDeferredWakeMilliseconds)
             },
                 onSendRejected: (generation, reason) => logger.Log(OperationsLogLevel.Warning, "network",
@@ -181,7 +182,8 @@ public static class TerrariaServerHost
             sceneRenderer,
             playerBoundary,
             runtimeWorldId,
-            gameThreadDispatcher);
+            gameThreadDispatcher,
+            logger);
         using var sceneVisibilityHooks = new NativeSceneVisibilityHooks(
             visibility,
             playerBoundary,
@@ -210,6 +212,8 @@ public static class TerrariaServerHost
             {
                 orderedTransport.Attach();
                 logger.Log(OperationsLogLevel.Information, "network", "Experimental ordered TCP transport selected; native packet processing remains unchanged.");
+                if (networkLimits.OrderedProducerBatching)
+                    logger.Log(OperationsLogLevel.Information, "network", "Ordered producer-owned packet batching enabled with deferred wake.");
             }
             worldImages.Attach();
             worldMaintenance.Attach();

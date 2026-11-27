@@ -367,7 +367,7 @@ internal static class VegaWorldImageCompiler
         string temporaryPath = imagePath + ".tmp";
         FileInfo sourceInfo = new(sourcePath);
         byte[] sourceHash = VegaWorldImageReader.HashFile(sourcePath);
-        WorldSourceLayout layout = ReadSourceLayout(sourcePath);
+        WorldSourceLayout layout = ReadSourceLayout(sourcePath, runtimeSnapshot is not null);
         if (runtimeSnapshot is not null)
         {
             if (!sourceHash.AsSpan().SequenceEqual(runtimeSnapshot.SourceSha256))
@@ -406,7 +406,7 @@ internal static class VegaWorldImageCompiler
                 long tileOffset = output.Position;
                 if (runtimeSnapshot is not null)
                 {
-                    output.Write(runtimeSnapshot.TileRuns);
+                    runtimeSnapshot.WriteTileRuns(output);
                 }
                 else
                 {
@@ -507,7 +507,7 @@ internal static class VegaWorldImageCompiler
         }
     }
 
-    private static WorldSourceLayout ReadSourceLayout(string sourcePath)
+    private static WorldSourceLayout ReadSourceLayout(string sourcePath, bool runtimeCaptured)
     {
         using var stream = new FileStream(
             sourcePath,
@@ -519,9 +519,11 @@ internal static class VegaWorldImageCompiler
         using var reader = new BinaryReader(stream, Encoding.UTF8, leaveOpen: true);
 
         int version = reader.ReadInt32();
-        if (version is <= 87 or > 319)
+        // Terraria 1.4.6.1 (329) retains this header layout. Only accept its
+        // tiles from native capture; the legacy file tile decoder is not yet qualified.
+        if (version is <= 87 || (version > 319 && !(runtimeCaptured && version == 329)))
         {
-            throw new InvalidDataException($"Terraria world version {version} is not supported by world-image schema 1.");
+            throw new InvalidDataException($"Terraria world version {version} is not supported by world-image schema {VegaWorldImageFormat.SchemaVersion} for this capture mode.");
         }
 
         stream.Position = 0;

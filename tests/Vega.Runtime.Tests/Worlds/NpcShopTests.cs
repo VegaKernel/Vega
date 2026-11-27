@@ -1,13 +1,17 @@
 using System.Buffers.Binary;
+using System.Collections.Concurrent;
+using System.Diagnostics;
 using System.Runtime.CompilerServices;
 using Multiplicity.Packets;
 using NUnit.Framework;
 using Terraria.ID;
+using Vega.Contracts.Accounts;
 using Vega.Contracts.Operations;
 using Vega.Contracts.Players;
 using Vega.Contracts.Threading;
 using Vega.Contracts.Worlds;
 using Vega.Core.Events;
+using Vega.Persistence;
 using Vega.Terraria.Networking;
 using Vega.Terraria.Players;
 using Vega.Terraria.Worlds;
@@ -18,6 +22,246 @@ namespace Vega.Runtime.Tests.Worlds;
 [TestFixture]
 public sealed class NpcShopTests
 {
+    [Test]
+    [NonParallelizable]
+    public void PersistentQuestAndWalletPurchaseUseExactAccountAndDurableReservations()
+    {
+        const int playerSlot = 2, npcSlot = 0;
+        var oldPlayer = global::Terraria.Main.player[playerSlot];
+        var oldClient = global::Terraria.Netplay.Clients[playerSlot];
+        var oldBuffer = global::Terraria.NetMessage.buffer[playerSlot];
+        var oldBroadcast = global::Terraria.NetMessage.buffer[256];
+        var oldNpc = global::Terraria.Main.npc[npcSlot];
+        int oldMode = global::Terraria.Main.netMode;
+        bool oldDedicated = global::Terraria.Main.dedServ, oldSsc = global::Terraria.Main.ServerSideCharacter;
+        float oldRight = global::Terraria.Main.rightWorld, oldBottom = global::Terraria.Main.bottomWorld;
+        string root = Path.Combine(Path.GetTempPath(), "vega-npc-persistent-native", Guid.NewGuid().ToString("N"));
+        var dispatcher = new PumpDispatcher();
+        var world = new WorldId("account-shop");
+        using var boundary = new TerrariaPlayerBoundary(dispatcher, new TerrariaConnectionMetadataRegistry(), world);
+        var accountSessions = new BindingAccounts();
+        var store = new FileNpcAccountStore(root);
+        var provider = new TrackingEconomyProvider(store, dispatcher);
+        bool ready = true;
+        bool checkpointSucceeds = true;
+        int checkpoints = 0;
+        using var actors = new TerrariaNpcActorService(dispatcher, world, boundary, new WorldGameplayEventHub(), new QuietLogger(),
+            accountSessions, store, provider, _ => ready, (player, expected, _) =>
+            {
+                Assert.That(dispatcher.IsGameThread, Is.False);
+                Interlocked.Increment(ref checkpoints);
+                return ValueTask.FromResult(checkpointSucceeds && accountSessions.TryGetBinding(player, out var binding) && binding == expected);
+            })
+        {
+            SpawnNative = (_, _, type) =>
+            {
+                global::Terraria.Main.npc[npcSlot] = new global::Terraria.NPC { whoAmI = npcSlot, active = true,
+                    type = type, townNPC = true, life = 100, generation = 4, width = 18, height = 40 };
+                return npcSlot;
+            }
+        };
+        try
+        {
+            global::Terraria.Main.dedServ = true;
+            global::Terraria.Main.netMode = 2;
+            global::Terraria.Main.ServerSideCharacter = true;
+            global::Terraria.Main.rightWorld = global::Terraria.Main.bottomWorld = 10_000;
+            global::Terraria.Main.npc[npcSlot] = new global::Terraria.NPC();
+            global::Terraria.NetMessage.buffer[256] = new global::Terraria.MessageBuffer { whoAmI = 256 };
+            boundary.Attach();
+            PlayerSnapshot Connect()
+            {
+                var player = new global::Terraria.Player { whoAmI = playerSlot, active = true, name = "Buyer", position = new(100, 100) };
+                global::Terraria.Main.player[playerSlot] = player;
+                var client = new global::Terraria.RemoteClient { Id = playerSlot, State = 10 };
+                global::Terraria.Netplay.Clients[playerSlot] = client;
+                global::Terraria.NetMessage.buffer[playerSlot] = new global::Terraria.MessageBuffer { whoAmI = playerSlot, broadcast = true };
+                client.Activate(new RecordingSocket());
+                global::TerrariaRuntime.Hooks.Netplay.NotifyServerPlayerEnteringWorld(playerSlot);
+                Assert.That(boundary.TryGet(new PlayerId(playerSlot), out var current), Is.True);
+                return current!;
+            }
+            void Conversation()
+            {
+                using var stream = new MemoryStream();
+                new NpcTalk { PlayerId = playerSlot, NpcTalkTarget = npcSlot }.ToStream(stream, false);
+                var buffer = new global::Terraria.MessageBuffer { whoAmI = playerSlot };
+                byte packet = (byte)PacketTypes.NpcTalk;
+                int start = 0, offset = 1, length = checked((int)stream.Length + 1), type = packet;
+                buffer.readBuffer[0] = packet;
+                stream.ToArray().CopyTo(buffer.readBuffer, offset);
+                Assert.That(global::TerrariaRuntime.Hooks.MessageBuffer.InvokeGetData(buffer, ref packet, ref offset, ref start, ref length, ref type, 256), Is.True);
+                global::Terraria.Main.player[playerSlot].talkNPC = npcSlot;
+                dispatcher.Drain();
+            }
+
+            var buyer = Connect();
+            global::Terraria.Main.netMode = 0;
+            var shop = new NpcShopCatalog([new NpcShopOffer("wood", ItemID.Wood, 2, 0) { EconomyPrice = new("gems", 5) }]);
+            var quests = new NpcQuestCatalog([new("torch", "Torch", "Bring two torches", new(ItemID.Torch, 2), new(ItemID.StoneBlock, 1))]);
+            var creation = dispatcher.Pump(actors.CreateAsync(world, new NpcActorDefinition(17, "Account Merchant", Shop: shop)
+                { Quests = quests, PersistentQuestScope = "npc.quest.test", EconomyScope = "npc.wallet.test" }, new(100, 100)));
+            Assert.That(creation.Status, Is.EqualTo(NpcOperationStatus.Applied));
+            using var actor = creation.Actor!;
+            global::Terraria.Main.netMode = 2;
+            Conversation();
+            Assert.That(dispatcher.Pump(actor.AcceptQuestAsync(buyer, "torch", 1)).Status, Is.EqualTo(NpcQuestStatus.AccountRequired));
+            Assert.That(dispatcher.Pump(actor.PurchaseAsync(buyer, "wood", 1)).Status, Is.EqualTo(NpcShopPurchaseStatus.AccountRequired));
+            accountSessions.Bind(buyer, new AccountId(1));
+            Guid credit = Guid.NewGuid();
+            Assert.That(dispatcher.Pump(actor.CreditCurrencyAsync(buyer, new("gems", 10), credit)).Balance, Is.EqualTo(10));
+            Assert.That(dispatcher.Pump(actor.CreditCurrencyAsync(buyer, new("gems", 10), credit)).Status, Is.EqualTo(NpcEconomyStatus.AlreadyApplied));
+            Assert.That(dispatcher.Pump(actor.AcceptQuestAsync(buyer, "torch", 1)).Status, Is.EqualTo(NpcQuestStatus.Applied));
+            var native = global::Terraria.Main.player[playerSlot];
+            native.inventory[20].SetDefaults(ItemID.Torch);
+            native.inventory[20].stack = 1;
+            Assert.That(dispatcher.Pump(actor.TurnInQuestAsync(buyer, "torch", 1)).InventoryFailure, Is.EqualTo(NpcShopPurchaseStatus.InsufficientFunds));
+            Assert.That(dispatcher.Pump(actor.GetQuestsAsync(buyer)).Single().State, Is.EqualTo(NpcQuestState.Accepted));
+            native.inventory[20].stack = 2;
+            ready = false;
+            Assert.That(dispatcher.Pump(actor.TurnInQuestAsync(buyer, "torch", 1)).InventoryFailure, Is.EqualTo(NpcShopPurchaseStatus.InventoryAuthorityRequired));
+            Assert.That(dispatcher.Pump(actor.PurchaseAsync(buyer, "wood", 1)).Status, Is.EqualTo(NpcShopPurchaseStatus.InventoryAuthorityRequired));
+            Assert.That(dispatcher.Pump(actor.GetCurrencyBalanceAsync(buyer, "gems")).Balance, Is.EqualTo(10));
+            ready = true;
+            var finished = dispatcher.Pump(actor.TurnInQuestAsync(buyer, "torch", 1));
+            Assert.That(finished.Quest?.State, Is.EqualTo(NpcQuestState.Completed));
+            Assert.That(native.inventory.Take(50).Where(i => i.type == ItemID.StoneBlock).Sum(i => i.stack), Is.EqualTo(1));
+            Assert.That(native.inventory[20].IsAir, Is.True);
+            Guid purchaseId = Guid.NewGuid();
+            var purchase = dispatcher.Pump(actor.PurchaseCurrencyAsync(buyer, "wood", 1, purchaseId));
+            Assert.That(purchase.Status, Is.EqualTo(NpcShopPurchaseStatus.Committed));
+            Assert.That(purchase.OperationId, Is.EqualTo(purchaseId));
+            Assert.That(purchase.EconomyPaid, Is.EqualTo(new NpcEconomyPrice("gems", 5)));
+            Assert.That(dispatcher.Pump(actor.GetCurrencyBalanceAsync(buyer, "gems")).Balance, Is.EqualTo(5));
+            Assert.That(native.inventory.Take(50).Where(i => i.type == ItemID.Wood).Sum(i => i.stack), Is.EqualTo(2));
+            Assert.That(dispatcher.Pump(actor.PurchaseCurrencyAsync(buyer, "wood", 1, purchaseId)).Status, Is.EqualTo(NpcShopPurchaseStatus.RecoveryRequired));
+            Assert.That(native.inventory.Take(50).Where(i => i.type == ItemID.Wood).Sum(i => i.stack), Is.EqualTo(2));
+
+            // Reauthentication after the asynchronous debit reservation must prevent native
+            // mutation and refund the old account, never charge or grant to the replacement.
+            provider.AfterReserve = () => accountSessions.Bind(buyer, new AccountId(2));
+            Assert.That(dispatcher.Pump(actor.PurchaseAsync(buyer, "wood", 1)).Status, Is.EqualTo(NpcShopPurchaseStatus.InventoryChanged));
+            provider.AfterReserve = null;
+            Assert.That(native.inventory.Take(50).Where(i => i.type == ItemID.Wood).Sum(i => i.stack), Is.EqualTo(2));
+            accountSessions.Bind(buyer, new AccountId(1));
+            Assert.That(dispatcher.Pump(actor.GetCurrencyBalanceAsync(buyer, "gems")).Balance, Is.EqualTo(5));
+
+            checkpointSucceeds = false;
+            var failedCheckpoint = dispatcher.Pump(actor.PurchaseAsync(buyer, "wood", 1));
+            Assert.That(failedCheckpoint.Status, Is.EqualTo(NpcShopPurchaseStatus.RecoveryRequired));
+            Assert.That(native.inventory.Take(50).Where(i => i.type == ItemID.Wood).Sum(i => i.stack), Is.EqualTo(4));
+            Assert.That(dispatcher.Pump(actor.GetCurrencyBalanceAsync(buyer, "gems")).PendingOperationId, Is.EqualTo(failedCheckpoint.OperationId));
+            var walletScope = new NpcAccountScope(world, "npc.wallet.test", new AccountId(1));
+            // Explicit reconciliation for the fixture's observed grant, not an automatic refund.
+            Assert.That(store.FinalizeDebitAsync(walletScope, failedCheckpoint.OperationId!.Value, true).AsTask().GetAwaiter().GetResult(), Is.True);
+            checkpointSucceeds = true;
+            Assert.That(dispatcher.Pump(actor.CreditCurrencyAsync(buyer, new("gems", 5), Guid.NewGuid())).Balance, Is.EqualTo(5));
+            provider.FailCommit = true;
+            var uncertain = dispatcher.Pump(actor.PurchaseAsync(buyer, "wood", 1));
+            Assert.That(uncertain.Status, Is.EqualTo(NpcShopPurchaseStatus.RecoveryRequired));
+            Assert.That(native.inventory.Take(50).Where(i => i.type == ItemID.Wood).Sum(i => i.stack), Is.EqualTo(6));
+            var retry = dispatcher.Pump(actor.PurchaseCurrencyAsync(buyer, "wood", 1, uncertain.OperationId!.Value));
+            Assert.That(retry.Status, Is.EqualTo(NpcShopPurchaseStatus.RecoveryRequired));
+            Assert.That(retry.OperationId, Is.EqualTo(uncertain.OperationId));
+            Assert.That(native.inventory.Take(50).Where(i => i.type == ItemID.Wood).Sum(i => i.stack), Is.EqualTo(6));
+            Assert.That(checkpoints, Is.EqualTo(4));
+
+            var reconnected = Connect();
+            Assert.That(reconnected.SessionId, Is.Not.EqualTo(buyer.SessionId));
+            accountSessions.Bind(reconnected, new AccountId(1));
+            Conversation();
+            Assert.That(dispatcher.Pump(actor.GetQuestsAsync(reconnected)).Single().State, Is.EqualTo(NpcQuestState.Completed));
+            Assert.That(dispatcher.Pump(actor.TurnInQuestAsync(reconnected, "torch", 1)).Status, Is.EqualTo(NpcQuestStatus.AlreadyCompleted));
+            Assert.That(dispatcher.Pump(actor.GetCurrencyBalanceAsync(reconnected, "gems")).PendingOperationId, Is.EqualTo(uncertain.OperationId));
+            Assert.That(dispatcher.Pump(actor.CreditCurrencyAsync(buyer, new("gems", 1), Guid.NewGuid())).Status, Is.EqualTo(NpcEconomyStatus.AccountRequired));
+            accountSessions.Bind(reconnected, new AccountId(2));
+            Assert.That(dispatcher.Pump(actor.GetQuestsAsync(reconnected)).Single().State, Is.EqualTo(NpcQuestState.Available));
+            Assert.That(dispatcher.Pump(actor.GetCurrencyBalanceAsync(reconnected, "gems")).Balance, Is.Zero);
+            Assert.That(provider.Invocations, Is.GreaterThan(0));
+            // Operator reconciliation after verifying the prior native grant, not an automatic retry.
+            Assert.That(store.FinalizeDebitAsync(new NpcAccountScope(world, "npc.wallet.test", new AccountId(1)), uncertain.OperationId!.Value, true).AsTask().GetAwaiter().GetResult(), Is.True);
+        }
+        finally
+        {
+            global::Terraria.Main.player[playerSlot] = oldPlayer;
+            global::Terraria.Netplay.Clients[playerSlot] = oldClient;
+            global::Terraria.NetMessage.buffer[playerSlot] = oldBuffer;
+            global::Terraria.NetMessage.buffer[256] = oldBroadcast;
+            global::Terraria.Main.npc[npcSlot] = oldNpc;
+            global::Terraria.Main.netMode = oldMode;
+            global::Terraria.Main.dedServ = oldDedicated;
+            global::Terraria.Main.ServerSideCharacter = oldSsc;
+            global::Terraria.Main.rightWorld = oldRight;
+            global::Terraria.Main.bottomWorld = oldBottom;
+            if (Directory.Exists(root)) Directory.Delete(root, true);
+        }
+    }
+
+    private sealed class PumpDispatcher : IGameThreadDispatcher
+    {
+        private readonly int id = Environment.CurrentManagedThreadId;
+        private readonly ConcurrentQueue<Action> pending = new();
+        public bool IsGameThreadKnown => true;
+        public bool IsGameThread => Environment.CurrentManagedThreadId == id;
+        public void AssertGameThread() => Assert.That(IsGameThread, Is.True);
+        public bool TryPost(string name, Action action) { pending.Enqueue(action); return true; }
+        public bool TrySchedule(string name, Func<bool> step) => throw new NotSupportedException();
+        public void Drain() { AssertGameThread(); while (pending.TryDequeue(out var action)) action(); }
+        public T Pump<T>(ValueTask<T> operation)
+        {
+            var task = operation.AsTask();
+            long started = Stopwatch.GetTimestamp();
+            while (!task.IsCompleted)
+            {
+                Drain();
+                if (Stopwatch.GetElapsedTime(started) > TimeSpan.FromSeconds(15)) throw new TimeoutException("Native actor test dispatch did not complete.");
+                Thread.Sleep(1);
+            }
+            return task.GetAwaiter().GetResult();
+        }
+    }
+
+    private sealed class BindingAccounts : IPlayerAccountSessionService
+    {
+        private readonly object sync = new();
+        private PlayerAccountBinding? current;
+        public void Bind(PlayerSnapshot player, AccountId account) { lock (sync) current = new(player.Id, player.SessionId!.Value, account, Guid.NewGuid()); }
+        public bool TryGetAccount(PlayerId playerId, out AccountSnapshot? account) { account = null; return false; }
+        public ValueTask<bool> SetCultureAsync(PlayerId playerId, string? culture, CancellationToken cancellationToken = default) => ValueTask.FromResult(false);
+        public bool TryGetBinding(PlayerSnapshot player, out PlayerAccountBinding binding)
+        {
+            lock (sync) { if (current is { } active && active.PlayerId == player.Id && active.SessionId == player.SessionId) { binding = active; return true; } }
+            binding = default; return false;
+        }
+        public bool TryRunWithBinding<T>(PlayerAccountBinding expected, Func<T> operation, out T result)
+        {
+            lock (sync) { if (current == expected) { result = operation(); return true; } }
+            result = default!; return false;
+        }
+    }
+
+    private sealed class TrackingEconomyProvider(INpcEconomyProvider inner, PumpDispatcher dispatcher) : INpcEconomyProvider
+    {
+        private int invocations;
+        public int Invocations => Volatile.Read(ref invocations);
+        public bool FailCommit { get; set; }
+        public Action? AfterReserve { get; set; }
+        private void Check() { if (dispatcher.IsGameThread) throw new InvalidOperationException("Provider called on native thread."); Interlocked.Increment(ref invocations); }
+        public ValueTask<NpcEconomyBalanceResult> ReadBalanceAsync(NpcAccountScope scope, string currencyId, CancellationToken cancellationToken = default)
+        { Check(); return inner.ReadBalanceAsync(scope, currencyId, cancellationToken); }
+        public ValueTask<NpcEconomyBalanceResult> CreditAsync(NpcAccountScope scope, NpcEconomyPrice credit, Guid operationId, CancellationToken cancellationToken = default)
+        { Check(); return inner.CreditAsync(scope, credit, operationId, cancellationToken); }
+        public async ValueTask<NpcEconomyReservationResult> ReserveDebitAsync(NpcAccountScope scope, NpcEconomyPrice price, Guid operationId, CancellationToken cancellationToken = default)
+        {
+            Check();
+            var result = await inner.ReserveDebitAsync(scope, price, operationId, cancellationToken).ConfigureAwait(false);
+            if (result.Status == NpcEconomyStatus.Applied) AfterReserve?.Invoke();
+            return result;
+        }
+        public ValueTask<bool> FinalizeDebitAsync(NpcAccountScope scope, Guid operationId, bool committed, CancellationToken cancellationToken = default)
+        { Check(); return committed && FailCommit ? ValueTask.FromResult(false) : inner.FinalizeDebitAsync(scope, operationId, committed, cancellationToken); }
+    }
+
     [Test]
     [NonParallelizable]
     public async Task NativePurchaseCommitsOnceForTheExactConversationAndSession()

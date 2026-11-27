@@ -204,7 +204,7 @@ The dashboard is a high-contrast tiled desktop of server, performance, memory, n
 
 `--vega-world-image=on` enables the experimental derived `.vworld` cache; `off` disables it. The default is off. `.wld` remains canonical, and stale, incompatible, or corrupt images automatically fall back to it.
 
-Use `Vega.Server.exe --vega-world-image=on -world path/to/world.wld`, or directly select a prepared image with `Vega.Server.exe -world path/to/world.vworld`. Direct selection enables the cache automatically and resolves the companion `.wld` as the canonical save/recovery target, while validated startup reads from `.vworld`. Manual save, autosave, and shutdown save update `.wld`, capture prepared runtime tiles and liquid queues, then queue one coalesced atomic image publication. The next validated runtime-snapshot hit can bypass repeated liquid settling; any source, schema, checksum, queue, or initialization-sequence mismatch falls back to `.wld`.
+Use `Vega.Server.exe --vega-world-image=on -world path/to/world.wld`, or directly select a prepared image with `Vega.Server.exe -world path/to/world.vworld`. Direct selection enables the cache automatically and resolves the companion `.wld` as the canonical save/recovery target, while validated startup reads from `.vworld`. Manual save, autosave, and shutdown save update `.wld`, capture prepared runtime tiles and liquid queues, then queue one coalesced atomic image publication. Native world version 329 can use a cache from a completed native save. Liquid fast restore remains disabled for the current runtime; invalid images fall back to `.wld`.
 
 ### World autosave and cleanup
 

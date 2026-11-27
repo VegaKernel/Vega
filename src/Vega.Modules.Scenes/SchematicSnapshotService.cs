@@ -54,7 +54,7 @@ public sealed class SchematicSnapshotService(WorldId worldId, ISchematicCaptureS
                 var document = load();
                 if (document.Tiles.Length > WorldTileOperationLimits.MaximumTiles)
                     throw new SchematicFormatException("Schematic exceeds the native region operation limit.");
-                var projection = SchematicSceneProjection.Create(document, "materialization", x, y, SceneObserverScope.Global);
+                var projection = SchematicSceneProjection.CreateMaterialization(document, x, y);
                 return (Document: document, projection.Tiles, projection.Bounds);
             }, cancellationToken).ConfigureAwait(false);
             return await DispatchAsync(() => place(prepared.Document, prepared.Tiles, prepared.Bounds),

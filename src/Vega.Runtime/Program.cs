@@ -375,7 +375,6 @@ int Start()
         var worldTiles = new TerrariaWorldTileService(gameThreadDispatcher, runtimeWorldId);
         var worldNpcs = new TerrariaWorldNpcService(gameThreadDispatcher, runtimeWorldId, playerBoundary);
         var worldEvents = new WorldGameplayEventHub();
-        using var worldNpcActors = new TerrariaNpcActorService(gameThreadDispatcher, runtimeWorldId, playerBoundary, worldEvents, logger);
         var worldSchematics = new SchematicSnapshotService(runtimeWorldId, new TerrariaSchematicCapture(gameThreadDispatcher), gameThreadDispatcher,
             new TerrariaSchematicPlacement(gameThreadDispatcher, runtimeWorldId).Place);
         WorldBuildProtection buildProtection;
@@ -595,6 +594,10 @@ int Start()
             logger,
             primaryCharacterStore: !backendLaunch.IsBackend && primaryCharacterOptions.Enabled
                 ? (primaryCharacterOptions.Authoritative ? sandboxSscStore : new SandboxSscStore(legacyPrimaryCharacterPath)) : null);
+        var npcAccountStore = new FileNpcAccountStore(Path.Combine(runtimeDataRoot, "npc-account-progress"));
+        using var worldNpcActors = new TerrariaNpcActorService(gameThreadDispatcher, runtimeWorldId, playerBoundary, worldEvents, logger,
+            accountSessions, npcAccountStore, npcAccountStore, authoritativeCharacters ? sandboxSscSessions.IsCharacterReady : null,
+            sandboxSscSessions.CheckpointActorTransactionAsync);
         using IDisposable saveSscRegistration = commandDispatcher.Register(new SaveSscCommand(sandboxSscSessions));
         using IDisposable overrideSscRegistration = commandDispatcher.Register(new OverrideSscCommand(sandboxSscSessions, playerBoundary));
         using IDisposable uploadSscRegistration = commandDispatcher.Register(new UploadSscCommand(sandboxSscSessions, playerBoundary));
@@ -617,6 +620,7 @@ int Start()
             inventoryPolicy,
             new PlayerCharacterSyncPolicy(static () => TerrariaPacketSecurityLimits.BuffSlotCount, TerrariaPacketSecurityLimits.BuffTypeCount),
             gameplayEnforcement,
+            new SceneManagedChestGuiPolicy(scenes, runtimeWorldId, playerBoundary),
             new ChestInteractionAuthorityPolicy(playerBoundary),
             new TileEntityInteractionAuthorityPolicy(playerBoundary),
             new SceneInteractionAuthorityPolicy(scenes, runtimeWorldId, playerBoundary),
@@ -693,7 +697,7 @@ int Start()
             accounts: accountSessions,
             dispatcher: gameThreadDispatcher);
         var restAdministration = new RestAdministration(runtimeWorldId, database.Accounts, database.Authorization,
-            database.Regions, banService, database.Mutes, sandboxDirectory, sandboxControl);
+            database.Regions, banService, database.Mutes, sandboxDirectory, sandboxControl, Path.Combine(sandboxDataRoot, "rest-templates"));
         using var rest = new LoopbackRestService(runtimeWorldId, lifecycle, operationsState, playerBoundary, networkMetrics, serverControl,
             runtimeMetrics, gameThreadDispatcher.ReadQueueMetrics, worldEnvironment, logger, restAdministration);
         using IDisposable restRegistration = commandDispatcher.Register(rest);

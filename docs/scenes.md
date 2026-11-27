@@ -77,7 +77,7 @@ contents and bounds (`ReplaceTiles`), changes observers and layer, and removes p
 Plugins can continue to create their own scoped providers with `context.World.Scenes`
 (scene leases are tied to plugin ownership). These are **visual, observer-scoped layers**;
 server-side world interaction on phantom tiles is still denied. They are not extra
-physics worlds, native virtual chest UI/full tile-entity simulation, nor binary compatibility with the
+physics worlds, unrestricted native virtual chest UI/full tile-entity simulation, nor binary compatibility with the
 legacy FakeProvider API. Independent simulation remains process-isolated.
 
 ### Logical virtual chests for plugins
@@ -125,12 +125,42 @@ It publishes both state changes together before syncing the native inventory slo
 Deposits of favorited items are rejected. The result's `Applied` status is final,
 including when the subsequent inventory notification failed (`Error` is set).
 Only standard item type, stack and prefix are represented in logical chests.
-This does not assign native chest indices, open the vanilla inventory UI, or
-persist data in `.wld`. Plugins own the UI/policies and storage. Native fixture
-tests exercise both directions and reject stale/hidden/out-of-range requests;
-interactive SSC client qualification remains open. See
-`samples/Vega.PluginSamples/VirtualChestPreviewCommand.cs` (`samplechest`) for the
-read-only display example.
+The explicit transfer API does not require opening the vanilla inventory UI or
+registering a native chest. Plugins own policies and storage; logical contents
+are not persisted in `.wld`.
+
+#### Managed native chest GUI (opt-in minigame sessions)
+
+`SupportsManagedVirtualChestGui` / `TryPresentManagedGui(open)` sends the stock
+40-slot chest snapshot and opening response to the exact observer, without
+registering anything in the native chest table or changing server `player.chest`.
+Native chest metadata initializes the client-only entry before slot data; aliases
+are coordinate-bound and capped at 32 per connection. Presentation is refused
+over a canonical chest position or occupied native index.
+It requires authoritative SSC and a complete native 2×2 chest-shaped footprint.
+The GUI is deliberately **not** an unrestricted vanilla inventory mode: opting in
+makes that exact connection's client-driven inventory and canonical chest/item
+operations server-managed until disconnect/reconnect, even after the GUI closes.
+This avoids releasing a speculative late local inventory update into ordinary
+native character state. Use it only for plugin-owned inventory/minigame sessions.
+
+Only a balanced movement between one chest slot and one compatible main inventory
+or mouse slot is observed as a transfer intent. The plugin polls
+`TryTakeManagedGuiTransfer`, then calls `AcceptManagedGuiTransfer` (atomic
+revision-checked native assignment) or `RejectManagedGuiTransfer` (close and
+resynchronize). Unmatched, unsupported, stale, timed-out, hidden or out-of-reach
+operations close the GUI and correct authoritative inventory; no implicit
+canonical mutation occurs. Multi-slot sorting, quick-stack, swaps and renaming
+are intentionally not supported. A second viewer of a stale chest revision will
+close rather than commit against outdated contents.
+
+`TryCloseManagedGui(observer)` closes this plugin's GUI but does not return the
+session to unrestricted client-written inventory. The sample `samplechest`
+defaults to chat-only display; `--managed-gui` explicitly enables the constrained
+native mode and accepts balanced transfers for its personal demo chest.
+Headless native decoder and domain/native transaction fixtures qualify server
+framing, item conservation and exact-session state; stock graphical drag timing
+and unrestricted client inventory compatibility remain unqualified.
 
 ### Logical virtual signs
 
@@ -204,7 +234,36 @@ metadata. Ordinary placement into phantom displays and interactions with canonic
 tile entities hidden by overlays remain blocked. This is read-only presentation,
 not native inventory transfer. There is no graphical client UI qualification,
 independent simulation, or guarantee of confidentiality of canonical section data.
-Pylons, sensors and interactive tile-entity inventories remain outside this scope.
+Pylons, sensors and unrestricted tile-entity inventories remain outside this scope.
+
+#### Managed placement into an empty frame or weapon rack
+
+`SupportsManagedDisplayInteractions` advertises an explicit one-shot interaction
+for item frames and weapon racks. On the game thread, call
+`frame.TryArmManagedInteraction(playerSnapshot)` (or the weapon rack handle's
+same method). This requires authoritative SSC, an exact living session, complete
+visible reachable footprint, and no canonical tile-entity registration at the
+position. Arming activates the same server-managed inventory scope as the managed
+chest GUI, **until disconnect/reconnect**; do not use it for unrestricted vanilla
+inventory sessions.
+
+The normal placement observation and one compatible, conserved inventory-slot
+decrease produce a detached `SceneManagedDisplayTransferIntent`. Observe either
+order of the two changes; neither mutates canonical state. The plugin polls
+`TryTakeManagedTransfer`, then calls `AcceptManagedTransfer(intent)` to atomically
+debit the native authoritative inventory and replace the provider's exact
+display revision, or `RejectManagedTransfer(intent)` to correct the client.
+`CancelManagedInteraction(playerSnapshot)` cancels only this handle's arm.
+
+Only deposits into an **empty** display are supported. Item frames can hold a
+valid native item stack; a managed weapon rack accepts one damaging native item.
+No swapping, occupied-display replacement, automatic withdrawal, mannequin or
+hat-rack inventory interactions are enabled by this API. A missing/mismatched
+half, stale revision/session, moved/hidden target, or timeout cancels the arm and
+resynchronizes inventory and the observer's display. A committed result remains
+applied even if subsequent visual refresh fails (`Error` is populated).
+The native decoder and local transaction fixture qualify resulting metadata and
+item conservation; actual graphical placement timing remains unqualified.
 
 Personal providers can enable `FillOutsideWithAir` with `pfake air <name> on`,
 `IPluginFakeProvider.CreatePersonal(..., fillOutsideWithAir: true)`, or

@@ -2,7 +2,7 @@ using Vega.Contracts.Scenes;
 
 namespace Vega.PluginSdk;
 
-public interface IPluginVirtualDisplay : IDisposable
+public interface IPluginVirtualDisplay : IDisposable, IPluginManagedDisplayInteraction
 {
     VirtualDisplayId Id { get; }
     SceneVirtualDisplayDefinition Definition { get; }
@@ -48,7 +48,7 @@ internal static partial class VegaPluginRuntime
                 if (definition.VirtualDisplays.Any(display => display.Id == id)) SetDisplays(definition.VirtualDisplays.Where(display => display.Id != id).ToArray());
             });
 
-            private sealed class VirtualDisplay(TileProvider provider, VirtualDisplayId id) : IPluginVirtualDisplay
+            private sealed partial class VirtualDisplay(TileProvider provider, VirtualDisplayId id) : IPluginVirtualDisplay
             {
                 private int disposed;
                 public VirtualDisplayId Id => id;

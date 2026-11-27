@@ -8,13 +8,16 @@ namespace Vega.Terraria.Players;
 public sealed partial class TerrariaPlayerInventoryService : IVirtualChestInventoryTransfer
 {
     public SceneVirtualChestTransferResult TransferVirtualChest(ISceneRuntime scenes, SceneVirtualChestTransferRequest request)
+        => TransferVirtualChestCore(scenes, request, allowMouse: false);
+
+    private SceneVirtualChestTransferResult TransferVirtualChestCore(ISceneRuntime scenes, SceneVirtualChestTransferRequest request, bool allowMouse)
     {
         if (!dispatcher.IsGameThread || scenes is not IVirtualChestTransferAuthority authority)
             return new(VirtualChestTransferStatus.Unavailable);
         if (!global::Terraria.Main.ServerSideCharacter)
             return new(VirtualChestTransferStatus.AuthorityRequired, Error: "inventory.native_ssc_required");
         // Main inventory only: no mouse item, trash, coin or ammo slots.
-        if ((uint)request.InventorySlot >= 50 || (uint)request.ChestSlot >= SceneVirtualChestDefinition.SlotCount ||
+        if (((uint)request.InventorySlot >= 50 && (!allowMouse || request.InventorySlot != PlayerItemSlotID.InventoryMouseItem)) || (uint)request.ChestSlot >= SceneVirtualChestDefinition.SlotCount ||
             request.Amount is < 1 or > 9999 || !Enum.IsDefined(request.Direction) || request.Open.Chest.Definition is not { } chest)
             return new(VirtualChestTransferStatus.InvalidRequest);
         var observer = request.Open.Observer;
@@ -26,6 +29,7 @@ public sealed partial class TerrariaPlayerInventoryService : IVirtualChestInvent
         long revision = RefreshRevision(expected, player);
         if (revision != request.InventoryRevision) return new(VirtualChestTransferStatus.RevisionConflict, InventoryRevision: revision);
 
+        if ((uint)request.InventorySlot >= (uint)player.inventory.Length) return new(VirtualChestTransferStatus.InvalidRequest);
         var inventoryItem = player.inventory[request.InventorySlot];
         ChestItemSnapshot chestItem = chest.Items.FirstOrDefault(item => item.Slot == request.ChestSlot);
         bool withdrawing = request.Direction == VirtualChestTransferDirection.Withdraw;

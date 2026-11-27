@@ -3,7 +3,7 @@ using Vega.Contracts.Scenes;
 namespace Vega.PluginSdk;
 
 /// <summary>Read-only native item presentation attached to a provider's complete item-frame footprint.</summary>
-public interface IPluginVirtualItemFrame : IDisposable
+public interface IPluginVirtualItemFrame : IDisposable, IPluginManagedDisplayInteraction
 {
     VirtualItemFrameId Id { get; }
     SceneVirtualItemFrameDefinition Definition { get; }
@@ -49,7 +49,7 @@ internal static partial class VegaPluginRuntime
                     SetItemFrames(definition.VirtualItemFrames.Where(frame => frame.Id != id).ToArray());
             });
 
-            private sealed class VirtualItemFrame(TileProvider provider, VirtualItemFrameId id) : IPluginVirtualItemFrame
+            private sealed partial class VirtualItemFrame(TileProvider provider, VirtualItemFrameId id) : IPluginVirtualItemFrame
             {
                 private int disposed;
                 public VirtualItemFrameId Id => id;

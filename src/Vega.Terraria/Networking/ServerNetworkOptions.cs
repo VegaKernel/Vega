@@ -11,6 +11,8 @@ public sealed record ServerNetworkOptions
     public bool OrderedQueueDiagnostics { get; init; }
     /// <summary>Opt-in dense-burst writer batching; native ticks flush pending wakes.</summary>
     public bool OrderedDeferredWake { get; init; }
+    /// <summary>Opt-in producer-owned contiguous packet blocks, requires deferred Ordered batching.</summary>
+    public bool OrderedProducerBatching { get; init; }
     public double OrderedDeferredWakeMilliseconds { get; init; } = 1;
     public int DistantMovementUpdatesPerSecond { get; init; }
     public int OrderedCallbacksPerPass { get; init; } = NativeTcpTransportOptions.DefaultCallbacksPerPass;
@@ -22,6 +24,7 @@ public sealed record ServerNetworkOptions
         FramesPerSlotPerPass = Math.Clamp(options.FramesPerSlotPerPass, 1, 256),
         DistantMovementUpdatesPerSecond = Math.Clamp(options.DistantMovementUpdatesPerSecond, 0, 20),
         OrderedDeferredWakeMilliseconds = double.IsFinite(options.OrderedDeferredWakeMilliseconds) ? Math.Clamp(options.OrderedDeferredWakeMilliseconds, 0.25, 2) : 1,
+        OrderedProducerBatching = options.OrderedProducerBatching && options.UseOrderedTcp && options.OrderedDeferredWake && options.OrderedBatchRequests > 1,
         OrderedCallbacksPerPass = Math.Clamp(options.OrderedCallbacksPerPass, 1, NativeTcpTransportOptions.DefaultCallbacksPerPass),
         OrderedBatchRequests = Math.Clamp(options.OrderedBatchRequests, 1, NativeOutboundQueue.BatchRequestLimit)
     };

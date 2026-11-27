@@ -58,7 +58,8 @@ internal sealed class TerrariaSchematicObjects(SceneBounds bounds)
                 throw new SchematicFormatException("Chest anchor lies outside its schematic region.");
             ushort type = tiles[record.X, record.Y].TileType;
             if (type is not (TileID.Containers or TileID.Containers2 or TileID.Dressers) ||
-                record.Name.Length > Chest.MaxNameLength || record.Items.Length > Chest.DefaultMaxItems ||
+                record.Name.Length > Chest.MaxNameLength || record.Capacity < Chest.DefaultMaxItems ||
+                record.Capacity > Math.Min(SchematicLimits.MaxChestItems, Chest.AbsoluteMaxItemsWeCanEverReachInAChestForNow) || record.Items.Length > record.Capacity ||
                 Chest.FindChest(bounds.X + record.X, bounds.Y + record.Y) >= 0)
                 throw new SchematicFormatException("Unsupported native chest type, name, capacity or existing registration.");
             Cover(record.X, record.Y, type == TileID.Dressers ? 3 : 2, 2, type);
@@ -137,6 +138,9 @@ internal sealed class TerrariaSchematicObjects(SceneBounds bounds)
             if (!ReferenceEquals(Main.chest[slot], chest) || Chest.FindChest(x, y) != slot)
                 throw new InvalidOperationException("Native chest registration failed.");
             chest.name = record.Name;
+            if (chest.maxItems != record.Capacity) chest.Resize(record.Capacity);
+            if (chest.maxItems != record.Capacity || chest.item.Length != record.Capacity)
+                throw new InvalidOperationException("Native chest capacity could not be restored.");
             CopyItems(items, chest.item);
         }
         foreach (var record in signs)

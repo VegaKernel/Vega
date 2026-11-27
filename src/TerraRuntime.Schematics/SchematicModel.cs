@@ -15,7 +15,8 @@ public static class SchematicLimits
     public const int MaxWorldItems = 65_536;
     public const int MaxMarkers = 16_384;
     public const int MaxMetadataEntries = 4_096;
-    public const int MaxChestItems = 40;
+    public const int DefaultChestCapacity = 40;
+    public const int MaxChestItems = 200;
     public const int MaxTileEntityItems = 32;
     public const int MaxChestNameUtf8Bytes = 256;
     public const int MaxSignTextUtf8Bytes = 8_192;
@@ -67,7 +68,11 @@ public readonly record struct SchematicItemStack(int ItemType, int Stack, byte P
     public bool IsEmpty => Stack == 0;
 }
 
-public sealed record SchematicChest(int X, int Y, string Name, SchematicItemStack[] Items);
+public sealed record SchematicChest(int X, int Y, string Name, SchematicItemStack[] Items)
+{
+    /// <summary>Native capacity, independent of the represented leading item slots. Unlisted trailing slots are empty.</summary>
+    public int Capacity { get; init; } = SchematicLimits.DefaultChestCapacity;
+}
 public sealed record SchematicSign(int X, int Y, string Text);
 
 public enum SchematicTileEntityKind : ushort

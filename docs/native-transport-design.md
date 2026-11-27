@@ -21,6 +21,22 @@ internal benchmark comparison (`--wait-cancellation`, `--legacy-wait-cancellatio
 
 Candidate startup limits (internal, not tuned production sizing): 512 transport connections including pending acceptance; 16,384 outstanding sends and 32 MiB retained send rentals per connection; 131,072 outstanding sends and 256 MiB retained send rentals per world process; 1 MiB single send and 128 KiB receive scratch per read; up to 8,192 callbacks or a cooperative 2 ms per native packet pass. Retained send budgets include in-flight buffers and outstanding completion credits, not OS socket memory, read scratch or short-lived rejected rentals. Receive scratch is bounded independently by connection/read size. The existing native pending admission limit and native per-slot frame budget remain active. When Ordered TCP is selected, adjacent coalescing defaults to the existing host setting of 16 requests / 32 KiB. `orderedBatchRequests` in `config/network.json` selects 1–16 at process startup (1 disables coalescing), keeping FIFO and completion cardinality unchanged. Vanilla remains the default transport; batching is not independently enabled for vanilla. See [performance results](performance-2026-11-26.md).
 
+For dense native broadcasts, set `useOrderedTcp: true`, `orderedDeferredWake: true`,
+`orderedDeferredWakeMilliseconds: 2`, and `orderedProducerBatching: true`
+with `orderedBatchRequests` greater than 1. Producer batching is off by default and
+normalization disables it without Ordered TCP and deferred wake. The producer copies
+borrowed spans directly into bounded pending blocks (up to 2 KiB speculative rental
+for packets up to 256 bytes); the writer freezes each block before I/O, so there is
+no writer-side merge copy. Larger or capacity-constrained requests retain exact-rental
+fallback. Actual rented capacity is charged once, every completion entry separately;
+FIFO, partial-write accounting, generation retirement, cancellation, and world-thread
+callback ownership remain unchanged. The larger spare capacity can increase sampled
+retained bytes and callback tail latency. The 255-peer full-world fixture improved
+average update throughput but does not establish stable no-overrun 60 TPS or joined-client
+qualification. Reproduce with `Measure-MixedGameplay.ps1 -FullWorld -DeferredWake
+-DeferredWakeMilliseconds 2 -ProducerBatching -TransportModes ordered -Modes optimized`
+and compare the same fixture without `-ProducerBatching`.
+
 ## 1. What can be reused
 
 | Source | Reusable mechanism | Adaptation required for native Terraria |

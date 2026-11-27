@@ -91,8 +91,8 @@ slots. Alternatively, `NpcShopOffer.ItemPrice` specifies an exact item type,
 prefix and quantity in the main inventory; debit and reward use the same
 atomic native exchange. Item-priced offers are deliberately hidden from the
 stock coin-price shop UI and are purchased through plugin actions/commands.
-Banks, external economy providers, persistent stock and transaction retry IDs
-are not implemented. This lane is separate from the stock client UI purchase:
+Named account currencies are available through the economy lane below. Banks
+and persistent actor stock are not implemented. This lane is separate from the stock client UI purchase:
 do not automatically debit coins again merely because a client changed its
 inventory. The native snapshot/commit checks are not a claim of full
 authoritative client inventory custody without the existing SSC qualification.
@@ -119,10 +119,67 @@ catalog revision. Turn-in consumes the required main-inventory items and adds
 the reward in the same native atomic transaction used by shops. Insufficient
 items, inventory capacity or non-authoritative SSC leave the quest accepted
 and the inventory unchanged. An already completed non-repeatable quest cannot
-be completed twice. Quest state is bounded to each actor and exact connected
-player session; reconnecting, replacing the catalog or unloading the actor
-does not restore previous progress. Plugins may subscribe to the guarded
-`OnNpcActorQuest` event and own persistent account progression themselves.
+be completed twice. Without a persistence scope, quest state is bounded to
+each actor and exact connected player session. Reconnecting, replacing the
+catalog or unloading the actor resets that session-only progress.
+
+### Persistent account quests and virtual economy
+
+Set `NpcActorDefinition.PersistentQuestScope` to a stable plugin-qualified name
+(for example `MyPlugin.Merchant.Main`) to opt into account persistence. Progress
+uses the exact authenticated account tenure, world ID, scope and quest ID;
+reconnecting or recreating the actor with the same scope preserves acceptance
+and completion. A catalog revision remains required for the current actor, but
+replacing definitions with the same quest ID deliberately preserves durable
+progress. Use a new scope/quest ID for a new campaign. Session-only quests remain
+available for actors without this option.
+
+Similarly `NpcActorDefinition.EconomyScope` opts into named virtual account
+currencies. An offer may use `EconomyPrice = new("tokens", 5)` instead of coin
+or item pricing. These offers stay hidden from the vanilla coin shop UI. The
+plugin owns the currency names and grants: `CreditCurrencyAsync(player,
+new("tokens", 10), operationId)` uses a stable non-empty GUID to deduplicate
+retries; `GetCurrencyBalanceAsync(player, "tokens")` reads the account wallet.
+Both require the exact current authenticated session; credits are trusted
+plugin actions, not a player's ability to mint currency. `PurchaseAsync`
+reserves the balance, revalidates the actor/catalog/authentication and native
+SSC readiness, then issues the inventory reward on the authoritative thread.
+For replay-safe wallet purchases, use `PurchaseCurrencyAsync` with a stable
+non-empty operation GUID. Reusing a reserved or committed operation never
+delivers another reward; the caller gets `RecoveryRequired` rather than a
+second successful purchase. Ordinary `PurchaseAsync` creates a new intentional
+purchase on each call. Provider operations run off the authoritative thread;
+the caller's wait is bounded to 15 seconds per operation. A provider that
+ignores cancellation may settle its write later, so treat uncertain outcomes
+as recovery cases, not as permission to send another purchase operation.
+The built-in file ledger is a world-local virtual economy, not real-money
+payments or a shared cross-world wallet. Host integrations can inject their
+own `INpcEconomyProvider` and `INpcQuestProgressStore`; no dynamic provider
+registration from collectible plugins is exposed yet.
+
+Production stores are rooted in the world's `data/npc-account-progress/`
+directory, with independently hashed account/scope files and cross-process
+locks, flushed atomic replacement, and bounded retained receipts. There are
+4,096 operation receipts and quest records per account scope, and 128 named
+currencies; receipts are never evicted automatically because that would permit
+credit replay. High-volume economies should supply indexed transactional
+storage through the provider interface. The normal sandbox reset keeps this
+world-local data; destroying a managed sandbox removes its runtime data.
+
+The durable turn-in/purchase protocol is intentionally fail-closed, not an
+atomic transaction spanning the SSC store and an external provider. It
+reserves a persistent operation before changing native inventory, releases
+only on a known native failure, performs an exact authenticated SSC checkpoint
+after native success, then finalizes the ledger. A crash, failed checkpoint or
+uncertain provider outcome leaves `CompletionPending`/`RecoveryRequired` and
+an operation GUID. The outstanding reservation survives restart and blocks
+automatic replay. Operators must reconcile the authoritative character
+checkpoint/reward before explicitly committing or releasing that exact
+operation using the store/provider's `FinalizeTurnInAsync`/`FinalizeDebitAsync`
+methods while the affected world is stopped. Never automatically expire or
+refund a pending reservation: the native reward may already have been issued.
+Notifications are best-effort after finalization; the durable ledger is the
+source of truth. `OnNpcActorQuest` still supports custom plugin bookkeeping.
 
 `Patrol` accepts 2–32 detached world-space waypoints and cycles horizontally,
 retaining native collision and gravity. `OnNpcActorThink` supplies a guarded
@@ -131,9 +188,10 @@ the actor's intent on the game thread. This is a bounded programming surface,
 not a replacement for Terraria pathfinding or an unrestricted AI callback.
 
 The sample plugin includes `samplemerchant create <pixelX> <pixelY>`, `info`,
-`move <pixelX>`, `patrol <leftX> <rightX>`, `remove`, `present`, `buy <offer>`,
+`move <pixelX>`, `patrol <leftX> <rightX>`, `remove`, `present`, `buy <offer> [operation-guid]`,
 `talk`, `choose <revision> <choice>`, `quests`, `accept <quest>` and
-`turnin <quest>` (permission
+`turnin <quest>`, `balance <currency>` and
+`credit <currency> <amount> <operation-guid>` (trusted operator sample; permission
 `vega.samples.world`). Its presentation and explicit purchase commands require
 the interacting player, not the server console. Native shop flows require a
 real stock-client qualification; tests use an isolated normal conversation

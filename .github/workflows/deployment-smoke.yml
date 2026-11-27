@@ -45,3 +45,7 @@ jobs:
       - name: Run opt-in Ordered TCP deployment smoke
         shell: pwsh
         run: ./scripts/Test-DeployableServer.ps1 -ServerRoot artifacts/server -TestOrderedTransport
+
+      - name: Run opt-in producer batching deployment smoke
+        shell: pwsh
+        run: ./scripts/Test-DeployableServer.ps1 -ServerRoot artifacts/server -TestProducerBatching

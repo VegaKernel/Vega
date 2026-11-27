@@ -3,6 +3,7 @@ using Multiplicity.Packets.Views;
 using NUnit.Framework;
 using Vega.Contracts.Networking;
 using Vega.Core.Networking;
+using Vega.Contracts.Worlds;
 
 namespace Vega.Runtime.Tests;
 
@@ -46,10 +47,14 @@ public sealed class WorldMutationSanityPolicyTests
         "packet.sign.position_out_of_world");
 
     [Test]
-    public void ChestResizeAboveFortySlotsIsViolation() => AssertReason(
-        new SyncChestSize { ChestId = 2, NewSize = 41 },
-        PacketTypes.SyncChestSize,
-        "packet.chest.size_out_of_range");
+    public void CanonicalChestCapacityBoundsMatchNativeLimits()
+    {
+        Assert.That(NativeChestCapacity.IsSupported(40), Is.True);
+        Assert.That(NativeChestCapacity.IsSupported(80), Is.True);
+        Assert.That(NativeChestCapacity.IsSupported(200), Is.True);
+        Assert.That(NativeChestCapacity.IsSupported(39), Is.False);
+        Assert.That(NativeChestCapacity.IsSupported(201), Is.False);
+    }
 
     [Test]
     public void PrefixAtRegistryCountIsViolation() => AssertReason(
@@ -58,10 +63,13 @@ public sealed class WorldMutationSanityPolicyTests
         "packet.item_frame.prefix_out_of_range");
 
     [Test]
-    public void ChestItemSlotOutsideChestIsViolation() => AssertReason(
-        new ChestItem { ChestId = 2, ItemSlot = 40, Stack = 1, ItemNetId = 1 },
-        PacketTypes.ChestItem,
-        "packet.chest.slot_out_of_range");
+    public void NativeChestSlotCeilingIsSeparateFromPerChestAuthorization()
+    {
+        Assert.That(WorldMutationSanityPolicy.IsNativeChestSlot(39), Is.True);
+        Assert.That(WorldMutationSanityPolicy.IsNativeChestSlot(199), Is.True);
+        Assert.That(WorldMutationSanityPolicy.IsNativeChestSlot(200), Is.False);
+        Assert.That(WorldMutationSanityPolicy.IsNativeChestSlot(-1), Is.False);
+    }
 
     [Test]
     public void LeashedAnchorOutsideWorldIsViolation() => AssertReason(

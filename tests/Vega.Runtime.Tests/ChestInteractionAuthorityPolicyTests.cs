@@ -33,6 +33,30 @@ public sealed class ChestInteractionAuthorityPolicyTests
         });
     }
 
+    [TestCase(40)]
+    [TestCase(80)]
+    [TestCase(200)]
+    public void CanonicalChestUsesOwnCapacityAndDoesNotPermitResize(int capacity)
+    {
+        var world = new FakeWorld(2, new Dictionary<int, WorldTilePosition> { [2] = new(10, 20) }, capacity);
+        var policy = new ChestInteractionAuthorityPolicy(world);
+        var player = new PlayerId(4);
+        Assert.That(policy.ValidateChestItem(player, 2, capacity - 1).Kind, Is.EqualTo(PacketDecisionKind.Allow));
+        Assert.That(policy.ValidateChestItem(player, 2, capacity).Kind, Is.EqualTo(PacketDecisionKind.Reject));
+        Assert.That(policy.ValidateChestSize(player, 2, capacity).Kind, Is.EqualTo(PacketDecisionKind.Allow));
+        Assert.That(policy.ValidateChestSize(player, 2, capacity == 40 ? 80 : 40).Kind, Is.EqualTo(PacketDecisionKind.Reject));
+        Assert.That(policy.ValidateChestItem(null, 2, 0).Kind, Is.EqualTo(PacketDecisionKind.Reject));
+    }
+
+    [TestCase(null)]
+    [TestCase(0)]
+    [TestCase(201)]
+    public void UnavailableCapacityFailsClosed(int? capacity)
+    {
+        var policy = new ChestInteractionAuthorityPolicy(new FakeWorld(2, new Dictionary<int, WorldTilePosition> { [2] = new(10, 20) }, capacity));
+        Assert.That(policy.ValidateChestItem(new PlayerId(4), 2, 0).Reason, Is.EqualTo("packet.chest.capacity_unavailable"));
+    }
+
     [Test]
     public void ChestOpenCoordinatesMustMatchAuthoritativeChest()
     {
@@ -73,7 +97,7 @@ public sealed class ChestInteractionAuthorityPolicyTests
 
     private sealed class FakeWorld(
         int activeChest,
-        IReadOnlyDictionary<int, WorldTilePosition> chests) : IWorldInteractionState
+        IReadOnlyDictionary<int, WorldTilePosition> chests, int? capacity = 40) : IWorldInteractionState
     {
         public bool TryGetActiveChest(PlayerId playerId, out int chestId)
         {
@@ -83,6 +107,12 @@ public sealed class ChestInteractionAuthorityPolicyTests
 
         public bool TryGetChestPosition(int chestId, out WorldTilePosition position) =>
             chests.TryGetValue(chestId, out position);
+
+        public bool TryGetChestCapacity(int chestId, out int result)
+        {
+            result = capacity.GetValueOrDefault();
+            return capacity.HasValue && chests.ContainsKey(chestId);
+        }
 
         public bool TryGetTileEntityPosition(int tileEntityId, out WorldTilePosition position)
         {

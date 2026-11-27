@@ -586,3 +586,179 @@ guarded allow-policy evaluation; each loop allocated zero managed bytes.
 Exact delivery and removal after disposal are asserted by the benchmark. These
 are hub costs, not native patch overhead or live-client TPS. Raw output:
 `artifacts/performance-2026-11-26/vega-world-events-benchmark.txt`.
+
+### 27 November: full native world updates with 255 synthetic players
+
+The opt-in `fullworldbench` fixture uses a disposable server, passive private
+loopback readers (no inbound client traffic), and the dedicated tick-completed
+event. Native world/NPC/player simulation runs normally between injections; the
+fixture checks `Main.GameUpdateCount` advances by exactly one on every measured
+tick. 300 warm-up ticks precede the measurement. It moves 255 synthetic avatars
+every six ticks, strikes the same boss every 30 ticks, and posts chat every 120
+ticks. Synthetic health/keepalive is maintained so the fixture is reproducible.
+This does not cover the real-client ingress pipeline or graphical gameplay.
+
+| Metric | Recording sink | Ordered TCP, 2 ms deferred wake |
+| --- | ---: | ---: |
+| Verified native world updates | 600 | 1,800 |
+| Elapsed measurement | 3.49 s | 45.98 s |
+| Native update p95 | 5.88 ms | 12.78 ms |
+| Combined busy p95 / p99 | 6.89 / 8.63 ms | 36.39 / 41.64 ms |
+| Busy ticks exceeding 16.67 ms | 0 / 600 | 1,800 / 1,800 |
+| Output calls | 8,267,368 | 24,802,082 |
+| Output bytes | 144,286,746 | 433,269,607 |
+| Actual socket writes | n/a | 4,484,061 |
+| Send / completion peak queue age | n/a | 18.00 / 36.22 ms |
+
+Ordered TCP delivered all 24,802,082 completion callbacks and exactly 433,269,607
+bytes, with per-peer stream hashes verified on all 255 receivers. Measured
+cadence was 39.15 native updates/s, so stable 60 TPS is **not qualified**.
+The recording phase can catch up native startup timing debt and must not be
+read as a 172 TPS production claim; its busy intervals isolate non-socket work.
+The workload is heavier than the previous paced output-only benchmark because
+it includes native world traffic. Local socket receivers and stream validation
+also consume CPU; a real-client/WAN run remains necessary.
+
+Reproduce with `scripts/Measure-MixedGameplay.ps1 -FullWorld -Modes optimized`
+and `-TransportModes recording` or `-TransportModes ordered -DeferredWake
+-DeferredWakeMilliseconds 2`; use a fresh publish and a copied `.wld` fixture.
+Raw runs: `artifacts/fullworld-verified-recording`,
+`artifacts/fullworld-verified-ordered`.
+
+The corresponding TShock 6.2.1 fixture (Terraria 1.4.5.8) uses the native
+dedicated packet-pass hook after normal game updates and the same world-counter
+assertion; it does not manually run NPC AI or re-enter the game update. The
+600-tick run (300 warm-up) performed 25,500 movements, 5,100 strikes,
+71,400 total damage and 1,275 chat messages. It completed in **104.28 s**
+(5.75 verified updates/s), cadence p95 192.08 ms and p99 219.92 ms,
+28.46 GB process allocations, with 8,271,100 callbacks and 144,413,010 bytes
+verified across all 255 passive receivers. This is a different Terraria and
+.NET runtime version from Vega, not a protocol-identical comparison. It uses
+native TShock TCP versus Vega's opt-in ordered TCP, not matching default
+transport settings; policy/ingress/graphical behavior are not measured.
+Reproduce with `scripts/Measure-TShockMixedGameplay.ps1 -FullWorld -Ticks 600`
+against an extracted local TShock 6.2.1 release and the same `.wld` input.
+Raw run: `artifacts/tshock-fullworld-600`.
+
+#### Completion FIFO gate experiment
+
+The writer's payload gate no longer serializes the world-thread completion
+dequeue against unrelated payload rentals/copies. The queue retains FIFO,
+generation checks and exact local/shared credits. A deterministic test holds
+the producer's pool rental and verifies an existing completion is still
+readable. 49 targeted ordered transport regressions passed.
+
+Same 600-tick native fixture, 300 warm-up, ordered TCP and 2 ms deferred wake:
+
+| Variant | Wall | Combined busy p95 | Completion pump p95 | Process CPU |
+| --- | ---: | ---: | ---: | ---: |
+| A single gate 1 | 13.714 s | 25.59 ms | 1.736 ms | 63.05 s |
+| B split gate 1 | 13.788 s | 26.94 ms | 1.530 ms | 64.50 s |
+| B split gate 2 | 13.473 s | 25.27 ms | 1.489 ms | 59.02 s |
+| A single gate 2 | 13.753 s | 25.87 ms | 1.684 ms | 68.63 s |
+
+All four runs delivered about 8.27 million actual callbacks and verified all
+255 byte streams. Mean wall 13.734 → 13.630 s (noise-sized difference),
+completion pump p95 1.710 → 1.509 ms (−11.7%), CPU 65.84 → 61.76 s
+(−6.2%), managed allocation 550.5 → 539.0 MB (−2.1%). No 60-TPS or
+material throughput improvement is demonstrated; the structural independence
+of completions and modest CPU/latency improvement justify retaining the change.
+The 600-tick B results are about 44 updates/s, versus 5.75 updates/s in
+the different-runtime TShock run (~7.65× elapsed-time difference), and every
+busy tick still exceeded 16.67 ms. Native output counts differ slightly across
+runs, reflecting actual world simulation. Raw `artifacts/fullworld-gate-abba`.
+
+The independent small-packet 255-peer ABBA (`Vega.NativeTcp.Benchmarks
+--split-gate`) validates 1,468,800 completions and 42.02 MiB per trial.
+Mean A → B wall 3.029 → 3.054 s, CPU 39.32 → 37.25 s, producer p95
+19.286 → 18.077 ms, callback p95 22.08 → 22.57 ms. Raw
+`artifacts/network-split-gate-abba`.
+
+#### Producer-owned packet blocks (deferred-wake candidate)
+
+The next option appends borrowed packet spans directly to a connection-owned
+pending tail block (bounded to 16 requests, small speculative rentals up to
+2 KiB). The writer takes the sealed block without a second coalescing copy;
+each packet retains its individual FIFO completion metadata/credit. Actual
+pooled capacity is charged once per block and every request counts toward
+the entry cap; exact rental fallback handles pressure. Partial I/O and close
+still use the existing cancellable memory-send path. The immediate-wake
+experiment was rejected (CPU rose ~11%, writes ~17%); this option is gated
+to the explicitly enabled ordered deferred-wake configuration.
+
+Same-binary, 255 players / 600 measured native updates / 300 warm-up, 2 ms
+deferred wake, split completion gate enabled in both variants:
+
+| Variant | Wall | Busy p95 | CPU | Allocation | Socket writes | Overruns |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| A old coalescing 1 | 13.460 s | 25.27 ms | 57.63 s | 541.69 MB | 1.369 M | 600 |
+| B owned blocks 1 | 9.817 s | 20.23 ms | 40.95 s | 395.76 MB | 1.086 M | 179 |
+| B owned blocks 2 | 10.025 s | 21.05 ms | 37.97 s | 397.73 MB | 1.106 M | 209 |
+| A old coalescing 2 | 13.992 s | 26.68 ms | 68.05 s | 547.63 MB | 1.425 M | 600 |
+
+Mean measured cadence improved from 43.71 to 60.48 verified updates/s
+(+38.3%), CPU −37.2%, allocations −27.2%, write calls −21.6%. Peak retained
+queue capacity increased from roughly 115–127 KB to 261–347 KB. Peak send
+age stayed below 10 ms in both B trials; peak completion age was 18.43 and
+22.32 ms. All runs delivered each callback and exact stream hashes across
+255 peers (~8.27 million sends / 144 MB per trial). **Stable 60 TPS is not
+established:** 179/600 and 209/600 busy ticks exceeded the 16.67 ms target,
+and one trial had a mean slightly under 60. Native startup timing debt,
+loopback-only traffic, and different native runtime version versus TShock
+remain caveats. Preserve default transport settings until real-client tests.
+Raw `artifacts/fullworld-tail-block-abba`; reproduce with
+`Measure-MixedGameplay.ps1 -FullWorld -Modes optimized -TransportModes ordered
+-DeferredWake -DeferredWakeMilliseconds 2 -ProducerBatching`.
+
+Independent deferred-wake small-packet ABBA: CPU −50.5%, allocations −68.4%,
+socket writes −19.9%, producer p95 −54.4%, callback p95 +9.1%; each run
+verified all 1,468,800 callbacks and 42.02 MiB. Raw
+`artifacts/network-tail-block-deferred-abba`.
+
+The final integrated publish repeated the longer 1,800-update scenario:
+
+| Metric | Original ordered trial | Integrated producer batching |
+| --- | ---: | ---: |
+| Verified native updates | 1,800 | 1,800 |
+| Wall | 45.98 s | 27.97 s |
+| Measured updates/s | 39.15 | 64.35 |
+| Combined busy p95 / p99 | 36.39 / 41.64 ms | 18.19 / 20.33 ms |
+| Busy overruns | 1,800 / 1,800 | 240 / 1,800 |
+| Process CPU | 207.77 s | 110.19 s |
+| Allocation | 1.661 GB | 1.178 GB |
+| Actual socket writes | 4,484,061 | 3,213,427 |
+| Peak send/completion age | 18.00 / 36.22 ms | 14.19 / 19.00 ms |
+
+The final run delivered 24,828,334 callbacks and 433,646,988 bytes with all
+255 per-peer hashes matching. It sustained 76,500 movement actions, 15,300
+hits (214,200 damage) and 3,825 chat messages. The longer integrated run
+is not a controlled ABBA (the preceding same-binary comparison is); native
+catch-up and individual busy overruns mean the 64.35 average is not a
+production SLA. Raw `artifacts/integrated-2026-11-27/fullworld-1800`.
+
+### 27 November: detached runtime world snapshots
+
+Real save/reload on the same 6400×1800 input world identified a format mismatch:
+Terraria 1.4.6.1 writes version 329, which the previous compiler rejected after
+every save. Native-captured tiles now support exactly 329; direct file decoding
+remains capped at 319. The canonical source fingerprint and native dimensions
+are still checked. The saved cache (39,629,925 bytes) was loaded by the actual
+server with `cache=hit ... fallback=false`; fast liquid restoration remains off.
+
+Controlled ABBA with the same 329 compatibility fix in both binaries:
+
+| Variant | Capture on world thread | Worker build |
+| --- | ---: | ---: |
+| A old binary encoding, run 1 | 661.6 ms | 123.4 ms |
+| B detached packed runs, run 1 | 341.8 ms | 324.7 ms |
+| B detached packed runs, run 2 | 341.5 ms | 286.0 ms |
+| A old binary encoding, run 2 | 602.0 ms | 117.4 ms |
+
+Mean authoritative-thread capture fell from 631.8 to 341.65 ms (45.9%); the
+worker encodes the same 32,782,116 tile bytes, so the build itself takes longer.
+The snapshot still scans the entire world and hashes the canonical file on the
+owner thread, not a zero-pause or incremental save. The unit fixture proves
+byte-exact tile encoding after the live tile array has changed. Native reload
+was 3.04 s, not a demonstrated startup speedup. Reproduce using
+`scripts/Measure-WorldImageSnapshot.ps1`, with `-RequireInitialCacheHit` for the
+saved companion pair. Evidence: `artifacts/world-snapshot-abba/{A2,B2,B3,A3,reload}`.

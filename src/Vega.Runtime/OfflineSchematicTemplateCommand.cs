@@ -31,7 +31,7 @@ internal static class OfflineSchematicTemplateCommand
             SchematicDocument document = SchematicFile.Load(schematic);
             if (document.Tiles.Length > WorldTileOperationLimits.MaximumTiles || document.WorldItems.Length != 0)
                 throw new SchematicFormatException("Schematic exceeds the native placement limit or contains dropped world items, which native .wld saves do not persist.");
-            var projection = SchematicSceneProjection.Create(document, "materialization", x, y, SceneObserverScope.Global);
+            var projection = SchematicSceneProjection.CreateMaterialization(document, x, y);
             string drive = Path.GetPathRoot(destination)!;
             long required = checked(new FileInfo(source).Length * 2 + 64L * 1024 * 1024);
             if (new DriveInfo(drive).AvailableFreeSpace < required)

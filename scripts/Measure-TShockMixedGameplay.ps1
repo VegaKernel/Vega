@@ -4,7 +4,8 @@ param(
     [Parameter(Mandatory)][string]$OutputDirectory,
     [string]$BenchmarkPlugin,
     [ValidateRange(120,1800)][int]$Ticks = 600,
-    [int]$TimeoutSeconds = 300
+    [int]$TimeoutSeconds = 300,
+    [switch]$FullWorld
 )
 $ErrorActionPreference = 'Stop'
 if (-not $BenchmarkPlugin) { $BenchmarkPlugin = Join-Path $PSScriptRoot '../benchmarks/Vega.TShockComparison.Benchmarks/bin/Release/net9.0/Vega.TShockComparison.Benchmarks.dll' }
@@ -32,6 +33,7 @@ $start.UseShellExecute = $false; $start.CreateNoWindow = $true
 $start.RedirectStandardInput = $true; $start.RedirectStandardOutput = $true; $start.RedirectStandardError = $true
 $start.EnvironmentVariables['VEGA_SYNTHETIC_BENCHMARK'] = '1'
 $start.EnvironmentVariables['VEGA_TSHOCK_COMPARISON_TICKS'] = [string]$Ticks
+if ($FullWorld) { $start.EnvironmentVariables['VEGA_TSHOCK_FULL_WORLD'] = '1' }
 $password = [Guid]::NewGuid().ToString('N')
 $start.Arguments = "-world `"$world`" -ip 127.0.0.1 -port $port -maxplayers 255 -password $password -noupnp"
 $process = [Diagnostics.Process]::new(); $process.StartInfo = $start

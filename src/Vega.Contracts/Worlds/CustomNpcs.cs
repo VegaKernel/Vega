@@ -11,6 +11,8 @@ public readonly record struct NpcShopOffer(string Id, short ItemType, short Stac
 {
     /// <summary>Alternate explicit server item currency. These offers are hidden from the vanilla coin shop UI.</summary>
     public NpcItemAmount? ItemPrice { get; init; }
+    /// <summary>Named virtual account currency, charged through the world's economy provider.</summary>
+    public NpcEconomyPrice? EconomyPrice { get; init; }
 }
 
 public sealed class NpcShopCatalog
@@ -22,7 +24,8 @@ public sealed class NpcShopCatalog
         NpcShopOffer[] values = offers.Take(MaximumOffers + 1).ToArray();
         if (values.Length > MaximumOffers || values.Any(offer => string.IsNullOrWhiteSpace(offer.Id) || offer.Id.Length > 128 ||
                 offer.Id.Any(char.IsControl) || offer.ItemType <= 0 || offer.Stack <= 0 || offer.BaseValue < 0 || offer.CoinPrice < 0 ||
-                offer.ItemPrice is { } price && (!price.IsValid || offer.CoinPrice is not null)) ||
+                offer.ItemPrice is { } price && (!price.IsValid || offer.CoinPrice is not null || offer.EconomyPrice is not null) ||
+                offer.EconomyPrice is { } economy && (!economy.IsValid || offer.CoinPrice is not null)) ||
             values.Select(static offer => offer.Id).Distinct(StringComparer.Ordinal).Count() != values.Length)
             throw new ArgumentException("Shop requires unique, valid offers and at most forty slots.", nameof(offers));
         Offers = Array.AsReadOnly(values);
@@ -35,6 +38,10 @@ public sealed record NpcActorDefinition(int BaseType, string Name, bool Friendly
 {
     public NpcDialogueDefinition? Dialogue { get; init; }
     public NpcQuestCatalog? Quests { get; init; }
+    /// <summary>Opt into account-persistent quest progress under a stable plugin-qualified name.</summary>
+    public string? PersistentQuestScope { get; init; }
+    /// <summary>Opt into named virtual currencies under a stable plugin-qualified account scope.</summary>
+    public string? EconomyScope { get; init; }
 }
 
 public enum NpcActorIntentKind { Vanilla, Stop, MoveTo, FollowPlayer, Patrol }
@@ -60,17 +67,22 @@ public sealed record NpcActorSnapshot(NpcActorId Id, NpcEventSnapshot Npc, strin
     public NpcDialogueDefinition? Dialogue { get; init; }
     public NpcQuestCatalog? Quests { get; init; }
     public long QuestRevision { get; init; }
+    public string? PersistentQuestScope { get; init; }
+    public string? EconomyScope { get; init; }
 }
 
 public sealed record NpcActorCreationResult(NpcOperationStatus Status, INpcActor? Actor = null, string? ErrorCode = null);
 
 public enum NpcShopPresentationStatus { Sent, Unavailable, NotInteracting, NoCatalog, InvalidSession, ActorGone }
 public enum NpcShopPurchaseStatus { Committed, Unavailable, ActorGone, NotInteracting, CatalogChanged, OfferUnavailable,
-    InvalidInventory, InsufficientFunds, InventoryFull, InvalidOffer, InventoryChanged, InventoryAuthorityRequired }
+    InvalidInventory, InsufficientFunds, InventoryFull, InvalidOffer, InventoryChanged, InventoryAuthorityRequired,
+    AccountRequired, EconomyUnavailable, RecoveryRequired }
 public sealed record NpcShopPurchaseResult(NpcShopPurchaseStatus Status, long ShopRevision = 0, long CoinsPaid = 0,
     int ItemType = 0, int Stack = 0)
 {
     public NpcItemAmount? ItemPaid { get; init; }
+    public NpcEconomyPrice? EconomyPaid { get; init; }
+    public Guid? OperationId { get; init; }
 }
 public readonly record struct NpcActorPurchasedEvent(NpcActorId Actor, PlayerSnapshot Buyer, string OfferId, NpcShopPurchaseResult Purchase);
 
@@ -89,6 +101,9 @@ public interface INpcActor : IDisposable
     /// <summary>Explicit server inventory transaction requiring native authoritative SSC for multiplayer. Independent of vanilla client shop purchases.</summary>
     ValueTask<NpcShopPurchaseResult> PurchaseAsync(PlayerSnapshot player, string offerId, long expectedShopRevision,
         CancellationToken cancellationToken = default);
+    /// <summary>Named-wallet purchase with a caller-stable operation ID. Reusing an ID never issues a second native grant.</summary>
+    ValueTask<NpcShopPurchaseResult> PurchaseCurrencyAsync(PlayerSnapshot player, string offerId, long expectedShopRevision,
+        Guid operationId, CancellationToken cancellationToken = default) => ValueTask.FromResult(new NpcShopPurchaseResult(NpcShopPurchaseStatus.Unavailable));
     ValueTask<bool> SetDialogueAsync(NpcDialogueDefinition? dialogue, CancellationToken cancellationToken = default) => ValueTask.FromResult(false);
     ValueTask<NpcDialogueResult> BeginDialogueAsync(PlayerSnapshot player, CancellationToken cancellationToken = default) =>
         ValueTask.FromResult(new NpcDialogueResult(NpcDialogueStatus.Unavailable));
@@ -101,6 +116,11 @@ public interface INpcActor : IDisposable
         ValueTask.FromResult(new NpcQuestResult(NpcQuestStatus.Unavailable));
     ValueTask<NpcQuestResult> TurnInQuestAsync(PlayerSnapshot player, string questId, long expectedCatalogRevision, CancellationToken cancellationToken = default) =>
         ValueTask.FromResult(new NpcQuestResult(NpcQuestStatus.Unavailable));
+    ValueTask<NpcEconomyBalanceResult> GetCurrencyBalanceAsync(PlayerSnapshot player, string currencyId, CancellationToken cancellationToken = default) =>
+        ValueTask.FromResult(new NpcEconomyBalanceResult(NpcEconomyStatus.Unavailable));
+    /// <summary>Trusted plugin grant with stable operation ID; no native item mutation.</summary>
+    ValueTask<NpcEconomyBalanceResult> CreditCurrencyAsync(PlayerSnapshot player, NpcEconomyPrice amount, Guid operationId,
+        CancellationToken cancellationToken = default) => ValueTask.FromResult(new NpcEconomyBalanceResult(NpcEconomyStatus.Unavailable));
 }
 
 public interface IWorldNpcActorService

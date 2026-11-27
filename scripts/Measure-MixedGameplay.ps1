@@ -7,10 +7,16 @@ param(
     [ValidateSet('legacy','optimized')][string[]]$Modes = @('legacy','optimized','optimized','legacy'),
     [ValidateSet('recording','native','ordered')][string[]]$TransportModes = @('recording'),
     [switch]$DeferredWake,
+    [switch]$ProducerBatching,
+    [switch]$FullWorld,
     [ValidateRange(0.25,2)][double]$DeferredWakeMilliseconds = 1,
     [int]$TimeoutSeconds = 300
 )
 $ErrorActionPreference = 'Stop'
+if ($FullWorld -and ($Modes -contains 'legacy')) { throw 'Full-world fixture uses the optimized production chat renderer; specify -Modes optimized.' }
+if ($ProducerBatching -and (-not $DeferredWake -or $TransportModes -contains 'recording' -or $TransportModes -contains 'native')) {
+    throw 'Producer batching requires -DeferredWake and ordered transport only.'
+}
 if (-not $BenchmarkPlugin) { $BenchmarkPlugin = Join-Path $PSScriptRoot '../benchmarks/Vega.MixedGameplay.Benchmarks/bin/Release/net11.0/Vega.MixedGameplay.Benchmarks.dll' }
 $source = (Resolve-Path -LiteralPath $ServerRoot).Path
 $worldSource = (Resolve-Path -LiteralPath $WorldFile).Path
@@ -66,6 +72,7 @@ for ($i = 0; $i -lt $runs.Count; $i++) {
     $start.RedirectStandardOutput = $true
     $start.RedirectStandardError = $true
     $start.EnvironmentVariables['VEGA_SYNTHETIC_BENCHMARK'] = '1'
+    $start.EnvironmentVariables['VEGA_BENCH_PRODUCER_BATCHING'] = if ($ProducerBatching) { '1' } else { '0' }
     if ($DeferredWake) {
         $start.EnvironmentVariables['VEGA_BENCH_DEFER_WAKE'] = '1'
         $start.EnvironmentVariables['VEGA_BENCH_DEFER_MS'] = $DeferredWakeMilliseconds.ToString([Globalization.CultureInfo]::InvariantCulture)
@@ -88,8 +95,13 @@ for ($i = 0; $i -lt $runs.Count; $i++) {
         }
         if ($process.HasExited -or [DateTime]::UtcNow -ge $deadline) { throw 'Server failed to become ready.' }
         Start-Sleep -Seconds 5
-        Send-Console $process "mixedbench $mode $Ticks $transport"
-        $resultPath = Join-Path $deploy "mixed-$mode.json"
+        if ($FullWorld) {
+            Send-Console $process "fullworldbench $Ticks $transport"
+            $resultPath = Join-Path $deploy 'fullworld-optimized.json'
+        } else {
+            Send-Console $process "mixedbench $mode $Ticks $transport"
+            $resultPath = Join-Path $deploy "mixed-$mode.json"
+        }
         $deadline = [DateTime]::UtcNow.AddSeconds($TimeoutSeconds)
         $result = $null
         while (-not $process.HasExited -and [DateTime]::UtcNow -lt $deadline) {

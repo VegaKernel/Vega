@@ -5,10 +5,12 @@ param(
     [string] $WorldFile,
     [switch] $TestSandboxIsolation,
     [switch] $TestOrderedTransport,
-    [switch] $TestDeferredWake
+    [switch] $TestDeferredWake,
+    [switch] $TestProducerBatching
 )
 
 $ErrorActionPreference = 'Stop'
+if ($TestProducerBatching) { $TestDeferredWake = $true }
 if ($TestDeferredWake) { $TestOrderedTransport = $true }
 $source = (Resolve-Path -LiteralPath $ServerRoot).Path
 $onWindows = [Environment]::OSVersion.Platform -eq [PlatformID]::Win32NT
@@ -88,6 +90,9 @@ try {
         if ($TestDeferredWake) {
             $network.orderedDeferredWake = $true
             $network.orderedDeferredWakeMilliseconds = 2
+        }
+        if ($TestProducerBatching) {
+            $network.orderedProducerBatching = $true
         }
         $network | ConvertTo-Json -Depth 8 | Set-Content -LiteralPath $networkPath -Encoding UTF8
     }
@@ -182,6 +187,9 @@ try {
         try { $tcpProbe.Connect([Net.IPAddress]::Loopback, $primaryPort) }
         finally { $tcpProbe.Dispose() }
         Wait-SmokeText $operationsLog '"source"\s*:\s*"ordered-tcp".*oldest_send_ms='
+        if ($TestProducerBatching) {
+            Wait-SmokeText $operationsLog 'Ordered producer-owned packet batching enabled with deferred wake'
+        }
         Write-Output 'Native Ordered TCP listener, local connection lifecycle and queue diagnostics passed.'
     }
 
