@@ -801,14 +801,16 @@ public sealed class TerminalOperationsTests
         Assert.That(host.TryStart(mode), Is.False);
     }
 
-    [Test]
-    public void TerminalModeWaitsForWorldSelectionBeforeTakingConsoleInput()
+    [TestCase(true)]
+    [TestCase(false)]
+    public void TerminalModeWaitsForWorldSelectionBeforeTakingConsoleInput(bool worldSelectedAtLaunch)
     {
         var lifecycle = new MutableLifecycle();
         int startCount = 0;
         using var gate = new TerminalUiReadinessGate(
             lifecycle,
             OperationsUiMode.Terminal,
+            worldSelectedAtLaunch,
             _ =>
             {
                 startCount++;
@@ -818,7 +820,7 @@ public sealed class TerminalOperationsTests
         Assert.That(startCount, Is.Zero, "Terraria must retain stdin through world selection.");
 
         lifecycle.Advance(RuntimeLifecycleStage.WorldLoading);
-        Assert.That(startCount, Is.EqualTo(1), "The startup UI should begin after world selection.");
+        Assert.That(startCount, Is.EqualTo(worldSelectedAtLaunch ? 1 : 0), "Generating from the menu still requires native console input.");
 
         lifecycle.Advance(RuntimeLifecycleStage.WorldReady);
         lifecycle.Advance(RuntimeLifecycleStage.NetworkReady);
@@ -836,6 +838,7 @@ public sealed class TerminalOperationsTests
         using var gate = new TerminalUiReadinessGate(
             lifecycle,
             OperationsUiMode.Terminal,
+            worldSelectedAtLaunch: false,
             _ =>
             {
                 startCount++;

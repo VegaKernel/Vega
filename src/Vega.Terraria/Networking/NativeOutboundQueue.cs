@@ -347,6 +347,11 @@ internal sealed class NativeOutboundQueue
                         if (bytes <= 0 || bytes > length - offset) throw new IOException("Socket writer returned an invalid byte count.");
                         offset += bytes;
                         written += bytes;
+                        if (offset == length)
+                        {
+                            sent += count - completed;
+                            break;
+                        }
                         while (completed < count && offset >= nextBoundary)
                         {
                             sent++;

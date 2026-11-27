@@ -14,7 +14,7 @@ internal sealed class RelationalRegionService(
 {
     private readonly SemaphoreSlim mutations = new(1, 1);
     private readonly object cacheSync = new();
-    private readonly Dictionary<WorldId, IReadOnlyList<RegionSnapshot>> regionCache = [];
+    private readonly Dictionary<WorldId, (IReadOnlyList<RegionSnapshot> Regions, long LoadedAt)> regionCache = [];
     public event Action<RegionChangedEvent>? Changed;
 
     public IReadOnlyList<RegionSnapshot> SnapshotRegions() => SnapshotRegions(WorldId.Primary);
@@ -28,14 +28,14 @@ internal sealed class RelationalRegionService(
         ensureReady();
         lock (cacheSync)
         {
-            if (!regionCache.TryGetValue(worldId, out IReadOnlyList<RegionSnapshot>? snapshot))
+            if (!regionCache.TryGetValue(worldId, out var snapshot) || Environment.TickCount64 - snapshot.LoadedAt >= 1000)
             {
                 using DbConnection connection = open();
-                snapshot = ReadRegions(connection, null, worldId);
+                snapshot = (ReadRegions(connection, null, worldId), Environment.TickCount64);
                 regionCache[worldId] = snapshot;
             }
 
-            return snapshot;
+            return snapshot.Regions;
         }
     }
 

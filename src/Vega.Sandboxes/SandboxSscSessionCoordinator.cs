@@ -125,6 +125,7 @@ public sealed class SandboxSscSessionCoordinator : IDisposable
         {
             await reconciliation.WaitAsync(cancellationToken).ConfigureAwait(false);
             PlayerSnapshot[] snapshot = [.. players.SnapshotOnlinePlayers()];
+            List<SessionState>? checkpoints = null;
             foreach (PlayerSnapshot player in snapshot)
             {
                 if (player.SessionId is not PlayerSessionId sessionId ||
@@ -193,7 +194,7 @@ public sealed class SandboxSscSessionCoordinator : IDisposable
                     }
                     else if (session.Initialized && !session.Failed && IsCurrent(session) && CharacterMode(session) != SandboxSscMode.Disabled &&
                              timeProvider.GetUtcNow() - session.LastCheckpoint >= CheckpointInterval)
-                        await CheckpointAsync(session, cancellationToken).ConfigureAwait(false);
+                        (checkpoints ??= []).Add(session);
                 }
                 catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested) { throw; }
                 catch (OperationCanceledException) when (session.Closing) { }
@@ -203,6 +204,12 @@ public sealed class SandboxSscSessionCoordinator : IDisposable
                     logger.Log(OperationsLogLevel.Error, "sandboxes", "Character persistence failed; existing persisted state was preserved.", ex,
                         correlationId: session.SessionId.ToString());
                 }
+            }
+            if (checkpoints is not null)
+            {
+                await Parallel.ForEachAsync(checkpoints,
+                    new ParallelOptions { MaxDegreeOfParallelism = 8, CancellationToken = cancellationToken },
+                    async (session, token) => await CheckpointAsync(session, token).ConfigureAwait(false)).ConfigureAwait(false);
             }
         }
     }

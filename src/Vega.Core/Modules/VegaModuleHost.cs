@@ -40,12 +40,21 @@ public sealed class VegaModuleHost : IVegaModuleHost
 			long startedAt = Stopwatch.GetTimestamp();
 			try
 			{
-				await Task.Run(modules[index].Start, CancellationToken.None)
-					.WaitAsync(perModuleTimeout, cancellationToken)
+				await ModuleStartupInProgressException.RunAsync(modules[index].Start, perModuleTimeout, cancellationToken)
 					.ConfigureAwait(false);
 				startedCount++;
 				snapshots[index] = Snapshot(modules[index], ModuleLoadState.Loaded,
 					Stopwatch.GetElapsedTime(startedAt));
+			}
+			catch (ModuleStartupInProgressException ex)
+			{
+				disposed = true;
+				snapshots[index] = Snapshot(modules[index], ModuleLoadState.Failed, Stopwatch.GetElapsedTime(startedAt), ex.Message);
+				ex.Retire(() =>
+				{
+					if (DisposeAllModules() is { } failure) throw failure;
+				});
+				throw;
 			}
 			catch (Exception ex)
 			{

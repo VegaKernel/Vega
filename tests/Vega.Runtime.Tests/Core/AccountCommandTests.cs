@@ -26,6 +26,42 @@ public sealed class AccountCommandTests
     }
 
     [Test]
+    public async Task RunningDatabaseSeesRemoteGroupPermissionChanges()
+    {
+        var options = new SqliteVegaDatabaseOptions(Path.Combine(directory, "shared.db"));
+        var primary = SqliteVegaDatabase.Create(options);
+        var backend = SqliteVegaDatabase.Create(options);
+        await primary.InitializeAsync();
+        await backend.InitializeAsync();
+        Assert.That(backend.Authorization.TryGetGroup("remote", out _), Is.False);
+        var created = await primary.Authorization.CreateGroupAsync("remote", "default", "server");
+        var granted = await primary.Authorization.SetPermissionAsync("remote", "audit.view", PermissionEffect.Grant, created.After!.Revision, "server");
+        Assert.That(granted.Succeeded, Is.True);
+        Assert.That(() => backend.Authorization.HasPermission("remote", "audit.view"), Is.True.After(3000, 50));
+        var revoked = await primary.Authorization.SetPermissionAsync("remote", "audit.view", null, granted.After!.Revision, "server");
+        Assert.That(revoked.Succeeded, Is.True);
+        Assert.That(() => backend.Authorization.HasPermission("remote", "audit.view"), Is.False.After(3000, 50));
+    }
+
+    [Test]
+    public async Task RunningDatabaseSeesRemoteLeaseAndRegionChanges()
+    {
+        var options = new SqliteVegaDatabaseOptions(Path.Combine(directory, "shared.db"));
+        var primary = await SqliteVegaDatabase.OpenAsync(options);
+        var backend = await SqliteVegaDatabase.OpenAsync(options);
+        AccountId account = (await primary.Accounts.CreateAsync("Alice", "correct horse battery staple", "default", "server")).After!.Id;
+        var now = DateTimeOffset.UtcNow;
+        Assert.That(backend.RoleLeases.FindActive(account, now), Is.Null);
+        Assert.That(backend.Regions.FindTopRegion(10, 10), Is.Null);
+        var lease = await primary.RoleLeases.GrantAsync(account, "default", now, now.AddHours(1), "server");
+        await primary.Regions.CreateAsync(Vega.Contracts.Worlds.WorldId.Primary, "Arena", 5, 5, 20, 20, 1, null, "server");
+        Assert.That(() => backend.RoleLeases.FindActive(account, now), Is.Not.Null.After(3000, 50));
+        Assert.That(() => backend.Regions.FindTopRegion(10, 10), Is.Not.Null.After(3000, 50));
+        await primary.RoleLeases.RevokeAsync(lease.After!.Id, lease.After.Revision, "server");
+        Assert.That(() => backend.RoleLeases.FindActive(account, now), Is.Null.After(3000, 50));
+    }
+
+    [Test]
     public async Task LegacyUserAddDelAndHelpReuseExistingAccountAuthority()
     {
         var database = await SqliteVegaDatabase.OpenAsync(new SqliteVegaDatabaseOptions(Path.Combine(directory, "vega.db")));

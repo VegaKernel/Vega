@@ -8,6 +8,6 @@
   "orderedDeferredWakeMilliseconds": 2,
   "distantMovementUpdatesPerSecond": 5,
   "orderedCallbacksPerPass": 8192,
-  "orderedCompletionDrainBatch": 4,
+  "orderedCompletionDrainBatch": 8,
   "orderedBatchRequests": 16
 }

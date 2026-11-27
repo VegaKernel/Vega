@@ -1,5 +1,4 @@
 using System.Diagnostics;
-using System.Text.Json;
 using Microsoft.Xna.Framework;
 using Terraria;
 using Terraria.Chat;
@@ -49,8 +48,7 @@ internal sealed class FullWorldMixedCommand(IVegaPluginContext plugin) : IComman
         return ValueTask.FromResult(posted ? CommandExecutionResult.Success : CommandExecutionResult.Failed("benchmark.dispatcher_unavailable"));
     }
 
-    private static void Write(object result) => File.WriteAllText("fullworld-optimized.json",
-        JsonSerializer.Serialize(result, new JsonSerializerOptions { WriteIndented = true }));
+    private static void Write(object result) => BenchmarkReport.Write("fullworld-optimized.json", result);
 
     private sealed class Trial(int ticks, string transport, Action finished) : IDisposable
     {
@@ -209,6 +207,7 @@ internal sealed class FullWorldMixedCommand(IVegaPluginContext plugin) : IComman
                 if (initialized)
                 {
                     if ((uint)bossSlot < Main.npc.Length) Main.npc[bossSlot].active = false;
+                    MixedGameplayBenchmark.DetachFixtureClients(sockets);
                     Array.Copy(originalPlayers, Main.player, originalPlayers.Length);
                     Array.Copy(originalClients, Netplay.Clients, originalClients.Length);
                     for (int i = 0; i < Players; i++) NetMessage.buffer[i].broadcast = originalBroadcast[i];

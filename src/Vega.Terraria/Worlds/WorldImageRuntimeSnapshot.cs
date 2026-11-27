@@ -4,7 +4,7 @@ using System.Text;
 namespace Vega.Terraria.Worlds;
 
 /// <summary>
-/// Immutable, versioned data captured on Terraria's game thread immediately after a save.
+/// Immutable, versioned data captured on Terraria's game thread after a native tile load or world save.
 /// File I/O and publication of the resulting image can then continue on a worker thread.
 /// </summary>
 internal sealed record WorldImageRuntimeSnapshot(
@@ -42,6 +42,12 @@ internal sealed record WorldImageRuntimeSnapshot(
             maxTilesY,
             [],
             liquidState) { CapturedTileChunks = tileRuns };
+    }
+
+    internal static WorldImageRuntimeSnapshot FromLoadedTiles(byte[] sourceHash)
+    {
+        int width = global::Terraria.Main.maxTilesX, height = global::Terraria.Main.maxTilesY;
+        return new(sourceHash, width, height, [], []) { CapturedTileChunks = CaptureTileRuns(width, height) };
     }
 
     private static TileRunChunk[] CaptureTileRuns(int maxTilesX, int maxTilesY)

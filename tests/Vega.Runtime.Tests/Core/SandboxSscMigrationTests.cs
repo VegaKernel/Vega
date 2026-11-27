@@ -20,6 +20,24 @@ public sealed class SandboxSscMigrationTests
         now = DateTimeOffset.UtcNow;
     }
 
+    [Test]
+    public void ConcurrentCheckpointsPublishOneWinnerPerAccountAndSurviveReopen()
+    {
+        var store = new SandboxSscStore(sharedPath);
+        var attempts = Enumerable.Range(0, 64).AsParallel().WithDegreeOfParallelism(8)
+            .Select(i => store.SaveCheckpoint((i % 16).ToString(), WorldId.Primary,
+                SandboxSscMode.Inherit, $"payload-{i}", 0, now)).ToArray();
+        Assert.That(attempts.Count(r => r.IsSuccess), Is.EqualTo(16));
+        Assert.That(attempts.Count(r => r.Status == SandboxSscWriteStatus.Conflict), Is.EqualTo(48));
+        var reopened = new SandboxSscStore(sharedPath);
+        foreach (var result in attempts.Where(r => r.IsSuccess))
+        {
+            var entry = result.State!;
+            var persisted = reopened.Read(entry.AccountId, WorldId.Primary, SandboxSscMode.Inherit);
+            Assert.That(persisted, Is.EqualTo(entry));
+        }
+    }
+
     [TearDown]
     public void TearDown()
     {

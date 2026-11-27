@@ -9,7 +9,12 @@ public sealed record RestartableModuleGraph(
     IReadOnlyList<string> ModuleNames,
     Action Activate) : IDisposable
 {
-    public void Dispose() => Host.Dispose();
+    private int retired;
+
+    public void Dispose()
+    {
+        if (Interlocked.Exchange(ref retired, 1) == 0) Host.Dispose();
+    }
 }
 
 public sealed class SoftRestartCoordinator : ISoftRestartService, IModuleOperationsCatalog, IDisposable
@@ -37,8 +42,17 @@ public sealed class SoftRestartCoordinator : ISoftRestartService, IModuleOperati
         this.factory = factory;
         this.logger = logger;
         active = factory(null);
-        active.Host.Start();
-        active.Activate();
+        try
+        {
+            active.Host.Start();
+            active.Activate();
+        }
+        catch (Exception startupError)
+        {
+            try { active.Dispose(); }
+            catch (Exception cleanupError) { throw new AggregateException(startupError, cleanupError); }
+            throw;
+        }
         snapshot = new SoftRestartSnapshot(options.Enabled, false, generation, null, null, null, null);
     }
 
@@ -92,6 +106,12 @@ public sealed class SoftRestartCoordinator : ISoftRestartService, IModuleOperati
         IReadOnlyDictionary<string, ModuleRestartState> handoff = new Dictionary<string, ModuleRestartState>();
         try
         {
+            lock (sync)
+            {
+                if (disposed || snapshot.LastStatus == SoftRestartStatus.Degraded)
+                    return Result(SoftRestartStatus.ProcessRestartRequired, previous, previous, TimeSpan.Zero,
+                        "Module host requires a process restart.", modules ?? new HashSet<string>());
+            }
             lock (sync) snapshot = snapshot with { IsRestarting = true, LastStartedAt = DateTimeOffset.UtcNow, Detail = "Validating replacement graph." };
             logger.Log(OperationsLogLevel.Warning, "soft-restart",
                 $"Preparing replacement for module generation {previous}.");
@@ -125,7 +145,11 @@ public sealed class SoftRestartCoordinator : ISoftRestartService, IModuleOperati
                 ? previousHost.CaptureRestartState()
                 : new Dictionary<string, ModuleRestartState>();
             activeDisposed = true;
-            previousGraph.Dispose();
+            try { previousGraph.Dispose(); }
+            catch (Exception cleanupError)
+            {
+                return Degraded("The active module graph failed to release its resources.", DisposeAfterFailure(replacement, cleanupError));
+            }
             using var total = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
             total.CancelAfter(TimeSpan.FromSeconds(options.TotalTimeoutSeconds));
             if (replacement.Host is VegaModuleHost replacementHost)
@@ -147,9 +171,16 @@ public sealed class SoftRestartCoordinator : ISoftRestartService, IModuleOperati
                 "Restartable module graph replaced; Terraria, world, players, persistence and Operations were preserved.",
                 modules ?? active.ModuleNames.ToHashSet(StringComparer.OrdinalIgnoreCase));
         }
+        catch (ModuleStartupInProgressException ex)
+        {
+            logger.Log(OperationsLogLevel.Critical, "soft-restart", ex.Message, ex);
+            return Finish(SoftRestartStatus.Degraded, previous, previous, startedAt, ex.Message, modules ?? new HashSet<string>());
+        }
         catch (Exception ex)
         {
-            replacement?.Dispose();
+            Exception failure = DisposeAfterFailure(replacement, ex);
+            if (!ReferenceEquals(failure, ex))
+                return Degraded("The replacement module graph failed to release its resources.", failure);
             if (!activeDisposed)
             {
                 lock (sync) accepting = true;
@@ -160,9 +191,10 @@ public sealed class SoftRestartCoordinator : ISoftRestartService, IModuleOperati
                     modules ?? new HashSet<string>());
             }
 
+            RestartableModuleGraph? rollback = null;
             try
             {
-                RestartableModuleGraph rollback = factory(null);
+                rollback = factory(null);
                 if (rollback.Host is VegaModuleHost rollbackHost)
                 {
                     rollbackHost.RestoreRestartState(handoff);
@@ -181,29 +213,46 @@ public sealed class SoftRestartCoordinator : ISoftRestartService, IModuleOperati
             }
             catch (Exception rollbackError)
             {
-                lock (sync) accepting = false;
-                logger.Log(OperationsLogLevel.Critical, "soft-restart", "Replacement and rollback failed; process restart required.",
-                    new AggregateException(ex, rollbackError));
-                return Finish(SoftRestartStatus.Degraded, previous, generation, startedAt,
-                    "Replacement and rollback failed; process restart is required.", modules ?? new HashSet<string>());
+                Exception rollbackFailure = rollbackError is ModuleStartupInProgressException
+                    ? rollbackError : DisposeAfterFailure(rollback, rollbackError);
+                return Degraded("Replacement and rollback failed.", new AggregateException(ex, rollbackFailure));
             }
         }
         finally
         {
             restart.Release();
         }
+
+        SoftRestartResult Degraded(string detail, Exception failure)
+        {
+            lock (sync) accepting = false;
+            logger.Log(OperationsLogLevel.Critical, "soft-restart", detail, failure);
+            return Finish(SoftRestartStatus.Degraded, previous, generation, startedAt,
+                detail + " A process restart is required.", modules ?? new HashSet<string>());
+        }
+    }
+
+    private static Exception DisposeAfterFailure(RestartableModuleGraph? graph, Exception failure)
+    {
+        try { graph?.Dispose(); }
+        catch (Exception cleanupError) { return new AggregateException(failure, cleanupError); }
+        return failure;
     }
 
     public void Dispose()
     {
-        if (disposed) return;
-        disposed = true;
-        lock (sync)
+        restart.Wait();
+        try
         {
-            accepting = false;
+            lock (sync)
+            {
+                if (disposed) return;
+                disposed = true;
+                accepting = false;
+            }
             active.Dispose();
         }
-        restart.Dispose();
+        finally { restart.Release(); }
     }
 
     private void ReleaseCallback()
@@ -238,11 +287,17 @@ public sealed class SoftRestartCoordinator : ISoftRestartService, IModuleOperati
         return value;
     }
 
-    private Task StartAsync(RestartableModuleGraph graph, CancellationToken cancellationToken) =>
-        graph.Host is VegaModuleHost host
-            ? host.StartAsync(TimeSpan.FromSeconds(options.ModuleTimeoutSeconds), cancellationToken)
-            : Task.Run(graph.Host.Start, CancellationToken.None)
-                .WaitAsync(TimeSpan.FromSeconds(options.ModuleTimeoutSeconds), cancellationToken);
+    private async Task StartAsync(RestartableModuleGraph graph, CancellationToken cancellationToken)
+    {
+        TimeSpan timeout = TimeSpan.FromSeconds(options.ModuleTimeoutSeconds);
+        if (graph.Host is VegaModuleHost host)
+            await host.StartAsync(timeout, cancellationToken).ConfigureAwait(false);
+        else
+        {
+            try { await ModuleStartupInProgressException.RunAsync(graph.Host.Start, timeout, cancellationToken).ConfigureAwait(false); }
+            catch (ModuleStartupInProgressException ex) { ex.Retire(graph.Dispose); throw; }
+        }
+    }
 
     private sealed class CallbackLease(SoftRestartCoordinator owner, long generation) : IModuleCallbackLease
     {

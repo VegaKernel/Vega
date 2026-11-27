@@ -5,13 +5,14 @@ namespace Vega.TerminalUI;
 /// <summary>
 /// Prevents Terminal.Gui from taking ownership of the console while Terraria is
 /// still using standard input for its interactive world-selection bootstrap.
-/// The WorldLoading transition is emitted only after a world has been selected.
+/// Creating a world in the native menu emits WorldLoading, then returns to that menu.
 /// </summary>
 public sealed class TerminalUiReadinessGate : IDisposable
 {
     private readonly object sync = new();
     private readonly IRuntimeLifecycle lifecycle;
     private readonly OperationsUiMode mode;
+    private readonly RuntimeLifecycleStage startAt;
     private readonly Func<OperationsUiMode, bool> start;
     private bool subscribed;
     private bool started;
@@ -20,10 +21,12 @@ public sealed class TerminalUiReadinessGate : IDisposable
     public TerminalUiReadinessGate(
         IRuntimeLifecycle lifecycle,
         OperationsUiMode mode,
+        bool worldSelectedAtLaunch,
         Func<OperationsUiMode, bool> start)
     {
         this.lifecycle = lifecycle ?? throw new ArgumentNullException(nameof(lifecycle));
         this.mode = mode;
+        startAt = worldSelectedAtLaunch ? RuntimeLifecycleStage.WorldLoading : RuntimeLifecycleStage.WorldReady;
         this.start = start ?? throw new ArgumentNullException(nameof(start));
 
         if (mode != OperationsUiMode.Terminal)
@@ -57,7 +60,7 @@ public sealed class TerminalUiReadinessGate : IDisposable
     {
         lock (sync)
         {
-            if (disposed || started || stage < RuntimeLifecycleStage.WorldLoading)
+            if (disposed || started || stage < startAt || stage >= RuntimeLifecycleStage.Stopping)
             {
                 return;
             }

@@ -476,7 +476,7 @@ internal static class VegaWorldImageCompiler
                     runtimeSnapshot is null
                         ? WorldImageSnapshotFlags.None
                         : WorldImageSnapshotFlags.RuntimeTiles |
-                            WorldImageSnapshotFlags.LiquidRuntimeState,
+                            (runtimeSnapshot.LiquidState.Length > 0 ? WorldImageSnapshotFlags.LiquidRuntimeState : WorldImageSnapshotFlags.None),
                     VegaWorldImageFormat.CompilerParameters,
                     sourceSection,
                     tileSection,

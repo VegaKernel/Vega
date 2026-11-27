@@ -19,6 +19,13 @@ public sealed class SandboxSscStore : ISandboxSscStore
     };
 
     private readonly object sync = new();
+    private const int CheckpointsPerWrite = 32;
+    private readonly Queue<Checkpoint> checkpoints = new();
+    private bool checkpointWriting;
+    private sealed record Checkpoint(string Account, WorldId Scope, string Payload, long Revision, DateTimeOffset Now)
+    {
+        internal readonly TaskCompletionSource<SandboxSscWriteResult> Completion = new(TaskCreationOptions.RunContinuationsAsynchronously);
+    }
     private readonly string path;
     private readonly string lockPath;
 
@@ -145,26 +152,86 @@ public sealed class SandboxSscStore : ISandboxSscStore
                 Message: $"SSC payload exceeds {MaximumPayloadBytes} bytes.");
         }
 
-        return WithLockedState(now, state =>
+        WorldId scope = Scope(worldId, mode);
+        if (skipUnchanged)
+            return CommitCheckpoint(new(accountId, scope, payload, expectedRevision, now));
+        return WithLockedState(now, state => ApplySave(state, accountId, scope, payload, expectedRevision, now, false),
+            shouldWrite: result => result.IsSuccess);
+    }
+
+    private SandboxSscWriteResult CommitCheckpoint(Checkpoint request)
+    {
+        lock (checkpoints)
         {
-            WorldId scope = Scope(worldId, mode);
-            Entry? existing = FindState(state, accountId, scope);
-            long current = existing?.Revision ?? 0;
-            if (current != expectedRevision)
+            checkpoints.Enqueue(request);
+            while (!request.Completion.Task.IsCompleted &&
+                   (checkpointWriting || !ReferenceEquals(checkpoints.Peek(), request)))
+                Monitor.Wait(checkpoints);
+            if (request.Completion.Task.IsCompleted)
+                return request.Completion.Task.GetAwaiter().GetResult();
+            checkpointWriting = true;
+            checkpoints.Dequeue();
+        }
+
+        // Requests arriving while the leader waits for another process or reads the
+        // file can share this commit. No follower waits for a later disk transaction.
+        var batch = new List<Checkpoint>(CheckpointsPerWrite) { request };
+        var results = new List<SandboxSscWriteResult>(CheckpointsPerWrite);
+        try
+        {
+            WithLockedState(request.Now, state =>
             {
-                return new SandboxSscWriteResult(
-                    SandboxSscWriteStatus.Conflict,
-                    existing?.ToSnapshot(),
-                    "sandbox.ssc.revision_conflict",
-                    $"Expected SSC revision {expectedRevision}, current revision is {current}.");
+                lock (checkpoints)
+                {
+                    while (batch.Count < CheckpointsPerWrite && checkpoints.TryDequeue(out var next))
+                        batch.Add(next);
+                }
+
+                bool changed = false;
+                foreach (var item in batch)
+                {
+                    var result = ApplySave(state, item.Account, item.Scope, item.Payload, item.Revision, item.Now, true);
+                    results.Add(result);
+                    changed |= result.IsSuccess && result.State?.Revision != item.Revision;
+                }
+                return changed;
+            }, shouldWrite: changed => changed);
+            for (int i = 0; i < batch.Count; i++) batch[i].Completion.SetResult(results[i]);
+        }
+        catch (Exception ex)
+        {
+            foreach (var item in batch) item.Completion.SetException(ex);
+        }
+        finally
+        {
+            lock (checkpoints)
+            {
+                checkpointWriting = false;
+                Monitor.PulseAll(checkpoints);
             }
+        }
+        return request.Completion.Task.GetAwaiter().GetResult();
+    }
 
-            if (skipUnchanged && existing is not null && string.Equals(existing.Payload, payload, StringComparison.Ordinal))
-                return new SandboxSscWriteResult(SandboxSscWriteStatus.Applied, existing.ToSnapshot());
+    private static SandboxSscWriteResult ApplySave(State state, string accountId, WorldId scope, string payload,
+        long expectedRevision, DateTimeOffset now, bool skipUnchanged)
+    {
+        Entry? existing = FindState(state, accountId, scope);
+        long current = existing?.Revision ?? 0;
+        if (current != expectedRevision)
+        {
+            return new SandboxSscWriteResult(
+                SandboxSscWriteStatus.Conflict,
+                existing?.ToSnapshot(),
+                "sandbox.ssc.revision_conflict",
+                $"Expected SSC revision {expectedRevision}, current revision is {current}.");
+        }
 
-            Entry next = WriteEntry(state, accountId, scope, payload, now);
-            return new SandboxSscWriteResult(SandboxSscWriteStatus.Applied, next.ToSnapshot());
-        }, shouldWrite: result => result.IsSuccess && result.State?.Revision != expectedRevision);
+        if (skipUnchanged && existing is not null && string.Equals(existing.Payload, payload, StringComparison.Ordinal))
+            return new SandboxSscWriteResult(SandboxSscWriteStatus.Applied, existing.ToSnapshot());
+
+        Entry next = WriteEntry(state, accountId, scope, payload, now);
+        return new SandboxSscWriteResult(SandboxSscWriteStatus.Applied, next.ToSnapshot());
     }
 
     public SandboxSscTransferPreparation PrepareTransfer(

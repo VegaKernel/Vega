@@ -149,11 +149,9 @@ public sealed class PlayerSessionAuthorizationService :
 		}
 
 		string sought = permission[prefix.Length..];
-		IReadOnlyDictionary<string, GroupSnapshot> groups = authorization.SnapshotGroups()
-			.ToDictionary(static group => group.Name, StringComparer.OrdinalIgnoreCase);
 		var visited = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 		string? current = groupName;
-		while (current is not null && visited.Add(current) && groups.TryGetValue(current, out GroupSnapshot? group))
+		while (current is not null && visited.Add(current) && authorization.TryGetGroup(current, out GroupSnapshot? group) && group is not null)
 		{
 			if (current.Equals(sought, StringComparison.OrdinalIgnoreCase))
 			{

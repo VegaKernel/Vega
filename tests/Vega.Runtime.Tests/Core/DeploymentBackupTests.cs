@@ -26,6 +26,16 @@ public sealed class DeploymentBackupTests
             await File.WriteAllTextAsync(Path.Combine(root, "config", "database.json"),
                 "{\"connectionString\":\"Server=secret\"}");
             var barrier = new FakeBarrier();
+            string[] gameplayFiles = ["data/sandboxes/ssc.json", "data/whitelist.json", "data/restrictions.json",
+                "data/sandboxes/catalog.json", "data/sandboxes/instances/arena/world.wld",
+                "data/sandboxes/templates/example/world.wld", "data/warps/world.json", "data/npc-account-progress/account.json",
+                "data/sandboxes/instances/arena/runtime/data/build-protection.json"];
+            foreach (string relative in gameplayFiles)
+            {
+                string path = Path.Combine(root, relative);
+                Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+                await File.WriteAllTextAsync(path, "{}");
+            }
             var database = new FakeDatabase();
             using var backups = new DeploymentBackupService(
                 root,
@@ -48,6 +58,8 @@ public sealed class DeploymentBackupTests
                 .ToArray();
             Assert.That(archives, Has.Length.EqualTo(2));
             using ZipArchive archive = ZipFile.OpenRead(archives[^1].FullName);
+            foreach (string relative in gameplayFiles)
+                Assert.That(await ReadEntryAsync(archive, relative), Is.EqualTo("{}"), relative);
             Assert.Multiple(() =>
             {
                 Assert.That(archive.GetEntry("world/primary.wld"), Is.Not.Null);
@@ -71,6 +83,33 @@ public sealed class DeploymentBackupTests
         {
             Directory.Delete(root, true);
         }
+    }
+
+    [Test]
+    public async Task RestoredArchiveReopensBothCharacterScopesWithTheirOriginalRevisions()
+    {
+        string root = CreateRoot();
+        try
+        {
+            const string shared = "data/sandboxes/ssc.json";
+            var store = new Vega.Sandboxes.SandboxSscStore(Path.Combine(root, shared));
+            var arena = new Vega.Contracts.Worlds.WorldId("arena");
+            var now = DateTimeOffset.UtcNow;
+            var primary = store.Save("42", arena, Vega.Contracts.Sandboxes.SandboxSscMode.Inherit, "inventory-primary", 0, now);
+            var isolated = store.Save("42", arena, Vega.Contracts.Sandboxes.SandboxSscMode.Isolated, "inventory-arena", 0, now);
+            string world = Path.Combine(root, "primary.wld");
+            await File.WriteAllTextAsync(world, "world");
+            using var backups = new DeploymentBackupService(root, new BackupOptions(false, "06:00:00", 2),
+                new FakeBarrier(), new FakeDatabase(), () => world, new RecordingLogger());
+            var backup = await backups.CreateAsync();
+            Assert.That(backup.State, Is.EqualTo(DeploymentBackupState.Succeeded), backup.Detail);
+            var target = Path.Combine(root, "restore");
+            ZipFile.ExtractToDirectory(Directory.GetFiles(Path.Combine(root, "backups"), "*.zip").Single(), target);
+            var restored = new Vega.Sandboxes.SandboxSscStore(Path.Combine(target, shared));
+            Assert.That(restored.Read("42", arena, Vega.Contracts.Sandboxes.SandboxSscMode.Inherit), Is.EqualTo(primary.State));
+            Assert.That(restored.Read("42", arena, Vega.Contracts.Sandboxes.SandboxSscMode.Isolated), Is.EqualTo(isolated.State));
+        }
+        finally { Directory.Delete(root, true); }
     }
 
     [Test]
@@ -237,7 +276,36 @@ public sealed class DeploymentBackupTests
             ValueTask.FromException(new IOException("world save failed"));
     }
 
-    private sealed class FakeDatabase(bool fail = false) : IDatabaseBackupSource
+    [Test, Platform("Win")]
+    public async Task LockedStagingFileDoesNotPreventTheNextBackup()
+    {
+        string root = CreateRoot();
+        FileStream? held = null;
+        try
+        {
+            string world = Path.Combine(root, "primary.wld");
+            File.WriteAllText(world, "world");
+            var database = new FakeDatabase(afterWrite: path =>
+                held ??= File.Open(path, FileMode.Open, FileAccess.Read, FileShare.Read));
+            var backups = new DeploymentBackupService(root, BackupOptions.Default, new FakeBarrier(), database, () => world, new RecordingLogger());
+            try
+            {
+                Assert.That((await backups.CreateAsync()).State, Is.EqualTo(DeploymentBackupState.Succeeded));
+                held!.Dispose();
+                var next = await backups.CreateAsync();
+                Assert.That(next.State, Is.EqualTo(DeploymentBackupState.Succeeded));
+                Assert.That(next.Detail, Does.Not.Contain("already running"));
+            }
+            finally
+            {
+                held?.Dispose();
+                await Task.Run(backups.Dispose).WaitAsync(TimeSpan.FromSeconds(3));
+            }
+        }
+        finally { Directory.Delete(root, true); }
+    }
+
+    private sealed class FakeDatabase(bool fail = false, Action<string>? afterWrite = null) : IDatabaseBackupSource
     {
         public string Provider => "test";
         public int SchemaVersion => 1;
@@ -246,6 +314,7 @@ public sealed class DeploymentBackupTests
         {
             if (fail) throw new IOException("dump failed");
             await File.WriteAllTextAsync(destinationPath, "database", cancellationToken);
+            afterWrite?.Invoke(destinationPath);
         }
     }
 

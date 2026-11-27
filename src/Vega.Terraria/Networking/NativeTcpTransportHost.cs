@@ -62,6 +62,7 @@ internal sealed class NativeTcpTransportHost : IDisposable
 
     internal (int Slot, TimeSpan Send, TimeSpan Completion) ReadQueueAges()
     {
+        if (!options.MeasureQueueAge) return (-1, TimeSpan.Zero, TimeSpan.Zero);
         int slowestSlot = -1;
         TimeSpan send = TimeSpan.Zero, completion = TimeSpan.Zero;
         for (int slot = 0; slot < slots.Length; slot++)

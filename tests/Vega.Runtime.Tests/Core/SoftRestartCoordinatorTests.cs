@@ -155,15 +155,62 @@ public sealed class SoftRestartCoordinatorTests
 
     private static SoftRestartOptions Enabled() => new(true, 2, 2, 10);
 
+    [Test]
+    public async Task TimedOutStartIsRetiredOnlyAfterItExitsAndBlocksRollback()
+    {
+        var entered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var slow = new FakeHost(() => { entered.SetResult(); release.Task.GetAwaiter().GetResult(); });
+        int created = 0;
+        RestartableModuleGraph Factory(IReadOnlySet<string>? _) =>
+            new(++created == 1 ? new FakeHost() : slow, ["module"], () => { });
+        using var coordinator = new SoftRestartCoordinator(Enabled() with { ModuleTimeoutSeconds = 1 }, Factory, new NullLogger());
+        try
+        {
+            var restart = coordinator.RestartAsync(null).AsTask();
+            await entered.Task.WaitAsync(TimeSpan.FromSeconds(3));
+            Assert.That((await restart).Status, Is.EqualTo(SoftRestartStatus.Degraded));
+            Assert.That(slow.Disposed, Is.False);
+            Assert.That((await coordinator.RestartAsync(null)).Status, Is.EqualTo(SoftRestartStatus.ProcessRestartRequired));
+            Assert.That(created, Is.EqualTo(2));
+        }
+        finally { release.TrySetResult(); }
+        Assert.That(() => slow.Disposed, Is.True.After(3000, 50));
+    }
+
+    [TestCase(true)]
+    [TestCase(false)]
+    public async Task FailedDisposalClosesTheGateWithoutStartingAnotherGeneration(bool previousFails)
+    {
+        int created = 0, previousDisposals = 0, replacementDisposals = 0;
+        var previous = new FakeHost(stop: () =>
+        {
+            previousDisposals++;
+            if (previousFails) throw new IOException("previous cleanup");
+        });
+        var replacement = new FakeHost(() => throw new InvalidOperationException("start"), () =>
+        {
+            replacementDisposals++;
+            if (!previousFails) throw new IOException("replacement cleanup");
+        });
+        RestartableModuleGraph Factory(IReadOnlySet<string>? _) => new(++created == 1 ? previous : replacement, ["module"], () => { });
+        using var coordinator = new SoftRestartCoordinator(Enabled(), Factory, new NullLogger());
+        Assert.That((await coordinator.RestartAsync(null)).Status, Is.EqualTo(SoftRestartStatus.Degraded));
+        Assert.That(coordinator.TryAcquireCallback(out _), Is.False);
+        Assert.That((await coordinator.RestartAsync(null)).Status, Is.EqualTo(SoftRestartStatus.ProcessRestartRequired));
+        coordinator.Dispose();
+        Assert.That((created, previousDisposals, replacementDisposals), Is.EqualTo((2, 1, 1)));
+    }
+
     private static RestartableModuleGraph Graph(string name, Action? start = null) =>
         new(new FakeHost(start), [name], () => { });
 
-    private sealed class FakeHost(Action? start = null) : IVegaModuleHost
+    private sealed class FakeHost(Action? start = null, Action? stop = null) : IVegaModuleHost
     {
         public bool Disposed { get; private set; }
         public void Start() => start?.Invoke();
         public IReadOnlyList<ModuleOperationsSnapshot> SnapshotModules() => [];
-        public void Dispose() => Disposed = true;
+        public void Dispose() { Disposed = true; stop?.Invoke(); }
     }
 
     private sealed class NullLogger : IOperationsLogger

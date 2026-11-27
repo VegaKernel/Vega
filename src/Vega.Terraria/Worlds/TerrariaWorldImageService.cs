@@ -23,6 +23,8 @@ public sealed class TerrariaWorldImageService : IDisposable, IWorldLoadMetricsRe
     private readonly bool enabled;
     private WorldLoadMetricsSnapshot snapshot = EmptySnapshot();
     private ActiveImage? activeImage;
+    private bool captureLoadedTiles;
+    private WorldImageRuntimeSnapshot? loadedTiles;
     private BuildRequest? pendingBuild;
     private Task? buildWorker;
     private bool disposed;
@@ -110,6 +112,17 @@ public sealed class TerrariaWorldImageService : IDisposable, IWorldLoadMetricsRe
 
     private void OnLoadWorld(object? sender, HookWorldFile.LoadWorldEventArgs args)
     {
+        try { LoadWorld(args); }
+        finally
+        {
+            activeImage = null;
+            captureLoadedTiles = false;
+            loadedTiles = null;
+        }
+    }
+
+    private void LoadWorld(HookWorldFile.LoadWorldEventArgs args)
+    {
         args.ContinueExecution = false;
         string? sourcePath = global::Terraria.Main.ActiveWorldFileData?.Path;
         bool localSource = global::Terraria.Main.ActiveWorldFileData is { IsCloudSave: false } &&
@@ -153,6 +166,8 @@ public sealed class TerrariaWorldImageService : IDisposable, IWorldLoadMetricsRe
         gen2Before = GC.CollectionCount(2);
 
         bool fellBack = false;
+        captureLoadedTiles = enabled && localSource;
+        loadedTiles = null;
         try
         {
             args.OriginalMethod();
@@ -250,7 +265,7 @@ public sealed class TerrariaWorldImageService : IDisposable, IWorldLoadMetricsRe
 
         if (enabled && localSource && !cacheHit && !global::Terraria.WorldGen.loadFailed)
         {
-            ScheduleBuild(sourcePath!, imagePath!);
+            ScheduleBuild(sourcePath!, imagePath!, loadedTiles);
         }
     }
 
@@ -274,6 +289,26 @@ public sealed class TerrariaWorldImageService : IDisposable, IWorldLoadMetricsRe
         else
         {
             args.OriginalMethod(args.reader, args.importance);
+            if (captureLoadedTiles && args.reader.BaseStream.CanSeek)
+            {
+                Stream stream = args.reader.BaseStream;
+                long position = stream.Position;
+                try
+                {
+                    stream.Position = 0;
+                    if (args.reader.ReadInt32() == 329)
+                    {
+                        stream.Position = 0;
+                        loadedTiles = WorldImageRuntimeSnapshot.FromLoadedTiles(
+                            System.Security.Cryptography.SHA256.HashData(stream));
+                    }
+                }
+                catch (Exception ex) when (ex is IOException or InvalidDataException or InvalidOperationException)
+                {
+                    logger.Log(OperationsLogLevel.Warning, "world-image", "Could not capture the decoded tile section.", ex);
+                }
+                finally { stream.Position = position; }
+            }
         }
 
         tileDecodeTicks += Stopwatch.GetTimestamp() - started;

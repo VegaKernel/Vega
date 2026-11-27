@@ -70,7 +70,7 @@ internal static class TerrariaSchematicTemplateHost
         {
             TerrariaServerHost.PrepareSavePath(args);
             TerrariaServerHost.InitialiseTerrariaInternals();
-            global::Terraria.WindowsLaunch.Main(args);
+            TerrariaServerHost.LaunchNativeServer(args);
             return completed ? 0 : 1;
         }
         finally { Hooks.Main.DedicatedWorldReady -= OnReady; }

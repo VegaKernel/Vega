@@ -58,16 +58,7 @@ public static class TerrariaServerHost
         using var movementInterest = distantMovementRate > 0
             ? new NativeMovementInterestHooks(distantMovementRate, () => gameThreadDispatcher.IsGameThread) : null;
         using var orderedTransport = networkLimits.UseOrderedTcp
-            ? new NativeTcpTransportHost(new NativeTcpTransportOptions
-            {
-                MaxCallbacksPerPass = networkLimits.OrderedCallbacksPerPass,
-                CompletionDrainBatch = networkLimits.OrderedCompletionDrainBatch,
-                MeasureQueueAge = networkLimits.OrderedQueueDiagnostics,
-                MaxBatchRequests = networkLimits.OrderedBatchRequests,
-                DeferWriterWake = networkLimits.OrderedDeferredWake,
-                ProducerBatching = networkLimits.OrderedProducerBatching,
-                DeferredWakeFlushInterval = TimeSpan.FromMilliseconds(networkLimits.OrderedDeferredWakeMilliseconds)
-            },
+            ? new NativeTcpTransportHost(networkLimits.ToTransportOptions(),
                 onSendRejected: (generation, reason) => logger.Log(OperationsLogLevel.Warning, "network",
                     $"Ordered TCP connection {generation} closed: outbound queue rejected a send ({reason}).")) : null;
         using var queueDiagnostics = orderedTransport is not null && networkLimits.OrderedQueueDiagnostics
@@ -183,7 +174,7 @@ public static class TerrariaServerHost
                 global::Terraria.Main.SkipAssemblyLoad = true;
             }
 
-            global::Terraria.WindowsLaunch.Main(args);
+            LaunchNativeServer(args);
             return 0;
         }
         catch (Exception ex)
@@ -246,6 +237,13 @@ public static class TerrariaServerHost
                 "lifecycle",
                 $"Vega startup budget warning: bootstrap took {transition.StageDuration.TotalMilliseconds:F1} ms (> 100 ms).");
         }
+    }
+
+    internal static void LaunchNativeServer(string[] args)
+    {
+        HookEvents.Terraria.WorldGen.nextCount += NativeCaveTileCount.Visit;
+        try { global::Terraria.WindowsLaunch.Main(args); }
+        finally { HookEvents.Terraria.WorldGen.nextCount -= NativeCaveTileCount.Visit; }
     }
 
     // Must run before composition creates services that read Terraria.Main static fields.

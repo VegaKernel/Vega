@@ -36,7 +36,7 @@ modules restart confirm
 
 A named target is validated by full or short module name. The bundled modules currently form one restart ownership unit, so Vega recreates its validated dependency closure; the result and audit retain the requested targets. Restart-all always requires the literal `confirm` argument. Concurrent attempts return `Busy`.
 
-Vega first constructs the replacement, closes the callback gate, drains in-flight work, stops the old graph in reverse dependency order, restores compatible handoff state, starts the replacement in topological order and atomically publishes it. Startup failure causes one fresh rollback attempt. Failed rollback leaves the gate closed and reports `Degraded`; restart the process.
+Vega first constructs the replacement, closes the callback gate, drains in-flight work, stops the old graph in reverse dependency order, restores compatible handoff state, starts the replacement in topological order and atomically publishes it. If startup returns with an error, Vega attempts rollback once. If a synchronous module is still inside `Start` after cancellation or timeout, Vega keeps the gate closed, reports `Degraded` and defers cleanup until `Start` returns. This outcome and a failed rollback require a process restart.
 
 Progress and the final result are structured `soft-restart` log events, visible in plain output and the TUI log window. `plugin reload`/`plugin unload` remain the only hot path for collectible external plugins. A dirty or incompletely collected `ServerPlugins` context makes soft restart return `ProcessRestartRequired`.
 

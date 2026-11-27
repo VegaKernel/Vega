@@ -8,11 +8,15 @@ param(
     [ValidateSet('recording','native','ordered')][string[]]$TransportModes = @('recording'),
     [switch]$DeferredWake,
     [switch]$ProducerBatching,
+    [switch]$ServerTransportDefaults,
     [switch]$FullWorld,
     [ValidateRange(0.25,2)][double]$DeferredWakeMilliseconds = 1,
     [int]$TimeoutSeconds = 300
 )
 $ErrorActionPreference = 'Stop'
+if ($ServerTransportDefaults -and ($DeferredWake -or $ProducerBatching -or $TransportModes -contains 'recording' -or $TransportModes -contains 'native')) {
+    throw 'ServerTransportDefaults requires ordered transport and uses its own wake and batching settings.'
+}
 if ($FullWorld -and ($Modes -contains 'legacy')) { throw 'Full-world fixture uses the optimized production chat renderer; specify -Modes optimized.' }
 if ($ProducerBatching -and (-not $DeferredWake -or $TransportModes -contains 'recording' -or $TransportModes -contains 'native')) {
     throw 'Producer batching requires -DeferredWake and ordered transport only.'
@@ -72,6 +76,7 @@ for ($i = 0; $i -lt $runs.Count; $i++) {
     $start.RedirectStandardOutput = $true
     $start.RedirectStandardError = $true
     $start.EnvironmentVariables['VEGA_SYNTHETIC_BENCHMARK'] = '1'
+    $start.EnvironmentVariables['VEGA_BENCH_SERVER_DEFAULTS'] = if ($ServerTransportDefaults) { '1' } else { '0' }
     $start.EnvironmentVariables['VEGA_BENCH_PRODUCER_BATCHING'] = if ($ProducerBatching) { '1' } else { '0' }
     if ($DeferredWake) {
         $start.EnvironmentVariables['VEGA_BENCH_DEFER_WAKE'] = '1'
@@ -112,6 +117,17 @@ for ($i = 0; $i -lt $runs.Count; $i++) {
         }
         if ($null -eq $result) { throw "No result from $mode fixture. See $deploy." }
         if ($result.Error) { throw $result.Error }
+        Send-Console $process 'plugin unload Vega.Benchmarks.MixedGameplay'
+        $operations = Join-Path $deploy 'logs/vega-operations.jsonl'
+        $unloaded = $false
+        $deadline = [DateTime]::UtcNow.AddSeconds($TimeoutSeconds)
+        while (-not $process.HasExited -and [DateTime]::UtcNow -lt $deadline) {
+            $events = Get-Content -LiteralPath $operations -Tail 30 -ErrorAction SilentlyContinue
+            if ($events -match 'Vega.Benchmarks.MixedGameplay.*detached incompletely') { throw "Benchmark plugin remained loaded. See $operations." }
+            if ($events -match 'Vega.Benchmarks.MixedGameplay.*detached and unloaded') { $unloaded = $true; break }
+            Start-Sleep -Milliseconds 200
+        }
+        if (-not $unloaded) { throw "Benchmark plugin unload was not confirmed. See $operations." }
         $result | ConvertTo-Json -Depth 8
         Send-Console $process 'shutdown mixed gameplay benchmark'
         if (-not $process.WaitForExit(30000)) { throw 'Server did not shut down.' }

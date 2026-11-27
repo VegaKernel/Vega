@@ -214,6 +214,7 @@ internal static partial class RuntimeHost
         resources.Own(new TerminalUiReadinessGate(
             lifecycle,
             launch.UiOptions.EffectiveMode,
+            launch.TileStorageOptions.ServerArguments.Contains("-world", StringComparer.OrdinalIgnoreCase),
             terminalUi.TryStart));
         logger.Log(
             OperationsLogLevel.Information,

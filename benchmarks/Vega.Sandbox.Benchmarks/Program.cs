@@ -7,6 +7,12 @@ using Vega.Contracts.Sandboxes;
 using Vega.Contracts.Worlds;
 using Vega.Sandboxes;
 
+if (args.FirstOrDefault() == "--ssc-checkpoints")
+{
+    await SscCheckpointBenchmark.RunAsync(args);
+    return;
+}
+
 if (args.Any(static argument => argument.StartsWith("--vega-backend-", StringComparison.OrdinalIgnoreCase)))
 {
     SandboxBackendLaunchOptions launch = SandboxBackendLaunchOptions.Parse(args);

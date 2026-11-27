@@ -15,7 +15,8 @@ internal sealed class RelationalIdentityService(
     private const int PasswordIterations = 210_000;
     private readonly SemaphoreSlim mutations = new(1, 1);
     private readonly object groupCacheSync = new();
-    private IReadOnlyList<GroupSnapshot>? groupCache;
+    private sealed record GroupIndex(IReadOnlyList<GroupSnapshot> List, FrozenDictionary<string, GroupSnapshot> ByName, long LoadedAt);
+    private GroupIndex? groupCache;
     public event Action<AccountChange>? AccountChanged;
     public event Action<GroupChange>? GroupChanged;
 
@@ -298,15 +299,18 @@ internal sealed class RelationalIdentityService(
         return await command.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false) is string current && VerifyPassword(password, current);
     }
 
-    public IReadOnlyList<GroupSnapshot> SnapshotGroups()
+    public IReadOnlyList<GroupSnapshot> SnapshotGroups() => ReadGroupIndex().List;
+
+    private GroupIndex ReadGroupIndex()
     {
         ensureReady();
         lock (groupCacheSync)
         {
-            if (groupCache is null)
+            if (groupCache is null || Environment.TickCount64 - groupCache.LoadedAt >= 1000)
             {
                 using DbConnection connection = open();
-                groupCache = ReadGroups(connection);
+                var list = ReadGroups(connection);
+                groupCache = new(list, list.ToFrozenDictionary(g => g.Name, StringComparer.OrdinalIgnoreCase), Environment.TickCount64);
             }
 
             return groupCache;
@@ -315,9 +319,7 @@ internal sealed class RelationalIdentityService(
 
     public bool TryGetGroup(string groupName, out GroupSnapshot? group)
     {
-        group = SnapshotGroups().FirstOrDefault(candidate =>
-            candidate.Name.Equals(groupName, StringComparison.OrdinalIgnoreCase));
-        return group is not null;
+        return ReadGroupIndex().ByName.TryGetValue(groupName, out group);
     }
 
     public bool HasPermission(string groupName, string permission)
@@ -327,17 +329,10 @@ internal sealed class RelationalIdentityService(
             return false;
         }
 
-        IReadOnlyDictionary<string, GroupSnapshot> groups = SnapshotGroups()
-            .ToDictionary(static group => group.Name, StringComparer.OrdinalIgnoreCase);
-        var visited = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var groups = ReadGroupIndex().ByName;
         string? current = groupName;
-        while (current is not null && visited.Count < 64 && groups.TryGetValue(current, out GroupSnapshot? group))
+        for (int depth = 0; depth < 64 && current is not null && groups.TryGetValue(current, out GroupSnapshot? group); depth++)
         {
-            if (!visited.Add(current))
-            {
-                return false;
-            }
-
             if (group.DeniedPermissions.Contains(permission) || group.DeniedPermissions.Contains("*"))
             {
                 return false;
@@ -738,40 +733,32 @@ internal sealed class RelationalIdentityService(
         DbTransaction? transaction = null)
     {
         using DbCommand groupsCommand = CreateCommand(connection, transaction,
-            "SELECT g.name, g.parent_name, g.revision, p.chat_prefix, p.chat_suffix, p.chat_color " +
-            "FROM vega_groups g LEFT JOIN vega_group_presentation p ON p.group_name = g.name ORDER BY g.name;");
+            "SELECT g.name, g.parent_name, g.revision, p.chat_prefix, p.chat_suffix, p.chat_color, a.permission, a.effect " +
+            "FROM vega_groups g LEFT JOIN vega_group_presentation p ON p.group_name = g.name " +
+            "LEFT JOIN vega_group_permissions a ON a.group_name = g.name ORDER BY g.name, a.permission;");
         using DbDataReader groupsReader = groupsCommand.ExecuteReader();
         var groups = new Dictionary<string, GroupSnapshot>(StringComparer.OrdinalIgnoreCase);
         while (groupsReader.Read())
         {
             string name = groupsReader.GetString(0);
-            groups[name] = new GroupSnapshot(
-                name,
-                groupsReader.IsDBNull(1) ? null : groupsReader.GetString(1),
-                new HashSet<string>(StringComparer.OrdinalIgnoreCase))
+            if (!groups.TryGetValue(name, out var group))
             {
-                DeniedPermissions = new HashSet<string>(StringComparer.OrdinalIgnoreCase),
-                Revision = Convert.ToInt64(groupsReader.GetValue(2), CultureInfo.InvariantCulture),
-                Presentation = new GroupChatPresentation(
-                    groupsReader.IsDBNull(3) ? "" : groupsReader.GetString(3),
-                    groupsReader.IsDBNull(4) ? "" : groupsReader.GetString(4),
-                    groupsReader.IsDBNull(5) ? null : groupsReader.GetString(5))
-            };
-        }
-
-        groupsReader.Close();
-        using DbCommand permissionsCommand = CreateCommand(connection, transaction,
-            "SELECT group_name, permission, effect FROM vega_group_permissions ORDER BY group_name, permission;");
-        using DbDataReader permissionsReader = permissionsCommand.ExecuteReader();
-        while (permissionsReader.Read())
-        {
-            if (!groups.TryGetValue(permissionsReader.GetString(0), out GroupSnapshot? group))
-            {
-                continue;
+                group = new GroupSnapshot(name, groupsReader.IsDBNull(1) ? null : groupsReader.GetString(1),
+                    new HashSet<string>(StringComparer.OrdinalIgnoreCase))
+                {
+                    DeniedPermissions = new HashSet<string>(StringComparer.OrdinalIgnoreCase),
+                    Revision = Convert.ToInt64(groupsReader.GetValue(2), CultureInfo.InvariantCulture),
+                    Presentation = new GroupChatPresentation(
+                        groupsReader.IsDBNull(3) ? "" : groupsReader.GetString(3),
+                        groupsReader.IsDBNull(4) ? "" : groupsReader.GetString(4),
+                        groupsReader.IsDBNull(5) ? null : groupsReader.GetString(5))
+                };
+                groups.Add(name, group);
             }
 
-            string permission = permissionsReader.GetString(1);
-            int effect = Convert.ToInt32(permissionsReader.GetValue(2), CultureInfo.InvariantCulture);
+            if (groupsReader.IsDBNull(6)) continue;
+            string permission = groupsReader.GetString(6);
+            int effect = Convert.ToInt32(groupsReader.GetValue(7), CultureInfo.InvariantCulture);
             if (effect == (int)PermissionEffect.Grant)
             {
                 ((HashSet<string>)group.Permissions).Add(permission);

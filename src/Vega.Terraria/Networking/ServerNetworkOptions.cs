@@ -17,7 +17,7 @@ public sealed record ServerNetworkOptions
     public double OrderedDeferredWakeMilliseconds { get; init; } = DefaultWakeMilliseconds;
     public int DistantMovementUpdatesPerSecond { get; init; } = 5;
     public int OrderedCallbacksPerPass { get; init; } = NativeTcpTransportOptions.DefaultCallbacksPerPass;
-    public int OrderedCompletionDrainBatch { get; init; } = 4;
+    public int OrderedCompletionDrainBatch { get; init; } = 8;
     public int OrderedBatchRequests { get; init; } = NativeOutboundQueue.BatchRequestLimit;
 
     public static ServerNetworkOptions Normalize(ServerNetworkOptions options) => options with
@@ -28,8 +28,19 @@ public sealed record ServerNetworkOptions
         OrderedDeferredWakeMilliseconds = double.IsFinite(options.OrderedDeferredWakeMilliseconds) ? Math.Clamp(options.OrderedDeferredWakeMilliseconds, 0.25, 2) : DefaultWakeMilliseconds,
         OrderedProducerBatching = options.OrderedProducerBatching && options.UseOrderedTcp && options.OrderedDeferredWake && options.OrderedBatchRequests > 1,
         OrderedCallbacksPerPass = Math.Clamp(options.OrderedCallbacksPerPass, 1, NativeTcpTransportOptions.DefaultCallbacksPerPass),
-        OrderedCompletionDrainBatch = Math.Clamp(options.OrderedCompletionDrainBatch, 1, 4),
+        OrderedCompletionDrainBatch = Math.Clamp(options.OrderedCompletionDrainBatch, 1, 8),
         OrderedBatchRequests = Math.Clamp(options.OrderedBatchRequests, 1, NativeOutboundQueue.BatchRequestLimit)
+    };
+
+    internal NativeTcpTransportOptions ToTransportOptions() => new()
+    {
+        MaxCallbacksPerPass = OrderedCallbacksPerPass,
+        CompletionDrainBatch = OrderedCompletionDrainBatch,
+        MeasureQueueAge = OrderedQueueDiagnostics,
+        MaxBatchRequests = OrderedBatchRequests,
+        DeferWriterWake = OrderedDeferredWake,
+        ProducerBatching = OrderedProducerBatching,
+        DeferredWakeFlushInterval = TimeSpan.FromMilliseconds(OrderedDeferredWakeMilliseconds)
     };
 
     public static ServerNetworkOptions Load(string path, IOperationsLogger logger)

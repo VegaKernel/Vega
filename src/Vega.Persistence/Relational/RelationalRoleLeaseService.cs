@@ -14,6 +14,7 @@ internal sealed class RelationalRoleLeaseService(
     private readonly SemaphoreSlim mutations = new(1, 1);
     private readonly object cacheSync = new();
     private Dictionary<AccountId, RoleLeaseSnapshot>? activeByAccount;
+    private long cacheLoadedAt;
     public event Action<RoleLeaseChange>? RoleLeaseChanged;
 
     private void Publish(RoleLeaseChange change)
@@ -256,7 +257,7 @@ internal sealed class RelationalRoleLeaseService(
         ensureReady();
         lock (cacheSync)
         {
-            if (activeByAccount is not null) return;
+            if (activeByAccount is not null && Environment.TickCount64 - cacheLoadedAt < 1000) return;
             using DbConnection connection = open();
             using DbCommand command = connection.CreateCommand();
             command.CommandText =
@@ -264,12 +265,14 @@ internal sealed class RelationalRoleLeaseService(
                 "FROM vega_role_leases WHERE revoked = @active ORDER BY issued_at_utc, id;";
             command.AddParameter("@active", false);
             using DbDataReader reader = command.ExecuteReader();
-            activeByAccount = [];
+            var refreshed = new Dictionary<AccountId, RoleLeaseSnapshot>();
             while (reader.Read())
             {
                 RoleLeaseSnapshot lease = Read(reader);
-                activeByAccount[lease.AccountId] = lease;
+                refreshed[lease.AccountId] = lease;
             }
+            activeByAccount = refreshed;
+            cacheLoadedAt = Environment.TickCount64;
         }
     }
 

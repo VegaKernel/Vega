@@ -1,0 +1,654 @@
+﻿Проверка,Основная команда TShock,Обработчик TShock,Ввод,Ответ Vega (выдержка),Ответ TShock 6.2.1 (выдержка)
+help,setup,SetupToken,help setup,/setup | syntax: /setup (server console) | aliases: none | permissions: vega.accounts.manage,/setup help: / Используется для аутентификации в качестве супер-администратора при первой настройке TShock.
+help,user,ManageUsers,help user,/account | syntax: /account list | show <name> | create|add <name> <password> [group] | delete|del <name> | group <name> <group> | password <name> <new-password> | temp <name> <group> <duration> | temp-clear <name> | temp-list | help | aliases: user | permissions: vega.accounts.manage,/user help: / Управляет аккаунтами пользователей.
+help,login,AttemptLogin,help login,Unknown or unavailable command: login.,/login help: / Выполняет вход в ваш аккаунт.
+help,logout,Logout,help logout,Unknown or unavailable command: logout.,/logout help: / Выход из вашего текущего аккаунта.
+help,password,PasswordUser,help password,Unknown or unavailable command: password.,/password help: / Изменяет пароль вашего аккаунта.
+help,register,RegisterUser,help register,Unknown or unavailable command: register.,/register help: / Зарегистрирует вашу учетную запись.
+help,accountinfo,ViewAccountInfo,help accountinfo,"/accountinfo | syntax: /accountinfo <account> | ai-id <account id> | aliases: ai, ai-id, accountinfo-id | permissions: vega.accounts.inspect or vega.accounts.manage or tshock.accountinfo.check",/accountinfo help: / Отображает информацию о пользователе.
+help,accountinfo,ViewAccountInfo,help ai,"/accountinfo | syntax: /accountinfo <account> | ai-id <account id> | aliases: ai, ai-id, accountinfo-id | permissions: vega.accounts.inspect or vega.accounts.manage or tshock.accountinfo.check",/accountinfo help: / Отображает информацию о пользователе.
+help,ban,Ban,help ban,"/ban | syntax: /ban <player> [reason] | ban add <name|account|uuid|ip|cidr> <value> <duration|permanent> [reason] | ban list | ban show|details <id> | ban del <id> | unban <id> | ban help|identifiers|examples | bt help|add|addip|addrange|delrange|listrange|info | aliases: unban, bantools, bantool, bt | permissions: vega.admin.ban or tshock.admin.ban",/ban help: / Управляет заблокированными игроками.
+help,broadcast,Broadcast,help broadcast,"/broadcast | syntax: /broadcast <message> | aliases: bc, say | permissions: vega.admin.broadcast",/broadcast help: / Объявляет сообщение на весь сервер.
+help,broadcast,Broadcast,help bc,"/broadcast | syntax: /broadcast <message> | aliases: bc, say | permissions: vega.admin.broadcast",/broadcast help: / Объявляет сообщение на весь сервер.
+help,broadcast,Broadcast,help say,"/broadcast | syntax: /broadcast <message> | aliases: bc, say | permissions: vega.admin.broadcast",/broadcast help: / Объявляет сообщение на весь сервер.
+help,displaylogs,DisplayLogs,help displaylogs,/displaylogs | syntax: /displaylogs [count:1..20] [information|warning|error|critical] | aliases: none | permissions: vega.operations.logs,/displaylogs help: / Включает или отключает отображение логов сервера.
+help,group,Group,help group,/group | syntax: /group help | list | show|listperm <name> | create <name> [parent] | add <name> | delete|del <name> | parent <name> <parent|none> | grant|addperm|deny|revoke|delperm <name> <permission> | prefix|suffix|color <name> <value|none> | aliases: groups | permissions: vega.groups.manage,/group help: / Управляет группами.
+help,itemban,ItemBan,help itemban,/itemban | syntax: /<command> list [page] | add|del <id|name> | allow|disallow <id|name> <group> | help | aliases: none | permissions: vega.restrictions.manage,/itemban help: / Управляет заблокированными предметами.
+help,projban,ProjectileBan,help projban,/projban | syntax: /<command> list [page] | add|del <id|name> | allow|disallow <id|name> <group> | help | aliases: none | permissions: vega.restrictions.manage,/projban help: / Управляет заблокированными снарядами.
+help,tileban,TileBan,help tileban,/tileban | syntax: /<command> list [page] | add|del <id|name> | allow|disallow <id|name> <group> | help | aliases: none | permissions: vega.restrictions.manage,/tileban help: / Управляет заблокированными блоками.
+help,region,Region,help region,/region | syntax: /region list [page] | show|info <name> | create <name> <x> <y> <width> <height> [priority] [owner] | delete <name> | rename <name> <new-name> | resize <name> <x> <y> <width> <height> | resize|expand <name> <u/d/l/r> <amount> | priority|z <name> <value> | owner <name> <owner|none> | member|group <name> add|remove <subject> | allow|remove|allowg|removeg <subject> <region> | flag <name> <flag> <true|false> | protect <region> <true|false> | set <1/2> [x y] | cle…,/region help: / Управляет регионами.
+help,kick,Kick,help kick,/kick | syntax: /kick <player> [reason] | aliases: none | permissions: vega.admin.kick,/kick help: / Удаляет игрока с сервера.
+help,mute,Mute,help mute,/mute | syntax: /mute <online-player> <duration> [reason] | mute add <player/account> [time] [reason] | mute del <player/account> | mute add <name|account> <value> <duration> [reason] | mute list [page] | mute show <id> | unmute <id> | aliases: unmute | permissions: vega.admin.mute or extendedbans.mute,/mute help: / Не позволяет игроку разговаривать.
+help,mute,Mute,help unmute,/mute | syntax: /mute <online-player> <duration> [reason] | mute add <player/account> [time] [reason] | mute del <player/account> | mute add <name|account> <value> <duration> [reason] | mute list [page] | mute show <id> | unmute <id> | aliases: unmute | permissions: vega.admin.mute or extendedbans.mute,/mute help: / Не позволяет игроку разговаривать.
+help,overridessc,OverrideSSC,help overridessc,/overridessc | syntax: /overridessc <authenticated-player> | aliases: ossc | permissions: vega.ssc.override,/overridessc help: / Временно переопределяет серверные данные персонажа для игрока.
+help,overridessc,OverrideSSC,help ossc,/overridessc | syntax: /overridessc <authenticated-player> | aliases: ossc | permissions: vega.ssc.override,/overridessc help: / Временно переопределяет серверные данные персонажа для игрока.
+help,savessc,SaveSSC,help savessc,/savessc | syntax: /savessc | aliases: none | permissions: vega.ssc.save,/savessc help: / Сохраняет серверные данные персонажей (SSC) всех игроков.
+help,uploadssc,UploadJoinData,help uploadssc,/uploadssc | syntax: /uploadssc [player] confirm | aliases: none | permissions: vega.ssc.upload,/uploadssc help: / Загружает локальные данные персонажа на сервер (SSC).
+help,tempgroup,TempGroup,help tempgroup,"/tempgroup | syntax: /tempgroup add <account name/id> <group> [duration] | tempgroup del <account> | tempgroup info <account> | tempgroup list [page] | tempgroup help | aliases: tempg, tg | permissions: vega.accounts.manage or tshock.admin.tempgroup",/tempgroup help: / Временно устанавливает группу указанному игроку.
+help,su,SubstituteUser,help su,Unknown or unavailable command: su.,/su help: / Временно повышает вас до супер администратора.
+help,sudo,SubstituteUserDo,help sudo,Unknown or unavailable command: sudo.,/sudo help: / Выполняет команду как супер админ.
+help,userinfo,GrabUserUserInfo,help userinfo,/userinfo | syntax: /userinfo <player> | aliases: ui | permissions: vega.players.inspect or tshock.admin.userinfo,/userinfo help: / Отображает информацию об игроке.
+help,userinfo,GrabUserUserInfo,help ui,/userinfo | syntax: /userinfo <player> | aliases: ui | permissions: vega.players.inspect or tshock.admin.userinfo,/userinfo help: / Отображает информацию об игроке.
+help,annoy,Annoy,help annoy,/annoy | syntax: /annoy <player> <seconds:1..30> | aliases: none | permissions: vega.players.annoy,/annoy help: / Раздражает игрока на указанное время.
+help,rocket,Rocket,help rocket,/rocket | syntax: /rocket <player> | aliases: none | permissions: vega.players.rocket,/rocket help: / Запускает игрока вверх (SSC должен быть включен).
+help,firework,FireWork,help firework,/firework | syntax: /firework <player> [red|green|blue|yellow|star|spiral|rings|flower] | aliases: none | permissions: vega.players.firework,/firework help: / Создает фейерверк около игрока.
+help,checkupdates,CheckUpdates,help checkupdates,/checkupdates | syntax: /checkupdates | aliases: none | permissions: vega.cfg.maintenance,/checkupdates help: / Проверяет наличие обновлений TShock.
+help,off,Off,help off,"/shutdown | syntax: /shutdown [reason] | aliases: stop, off, exit | permissions: vega.cfg.maintenance","/off help: / Выключает сервер, сохраняя мир."
+help,off,Off,help exit,"/shutdown | syntax: /shutdown [reason] | aliases: stop, off, exit | permissions: vega.cfg.maintenance","/off help: / Выключает сервер, сохраняя мир."
+help,off,Off,help stop,"/shutdown | syntax: /shutdown [reason] | aliases: stop, off, exit | permissions: vega.cfg.maintenance","/off help: / Выключает сервер, сохраняя мир."
+help,off-nosave,OffNoSave,help off-nosave,"/off-nosave | syntax: /off-nosave [reason] | aliases: exit-nosave, stop-nosave | permissions: vega.cfg.maintenance.nosave",/off-nosave help: / Выключает сервер без сохранения.
+help,off-nosave,OffNoSave,help exit-nosave,"/off-nosave | syntax: /off-nosave [reason] | aliases: exit-nosave, stop-nosave | permissions: vega.cfg.maintenance.nosave",/off-nosave help: / Выключает сервер без сохранения.
+help,off-nosave,OffNoSave,help stop-nosave,"/off-nosave | syntax: /off-nosave [reason] | aliases: exit-nosave, stop-nosave | permissions: vega.cfg.maintenance.nosave",/off-nosave help: / Выключает сервер без сохранения.
+help,reload,Reload,help reload,/reload | syntax: /reload | aliases: none | permissions: vega.config.manage,/reload help: / Перезагружает файл конфигурации сервера.
+help,serverpassword,ServerPassword,help serverpassword,/serverpassword | syntax: /serverpassword <password> | serverpassword clear | serverpassword set <password> | aliases: none | permissions: vega.cfg.password,/serverpassword help: / Изменяет пароль сервера.
+help,version,GetVersion,help version,/version | syntax: /version | aliases: none | permissions: none,/version help: / Показывает версию TShock.
+help,whitelist,Whitelist,help whitelist,/whitelist | syntax: /whitelist list [page] | on | off | add <ip|cidr> | del <ip|cidr> | aliases: none | permissions: vega.admin.whitelist,/whitelist help: / Управляет белым списком сервера.
+help,give,Give,help give,/give | syntax: /give <item> <player> [stack] [prefix-id|name] | aliases: g | permissions: vega.items.give or tshock.item.give,/give help: / Даёт другому игроку предмет.
+help,give,Give,help g,/give | syntax: /give <item> <player> [stack] [prefix-id|name] | aliases: g | permissions: vega.items.give or tshock.item.give,/give help: / Даёт другому игроку предмет.
+help,item,Item,help item,Unknown or unavailable command: item.,/item help: / Дает вам предмет.
+help,item,Item,help i,Unknown or unavailable command: i.,/item help: / Дает вам предмет.
+help,butcher,Butcher,help butcher,/butcher | syntax: /butcher [npc-id|name] | aliases: none | permissions: vega.world.butcher,/butcher help: / Убивает враждебных НПС или НПС определенного типа.
+help,renamenpc,RenameNPC,help renamenpc,/renamenpc | syntax: /renamenpc <npc-id|name> <new name> | aliases: none | permissions: vega.world.renamenpc,/renamenpc help: / Переименовывает НИПа.
+help,maxspawns,MaxSpawns,help maxspawns,/maxspawns | syntax: /maxspawns [0..200] | aliases: none | permissions: vega.world.maxspawns,/maxspawns help: / Устанавливает максимальное количество мобов.
+help,spawnboss,SpawnBoss,help spawnboss,Unknown or unavailable command: spawnboss.,/spawnboss help: / Призывает рядом с вами боссов.
+help,spawnboss,SpawnBoss,help sb,Unknown or unavailable command: sb.,/spawnboss help: / Призывает рядом с вами боссов.
+help,spawnmob,SpawnMob,help spawnmob,Unknown or unavailable command: spawnmob.,/spawnmob help: / Spawns a number of mobs around you.
+help,spawnmob,SpawnMob,help sm,Unknown or unavailable command: sm.,/spawnmob help: / Spawns a number of mobs around you.
+help,spawnrate,SpawnRate,help spawnrate,/spawnrate | syntax: /spawnrate [1..60000] | aliases: none | permissions: vega.world.spawnrate,/spawnrate help: / Устанавливает частоту появления мобов.
+help,clearangler,ClearAnglerQuests,help clearangler,/clearangler | syntax: /clearangler [player-name] | aliases: none | permissions: vega.world.clearangler,"/clearangler help: / Сбрасывает список пользователей, выполнивших текущий квест рыбака."
+help,home,Home,help home,Unknown or unavailable command: home.,/home help: / Отправляет вас в точку спавна.
+help,spawn,Spawn,help spawn,Unknown or unavailable command: spawn.,/spawn help: / Отправляет вас в точку спавна.
+help,tp,TP,help tp,Unknown or unavailable command: tp.,/tp help: / Телепортирует игрока к другому игроку.
+help,tphere,TPHere,help tphere,Unknown or unavailable command: tphere.,/tphere help: / Телепортирует игрока к себе.
+help,tpnpc,TPNpc,help tpnpc,Unknown or unavailable command: tpnpc.,/tpnpc help: / Телепортирует вас к НИПу.
+help,tppos,TPPos,help tppos,Unknown or unavailable command: tppos.,/tppos help: / Телепортирует вас к координатам тайла.
+help,pos,GetPos,help pos,Unknown or unavailable command: pos.,/pos help: / Возвращает текущую или указанную пользователем позицию.
+help,tpallow,TPAllow,help tpallow,Unknown or unavailable command: tpallow.,/tpallow help: / Разрешает или запрещает другим телепортировать вас.
+help,worldmode,ChangeWorldMode,help worldmode,/worldmode | syntax: /worldmode [normal|expert|master] | aliases: gamemode | permissions: vega.world.mode,/worldmode help: / Изменяет режим мира.
+help,worldmode,ChangeWorldMode,help gamemode,/worldmode | syntax: /worldmode [normal|expert|master] | aliases: gamemode | permissions: vega.world.mode,/worldmode help: / Изменяет режим мира.
+help,antibuild,ToggleAntiBuild,help antibuild,/antibuild | syntax: /antibuild [on|off|status] | aliases: none | permissions: vega.world.antibuild,/antibuild help: / Переключает глобальный режим защиты от строительства.
+help,grow,Grow,help grow,/grow | syntax: /grow <tree-type> [tile-x tile-y (console)] | grow help | aliases: none | permissions: vega.world.grow,/grow help: / Выращивает растения под вами.
+help,forcehalloween,ForceHalloween,help forcehalloween,/forcehalloween | syntax: /forcehalloween [on|off|status] | aliases: none | permissions: vega.world.forcehalloween,"/forcehalloween help: / Включает режим Хэллоуин (Мешки с добром, тыквы и т.д.)."
+help,forcexmas,ForceXmas,help forcexmas,/forcexmas | syntax: /forcexmas [on|off|status] | aliases: none | permissions: vega.world.forcexmas,"/forcexmas help: / Включает режим Рождество (Подарки, Санта и т.д.)."
+help,worldevent,ManageWorldEvent,help worldevent,/worldevent | syntax: /worldevent <rain|bloodmoon|eclipse|fullmoon|slimerain|sandstorm|pumpkinmoon|frostmoon|goblinarmy|snowlegion|pirateinvasion|martianmadness|meteor|lanterns|meteorshower|coinrain> [on|off] | worldevent invade <type> | worldevent rain <slime|coin> | aliases: none | permissions: vega.world.events,/worldevent help: / Позволяет запускать и останавливать различные события мира.
+help,hardmode,Hardmode,help hardmode,/hardmode | syntax: /hardmode [status|start confirm] | aliases: none | permissions: vega.world.hardmode,/hardmode help: / Включает хардмод в мире.
+help,evil,SwitchEvil,help evil,/evil | syntax: /evil [crimson|corruption] | aliases: none | permissions: vega.world.evil,/evil help: / Switches the world's evil.
+help,protectspawn,ProtectSpawn,help protectspawn,/protectspawn | syntax: /protectspawn [on|off|status|radius <1..500>] | aliases: none | permissions: vega.world.protectspawn,/protectspawn help: / Переключает режим защиты спавна.
+help,save,Save,help save,/save | syntax: /save | aliases: none | permissions: vega.cfg.maintenance,/save help: / Сохраняет файл мира.
+help,setspawn,SetSpawn,help setspawn,/setspawn | syntax: /setspawn [tile-x tile-y] | aliases: none | permissions: vega.world.setspawn,/setspawn help: / Устанавливает точку спавна на вашу текущую позицию.
+help,setdungeon,SetDungeon,help setdungeon,/setdungeon | syntax: /setdungeon [tile-x tile-y] | aliases: none | permissions: vega.world.setdungeon,/setdungeon help: / Устанавливает точку входа в данж на вашу текущую позицию.
+help,settle,Settle,help settle,/settle | syntax: /settle | aliases: none | permissions: vega.world.settle,/settle help: / Принудительно обновляет все жидкости.
+help,time,Time,help time,/time | syntax: /time [day|noon|night|midnight|HH:mm] | aliases: none | permissions: vega.world.time,/time help: / Устанавливает время мира.
+help,wind,Wind,help wind,/wind | syntax: /wind <mph> | aliases: none | permissions: vega.world.wind,/wind help: / Изменяет скорость ветра.
+help,worldinfo,WorldInfo,help worldinfo,/worldinfo | syntax: /worldinfo | aliases: none | permissions: vega.world.info,/worldinfo help: / Отображает информацию о текущем мире.
+help,buff,Buff,help buff,Unknown or unavailable command: buff.,/buff help: / Дает вам бафф или дебафф на протяжении определенного промежутка времени. Установка времени -1 сделает его на 415 дней.
+help,clear,Clear,help clear,/clear | syntax: /clear <item|projectile|npc> [all] | aliases: none | permissions: vega.world.clear,/clear help: / Удаляет выброшенные предметы или снаряды.
+help,gbuff,GBuff,help gbuff,/gbuff | syntax: /gbuff <player> <buff> [seconds] | aliases: buffplayer | permissions: vega.players.buff.others,/gbuff help: / Накладывает на игрока бафф или дебафф на определенный промежуток времени. Указав значение -1 время его действия будет установлено на 415 дней.
+help,gbuff,GBuff,help buffplayer,/gbuff | syntax: /gbuff <player> <buff> [seconds] | aliases: buffplayer | permissions: vega.players.buff.others,/gbuff help: / Накладывает на игрока бафф или дебафф на определенный промежуток времени. Указав значение -1 время его действия будет установлено на 415 дней.
+help,godmode,ToggleGodMode,help godmode,/godmode | syntax: /godmode [player] [on|off] | aliases: god | permissions: vega.players.godmode,/godmode help: / Переключает режим бессмертия игрока.
+help,godmode,ToggleGodMode,help god,/godmode | syntax: /godmode [player] [on|off] | aliases: god | permissions: vega.players.godmode,/godmode help: / Переключает режим бессмертия игрока.
+help,heal,Heal,help heal,/heal | syntax: /heal [player] [amount] | aliases: none | permissions: vega.players.heal,/heal help: / Восполняет здоровье и ману игрока.
+help,kill,Kill,help kill,/kill | syntax: /kill <player> | aliases: slay | permissions: vega.players.kill,/kill help: / Убивает указанного игрока.
+help,kill,Kill,help slay,/kill | syntax: /kill <player> | aliases: slay | permissions: vega.players.kill,/kill help: / Убивает указанного игрока.
+help,me,ThirdPerson,help me,Unknown or unavailable command: me.,/me help: / Отправляет сообщение от третьего лица в общий чат.
+help,party,PartyChat,help party,Unknown or unavailable command: party.,/party help: / Отправляет сообщение всем в вашей команде.
+help,party,PartyChat,help p,Unknown or unavailable command: p.,/party help: / Отправляет сообщение всем в вашей команде.
+help,reply,Reply,help reply,Unknown or unavailable command: reply.,"/reply help: / Отвечает на личное сообщение, отправленное вам."
+help,reply,Reply,help r,Unknown or unavailable command: r.,"/reply help: / Отвечает на личное сообщение, отправленное вам."
+help,rest,ManageRest,help rest,/rest | syntax: /rest status | listusers | destroytokens | aliases: none | permissions: vega.operations.rest.manage,/rest help: / Управляет REST API.
+help,slap,Slap,help slap,/slap | syntax: /slap <player> [damage:0..32767] | aliases: none | permissions: vega.players.slap,/slap help: / Наносит игроку урон.
+help,serverinfo,ServerInfo,help serverinfo,/serverinfo | syntax: /serverinfo | aliases: none | permissions: vega.info,/serverinfo help: / Показывает информацию о сервере.
+help,warp,Warp,help warp,/warp | syntax: /warp <name> | list [page] | add <name> | del <name> | hide <name> <true|false> | send <player> <name> | aliases: none | permissions: vega.navigation.warp,/warp help: / Телепортирует вас в точку варпа или управляет варпами.
+help,whisper,Whisper,help whisper,Unknown or unavailable command: whisper.,/whisper help: / Отправляет игроку личное сообщение.
+help,whisper,Whisper,help w,Unknown or unavailable command: w.,/whisper help: / Отправляет игроку личное сообщение.
+help,whisper,Whisper,help tell,Unknown or unavailable command: tell.,/whisper help: / Отправляет игроку личное сообщение.
+help,whisper,Whisper,help pm,Unknown or unavailable command: pm.,/whisper help: / Отправляет игроку личное сообщение.
+help,whisper,Whisper,help dm,Unknown or unavailable command: dm.,/whisper help: / Отправляет игроку личное сообщение.
+help,wallow,Wallow,help wallow,Unknown or unavailable command: wallow.,/wallow help: / Отключает или включает обмен личными сообщениями.
+help,wallow,Wallow,help wa,Unknown or unavailable command: wa.,/wallow help: / Отключает или включает обмен личными сообщениями.
+help,dump-reference-data,CreateDumps,help dump-reference-data,/dump-reference-data | syntax: /dump-reference-data [item|npc|buff|projectile|tile|all] | aliases: none | permissions: vega.world.reference,/dump-reference-data help: / Создает ссылочные таблицы для типов данных Terraria и TShock разрешения в папку с сервером.
+help,sync,SyncLocalArea,help sync,/sync | syntax: /sync [radius:1..16] | sync <player> [radius] | aliases: none | permissions: vega.world.sync,/sync help: / Отправляет игроку все данные о блоках с сервера для повторной синхронизации с реальным состоянием мира.
+help,respawn,Respawn,help respawn,/respawn | syntax: /respawn [player] | aliases: none | permissions: vega.players.respawn,/respawn help: / Возрождает вас или указанного игрока.
+help,aliases,Aliases,help aliases,/aliases | syntax: /aliases | aliases: none | permissions: none,/aliases help: / Отображает сокращения команды.
+help,help,Help,help help,/help | syntax: /help [command] | aliases: commands | permissions: none,/help help: / Показывает список команд или предоставляет помощь по ним.
+help,motd,Motd,help motd,/motd | syntax: /motd | aliases: none | permissions: none,/motd help: / Показывает сообщение дня.
+help,playing,ListConnectedPlayers,help playing,"/playing | syntax: /playing [-i] [page] | aliases: online, who | permissions: none",/playing help: / Отображает игроков в сети.
+help,playing,ListConnectedPlayers,help online,"/playing | syntax: /playing [-i] [page] | aliases: online, who | permissions: none",/playing help: / Отображает игроков в сети.
+help,playing,ListConnectedPlayers,help who,"/playing | syntax: /playing [-i] [page] | aliases: online, who | permissions: none",/playing help: / Отображает игроков в сети.
+help,rules,Rules,help rules,/rules | syntax: /rules | aliases: none | permissions: none,/rules help: / Показывает правила сервера.
+help,death,ShowDeath,help death,Unknown or unavailable command: death.,/death help: / Shows your number of deaths.
+help,pvpdeath,ShowPVPDeath,help pvpdeath,Unknown or unavailable command: pvpdeath.,/pvpdeath help: / Shows your number of PVP deaths.
+help,alldeath,ShowAllDeath,help alldeath,/alldeath | syntax: /alldeath [page] | aliases: none | permissions: vega.players.deaths.others,/alldeath help: / Shows the number of deaths for all online players.
+help,allpvpdeath,ShowAllPVPDeath,help allpvpdeath,/allpvpdeath | syntax: /allpvpdeath [page] | aliases: none | permissions: vega.players.deaths.others,/allpvpdeath help: / Shows the number of PVP deaths for all online players.
+help,bossdamage,BossDamage,help bossdamage,/bossdamage | syntax: /bossdamage [page] | aliases: none | permissions: none,/bossdamage help: / Shows recent boss kill contribution.
+invoke,setup,SetupToken,setup,Create an administrator with: account create <name> <password> administrator. Then sign in as that account in-game. Vega does not issue remote setup tokens.,Эту команду можно выполнять только в игре.
+invoke,user,ManageUsers,user,Usage: account list | show <name> | create|add <name> <password> [group] | delete|del <name> | group <name> <group> | password <name> <new-password> | temp <name> <group> <duration: 30m|2h|7d> | temp-clear <name> | temp-list | help.,Server executed (args omitted): /user. / Неверный синтаксис пользователя. Попробуйте /user help.
+invoke,login,AttemptLogin,login,This command cannot be executed from the server console.,Эту команду можно выполнять только в игре.
+invoke,logout,Logout,logout,This command cannot be executed from the server console.,Эту команду можно выполнять только в игре.
+invoke,password,PasswordUser,password,This command cannot be executed from the server console.,Эту команду можно выполнять только в игре.
+invoke,register,RegisterUser,register,This command cannot be executed from the server console.,Эту команду можно выполнять только в игре.
+invoke,accountinfo,ViewAccountInfo,accountinfo,Vega command failed: command.accountinfo.usage,Неверный синтаксис. Правильный синтаксис:  /accountinfo <username>.
+invoke,ban,Ban,ban,Usage: ban <player> [reason] | ban add <name|account|uuid|ip|cidr> <value> <duration|permanent> [reason] | ban list | ban show <id> | unban <id>.,"TShock Ban Help / Available Ban commands: / ban add <Target> [Flags] / ban del <Ban ID> / ban list / ban details <Ban ID> / Quick usage: ban add Server ""Griefing"" / For more info, use ban help command or ban help examples"
+invoke,broadcast,Broadcast,broadcast,Vega command failed: broadcast.usage,—
+invoke,displaylogs,DisplayLogs,displaylogs,"[17:17:05 Information] network: Ordered producer-owned packet batching enabled with deferred wake. / [17:17:05 Information] lifecycle: Vega RuntimeReady         1214,4 ms (+738,6 ms) / [17:17:05 Warning] lifecycle: Vega startup budget warning: bootstrap took 738,6 ms (> 100 ms). / [17:17:05 Information] lifecycle: Vega ModulesRegistered    1214,9 ms (+0,4 ms) / [17:17:05 Information] startup: SQLite persistence ready in 82,5 ms. / [17:17:10 Information] world-image: world_ima…",Отображение логов выключено.
+invoke,group,Group,group,Usage: group help | list | show|listperm <name> | create <name> [parent] | add <name> | delete|del <name> | parent <name> <parent|none> | grant|addperm|deny|revoke|delperm <name> <permission> | prefix|suffix|color <name> <value|none>.,"Подкоманды группы (1/3): / add <name> <permissions...> - Создает новую группу. / addperm <group> <permissions...> - Добавляет права группе. / color <group> <rrr,ggg,bbb> - Меняет цвет чата для группы. / rename <group> <new name> - Меняет название группы. / Type /group help 2 for more sub-commands."
+invoke,itemban,ItemBan,itemban,Item restrictions (1/1):,Item Ban Sub-Commands (1/2): / add <item> - Добавляет предмет в список запрещенных. / allow <item> <group> - Разрешает группе использовать предмет. / del <item> - Снимает блокировку с предмета. / disallow <item> <group> - Запрещает группе использовать предмет. / Type /itemban help 2 for more sub-commands.
+invoke,projban,ProjectileBan,projban,Projectile restrictions (1/1):,Projectile Ban Sub-Commands (1/2): / add <projectile ID> - Блокирует снаряд. / allow <projectile ID> <group> - Позволяет группе использовать снаряд. / del <projectile ID> - Снимает блокировку со снаряда. / disallow <projectile ID> <group> - Запрещает группе использовать снаряд. / Type /projban help 2 for more sub-commands.
+invoke,tileban,TileBan,tileban,Tile restrictions (1/1):,Tile Ban Sub-Commands (1/2): / add <tile ID> - Блокирует блок. / allow <tile ID> <group> - Позволяет группе использовать блок. / del <tile ID> - Снимает блокировку с блока. / disallow <tile ID> <group> - Запрещает группе устанавливать блок. / Type /tileban help 2 for more sub-commands.
+invoke,region,Region,region,Usage: region list [page] | show|info <name> | create <name> <x> <y> <width> <height> [priority] [owner] | delete <name> | rename <name> <new-name> | resize <name> <x> <y> <width> <height> | resize|expand <name> <u/d/l/r> <amount> | priority|z <name> <value> | owner <name> <owner|none> | member|group <name> add|remove <subject> | allow|remove|allowg|removeg <subject> <region> | flag <name> <flag> <true|false> | protect <region> <true|false> | set <1/2> [x y] | clear | define …,Available Region Sub-Commands (1/4): / set <1/2> - Sets the temporary region points. / clear - очищает временные точки региона. / define <name> - Defines the region with the given name. / delete <name> - Deletes the given region. / Type /region 2 for more sub-commands.
+invoke,kick,Kick,kick,Usage: kick <player> [reason].,Неверный синтаксис. Правильный синтаксис: /kick <player> [reason].
+invoke,mute,Mute,mute,Usage: mute <online-player> <30m|12h|7d> [reason] | mute add <name|account> <value> <duration> [reason] | mute list | mute show <id> | unmute <id>.,"Синтаксис Mute / mute <player> [reason] / Example usage: mute ""Server"" ""No swearing on my Christian server"" / To mute a player without broadcasting to chat, use the command with . instead of /"
+invoke,overridessc,OverrideSSC,overridessc,Vega command failed: ssc.override_usage,SSC (серверные персонажи) отключен.
+invoke,savessc,SaveSSC,savessc,Saved 0 authenticated characters.,—
+invoke,uploadssc,UploadJoinData,uploadssc,Usage: uploadssc [player] confirm. This replaces the persisted character with their initial client join data.,"Выбранный пользователь не может иметь свои данные, потому что он не является игроком. / Применение: /uploadssc [имя игрока]."
+invoke,tempgroup,TempGroup,tempgroup,Vega command failed: command.tempgroup.usage,Неправильный синтаксис. / Применение: /tempgroup <имя пользователя> <название группы> [время]
+invoke,su,SubstituteUser,su,Invalid command.,Ваш аккаунт был повышен до супер-администратора на 10 минут.
+invoke,sudo,SubstituteUserDo,sudo,Invalid command.,Применение: /sudo [команда]. / Например: /sudo /ban add particles 2d Hacking.
+invoke,userinfo,GrabUserUserInfo,userinfo,Invalid syntax. Proper syntax: /userinfo <player>.,Неверный синтаксис. Правильный синтаксис: /userinfo <player>.
+invoke,annoy,Annoy,annoy,Vega command failed: annoy.usage,Синтаксис Annoy / annoy <player> <seconds> / Example usage: annoy <Server> <10> / You can use . instead of / to annoy a player silently.
+invoke,rocket,Rocket,rocket,Vega command failed: rocket.usage,Синтаксис Rocket / rocket <player> / Example usage: rocket Server / You can use . instead of / to rocket a player silently.
+invoke,firework,FireWork,firework,Vega command failed: firework.usage,Синтаксис Firework / firework <player> [R|G|B|Y] / Example usage: firework Server R / You can use . instead of / to launch a firework silently.
+invoke,checkupdates,CheckUpdates,checkupdates,—,"Проверка обновлений добавлена в очередь. Если обновление доступно, вы будете уведомлены в ближайшее время."
+invoke,reload,Reload,reload,shared admission.Whitelist: reloaded. / admission.Restrictions: file absent; current policy retained. / build-protection: file absent; current policy retained. / Server/listener/world startup configuration is restart-only. Policies are applied independently.,"Port overridden by startup argument. Set to 61814 / Конфигурация, права доступа и регионы полностью перезагружены. Некоторые изменения могут потребовать перезапуска сервера."
+invoke,serverpassword,ServerPassword,serverpassword,Vega command failed: command.serverpassword.usage,"Неверный синтаксис. Правильный синтаксис: /serverpassword ""<new password>""."
+invoke,version,GetVersion,version,Vega 1.0.0+a699624d1066be61ce88cf9ee2fc5b670bbd9e1b | patched Terraria 1.4.6.1.,TShock: 6.2.1.0 Profoundly Collaborative (3.11).
+invoke,whitelist,Whitelist,whitelist,Whitelist enabled=False; page 1/1:,Invalid Whitelist syntax. Usage: /whitelist <ip[/range]>
+invoke,give,Give,give,Usage: give <item> <player> [stack] [prefix-id|name].,Invalid syntax. Proper syntax: /give <item type/id> <player> [item amount] [prefix id/name]
+invoke,item,Item,item,This command cannot be executed from the server console.,Эту команду можно выполнять только в игре.
+invoke,butcher,Butcher,butcher,Defeated 0 NPCs.,—
+invoke,renamenpc,RenameNPC,renamenpc,Vega command failed: renamenpc.usage,"Invalid syntax. Proper syntax: /renameNPC <guide, nurse, etc.> <newname>"
+invoke,maxspawns,MaxSpawns,maxspawns,maxspawns: 5. / Unable to check for updates.,Текущее максимальное количество спавнов: 5.
+invoke,spawnboss,SpawnBoss,spawnboss,This command cannot be executed from the server console.,Эту команду можно выполнять только в игре.
+invoke,spawnmob,SpawnMob,spawnmob,This command cannot be executed from the server console.,Эту команду можно выполнять только в игре.
+invoke,spawnrate,SpawnRate,spawnrate,spawnrate: 600.,Текущая частота появления мобов: 600.
+invoke,clearangler,ClearAnglerQuests,clearangler,Today's angler completion list has been cleared.,Данные всех игроков о выполнении текущего квеста рыбака были обнулены.
+invoke,home,Home,home,This command cannot be executed from the server console.,Эту команду можно выполнять только в игре.
+invoke,spawn,Spawn,spawn,This command cannot be executed from the server console.,Эту команду можно выполнять только в игре.
+invoke,tp,TP,tp,This command cannot be executed from the server console.,Эту команду можно выполнять только в игре.
+invoke,tphere,TPHere,tphere,This command cannot be executed from the server console.,Эту команду можно выполнять только в игре.
+invoke,tpnpc,TPNpc,tpnpc,This command cannot be executed from the server console.,Эту команду можно выполнять только в игре.
+invoke,tppos,TPPos,tppos,This command cannot be executed from the server console.,Эту команду можно выполнять только в игре.
+invoke,pos,GetPos,pos,This command cannot be executed from the server console.,Эту команду можно выполнять только в игре.
+invoke,tpallow,TPAllow,tpallow,This command cannot be executed from the server console.,Эту команду можно выполнять только в игре.
+invoke,worldmode,ChangeWorldMode,worldmode,World mode: normal.,"Неверный синтаксис. Правильный синтаксис: /worldmode <mode>. / Доступные режимы мира: normal, expert, master, journey, creative"
+invoke,antibuild,ToggleAntiBuild,antibuild,Global build protection: True.,—
+invoke,grow,Grow,grow,"Native growth on compatible existing ground: basic, boreal, mahogany, sakura, willow, shadewood, ebonwood, pearlwood, palm, hallowpalm, crimsonpalm, corruptpalm, topaz, amethyst, sapphire, emerald, ruby, diamond, amber, mushroom, cactus, herb. Console: grow <type> <tile-x> <tile-y>.",Эту команду можно выполнять только в игре.
+invoke,forcehalloween,ForceHalloween,forcehalloween,Halloween forced override: True.,—
+invoke,forcexmas,ForceXmas,forcexmas,Christmas forced override: True.,—
+invoke,worldevent,ManageWorldEvent,worldevent,Use help worldevent. Invasions support start only.,"Неверный синтаксис. Правильный синтаксис: /worldevent <event type>. / Допустимые типы событий: meteor, fullmoon, bloodmoon, eclipse, invasion, sandstorm, rain, lanternsnight, meteorshower. / Если вы хотите вызвать вторжение, допустимые типы вторжений: goblins, snowmen, pirates, pumpkinmoon, frostmoon, martians."
+invoke,hardmode,Hardmode,hardmode,Hardmode: False.,Режим Hardmode включен.
+invoke,evil,SwitchEvil,evil,World evil is now corruption. Existing tiles are unchanged.,World evil switched to crimson.
+invoke,protectspawn,ProtectSpawn,protectspawn,"Spawn protection: True, radius 20 tiles.",—
+invoke,save,Save,save,Saving world data: 4% / Saving world data: 10% / Saving world data: 11% / Saving world data: 21% / Saving world data: 28%,Загружаем мир...
+invoke,setspawn,SetSpawn,setspawn,Saving world data: 35% / Saving world data: 36% / Saving world data: 46% / Saving world data: 52% / Saving world data: 59% / Saving world data: 67% / Saving world data: 77% / Saving world data: 84% / Saving world data: 85% / Vega command failed: world.point_usage,Эту команду можно выполнять только в игре.
+invoke,setdungeon,SetDungeon,setdungeon,Saving world data: 95% / Saving world data: 100% / Validating world save: 71% / Validating world save: 72% / Backing up world file / Vega command failed: world.point_usage,Эту команду можно выполнять только в игре.
+invoke,settle,Settle,settle,Forcing water to settle. / Native liquid settling started. / World save completed.,Принудительно финализирует положение воды. / Перезагрузка жидкостей.
+invoke,time,Time,time,World time: 08:15.,Текущее время 7:26.
+invoke,wind,Wind,wind,Usage: wind <speed between -40 and 40 mph>.,Invalid syntax. Proper syntax: /wind <speed in mph>.
+invoke,worldinfo,WorldInfo,worldinfo,"World: Small | context: primary | file identity: cb124de8-131c-4839-accf-29355412d547 / Size: 4200x1200; spawn: (2097, 291) / Seed: 1; mode: 0; hardmode: False",Информация о текущем мире / Название: Неисследованный валун фей / Размер: 6400x1800 / ID: 863932350 / Сид: 177607691 / Режим: 0 / Путь: <path>
+invoke,buff,Buff,buff,This command cannot be executed from the server console.,Эту команду можно выполнять только в игре.
+invoke,clear,Clear,clear,Vega command failed: clear.usage,"Синтаксис Clear / clear <item|npc|projectile> [radius] / Example usage: clear i 10000 / Example usage: clear item 10000 / If you do not specify a radius, it will use a default radius of 50 around your character. / You can use . instead of / to execute this command silently."
+invoke,gbuff,GBuff,gbuff,Vega command failed: buff.usage,"Синтаксис и пример Gbuff / gbuff <player> <buff name|ID> [seconds] / Example usage: gbuff Server regen -1 / To buff a player without them knowing, use . instead of /"
+invoke,godmode,ToggleGodMode,godmode,Vega command failed: godmode.player_not_unique,You can't god mode a non player!
+invoke,heal,Heal,heal,Vega command failed: heal.player_not_unique,"Синтаксис и пример Heal / heal <player> [amount] / Example usage: heal Server 100 / If no amount is specified, it will default to healing the target player by their max HP. / To execute this command silently, use . instead of /"
+invoke,kill,Kill,kill,Vega command failed: kill.usage,Синтаксис и пример Kill / kill <player> / Example usage: kill Server / You can use . instead of / to execute this command silently.
+invoke,me,ThirdPerson,me,This command cannot be executed from the server console.,Invalid syntax. Proper syntax: /me <text>
+invoke,party,PartyChat,party,This command cannot be executed from the server console.,Эту команду можно выполнять только в игре.
+invoke,reply,Reply,reply,This command cannot be executed from the server console.,You haven't previously received any whispers. / You can use /w to whisper to other players.
+invoke,rest,ManageRest,rest,Loopback REST listening=False; port=0; active tokens=0.,Доступные суб-команды REST: / listusers - Список всех пользователей REST и их текущих активных токенов. / destroytokens - Удаляет все токены REST.
+invoke,slap,Slap,slap,Vega command failed: slap.usage,Неверный синтаксис. Правильный синтаксис: /slap <player> [damage].
+invoke,serverinfo,ServerInfo,serverinfo,"Working set: 539,295,744 bytes / Virtual memory: 2,342,304,063,488 bytes / Processor time: 00:00:13.5625000 / Operating system: Microsoft Windows NT 10.0.19045.0 / Processor count: 32 / Machine name: DESKTOP-N4HER48",Используется памяти: 450789376 / Выделено памяти: 2481116848128 / Общее время работы процессора: 00:00:20.2500000 / Операционная система: Microsoft Windows NT 10.0.19045.0 / Количество процессов: 32 / Название машины: DESKTOP-N4HER48
+invoke,warp,Warp,warp,Usage: warp <name> | list | add | del | hide | send.,"Неверный синтаксис. Правильный синтаксис: /warp [command] [arguments]. / Команды: add, del, hide, list, send, [warpname]. / Аргументы: add [название варпа], del [название варпа], list [page]. / Аргументы: send [player] [название варпа], hide [варп] true/false. / Например: /warp add foobar, /warp hide foobar true, /warp foobar."
+invoke,whisper,Whisper,whisper,This command cannot be executed from the server console.,"Синтаксис Whisper / whisper <player> <message> / Example usage: w Server We're no strangers to love, you know the rules, and so do I."
+invoke,wallow,Wallow,wallow,This command cannot be executed from the server console.,Эту команду можно выполнять только в игре.
+invoke,dump-reference-data,CreateDumps,dump-reference-data,Exported 9184 IDs to reference/all.json.,Your reference dumps have been created in the server folder.
+invoke,sync,SyncLocalArea,sync,Vega command failed: sync.player_not_unique,Sync'd!
+invoke,respawn,Respawn,respawn,Vega command failed: respawn.player_not_unique,You can't respawn the server console!
+invoke,aliases,Aliases,aliases,"Aliases: accountinfo-id -> accountinfo, ai -> accountinfo, ai-id -> accountinfo, backupnow -> backup, bantool -> ban, bantools -> ban, bc -> broadcast, bt -> ban, buffplayer -> gbuff, chestregen -> chestpolicy, cleanworld -> worldclean, commands -> help, configuration -> config, exit -> shutdown, exit-nosave -> off-nosave, g -> give, gamemode -> worldmode, god -> godmode, groups -> group, infchest -> chestpolicy, inventory -> invsee, language -> lang, modules -> softrestart, …",Invalid syntax. Proper syntax: /aliases <command or alias>
+invoke,help,Help,help,"Available commands: account, accountinfo, aliases, alldeath, allpvpdeath, annoy, antibuild, backup, ban, bossdamage, broadcast, butcher, checkupdates, chestpolicy, clear, clearangler, config, displaylogs, dump-reference-data, evil, fake, firework, forcehalloween, forcexmas, gbuff, give, godmode, group, grow, hardmode, heal, help, invsee, itemban, kick, kill, lang, maxspawns, motd, mute, off-nosave, overridessc, pfake, platform, platforms, playing, plugin, projban, protectspaw…","Команды (1/4): / /setup, /user, /login, /logout, /password, /register, /accountinfo, /ban, / /broadcast, /displaylogs, /group, /itemban, /projban, /tileban, /region, / /kick, /mute, /overridessc, /savessc, /uploadssc, /tempgroup, /su, /sudo, / /userinfo, /annoy, /rocket, /firework, /checkupdates, /off, /off-nosave, / Type /help 2 for more."
+invoke,motd,Motd,motd,No motd text has been configured.,Welcome to Неисследованный валун фей on TShock for Terraria. / Online players (0/8): [c/FFFF00:] / Type /help for a list of commands.
+invoke,playing,ListConnectedPlayers,playing,There are currently no players online.,There are currently no players online.
+invoke,rules,Rules,rules,No rules text has been configured.,Respect the admins! / Don't use TNT!
+invoke,death,ShowDeath,death,This command cannot be executed from the server console.,Эту команду можно выполнять только в игре.
+invoke,pvpdeath,ShowPVPDeath,pvpdeath,This command cannot be executed from the server console.,Эту команду можно выполнять только в игре.
+invoke,alldeath,ShowAllDeath,alldeath,PvE deaths of online players (1/1):,There are currently no players online.
+invoke,allpvpdeath,ShowAllPVPDeath,allpvpdeath,PvP deaths of online players (1/1):,There are currently no players online.
+invoke,bossdamage,BossDamage,bossdamage,No recent boss damage data found.,No recent boss kill data found.
+selector,user,ManageUsers,user add,Usage: account list | show <name> | create|add <name> <password> [group] | delete|del <name> | group <name> <group> | password <name> <new-password> | temp <name> <group> <duration: 30m|2h|7d> | temp-clear <name> | temp-list | help.,Server executed (args omitted): /user. / Неверный синтаксис пользователя. Попробуйте /user help.
+selector,user,ManageUsers,user del,Usage: account list | show <name> | create|add <name> <password> [group] | delete|del <name> | group <name> <group> | password <name> <new-password> | temp <name> <group> <duration: 30m|2h|7d> | temp-clear <name> | temp-list | help.,Server executed (args omitted): /user. / Неверный синтаксис пользователя. Попробуйте /user help.
+selector,user,ManageUsers,user password,Usage: account list | show <name> | create|add <name> <password> [group] | delete|del <name> | group <name> <group> | password <name> <new-password> | temp <name> <group> <duration: 30m|2h|7d> | temp-clear <name> | temp-list | help.,Server executed (args omitted): /user. / Неверный синтаксис пользователя. Попробуйте /user help.
+selector,user,ManageUsers,user group,Usage: account list | show <name> | create|add <name> <password> [group] | delete|del <name> | group <name> <group> | password <name> <new-password> | temp <name> <group> <duration: 30m|2h|7d> | temp-clear <name> | temp-list | help.,Server executed (args omitted): /user. / Неверный синтаксис пользователя. Попробуйте /user help.
+selector,user,ManageUsers,user help,account list | show <name> | create|add <name> <password> [group] | delete|del <name> | group <name> <group> | password <name> <new-password> | temp <name> <group> <duration> | temp-clear <name> | temp-list | help,"Server executed (args omitted): /user. / Помощь по управлению пользователем: / /user add ""никнейм игрока"" пароль группа - Создает аккаунт с указанным паролем и группой / /user del ""никнейм игрока"" -- Удаляет аккаунт игрока / /user password ""никнейм игрока"" пароль -- Изменяет пароль от аккаунта / /user group ""никнейм игрока"" группа -- Изменяет группу игрока"
+selector,ban,Ban,ban add,"Usage: ban add <name|account|uuid|ip|cidr> <value> <duration|permanent> [reason]. Duration examples: 30m, 12h, 7d.",Invalid Ban Add syntax. Refer to ban help add for details on how to use the ban add command
+selector,ban,Ban,ban del,Usage: unban <id>.,Invalid Ban Del syntax. Refer to ban help del for details on how to use the ban del command
+selector,ban,Ban,ban list,There are no active bans.,There are currently no active bans.
+selector,ban,Ban,ban details,Usage: ban show <id>.,Invalid Ban Details syntax. Refer to ban help details for details on how to use the ban details command
+selector,ban,Ban,ban identifiers,"Ban subject types: name, account, uuid, ip, cidr.",—
+selector,ban,Ban,ban examples,ban add name ExamplePlayer 2h reason | ban list | ban del <id>,—
+selector,ban,Ban,ban help,ban <player> [reason] | ban add <name|account|uuid|ip|cidr> <value> <duration|permanent> [reason] | ban list | ban show|details <id> | ban del <id> | unban <id> | ban help|identifiers|examples | bt help|add|addip|addrange|delrange|listrange|info,"TShock Ban Help / Available Ban commands: / ban add <Target> [Flags] / ban del <Ban ID> / ban list / ban details <Ban ID> / Quick usage: ban add Server ""Griefing"" / For more info, use ban help command or ban help examples"
+selector,rest,ManageRest,rest listusers,Active configured operator tokens: 0.,В настоящее время нет активных пользователей REST!
+selector,rest,ManageRest,rest destroytokens,REST operator tokens revoked until process restart.,Все токены REST были удалены.
+selector,worldevent,ManageWorldEvent,worldevent meteor,Vega command failed: world.event.meteor_declined,—
+selector,worldevent,ManageWorldEvent,worldevent fullmoon,World event fullmoon: enabled=True.,—
+selector,worldevent,ManageWorldEvent,worldevent full moon,Use help worldevent. Invasions support start only.,"Недопустимый тип события. Допустимые типы событий: meteor, fullmoon, bloodmoon, eclipse, invasion, sandstorm, rain, lanternsnight, meteorshower."
+selector,worldevent,ManageWorldEvent,worldevent bloodmoon,World event bloodmoon: enabled=True.,—
+selector,worldevent,ManageWorldEvent,worldevent blood moon,Use help worldevent. Invasions support start only.,"Недопустимый тип события. Допустимые типы событий: meteor, fullmoon, bloodmoon, eclipse, invasion, sandstorm, rain, lanternsnight, meteorshower."
+selector,worldevent,ManageWorldEvent,worldevent eclipse,World event eclipse: enabled=True.,—
+selector,worldevent,ManageWorldEvent,worldevent invade,Use help worldevent. Invasions support start only.,"Неверный синтаксис. Правильный синтаксис:  /worldevent invasion [тип вторжения] [волна вторжения]. / Допустимые типы вторжения: goblins, snowmen, pirates, pumpkinmoon, frostmoon, martians."
+selector,worldevent,ManageWorldEvent,worldevent invasion,Use help worldevent. Invasions support start only.,"Неверный синтаксис. Правильный синтаксис:  /worldevent invasion [тип вторжения] [волна вторжения]. / Допустимые типы вторжения: goblins, snowmen, pirates, pumpkinmoon, frostmoon, martians."
+selector,worldevent,ManageWorldEvent,worldevent sandstorm,World event sandstorm: enabled=True.,—
+selector,worldevent,ManageWorldEvent,worldevent rain,World event rain: enabled=True.,"Используйте ""/worldevent rain slime"" чтобы начать дождь слизней! / Use ""/worldevent rain coin"" to start coin rain!"
+selector,worldevent,ManageWorldEvent,worldevent lanternsnight,World event lanternnight: enabled=True.,—
+selector,worldevent,ManageWorldEvent,worldevent lanterns,World event lanternnight: enabled=False.,—
+selector,worldevent,ManageWorldEvent,worldevent meteorshower,World event meteorshower: enabled=True.,—
+selector,worldevent,ManageWorldEvent,worldevent invade goblin,Vega command failed: world.event.invasion_unavailable,—
+selector,worldevent,ManageWorldEvent,worldevent invade goblins,Vega command failed: world.event.invasion_unavailable,—
+selector,worldevent,ManageWorldEvent,worldevent invade snowman,Vega command failed: world.event.invasion_unavailable,—
+selector,worldevent,ManageWorldEvent,worldevent invade snowmen,Vega command failed: world.event.invasion_unavailable,—
+selector,worldevent,ManageWorldEvent,worldevent invade pirate,Vega command failed: world.event.invasion_unavailable,—
+selector,worldevent,ManageWorldEvent,worldevent invade pirates,Vega command failed: world.event.invasion_unavailable,—
+selector,worldevent,ManageWorldEvent,worldevent invade pumpkin,Vega command failed: world.event.conflict,—
+selector,worldevent,ManageWorldEvent,worldevent invade pumpkinmoon,Vega command failed: world.event.conflict,—
+selector,worldevent,ManageWorldEvent,worldevent invade frost,Vega command failed: world.event.conflict,—
+selector,worldevent,ManageWorldEvent,worldevent invade frostmoon,Vega command failed: world.event.conflict,—
+selector,worldevent,ManageWorldEvent,worldevent invade martian,Vega command failed: world.event.invasion_unavailable,—
+selector,worldevent,ManageWorldEvent,worldevent invade martians,Vega command failed: world.event.invasion_unavailable,—
+selector,worldevent,ManageWorldEvent,worldevent rain slime,Vega command failed: world.event.native_not_applied,Слизневый дождь не может быть активирован во время нормального дождя. Остановите обычный дождь и повторите попытку.
+selector,worldevent,ManageWorldEvent,worldevent rain coin,Vega command failed: world.event.native_not_applied,—
+selector,spawnboss,SpawnBoss,spawnboss *,This command cannot be executed from the server console.,Эту команду можно выполнять только в игре.
+selector,spawnboss,SpawnBoss,spawnboss all,This command cannot be executed from the server console.,Эту команду можно выполнять только в игре.
+selector,spawnboss,SpawnBoss,spawnboss brain,This command cannot be executed from the server console.,Эту команду можно выполнять только в игре.
+selector,spawnboss,SpawnBoss,spawnboss brain of cthulhu,This command cannot be executed from the server console.,Эту команду можно выполнять только в игре.
+selector,spawnboss,SpawnBoss,spawnboss boc,This command cannot be executed from the server console.,Эту команду можно выполнять только в игре.
+selector,spawnboss,SpawnBoss,spawnboss destroyer,This command cannot be executed from the server console.,Эту команду можно выполнять только в игре.
+selector,spawnboss,SpawnBoss,spawnboss duke,This command cannot be executed from the server console.,Эту команду можно выполнять только в игре. / Сохранение данных о мире...
+selector,spawnboss,SpawnBoss,spawnboss duke fishron,This command cannot be executed from the server console.,Эту команду можно выполнять только в игре.
+selector,spawnboss,SpawnBoss,spawnboss fishron,This command cannot be executed from the server console.,Эту команду можно выполнять только в игре.
+selector,spawnboss,SpawnBoss,spawnboss eater,This command cannot be executed from the server console.,Эту команду можно выполнять только в игре. / Подтверждение сохранения мира... / Резервное копирование файла мира...
+selector,spawnboss,SpawnBoss,spawnboss eater of worlds,This command cannot be executed from the server console.,Эту команду можно выполнять только в игре.
+selector,spawnboss,SpawnBoss,spawnboss eow,This command cannot be executed from the server console.,Эту команду можно выполнять только в игре.
+selector,spawnboss,SpawnBoss,spawnboss eye,This command cannot be executed from the server console.,Эту команду можно выполнять только в игре.
+selector,spawnboss,SpawnBoss,spawnboss eye of cthulhu,This command cannot be executed from the server console.,Эту команду можно выполнять только в игре.
+selector,spawnboss,SpawnBoss,spawnboss eoc,This command cannot be executed from the server console.,Эту команду можно выполнять только в игре.
+selector,spawnboss,SpawnBoss,spawnboss golem,This command cannot be executed from the server console.,Эту команду можно выполнять только в игре.
+selector,spawnboss,SpawnBoss,spawnboss king,This command cannot be executed from the server console.,Эту команду можно выполнять только в игре.
+selector,spawnboss,SpawnBoss,spawnboss king slime,This command cannot be executed from the server console.,Эту команду можно выполнять только в игре.
+selector,spawnboss,SpawnBoss,spawnboss ks,This command cannot be executed from the server console.,Эту команду можно выполнять только в игре.
+selector,spawnboss,SpawnBoss,spawnboss plantera,This command cannot be executed from the server console.,Эту команду можно выполнять только в игре.
+selector,spawnboss,SpawnBoss,spawnboss prime,This command cannot be executed from the server console.,Эту команду можно выполнять только в игре.
+selector,spawnboss,SpawnBoss,spawnboss skeletron prime,This command cannot be executed from the server console.,Эту команду можно выполнять только в игре.
+selector,spawnboss,SpawnBoss,spawnboss queen bee,This command cannot be executed from the server console.,Эту команду можно выполнять только в игре.
+selector,spawnboss,SpawnBoss,spawnboss qb,This command cannot be executed from the server console.,Эту команду можно выполнять только в игре.
+selector,spawnboss,SpawnBoss,spawnboss skeletron,This command cannot be executed from the server console.,Эту команду можно выполнять только в игре.
+selector,spawnboss,SpawnBoss,spawnboss twins,This command cannot be executed from the server console.,Эту команду можно выполнять только в игре.
+selector,spawnboss,SpawnBoss,spawnboss wof,This command cannot be executed from the server console.,Эту команду можно выполнять только в игре.
+selector,spawnboss,SpawnBoss,spawnboss wall of flesh,This command cannot be executed from the server console.,Эту команду можно выполнять только в игре.
+selector,spawnboss,SpawnBoss,spawnboss moon,This command cannot be executed from the server console.,Эту команду можно выполнять только в игре.
+selector,spawnboss,SpawnBoss,spawnboss moon lord,This command cannot be executed from the server console.,Эту команду можно выполнять только в игре.
+selector,spawnboss,SpawnBoss,spawnboss ml,This command cannot be executed from the server console.,Эту команду можно выполнять только в игре.
+selector,spawnboss,SpawnBoss,spawnboss empress,This command cannot be executed from the server console.,Эту команду можно выполнять только в игре.
+selector,spawnboss,SpawnBoss,spawnboss empress of light,This command cannot be executed from the server console.,Эту команду можно выполнять только в игре.
+selector,spawnboss,SpawnBoss,spawnboss eol,This command cannot be executed from the server console.,Эту команду можно выполнять только в игре.
+selector,spawnboss,SpawnBoss,spawnboss queen slime,This command cannot be executed from the server console.,Эту команду можно выполнять только в игре.
+selector,spawnboss,SpawnBoss,spawnboss qs,This command cannot be executed from the server console.,Эту команду можно выполнять только в игре.
+selector,spawnboss,SpawnBoss,spawnboss lunatic,This command cannot be executed from the server console.,Эту команду можно выполнять только в игре.
+selector,spawnboss,SpawnBoss,spawnboss lunatic cultist,This command cannot be executed from the server console.,Эту команду можно выполнять только в игре.
+selector,spawnboss,SpawnBoss,spawnboss cultist,This command cannot be executed from the server console.,Эту команду можно выполнять только в игре.
+selector,spawnboss,SpawnBoss,spawnboss lc,This command cannot be executed from the server console.,Эту команду можно выполнять только в игре.
+selector,spawnboss,SpawnBoss,spawnboss betsy,This command cannot be executed from the server console.,Эту команду можно выполнять только в игре.
+selector,spawnboss,SpawnBoss,spawnboss flying dutchman,This command cannot be executed from the server console.,Эту команду можно выполнять только в игре.
+selector,spawnboss,SpawnBoss,spawnboss flying,This command cannot be executed from the server console.,Эту команду можно выполнять только в игре.
+selector,spawnboss,SpawnBoss,spawnboss dutchman,This command cannot be executed from the server console.,Эту команду можно выполнять только в игре.
+selector,spawnboss,SpawnBoss,spawnboss mourning wood,This command cannot be executed from the server console.,Эту команду можно выполнять только в игре.
+selector,spawnboss,SpawnBoss,spawnboss pumpking,This command cannot be executed from the server console.,Эту команду можно выполнять только в игре.
+selector,spawnboss,SpawnBoss,spawnboss everscream,This command cannot be executed from the server console.,Эту команду можно выполнять только в игре.
+selector,spawnboss,SpawnBoss,spawnboss santa-nk1,This command cannot be executed from the server console.,Эту команду можно выполнять только в игре.
+selector,spawnboss,SpawnBoss,spawnboss santa,This command cannot be executed from the server console.,Эту команду можно выполнять только в игре.
+selector,spawnboss,SpawnBoss,spawnboss ice queen,This command cannot be executed from the server console.,Эту команду можно выполнять только в игре.
+selector,spawnboss,SpawnBoss,spawnboss martian saucer,This command cannot be executed from the server console.,Эту команду можно выполнять только в игре.
+selector,spawnboss,SpawnBoss,spawnboss solar pillar,This command cannot be executed from the server console.,Эту команду можно выполнять только в игре.
+selector,spawnboss,SpawnBoss,spawnboss nebula pillar,This command cannot be executed from the server console.,Эту команду можно выполнять только в игре.
+selector,spawnboss,SpawnBoss,spawnboss vortex pillar,This command cannot be executed from the server console.,Эту команду можно выполнять только в игре.
+selector,spawnboss,SpawnBoss,spawnboss stardust pillar,This command cannot be executed from the server console.,Эту команду можно выполнять только в игре.
+selector,spawnboss,SpawnBoss,spawnboss deerclops,This command cannot be executed from the server console.,Эту команду можно выполнять только в игре.
+selector,tp,TP,tp *,This command cannot be executed from the server console.,Эту команду можно выполнять только в игре.
+selector,warp,Warp,warp add,Player not found in this world.,Неверный синтаксис. Правильный синтаксис: /warp add [name].
+selector,warp,Warp,warp del,Usage: warp del <name>.,Неверный синтаксис. Правильный синтаксис: /warp del [name].
+selector,warp,Warp,warp hide,Usage: warp hide <name> <true|false>.,Неверный синтаксис. Правильный синтаксис: /warp hide [name] <true/false>.
+selector,warp,Warp,warp send,Usage: warp send <player> <name>.,Неверный синтаксис. Правильный синтаксис: /warp send [player] [warpname].
+selector,warp,Warp,warp list,Warps (1/1):,В настоящее время нет ни одного варпа.
+selector,group,Group,group add,Usage: group help | list | show|listperm <name> | create <name> [parent] | add <name> | delete|del <name> | parent <name> <parent|none> | grant|addperm|deny|revoke|delperm <name> <permission> | prefix|suffix|color <name> <value|none>.,Неверный синтаксис. Правильный синтаксис: /group add <group name> [permissions].
+selector,group,Group,group addperm,Usage: group help | list | show|listperm <name> | create <name> [parent] | add <name> | delete|del <name> | parent <name> <parent|none> | grant|addperm|deny|revoke|delperm <name> <permission> | prefix|suffix|color <name> <value|none>.,Неверный синтаксис. Правильный синтаксис: /group addperm <group name> <permissions...>.
+selector,group,Group,group help,group help | list | show|listperm <name> | create <name> [parent] | add <name> | delete|del <name> | parent <name> <parent|none> | grant|addperm|deny|revoke|delperm <name> <permission> | prefix|suffix|color <name> <value|none>,"Подкоманды группы (1/3): / add <name> <permissions...> - Создает новую группу. / addperm <group> <permissions...> - Добавляет права группе. / color <group> <rrr,ggg,bbb> - Меняет цвет чата для группы. / rename <group> <new name> - Меняет название группы. / Type /group help 2 for more sub-commands."
+selector,group,Group,group parent,Usage: group help | list | show|listperm <name> | create <name> [parent] | add <name> | delete|del <name> | parent <name> <parent|none> | grant|addperm|deny|revoke|delperm <name> <permission> | prefix|suffix|color <name> <value|none>.,Неверный синтаксис. Правильный синтаксис: /group parent <group name> [new parent group name].
+selector,group,Group,group suffix,Usage: group help | list | show|listperm <name> | create <name> [parent] | add <name> | delete|del <name> | parent <name> <parent|none> | grant|addperm|deny|revoke|delperm <name> <permission> | prefix|suffix|color <name> <value|none>.,Неверный синтаксис. Правильный синтаксис: /group suffix <group name> [Суффикс].
+selector,group,Group,group prefix,Usage: group help | list | show|listperm <name> | create <name> [parent] | add <name> | delete|del <name> | parent <name> <parent|none> | grant|addperm|deny|revoke|delperm <name> <permission> | prefix|suffix|color <name> <value|none>.,Неверный синтаксис. Синтаксис: /group prefix <group name> [Префикс].
+selector,group,Group,group color,Usage: group help | list | show|listperm <name> | create <name> [parent] | add <name> | delete|del <name> | parent <name> <parent|none> | grant|addperm|deny|revoke|delperm <name> <permission> | prefix|suffix|color <name> <value|none>.,"Неверный синтаксис. Правильный синтаксис: /group color <group name> [new color(000,000,000)]."
+selector,group,Group,group rename,Usage: group help | list | show|listperm <name> | create <name> [parent] | add <name> | delete|del <name> | parent <name> <parent|none> | grant|addperm|deny|revoke|delperm <name> <permission> | prefix|suffix|color <name> <value|none>.,Неверный синтаксис. Правильный синтаксис: /group rename <group> <new name>.
+selector,group,Group,group del,Usage: group help | list | show|listperm <name> | create <name> [parent] | add <name> | delete|del <name> | parent <name> <parent|none> | grant|addperm|deny|revoke|delperm <name> <permission> | prefix|suffix|color <name> <value|none>.,Неверный синтаксис. Правильный синтаксис: /group del <group name>.
+selector,group,Group,group delperm,Usage: group help | list | show|listperm <name> | create <name> [parent] | add <name> | delete|del <name> | parent <name> <parent|none> | grant|addperm|deny|revoke|delperm <name> <permission> | prefix|suffix|color <name> <value|none>.,Неверный синтаксис. Правильный синтаксис: /group delperm <group name> <permissions...>.
+selector,group,Group,group list,administrator | parent default | revision 1 / default | parent guest | revision 1 / guest | parent none | revision 1,"Группы (1/1): / guest, default, vip, insecure-guest, newadmin, admin, trustedadmin, owner, / superadmin"
+selector,group,Group,group listperm,Group not found.,Неверный синтаксис. Правильный синтаксис: /group listperm <group name> [page].
+selector,itemban,ItemBan,itemban add,Usage: <command> list [page] | add|del <id|name> | allow|disallow <id|name> <group> | help.,Неверный синтаксис. Правильный синтаксис: /itemban add <item name>.
+selector,itemban,ItemBan,itemban allow,Usage: <command> list [page] | add|del <id|name> | allow|disallow <id|name> <group> | help.,Неверный синтаксис. Правильный синтаксис: /itemban allow <item name> <group name>
+selector,itemban,ItemBan,itemban del,Usage: <command> list [page] | add|del <id|name> | allow|disallow <id|name> <group> | help.,Неверный синтаксис. Правильный синтаксис: /itemban del <item name>.
+selector,itemban,ItemBan,itemban disallow,Usage: <command> list [page] | add|del <id|name> | allow|disallow <id|name> <group> | help.,Неверный синтаксис. Правильный синтаксис: /itemban disallow <item name> <group name>.
+selector,itemban,ItemBan,itemban help,<command> list [page] | add|del <id|name> | allow|disallow <id|name> <group> | help,Item Ban Sub-Commands (1/2): / add <item> - Добавляет предмет в список запрещенных. / allow <item> <group> - Разрешает группе использовать предмет. / del <item> - Снимает блокировку с предмета. / disallow <item> <group> - Запрещает группе использовать предмет. / Type /itemban help 2 for more sub-commands.
+selector,itemban,ItemBan,itemban list,Item restrictions (1/1):,В настоящее время заблокированных предметов нет.
+selector,projban,ProjectileBan,projban add,Usage: <command> list [page] | add|del <id|name> | allow|disallow <id|name> <group> | help.,Неверный синтаксис. Правильный синтаксис: /projban add <proj id>
+selector,projban,ProjectileBan,projban allow,Usage: <command> list [page] | add|del <id|name> | allow|disallow <id|name> <group> | help.,Неверный синтаксис. Правильный синтаксис: /projban allow <id> <group>
+selector,projban,ProjectileBan,projban del,Usage: <command> list [page] | add|del <id|name> | allow|disallow <id|name> <group> | help.,Неверный синтаксис. Правильный синтаксис: /projban del <id>.
+selector,projban,ProjectileBan,projban disallow,Usage: <command> list [page] | add|del <id|name> | allow|disallow <id|name> <group> | help.,Неверный синтаксис. Правильный синтаксис: /projban disallow <id> <group name>
+selector,projban,ProjectileBan,projban help,<command> list [page] | add|del <id|name> | allow|disallow <id|name> <group> | help,Projectile Ban Sub-Commands (1/2): / add <projectile ID> - Блокирует снаряд. / allow <projectile ID> <group> - Позволяет группе использовать снаряд. / del <projectile ID> - Снимает блокировку со снаряда. / disallow <projectile ID> <group> - Запрещает группе использовать снаряд. / Type /projban help 2 for more sub-commands.
+selector,projban,ProjectileBan,projban list,Projectile restrictions (1/1):,There are currently no banned projectiles.
+selector,tileban,TileBan,tileban add,Usage: <command> list [page] | add|del <id|name> | allow|disallow <id|name> <group> | help.,Неверный синтаксис. Правильный синтаксис: /tileban add <tile id>.
+selector,tileban,TileBan,tileban allow,Usage: <command> list [page] | add|del <id|name> | allow|disallow <id|name> <group> | help.,Неверный синтаксис. Правильный синтаксис: /tileban allow <id> <group>.
+selector,tileban,TileBan,tileban del,Usage: <command> list [page] | add|del <id|name> | allow|disallow <id|name> <group> | help.,Неверный синтаксис. Правильный синтаксис: /tileban del <id>.
+selector,tileban,TileBan,tileban disallow,Usage: <command> list [page] | add|del <id|name> | allow|disallow <id|name> <group> | help.,Invalid syntax. Proper syntax: /tileban disallow <id> <group name>.
+selector,tileban,TileBan,tileban help,<command> list [page] | add|del <id|name> | allow|disallow <id|name> <group> | help,Tile Ban Sub-Commands (1/2): / add <tile ID> - Блокирует блок. / allow <tile ID> <group> - Позволяет группе использовать блок. / del <tile ID> - Снимает блокировку с блока. / disallow <tile ID> <group> - Запрещает группе устанавливать блок. / Type /tileban help 2 for more sub-commands.
+selector,tileban,TileBan,tileban list,Tile restrictions (1/1):,В настоящее время заблокированных блоков нет.
+selector,time,Time,time day,World time set to 04:30.,—
+selector,time,Time,time night,World time set to 19:30.,—
+selector,time,Time,time noon,World time set to 12:00.,—
+selector,time,Time,time midnight,World time set to 00:00.,—
+selector,region,Region,region name,This command requires the current connected player session.,"Ударьте по блоку, чтобы узнать название региона."
+selector,region,Region,region set,Usage: region list [page] | show|info <name> | create <name> <x> <y> <width> <height> [priority] [owner] | delete <name> | rename <name> <new-name> | resize <name> <x> <y> <width> <height> | resize|expand <name> <u/d/l/r> <amount> | priority|z <name> <value> | owner <name> <owner|none> | member|group <name> add|remove <subject> | allow|remove|allowg|removeg <subject> <region> | flag <name> <flag> <true|false> | protect <region> <true|false> | set <1/2> [x y] | clear | define …,Неверный синтаксис. Правильный синтаксис: /region set <1/2>.
+selector,region,Region,region define,Usage: region list [page] | show|info <name> | create <name> <x> <y> <width> <height> [priority] [owner] | delete <name> | rename <name> <new-name> | resize <name> <x> <y> <width> <height> | resize|expand <name> <u/d/l/r> <amount> | priority|z <name> <value> | owner <name> <owner|none> | member|group <name> add|remove <subject> | allow|remove|allowg|removeg <subject> <region> | flag <name> <flag> <true|false> | protect <region> <true|false> | set <1/2> [x y] | clear | define …,Неверный синтаксис. Правильный синтаксис: /region define <name>.
+selector,region,Region,region protect,Usage: region list [page] | show|info <name> | create <name> <x> <y> <width> <height> [priority] [owner] | delete <name> | rename <name> <new-name> | resize <name> <x> <y> <width> <height> | resize|expand <name> <u/d/l/r> <amount> | priority|z <name> <value> | owner <name> <owner|none> | member|group <name> add|remove <subject> | allow|remove|allowg|removeg <subject> <region> | flag <name> <flag> <true|false> | protect <region> <true|false> | set <1/2> [x y] | clear | define …,Неверный синтаксис. Правильный синтаксис: /region protect <name> <true/false>.
+selector,region,Region,region delete,Usage: region list [page] | show|info <name> | create <name> <x> <y> <width> <height> [priority] [owner] | delete <name> | rename <name> <new-name> | resize <name> <x> <y> <width> <height> | resize|expand <name> <u/d/l/r> <amount> | priority|z <name> <value> | owner <name> <owner|none> | member|group <name> add|remove <subject> | allow|remove|allowg|removeg <subject> <region> | flag <name> <flag> <true|false> | protect <region> <true|false> | set <1/2> [x y] | clear | define …,Неверный синтаксис. Правильный синтаксис: /region delete <name>.
+selector,region,Region,region clear,This command requires the current connected player session.,Отмеченные точки региона были удалены.
+selector,region,Region,region allow,Usage: region list [page] | show|info <name> | create <name> <x> <y> <width> <height> [priority] [owner] | delete <name> | rename <name> <new-name> | resize <name> <x> <y> <width> <height> | resize|expand <name> <u/d/l/r> <amount> | priority|z <name> <value> | owner <name> <owner|none> | member|group <name> add|remove <subject> | allow|remove|allowg|removeg <subject> <region> | flag <name> <flag> <true|false> | protect <region> <true|false> | set <1/2> [x y] | clear | define …,Неверный синтаксис. Правильный синтаксис: /region allow <name> <region>.
+selector,region,Region,region remove,Usage: region list [page] | show|info <name> | create <name> <x> <y> <width> <height> [priority] [owner] | delete <name> | rename <name> <new-name> | resize <name> <x> <y> <width> <height> | resize|expand <name> <u/d/l/r> <amount> | priority|z <name> <value> | owner <name> <owner|none> | member|group <name> add|remove <subject> | allow|remove|allowg|removeg <subject> <region> | flag <name> <flag> <true|false> | protect <region> <true|false> | set <1/2> [x y] | clear | define …,Неверный синтаксис. Правильный синтаксис: /region remove <name> <region>.
+selector,region,Region,region allowg,Usage: region list [page] | show|info <name> | create <name> <x> <y> <width> <height> [priority] [owner] | delete <name> | rename <name> <new-name> | resize <name> <x> <y> <width> <height> | resize|expand <name> <u/d/l/r> <amount> | priority|z <name> <value> | owner <name> <owner|none> | member|group <name> add|remove <subject> | allow|remove|allowg|removeg <subject> <region> | flag <name> <flag> <true|false> | protect <region> <true|false> | set <1/2> [x y] | clear | define …,Неверный синтаксис. Правильный синтаксис: /region allowg <group> <region>.
+selector,region,Region,region removeg,Usage: region list [page] | show|info <name> | create <name> <x> <y> <width> <height> [priority] [owner] | delete <name> | rename <name> <new-name> | resize <name> <x> <y> <width> <height> | resize|expand <name> <u/d/l/r> <amount> | priority|z <name> <value> | owner <name> <owner|none> | member|group <name> add|remove <subject> | allow|remove|allowg|removeg <subject> <region> | flag <name> <flag> <true|false> | protect <region> <true|false> | set <1/2> [x y] | clear | define …,Неверный синтаксис. Правильный синтаксис: /region removeg <group> <region>.
+selector,region,Region,region list,There are no regions in this world.,В настоящее время нет ни одного региона.
+selector,region,Region,region info,Usage: region list [page] | show|info <name> | create <name> <x> <y> <width> <height> [priority] [owner] | delete <name> | rename <name> <new-name> | resize <name> <x> <y> <width> <height> | resize|expand <name> <u/d/l/r> <amount> | priority|z <name> <value> | owner <name> <owner|none> | member|group <name> add|remove <subject> | allow|remove|allowg|removeg <subject> <region> | flag <name> <flag> <true|false> | protect <region> <true|false> | set <1/2> [x y] | clear | define …,Неверный синтаксис. Правильный синтаксис: /region info <region> [-d] [page].
+selector,region,Region,region z,Usage: region list [page] | show|info <name> | create <name> <x> <y> <width> <height> [priority] [owner] | delete <name> | rename <name> <new-name> | resize <name> <x> <y> <width> <height> | resize|expand <name> <u/d/l/r> <amount> | priority|z <name> <value> | owner <name> <owner|none> | member|group <name> add|remove <subject> | allow|remove|allowg|removeg <subject> <region> | flag <name> <flag> <true|false> | protect <region> <true|false> | set <1/2> [x y] | clear | define …,Invalid syntax. Proper syntax: /region z <name> <#>
+selector,region,Region,region resize,Usage: region list [page] | show|info <name> | create <name> <x> <y> <width> <height> [priority] [owner] | delete <name> | rename <name> <new-name> | resize <name> <x> <y> <width> <height> | resize|expand <name> <u/d/l/r> <amount> | priority|z <name> <value> | owner <name> <owner|none> | member|group <name> add|remove <subject> | allow|remove|allowg|removeg <subject> <region> | flag <name> <flag> <true|false> | protect <region> <true|false> | set <1/2> [x y] | clear | define …,Invalid syntax. Proper syntax: /region resize <region> <u/d/l/r> <amount>
+selector,region,Region,region expand,Usage: region list [page] | show|info <name> | create <name> <x> <y> <width> <height> [priority] [owner] | delete <name> | rename <name> <new-name> | resize <name> <x> <y> <width> <height> | resize|expand <name> <u/d/l/r> <amount> | priority|z <name> <value> | owner <name> <owner|none> | member|group <name> add|remove <subject> | allow|remove|allowg|removeg <subject> <region> | flag <name> <flag> <true|false> | protect <region> <true|false> | set <1/2> [x y] | clear | define …,Invalid syntax. Proper syntax: /region resize <region> <u/d/l/r> <amount>
+selector,region,Region,region expand audit_zone u 1,Region not found.,Invalid syntax. Proper syntax: /region resize <region> <u/d/l/r> <amount>
+selector,region,Region,region expand audit_zone up 1,Region not found.,Invalid syntax. Proper syntax: /region resize <region> <u/d/l/r> <amount>
+selector,region,Region,region expand audit_zone r 1,Region not found.,Invalid syntax. Proper syntax: /region resize <region> <u/d/l/r> <amount>
+selector,region,Region,region expand audit_zone right 1,Region not found.,Invalid syntax. Proper syntax: /region resize <region> <u/d/l/r> <amount>
+selector,region,Region,region expand audit_zone d 1,Region not found.,Invalid syntax. Proper syntax: /region resize <region> <u/d/l/r> <amount>
+selector,region,Region,region expand audit_zone down 1,Region not found.,Invalid syntax. Proper syntax: /region resize <region> <u/d/l/r> <amount>
+selector,region,Region,region expand audit_zone l 1,Region not found.,Invalid syntax. Proper syntax: /region resize <region> <u/d/l/r> <amount>
+selector,region,Region,region expand audit_zone left 1,Region not found.,Invalid syntax. Proper syntax: /region resize <region> <u/d/l/r> <amount>
+selector,region,Region,region rename,Usage: region list [page] | show|info <name> | create <name> <x> <y> <width> <height> [priority] [owner] | delete <name> | rename <name> <new-name> | resize <name> <x> <y> <width> <height> | resize|expand <name> <u/d/l/r> <amount> | priority|z <name> <value> | owner <name> <owner|none> | member|group <name> add|remove <subject> | allow|remove|allowg|removeg <subject> <region> | flag <name> <flag> <true|false> | protect <region> <true|false> | set <1/2> [x y] | clear | define …,Invalid syntax. Proper syntax: /region rename <region> <new name>
+selector,region,Region,region tp,Usage: region list [page] | show|info <name> | create <name> <x> <y> <width> <height> [priority] [owner] | delete <name> | rename <name> <new-name> | resize <name> <x> <y> <width> <height> | resize|expand <name> <u/d/l/r> <amount> | priority|z <name> <value> | owner <name> <owner|none> | member|group <name> add|remove <subject> | allow|remove|allowg|removeg <subject> <region> | flag <name> <flag> <true|false> | protect <region> <true|false> | set <1/2> [x y] | clear | define …,Invalid syntax. Proper syntax: /region tp <region>.
+selector,region,Region,region help,Usage: region list [page] | show|info <name> | create <name> <x> <y> <width> <height> [priority] [owner] | delete <name> | rename <name> <new-name> | resize <name> <x> <y> <width> <height> | resize|expand <name> <u/d/l/r> <amount> | priority|z <name> <value> | owner <name> <owner|none> | member|group <name> add|remove <subject> | allow|remove|allowg|removeg <subject> <region> | flag <name> <flag> <true|false> | protect <region> <true|false> | set <1/2> [x y] | clear | define …,"""help"" не является правильным номером страницы."
+selector,firework,FireWork,firework red,Vega command failed: firework.player_not_unique,"Не удалось найти игрока с именем ""red"""
+selector,firework,FireWork,firework r,Vega command failed: firework.player_not_unique,"Не удалось найти игрока с именем ""r"""
+selector,firework,FireWork,firework green,Vega command failed: firework.player_not_unique,"Не удалось найти игрока с именем ""green"""
+selector,firework,FireWork,firework g,Vega command failed: firework.player_not_unique,"Не удалось найти игрока с именем ""g"""
+selector,firework,FireWork,firework blue,Vega command failed: firework.player_not_unique,"Не удалось найти игрока с именем ""blue"""
+selector,firework,FireWork,firework b,Vega command failed: firework.player_not_unique,"Не удалось найти игрока с именем ""b"""
+selector,firework,FireWork,firework yellow,Vega command failed: firework.player_not_unique,"Не удалось найти игрока с именем ""yellow"""
+selector,firework,FireWork,firework y,Vega command failed: firework.player_not_unique,"Не удалось найти игрока с именем ""y"""
+selector,firework,FireWork,firework r2,Vega command failed: firework.player_not_unique,"Не удалось найти игрока с именем ""r2"""
+selector,firework,FireWork,firework star,Vega command failed: firework.player_not_unique,"Не удалось найти игрока с именем ""star"""
+selector,firework,FireWork,firework g2,Vega command failed: firework.player_not_unique,"Не удалось найти игрока с именем ""g2"""
+selector,firework,FireWork,firework spiral,Vega command failed: firework.player_not_unique,"Не удалось найти игрока с именем ""spiral"""
+selector,firework,FireWork,firework b2,Vega command failed: firework.player_not_unique,"Не удалось найти игрока с именем ""b2"""
+selector,firework,FireWork,firework rings,Vega command failed: firework.player_not_unique,"Не удалось найти игрока с именем ""rings"""
+selector,firework,FireWork,firework y2,Vega command failed: firework.player_not_unique,"Не удалось найти игрока с именем ""y2"""
+selector,firework,FireWork,firework flower,Vega command failed: firework.player_not_unique,"Не удалось найти игрока с именем ""flower"""
+selector,clear,Clear,clear item,Removed 0 item.,—
+selector,clear,Clear,clear items,Removed 0 items.,—
+selector,clear,Clear,clear i,Removed 0 item.,—
+selector,clear,Clear,clear npc,Removed 0 npc.,—
+selector,clear,Clear,clear npcs,Removed 0 npcs.,—
+selector,clear,Clear,clear n,Removed 0 npc.,—
+selector,clear,Clear,clear proj,Removed 0 projectile.,—
+selector,clear,Clear,clear projectile,Removed 0 projectile.,—
+selector,clear,Clear,clear projectiles,Removed 0 projectiles.,—
+selector,clear,Clear,clear p,Removed 0 projectile.,—
+selector,grow,Grow,grow help,"Native growth on compatible existing ground: basic, boreal, mahogany, sakura, willow, shadewood, ebonwood, pearlwood, palm, hallowpalm, crimsonpalm, corruptpalm, topaz, amethyst, sapphire, emerald, ruby, diamond, amber, mushroom, cactus, herb. Console: grow <type> <tile-x> <tile-y>.",Эту команду можно выполнять только в игре.
+selector,grow,Grow,grow basic,Vega command failed: grow.usage,Эту команду можно выполнять только в игре.
+selector,grow,Grow,grow boreal,Vega command failed: grow.usage,Эту команду можно выполнять только в игре.
+selector,grow,Grow,grow mahogany,Vega command failed: grow.usage,Эту команду можно выполнять только в игре.
+selector,grow,Grow,grow sakura,Vega command failed: grow.usage,Эту команду можно выполнять только в игре.
+selector,grow,Grow,grow willow,Vega command failed: grow.usage,Эту команду можно выполнять только в игре.
+selector,grow,Grow,grow shadewood,Vega command failed: grow.usage,Эту команду можно выполнять только в игре.
+selector,grow,Grow,grow ebonwood,Vega command failed: grow.usage,Эту команду можно выполнять только в игре.
+selector,grow,Grow,grow pearlwood,Vega command failed: grow.usage,Эту команду можно выполнять только в игре.
+selector,grow,Grow,grow palm,Vega command failed: grow.usage,Эту команду можно выполнять только в игре.
+selector,grow,Grow,grow hallowpalm,Vega command failed: grow.usage,Эту команду можно выполнять только в игре.
+selector,grow,Grow,grow crimsonpalm,Vega command failed: grow.usage,Эту команду можно выполнять только в игре.
+selector,grow,Grow,grow corruptpalm,Vega command failed: grow.usage,Эту команду можно выполнять только в игре.
+selector,grow,Grow,grow topaz,Vega command failed: grow.usage,Эту команду можно выполнять только в игре.
+selector,grow,Grow,grow amethyst,Vega command failed: grow.usage,Эту команду можно выполнять только в игре.
+selector,grow,Grow,grow sapphire,Vega command failed: grow.usage,Эту команду можно выполнять только в игре.
+selector,grow,Grow,grow emerald,Vega command failed: grow.usage,Эту команду можно выполнять только в игре.
+selector,grow,Grow,grow ruby,Vega command failed: grow.usage,Эту команду можно выполнять только в игре.
+selector,grow,Grow,grow diamond,Vega command failed: grow.usage,Эту команду можно выполнять только в игре.
+selector,grow,Grow,grow amber,Vega command failed: grow.usage,Эту команду можно выполнять только в игре.
+selector,grow,Grow,grow cactus,Vega command failed: grow.usage,Эту команду можно выполнять только в игре.
+selector,grow,Grow,grow herb,Vega command failed: grow.usage,Эту команду можно выполнять только в игре.
+selector,grow,Grow,grow mushroom,Vega command failed: grow.usage,Эту команду можно выполнять только в игре.
+scenario,group,Group,group add CompareGroup,Group comparegroup: group.created.,Группа CompareGroup успешно добавлена.
+scenario,group,Group,group prefix CompareGroup [Q],Group comparegroup: group.presentation.,"Префикс группы ""CompareGroup"" изменен на ""[Q]""."
+scenario,group,Group,group color CompareGroup 00ff00,Group comparegroup: group.presentation.,"Неверный синтаксис для цвета, используйте ""rrr,ggg,bbb""."
+scenario,group,Group,group listperm CompareGroup,comparegroup | parent none | grants none | denies none | revision 3 / Prefix: [Q] | suffix:  | color: 00FF00,Permissions for CompareGroup (1/1):
+scenario,group,Group,group rename CompareGroup CompareRenamed,Usage: group help | list | show|listperm <name> | create <name> [parent] | add <name> | delete|del <name> | parent <name> <parent|none> | grant|addperm|deny|revoke|delperm <name> <permission> | prefix|suffix|color <name> <value|none>.,Группа CompareGroup была переименована в CompareRenamed.
+scenario,group,Group,group list,administrator | parent default | revision 1 / comparegroup | parent none | revision 3 / default | parent guest | revision 1 / guest | parent none | revision 1,"Группы (1/1): / guest, default, vip, insecure-guest, newadmin, admin, trustedadmin, owner, / superadmin, CompareRenamed"
+scenario,group,Group,group del CompareRenamed,Group not found.,Группа CompareRenamed успешно удалена.
+scenario,group,Group,group list,administrator | parent default | revision 1 / comparegroup | parent none | revision 3 / default | parent guest | revision 1 / guest | parent none | revision 1,"Группы (1/1): / guest, default, vip, insecure-guest, newadmin, admin, trustedadmin, owner, / superadmin"
+scenario,time,Time,time noon,World time set to 12:00.,—
+scenario,playing,ListConnectedPlayers,playing,There are currently no players online.,There are currently no players online.
+scenario,version,GetVersion,version,Vega 1.0.0+a699624d1066be61ce88cf9ee2fc5b670bbd9e1b | patched Terraria 1.4.6.1.,TShock: 6.2.1.0 Profoundly Collaborative (3.11).
+flow,group,Group,group add auditbase,Group auditbase: group.created.,Группа auditbase успешно добавлена.
+flow,group,Group,group add auditrole,Group auditrole: group.created.,Группа auditrole успешно добавлена.
+flow,group,Group,group parent auditrole auditbase,Group auditrole: group.parent.,"Родитель группы ""auditrole"" изменен на ""auditbase""."
+flow,group,Group,group addperm auditrole audit.read audit.write,Usage: group help | list | show|listperm <name> | create <name> [parent] | add <name> | delete|del <name> | parent <name> <parent|none> | grant|addperm|deny|revoke|delperm <name> <permission> | prefix|suffix|color <name> <value|none>.,Group auditrole has been modified successfully.
+flow,group,Group,group listperm auditrole,auditrole | parent auditbase | grants none | denies none | revision 2 / Prefix:  | suffix:  | color: default,"Permissions for auditrole (1/1): / , audit.read, audit.write"
+flow,group,Group,group delperm auditrole audit.read audit.write,Usage: group help | list | show|listperm <name> | create <name> [parent] | add <name> | delete|del <name> | parent <name> <parent|none> | grant|addperm|deny|revoke|delperm <name> <permission> | prefix|suffix|color <name> <value|none>.,Group auditrole has been modified successfully.
+flow,group,Group,group listperm auditrole,auditrole | parent auditbase | grants none | denies none | revision 2 / Prefix:  | suffix:  | color: default,Permissions for auditrole (1/1):
+flow,group,Group,"group color auditrole 101,102,103",Group auditrole: group.presentation.,"Цвет чата для группы ""auditrole"" изменен на ""101,102,103""."
+flow,group,Group,group color auditrole,Usage: group help | list | show|listperm <name> | create <name> [parent] | add <name> | delete|del <name> | parent <name> <parent|none> | grant|addperm|deny|revoke|delperm <name> <permission> | prefix|suffix|color <name> <value|none>.,"Цвет чата для ""auditrole"" - ""101,102,103""."
+flow,group,Group,group prefix auditrole [Audit],Group auditrole: group.presentation.,"Префикс группы ""auditrole"" изменен на ""[Audit]""."
+flow,group,Group,group prefix auditrole,Usage: group help | list | show|listperm <name> | create <name> [parent] | add <name> | delete|del <name> | parent <name> <parent|none> | grant|addperm|deny|revoke|delperm <name> <permission> | prefix|suffix|color <name> <value|none>.,"Префикс ""auditrole"" - ""[Audit]""."
+flow,group,Group,group suffix auditrole [Team],Group auditrole: group.presentation.,"Суффикс группы ""auditrole"" изменен на ""[Team]""."
+flow,group,Group,group suffix auditrole,Usage: group help | list | show|listperm <name> | create <name> [parent] | add <name> | delete|del <name> | parent <name> <parent|none> | grant|addperm|deny|revoke|delperm <name> <permission> | prefix|suffix|color <name> <value|none>.,"Суффикс ""auditrole"" - ""[Team]""."
+flow,group,Group,group rename auditrole auditnew,Usage: group help | list | show|listperm <name> | create <name> [parent] | add <name> | delete|del <name> | parent <name> <parent|none> | grant|addperm|deny|revoke|delperm <name> <permission> | prefix|suffix|color <name> <value|none>.,Группа auditrole была переименована в auditnew.
+flow,group,Group,group list,administrator | parent default | revision 1 / auditbase | parent none | revision 1 / auditrole | parent auditbase | revision 5 / default | parent guest | revision 1 / guest | parent none | revision 1,"Группы (1/1): / guest, default, vip, insecure-guest, newadmin, admin, trustedadmin, owner, / superadmin, auditbase, auditnew"
+flow,group,Group,group del auditnew,Group not found.,Группа auditnew успешно удалена.
+flow,group,Group,group del auditrole,Group auditrole: group.delete.,Группа auditrole не существует
+flow,group,Group,group del auditbase,Group auditbase: group.delete.,Группа auditbase успешно удалена.
+flow,group,Group,group list,administrator | parent default | revision 1 / default | parent guest | revision 1 / guest | parent none | revision 1,"Группы (1/1): / guest, default, vip, insecure-guest, newadmin, admin, trustedadmin, owner, / superadmin"
+flow,itemban,ItemBan,itemban add Dirt Block,Usage: <command> list [page] | add|del <id|name> | allow|disallow <id|name> <group> | help.,Неверный синтаксис. Правильный синтаксис: /itemban add <item name>.
+flow,itemban,ItemBan,itemban list,Item restrictions (1/1):,В настоящее время заблокированных предметов нет.
+flow,itemban,ItemBan,itemban del Dirt Block,Usage: <command> list [page] | add|del <id|name> | allow|disallow <id|name> <group> | help.,Неверный синтаксис. Правильный синтаксис: /itemban del <item name>.
+flow,tileban,TileBan,tileban add 1,Tile restriction 1 updated=True.,Блок 1 заблокирован.
+flow,tileban,TileBan,tileban list,Tile restrictions (1/1): 1,Tile bans (1/1): / 1
+flow,tileban,TileBan,tileban del 1,Tile restriction 1 updated=True.,Снят бан с блока 1.
+flow,tileban,TileBan,tileban list,Tile restrictions (1/1):,В настоящее время заблокированных блоков нет.
+flow,projban,ProjectileBan,projban add 1,Projectile restriction 1 updated=True.,Снаряд 1 заблокирован.
+flow,projban,ProjectileBan,projban list,Projectile restrictions (1/1): 1,Projectile bans (1/1): / 1
+flow,projban,ProjectileBan,projban del 1,Projectile restriction 1 updated=True.,Снят бан с проджектайла 1.
+flow,projban,ProjectileBan,projban list,Projectile restrictions (1/1):,There are currently no banned projectiles.
+flow,me,ThirdPerson,me audit,This command cannot be executed from the server console.,—
+flow,playing,ListConnectedPlayers,who,There are currently no players online.,There are currently no players online.
+flow,time,Time,time noon,World time set to 12:00.,—
+flow,time,Time,time,World time: 12:00.,Текущее время 12:00.
+flow,worldevent,ManageWorldEvent,worldevent rain stop,Use help worldevent. Invasions support start only.,"Используйте ""/worldevent rain slime"" чтобы начать дождь слизней! / Use ""/worldevent rain coin"" to start coin rain!"
+shutdown,off,Off,off audit,"Процесс завершился, в журнале есть сохранение мира.","Процесс завершился, в журнале есть сохранение мира."
+shutdown,off-nosave,OffNoSave,off-nosave audit,"Процесс завершился, в журнале после команды нет сообщения о сохранении мира.","Процесс завершился, в журнале после команды нет сообщения о сохранении мира."
+chat-guest,playing,ListConnectedPlayers,/playing,Online players (1): / AuditPlayer,Online Players ([c/AAFFAA:1]/8) / AuditPlayer
+chat-guest,version,GetVersion,/version,Vega 1.0.0+a699624d1066be61ce88cf9ee2fc5b670bbd9e1b | patched Terraria 1.4.6.1.,У вас нет доступа к этой команде.
+chat-guest,pos,GetPos,/pos,You do not have permission to use this command.,У вас нет доступа к этой команде.
+chat-guest,playing,ListConnectedPlayers,/who,Online players (1): / AuditPlayer,Online Players ([c/AAFFAA:1]/8) / AuditPlayer
+chat-guest,userinfo,GrabUserUserInfo,/ui AuditPlayer,You do not have permission to use this command.,У вас нет доступа к этой команде.
+chat-guest,group,Group,/group list,You do not have permission to use this command.,У вас нет доступа к этой команде.
+chat-guest,home,Home,/help home,Unknown or unavailable command: home.,У вас нет доступа к этой команде.
+chat-guest,home,Home,/home,You do not have permission to use this command.,У вас нет доступа к этой команде.
+chat-guest,spawn,Spawn,/spawn,You do not have permission to use this command.,У вас нет доступа к этой команде.
+chat-guest,tp,TP,/tp,You do not have permission to use this command.,У вас нет доступа к этой команде.
+chat-guest,tphere,TPHere,/tphere,You do not have permission to use this command.,У вас нет доступа к этой команде.
+chat-guest,tpnpc,TPNpc,/tpnpc,You do not have permission to use this command.,У вас нет доступа к этой команде.
+chat-guest,tppos,TPPos,/tppos,You do not have permission to use this command.,У вас нет доступа к этой команде.
+chat-guest,tpallow,TPAllow,/tpallow,You do not have permission to use this command.,У вас нет доступа к этой команде.
+chat-guest,buff,Buff,/buff,You do not have permission to use this command.,У вас нет доступа к этой команде.
+chat-guest,item,Item,/item,You do not have permission to use this command.,У вас нет доступа к этой команде.
+chat-guest,spawnboss,SpawnBoss,/spawnboss,You do not have permission to use this command.,У вас нет доступа к этой команде.
+chat-guest,spawnmob,SpawnMob,/spawnmob,You do not have permission to use this command.,У вас нет доступа к этой команде.
+chat-guest,wallow,Wallow,/wallow,You do not have permission to use this command.,У вас нет доступа к этой команде.
+chat-guest,me,ThirdPerson,/me audit,You do not have permission to use this command.,*AuditPlayer audit
+chat-guest,reply,Reply,/reply audit,You do not have permission to use this command.,У вас нет доступа к этой команде.
+chat-guest,whisper,Whisper,/whisper AuditPlayer audit,You do not have permission to use this command.,У вас нет доступа к этой команде.
+chat-guest,party,PartyChat,/party audit,You do not have permission to use this command.,You are not in a party!
+chat-guest,death,ShowDeath,/death,AuditPlayer: PvE deaths = 0.,*You were slain 0 times.
+chat-guest,pvpdeath,ShowPVPDeath,/pvpdeath,AuditPlayer: PvP deaths = 0.,*You were slain by other players 0 times.
+chat-guest,login,AttemptLogin,/login,Usage: /login <password> | login <account> <password>.,Аккаунта с таким именем не существует.
+chat-guest,logout,Logout,/logout,You are not authenticated.,У вас нет доступа к этой команде.
+chat-guest,password,PasswordUser,/password,Usage: /password <current> <new>.,У вас нет доступа к этой команде.
+chat-guest,register,RegisterUser,/register,Usage: /register <password> | register <account> <password>.,Неверный синтаксис. Правильный синтаксис: /register <password>.
+chat-guest,su,SubstituteUser,/su,/su,У вас нет доступа к этой команде.
+chat-guest,sudo,SubstituteUserDo,/sudo,/sudo,У вас нет доступа к этой команде.
+chat-guest,playing,ListConnectedPlayers,/who,Online players (1): / AuditPlayer,Online Players ([c/AAFFAA:1]/8) / AuditPlayer
+chat-admin,setup,SetupToken,/help setup,/setup | syntax: /setup (server console) | aliases: none | permissions: vega.accounts.manage,/setup help: / Используется для аутентификации в качестве супер-администратора при первой настройке TShock.
+chat-admin,user,ManageUsers,/help user,/account | syntax: /account list | show <name> | create|add <name> <password> [group] | delete|del <name> | group <name> <group> | password <name> <new-password> | temp <name> <group> <duration> | temp-clear <name> | temp-list | help | aliases: user | permissions: vega.accounts.manage,/user help: / Управляет аккаунтами пользователей.
+chat-admin,login,AttemptLogin,/help login,/login | syntax: /login <password> | login <account> <password> | aliases: auth | permissions: none,/login help: / Выполняет вход в ваш аккаунт.
+chat-admin,logout,Logout,/help logout,/logout | syntax: /logout | aliases: none | permissions: none,/logout help: / Выход из вашего текущего аккаунта.
+chat-admin,password,PasswordUser,/help password,/password | syntax: /password <current> <new> | aliases: passwd | permissions: none,/password help: / Изменяет пароль вашего аккаунта.
+chat-admin,register,RegisterUser,/help register,/register | syntax: /register <password> | register <account> <password> | aliases: none | permissions: none,/register help: / Зарегистрирует вашу учетную запись.
+chat-admin,accountinfo,ViewAccountInfo,/help accountinfo,"/accountinfo | syntax: /accountinfo <account> | ai-id <account id> | aliases: ai, ai-id, accountinfo-id | permissions: vega.accounts.inspect or vega.accounts.manage or tshock.accountinfo.check",/accountinfo help: / Отображает информацию о пользователе.
+chat-admin,accountinfo,ViewAccountInfo,/help ai,"/accountinfo | syntax: /accountinfo <account> | ai-id <account id> | aliases: ai, ai-id, accountinfo-id | permissions: vega.accounts.inspect or vega.accounts.manage or tshock.accountinfo.check",/accountinfo help: / Отображает информацию о пользователе.
+chat-admin,ban,Ban,/help ban,"/ban | syntax: /ban <player> [reason] | ban add <name|account|uuid|ip|cidr> <value> <duration|permanent> [reason] | ban list | ban show|details <id> | ban del <id> | unban <id> | ban help|identifiers|examples | bt help|add|addip|addrange|delrange|listrange|info | aliases: unban, bantools, bantool, bt | permissions: vega.admin.ban or tshock.admin.ban",/ban help: / Управляет заблокированными игроками.
+chat-admin,broadcast,Broadcast,/help broadcast,"/broadcast | syntax: /broadcast <message> | aliases: bc, say | permissions: vega.admin.broadcast",/broadcast help: / Объявляет сообщение на весь сервер.
+chat-admin,broadcast,Broadcast,/help bc,"/broadcast | syntax: /broadcast <message> | aliases: bc, say | permissions: vega.admin.broadcast",/broadcast help: / Объявляет сообщение на весь сервер.
+chat-admin,broadcast,Broadcast,/help say,"/broadcast | syntax: /broadcast <message> | aliases: bc, say | permissions: vega.admin.broadcast",/broadcast help: / Объявляет сообщение на весь сервер.
+chat-admin,displaylogs,DisplayLogs,/help displaylogs,/displaylogs | syntax: /displaylogs [count:1..20] [information|warning|error|critical] | aliases: none | permissions: vega.operations.logs,/displaylogs help: / Включает или отключает отображение логов сервера.
+chat-admin,group,Group,/help group,/group | syntax: /group help | list | show|listperm <name> | create <name> [parent] | add <name> | delete|del <name> | parent <name> <parent|none> | grant|addperm|deny|revoke|delperm <name> <permission> | prefix|suffix|color <name> <value|none> | aliases: groups | permissions: vega.groups.manage,/group help: / Управляет группами.
+chat-admin,itemban,ItemBan,/help itemban,/itemban | syntax: /<command> list [page] | add|del <id|name> | allow|disallow <id|name> <group> | help | aliases: none | permissions: vega.restrictions.manage,/itemban help: / Управляет заблокированными предметами.
+chat-admin,projban,ProjectileBan,/help projban,/projban | syntax: /<command> list [page] | add|del <id|name> | allow|disallow <id|name> <group> | help | aliases: none | permissions: vega.restrictions.manage,/projban help: / Управляет заблокированными снарядами.
+chat-admin,tileban,TileBan,/help tileban,/tileban | syntax: /<command> list [page] | add|del <id|name> | allow|disallow <id|name> <group> | help | aliases: none | permissions: vega.restrictions.manage,/tileban help: / Управляет заблокированными блоками.
+chat-admin,region,Region,/help region,/region | syntax: /region list [page] | show|info <name> | create <name> <x> <y> <width> <height> [priority] [owner] | delete <name> | rename <name> <new-name> | resize <name> <x> <y> <width> <height> | resize|expand <name> <u/d/l/r> <amount> | priority|z <name> <value> | owner <name> <owner|none> | member|group <name> add|remove <subject> | allow|remove|allowg|removeg <subject> <region> | flag <name> <flag> <true|false> | protect <region> <true|false> | set <1/2> [x y] | cle…,/region help: / Управляет регионами.
+chat-admin,kick,Kick,/help kick,/kick | syntax: /kick <player> [reason] | aliases: none | permissions: vega.admin.kick,/kick help: / Удаляет игрока с сервера.
+chat-admin,mute,Mute,/help mute,/mute | syntax: /mute <online-player> <duration> [reason] | mute add <player/account> [time] [reason] | mute del <player/account> | mute add <name|account> <value> <duration> [reason] | mute list [page] | mute show <id> | unmute <id> | aliases: unmute | permissions: vega.admin.mute or extendedbans.mute,/mute help: / Не позволяет игроку разговаривать.
+chat-admin,mute,Mute,/help unmute,/mute | syntax: /mute <online-player> <duration> [reason] | mute add <player/account> [time] [reason] | mute del <player/account> | mute add <name|account> <value> <duration> [reason] | mute list [page] | mute show <id> | unmute <id> | aliases: unmute | permissions: vega.admin.mute or extendedbans.mute,/mute help: / Не позволяет игроку разговаривать.
+chat-admin,overridessc,OverrideSSC,/help overridessc,/overridessc | syntax: /overridessc <authenticated-player> | aliases: ossc | permissions: vega.ssc.override,/overridessc help: / Временно переопределяет серверные данные персонажа для игрока.
+chat-admin,overridessc,OverrideSSC,/help ossc,/overridessc | syntax: /overridessc <authenticated-player> | aliases: ossc | permissions: vega.ssc.override,/overridessc help: / Временно переопределяет серверные данные персонажа для игрока.
+chat-admin,savessc,SaveSSC,/help savessc,/savessc | syntax: /savessc | aliases: none | permissions: vega.ssc.save,/savessc help: / Сохраняет серверные данные персонажей (SSC) всех игроков.
+chat-admin,uploadssc,UploadJoinData,/help uploadssc,/uploadssc | syntax: /uploadssc [player] confirm | aliases: none | permissions: vega.ssc.upload,/uploadssc help: / Загружает локальные данные персонажа на сервер (SSC).
+chat-admin,tempgroup,TempGroup,/help tempgroup,"/tempgroup | syntax: /tempgroup add <account name/id> <group> [duration] | tempgroup del <account> | tempgroup info <account> | tempgroup list [page] | tempgroup help | aliases: tempg, tg | permissions: vega.accounts.manage or tshock.admin.tempgroup",/tempgroup help: / Временно устанавливает группу указанному игроку.
+chat-admin,su,SubstituteUser,/help su,Unknown or unavailable command: su.,/su help: / Временно повышает вас до супер администратора.
+chat-admin,sudo,SubstituteUserDo,/help sudo,Unknown or unavailable command: sudo.,/sudo help: / Выполняет команду как супер админ.
+chat-admin,userinfo,GrabUserUserInfo,/help userinfo,/userinfo | syntax: /userinfo <player> | aliases: ui | permissions: vega.players.inspect or tshock.admin.userinfo,/userinfo help: / Отображает информацию об игроке.
+chat-admin,userinfo,GrabUserUserInfo,/help ui,/userinfo | syntax: /userinfo <player> | aliases: ui | permissions: vega.players.inspect or tshock.admin.userinfo,/userinfo help: / Отображает информацию об игроке.
+chat-admin,annoy,Annoy,/help annoy,/annoy | syntax: /annoy <player> <seconds:1..30> | aliases: none | permissions: vega.players.annoy,/annoy help: / Раздражает игрока на указанное время.
+chat-admin,rocket,Rocket,/help rocket,/rocket | syntax: /rocket <player> | aliases: none | permissions: vega.players.rocket,/rocket help: / Запускает игрока вверх (SSC должен быть включен).
+chat-admin,firework,FireWork,/help firework,/firework | syntax: /firework <player> [red|green|blue|yellow|star|spiral|rings|flower] | aliases: none | permissions: vega.players.firework,/firework help: / Создает фейерверк около игрока.
+chat-admin,checkupdates,CheckUpdates,/help checkupdates,/checkupdates | syntax: /checkupdates | aliases: none | permissions: vega.cfg.maintenance,/checkupdates help: / Проверяет наличие обновлений TShock.
+chat-admin,off,Off,/help off,"/shutdown | syntax: /shutdown [reason] | aliases: stop, off, exit | permissions: vega.cfg.maintenance","/off help: / Выключает сервер, сохраняя мир."
+chat-admin,off,Off,/help exit,"/shutdown | syntax: /shutdown [reason] | aliases: stop, off, exit | permissions: vega.cfg.maintenance","/off help: / Выключает сервер, сохраняя мир."
+chat-admin,off,Off,/help stop,"/shutdown | syntax: /shutdown [reason] | aliases: stop, off, exit | permissions: vega.cfg.maintenance","/off help: / Выключает сервер, сохраняя мир."
+chat-admin,off-nosave,OffNoSave,/help off-nosave,"/off-nosave | syntax: /off-nosave [reason] | aliases: exit-nosave, stop-nosave | permissions: vega.cfg.maintenance.nosave",/off-nosave help: / Выключает сервер без сохранения.
+chat-admin,off-nosave,OffNoSave,/help exit-nosave,"/off-nosave | syntax: /off-nosave [reason] | aliases: exit-nosave, stop-nosave | permissions: vega.cfg.maintenance.nosave",/off-nosave help: / Выключает сервер без сохранения.
+chat-admin,off-nosave,OffNoSave,/help stop-nosave,"/off-nosave | syntax: /off-nosave [reason] | aliases: exit-nosave, stop-nosave | permissions: vega.cfg.maintenance.nosave",/off-nosave help: / Выключает сервер без сохранения.
+chat-admin,reload,Reload,/help reload,/reload | syntax: /reload | aliases: none | permissions: vega.config.manage,/reload help: / Перезагружает файл конфигурации сервера.
+chat-admin,serverpassword,ServerPassword,/help serverpassword,/serverpassword | syntax: /serverpassword <password> | serverpassword clear | serverpassword set <password> | aliases: none | permissions: vega.cfg.password,/serverpassword help: / Изменяет пароль сервера.
+chat-admin,version,GetVersion,/help version,/version | syntax: /version | aliases: none | permissions: none,/version help: / Показывает версию TShock.
+chat-admin,whitelist,Whitelist,/help whitelist,/whitelist | syntax: /whitelist list [page] | on | off | add <ip|cidr> | del <ip|cidr> | aliases: none | permissions: vega.admin.whitelist,/whitelist help: / Управляет белым списком сервера.
+chat-admin,give,Give,/help give,/give | syntax: /give <item> <player> [stack] [prefix-id|name] | aliases: g | permissions: vega.items.give or tshock.item.give,/give help: / Даёт другому игроку предмет.
+chat-admin,give,Give,/help g,/give | syntax: /give <item> <player> [stack] [prefix-id|name] | aliases: g | permissions: vega.items.give or tshock.item.give,/give help: / Даёт другому игроку предмет.
+chat-admin,item,Item,/help item,/item | syntax: /item <item> [stack] [prefix-id|name] | aliases: i | permissions: vega.items.self or tshock.item.spawn,/item help: / Дает вам предмет.
+chat-admin,item,Item,/help i,/item | syntax: /item <item> [stack] [prefix-id|name] | aliases: i | permissions: vega.items.self or tshock.item.spawn,/item help: / Дает вам предмет.
+chat-admin,butcher,Butcher,/help butcher,/butcher | syntax: /butcher [npc-id|name] | aliases: none | permissions: vega.world.butcher,/butcher help: / Убивает враждебных НПС или НПС определенного типа.
+chat-admin,renamenpc,RenameNPC,/help renamenpc,/renamenpc | syntax: /renamenpc <npc-id|name> <new name> | aliases: none | permissions: vega.world.renamenpc,/renamenpc help: / Переименовывает НИПа.
+chat-admin,maxspawns,MaxSpawns,/help maxspawns,/maxspawns | syntax: /maxspawns [0..200] | aliases: none | permissions: vega.world.maxspawns,/maxspawns help: / Устанавливает максимальное количество мобов.
+chat-admin,spawnboss,SpawnBoss,/help spawnboss,/spawnboss | syntax: /spawnboss <boss-id|name> [count:1..5] | aliases: sb | permissions: vega.world.spawnboss,/spawnboss help: / Призывает рядом с вами боссов.
+chat-admin,spawnboss,SpawnBoss,/help sb,/spawnboss | syntax: /spawnboss <boss-id|name> [count:1..5] | aliases: sb | permissions: vega.world.spawnboss,/spawnboss help: / Призывает рядом с вами боссов.
+chat-admin,spawnmob,SpawnMob,/help spawnmob,/spawnmob | syntax: /spawnmob <npc-id|name> [count:1..20] | aliases: sm | permissions: vega.world.spawnmob,/spawnmob help: / Spawns a number of mobs around you.
+chat-admin,spawnmob,SpawnMob,/help sm,/spawnmob | syntax: /spawnmob <npc-id|name> [count:1..20] | aliases: sm | permissions: vega.world.spawnmob,/spawnmob help: / Spawns a number of mobs around you.
+chat-admin,spawnrate,SpawnRate,/help spawnrate,/spawnrate | syntax: /spawnrate [1..60000] | aliases: none | permissions: vega.world.spawnrate,/spawnrate help: / Устанавливает частоту появления мобов.
+chat-admin,clearangler,ClearAnglerQuests,/help clearangler,/clearangler | syntax: /clearangler [player-name] | aliases: none | permissions: vega.world.clearangler,"/clearangler help: / Сбрасывает список пользователей, выполнивших текущий квест рыбака."
+chat-admin,home,Home,/help home,/home | syntax: /home | aliases: none | permissions: vega.navigation.home,/home help: / Отправляет вас в точку спавна.
+chat-admin,spawn,Spawn,/help spawn,/spawn | syntax: /spawn | aliases: none | permissions: vega.navigation.spawn,/spawn help: / Отправляет вас в точку спавна.
+chat-admin,tp,TP,/help tp,/tp | syntax: /tp <player> | tp <source> <destination> | aliases: none | permissions: vega.navigation.tp,/tp help: / Телепортирует игрока к другому игроку.
+chat-admin,tphere,TPHere,/help tphere,/tphere | syntax: /tphere <player> | aliases: none | permissions: vega.navigation.others,/tphere help: / Телепортирует игрока к себе.
+chat-admin,tpnpc,TPNpc,/help tpnpc,/tpnpc | syntax: /tpnpc <npc-name|slot:number> | aliases: none | permissions: vega.navigation.tpnpc,/tpnpc help: / Телепортирует вас к НИПу.
+chat-admin,tppos,TPPos,/help tppos,/tppos | syntax: /tppos <tile-x> <tile-y> | aliases: none | permissions: vega.navigation.tppos,/tppos help: / Телепортирует вас к координатам тайла.
+chat-admin,pos,GetPos,/help pos,/pos | syntax: /pos [player] | aliases: none | permissions: vega.navigation.pos,/pos help: / Возвращает текущую или указанную пользователем позицию.
+chat-admin,tpallow,TPAllow,/help tpallow,/tpallow | syntax: /tpallow | aliases: none | permissions: vega.navigation.allow,/tpallow help: / Разрешает или запрещает другим телепортировать вас.
+chat-admin,worldmode,ChangeWorldMode,/help worldmode,/worldmode | syntax: /worldmode [normal|expert|master] | aliases: gamemode | permissions: vega.world.mode,/worldmode help: / Изменяет режим мира.
+chat-admin,worldmode,ChangeWorldMode,/help gamemode,/worldmode | syntax: /worldmode [normal|expert|master] | aliases: gamemode | permissions: vega.world.mode,/worldmode help: / Изменяет режим мира.
+chat-admin,antibuild,ToggleAntiBuild,/help antibuild,/antibuild | syntax: /antibuild [on|off|status] | aliases: none | permissions: vega.world.antibuild,/antibuild help: / Переключает глобальный режим защиты от строительства.
+chat-admin,grow,Grow,/help grow,/grow | syntax: /grow <tree-type> [tile-x tile-y (console)] | grow help | aliases: none | permissions: vega.world.grow,/grow help: / Выращивает растения под вами.
+chat-admin,forcehalloween,ForceHalloween,/help forcehalloween,/forcehalloween | syntax: /forcehalloween [on|off|status] | aliases: none | permissions: vega.world.forcehalloween,"/forcehalloween help: / Включает режим Хэллоуин (Мешки с добром, тыквы и т.д.)."
+chat-admin,forcexmas,ForceXmas,/help forcexmas,/forcexmas | syntax: /forcexmas [on|off|status] | aliases: none | permissions: vega.world.forcexmas,"/forcexmas help: / Включает режим Рождество (Подарки, Санта и т.д.)."
+chat-admin,worldevent,ManageWorldEvent,/help worldevent,/worldevent | syntax: /worldevent <rain|bloodmoon|eclipse|fullmoon|slimerain|sandstorm|pumpkinmoon|frostmoon|goblinarmy|snowlegion|pirateinvasion|martianmadness|meteor|lanterns|meteorshower|coinrain> [on|off] | worldevent invade <type> | worldevent rain <slime|coin> | aliases: none | permissions: vega.world.events,/worldevent help: / Позволяет запускать и останавливать различные события мира.
+chat-admin,hardmode,Hardmode,/help hardmode,/hardmode | syntax: /hardmode [status|start confirm] | aliases: none | permissions: vega.world.hardmode,/hardmode help: / Включает хардмод в мире.
+chat-admin,evil,SwitchEvil,/help evil,/evil | syntax: /evil [crimson|corruption] | aliases: none | permissions: vega.world.evil,/evil help: / Switches the world's evil.
+chat-admin,protectspawn,ProtectSpawn,/help protectspawn,/protectspawn | syntax: /protectspawn [on|off|status|radius <1..500>] | aliases: none | permissions: vega.world.protectspawn,/protectspawn help: / Переключает режим защиты спавна.
+chat-admin,save,Save,/help save,/save | syntax: /save | aliases: none | permissions: vega.cfg.maintenance,/save help: / Сохраняет файл мира.
+chat-admin,setspawn,SetSpawn,/help setspawn,/setspawn | syntax: /setspawn [tile-x tile-y] | aliases: none | permissions: vega.world.setspawn,/setspawn help: / Устанавливает точку спавна на вашу текущую позицию.
+chat-admin,setdungeon,SetDungeon,/help setdungeon,/setdungeon | syntax: /setdungeon [tile-x tile-y] | aliases: none | permissions: vega.world.setdungeon,/setdungeon help: / Устанавливает точку входа в данж на вашу текущую позицию.
+chat-admin,settle,Settle,/help settle,/settle | syntax: /settle | aliases: none | permissions: vega.world.settle,/settle help: / Принудительно обновляет все жидкости.
+chat-admin,time,Time,/help time,/time | syntax: /time [day|noon|night|midnight|HH:mm] | aliases: none | permissions: vega.world.time,/time help: / Устанавливает время мира.
+chat-admin,wind,Wind,/help wind,/wind | syntax: /wind <mph> | aliases: none | permissions: vega.world.wind,/wind help: / Изменяет скорость ветра.
+chat-admin,worldinfo,WorldInfo,/help worldinfo,/worldinfo | syntax: /worldinfo | aliases: none | permissions: vega.world.info,/worldinfo help: / Отображает информацию о текущем мире.
+chat-admin,buff,Buff,/help buff,/buff | syntax: /buff <buff> [seconds] | aliases: none | permissions: vega.players.buff,/buff help: / Дает вам бафф или дебафф на протяжении определенного промежутка времени. Установка времени -1 сделает его на 415 дней.
+chat-admin,clear,Clear,/help clear,/clear | syntax: /clear <item|projectile|npc> [all] | aliases: none | permissions: vega.world.clear,/clear help: / Удаляет выброшенные предметы или снаряды.
+chat-admin,gbuff,GBuff,/help gbuff,/gbuff | syntax: /gbuff <player> <buff> [seconds] | aliases: buffplayer | permissions: vega.players.buff.others,/gbuff help: / Накладывает на игрока бафф или дебафф на определенный промежуток времени. Указав значение -1 время его действия будет установлено на 415 дней.
+chat-admin,gbuff,GBuff,/help buffplayer,/gbuff | syntax: /gbuff <player> <buff> [seconds] | aliases: buffplayer | permissions: vega.players.buff.others,/gbuff help: / Накладывает на игрока бафф или дебафф на определенный промежуток времени. Указав значение -1 время его действия будет установлено на 415 дней.
+chat-admin,godmode,ToggleGodMode,/help godmode,/godmode | syntax: /godmode [player] [on|off] | aliases: god | permissions: vega.players.godmode,/godmode help: / Переключает режим бессмертия игрока.
+chat-admin,godmode,ToggleGodMode,/help god,/godmode | syntax: /godmode [player] [on|off] | aliases: god | permissions: vega.players.godmode,/godmode help: / Переключает режим бессмертия игрока.
+chat-admin,heal,Heal,/help heal,/heal | syntax: /heal [player] [amount] | aliases: none | permissions: vega.players.heal,/heal help: / Восполняет здоровье и ману игрока.
+chat-admin,kill,Kill,/help kill,/kill | syntax: /kill <player> | aliases: slay | permissions: vega.players.kill,/kill help: / Убивает указанного игрока.
+chat-admin,kill,Kill,/help slay,/kill | syntax: /kill <player> | aliases: slay | permissions: vega.players.kill,/kill help: / Убивает указанного игрока.
+chat-admin,me,ThirdPerson,/help me,/me | syntax: /me <action> | aliases: none | permissions: vega.chat.me,/me help: / Отправляет сообщение от третьего лица в общий чат.
+chat-admin,party,PartyChat,/help party,/party | syntax: /party <message> | aliases: p | permissions: vega.chat.party,/party help: / Отправляет сообщение всем в вашей команде.
+chat-admin,party,PartyChat,/help p,/party | syntax: /party <message> | aliases: p | permissions: vega.chat.party,/party help: / Отправляет сообщение всем в вашей команде.
+chat-admin,reply,Reply,/help reply,/reply | syntax: /reply <message> | aliases: r | permissions: vega.chat.whisper,"/reply help: / Отвечает на личное сообщение, отправленное вам."
+chat-admin,reply,Reply,/help r,/reply | syntax: /reply <message> | aliases: r | permissions: vega.chat.whisper,"/reply help: / Отвечает на личное сообщение, отправленное вам."
+chat-admin,rest,ManageRest,/help rest,/rest | syntax: /rest status | listusers | destroytokens | aliases: none | permissions: vega.operations.rest.manage,/rest help: / Управляет REST API.
+chat-admin,slap,Slap,/help slap,/slap | syntax: /slap <player> [damage:0..32767] | aliases: none | permissions: vega.players.slap,/slap help: / Наносит игроку урон.
+chat-admin,serverinfo,ServerInfo,/help serverinfo,/serverinfo | syntax: /serverinfo | aliases: none | permissions: vega.info,/serverinfo help: / Показывает информацию о сервере.
+chat-admin,warp,Warp,/help warp,/warp | syntax: /warp <name> | list [page] | add <name> | del <name> | hide <name> <true|false> | send <player> <name> | aliases: none | permissions: vega.navigation.warp,/warp help: / Телепортирует вас в точку варпа или управляет варпами.
+chat-admin,whisper,Whisper,/help whisper,"/whisper | syntax: /whisper <player> <message> | aliases: w, tell, pm, dm | permissions: vega.chat.whisper",/whisper help: / Отправляет игроку личное сообщение.
+chat-admin,whisper,Whisper,/help w,"/whisper | syntax: /whisper <player> <message> | aliases: w, tell, pm, dm | permissions: vega.chat.whisper",/whisper help: / Отправляет игроку личное сообщение.
+chat-admin,whisper,Whisper,/help tell,"/whisper | syntax: /whisper <player> <message> | aliases: w, tell, pm, dm | permissions: vega.chat.whisper",/whisper help: / Отправляет игроку личное сообщение.
+chat-admin,whisper,Whisper,/help pm,"/whisper | syntax: /whisper <player> <message> | aliases: w, tell, pm, dm | permissions: vega.chat.whisper",/whisper help: / Отправляет игроку личное сообщение.
+chat-admin,whisper,Whisper,/help dm,"/whisper | syntax: /whisper <player> <message> | aliases: w, tell, pm, dm | permissions: vega.chat.whisper",/whisper help: / Отправляет игроку личное сообщение.
+chat-admin,wallow,Wallow,/help wallow,/wallow | syntax: /wallow | aliases: wa | permissions: vega.chat.whisper,/wallow help: / Отключает или включает обмен личными сообщениями.
+chat-admin,wallow,Wallow,/help wa,/wallow | syntax: /wallow | aliases: wa | permissions: vega.chat.whisper,/wallow help: / Отключает или включает обмен личными сообщениями.
+chat-admin,dump-reference-data,CreateDumps,/help dump-reference-data,/dump-reference-data | syntax: /dump-reference-data [item|npc|buff|projectile|tile|all] | aliases: none | permissions: vega.world.reference,/dump-reference-data help: / Создает ссылочные таблицы для типов данных Terraria и TShock разрешения в папку с сервером.
+chat-admin,sync,SyncLocalArea,/help sync,/sync | syntax: /sync [radius:1..16] | sync <player> [radius] | aliases: none | permissions: vega.world.sync,/sync help: / Отправляет игроку все данные о блоках с сервера для повторной синхронизации с реальным состоянием мира.
+chat-admin,respawn,Respawn,/help respawn,/respawn | syntax: /respawn [player] | aliases: none | permissions: vega.players.respawn,/respawn help: / Возрождает вас или указанного игрока.
+chat-admin,aliases,Aliases,/help aliases,/aliases | syntax: /aliases | aliases: none | permissions: none,/aliases help: / Отображает сокращения команды.
+chat-admin,help,Help,/help help,/help | syntax: /help [command] | aliases: commands | permissions: none,/help help: / Показывает список команд или предоставляет помощь по ним.
+chat-admin,motd,Motd,/help motd,/motd | syntax: /motd | aliases: none | permissions: none,/motd help: / Показывает сообщение дня.
+chat-admin,playing,ListConnectedPlayers,/help playing,"/playing | syntax: /playing [-i] [page] | aliases: online, who | permissions: none",/playing help: / Отображает игроков в сети.
+chat-admin,playing,ListConnectedPlayers,/help online,"/playing | syntax: /playing [-i] [page] | aliases: online, who | permissions: none",/playing help: / Отображает игроков в сети.
+chat-admin,playing,ListConnectedPlayers,/help who,"/playing | syntax: /playing [-i] [page] | aliases: online, who | permissions: none",/playing help: / Отображает игроков в сети.
+chat-admin,rules,Rules,/help rules,/rules | syntax: /rules | aliases: none | permissions: none,/rules help: / Показывает правила сервера.
+chat-admin,death,ShowDeath,/help death,/death | syntax: /death | aliases: none | permissions: none,/death help: / Shows your number of deaths.
+chat-admin,pvpdeath,ShowPVPDeath,/help pvpdeath,/pvpdeath | syntax: /pvpdeath | aliases: none | permissions: none,/pvpdeath help: / Shows your number of PVP deaths.
+chat-admin,alldeath,ShowAllDeath,/help alldeath,/alldeath | syntax: /alldeath [page] | aliases: none | permissions: vega.players.deaths.others,/alldeath help: / Shows the number of deaths for all online players.
+chat-admin,allpvpdeath,ShowAllPVPDeath,/help allpvpdeath,/allpvpdeath | syntax: /allpvpdeath [page] | aliases: none | permissions: vega.players.deaths.others,/allpvpdeath help: / Shows the number of PVP deaths for all online players.
+chat-admin,bossdamage,BossDamage,/help bossdamage,/bossdamage | syntax: /bossdamage [page] | aliases: none | permissions: none,/bossdamage help: / Shows recent boss kill contribution.
+chat-admin,playing,ListConnectedPlayers,/playing,Online players (1): / AuditPlayer,Online Players ([c/AAFFAA:1]/8) / AuditPlayer
+chat-admin,version,GetVersion,/version,Vega 1.0.0+a699624d1066be61ce88cf9ee2fc5b670bbd9e1b | patched Terraria 1.4.6.1.,TShock: [c/AAAAFF:6.2.1.0] [c/FFAAAA:Profoundly Collaborative (3.11)].
+chat-admin,userinfo,GrabUserUserInfo,/ui AuditPlayer,IP Address: 127.0.0.1. / Short UUID: <uuid> / -> Logged-in as: auditplayer; in group administrator. / Platform: Unknown,IP Адрес: 127.0.0.1. / -> Вошел как: AuditPlayer; В группе superadmin.
+chat-admin,pos,GetPos,/pos,"AuditPlayer is at tile (2096, 288).","Расположение AuditPlayer - (3198, 451)."
+chat-admin,home,Home,/home,Teleported to your spawn point.,Вы были телепортированы в вашу точку появления (дом).
+chat-admin,spawn,Spawn,/spawn,Teleported to the world spawn.,Вы были телепортированы на спавн.
+chat-admin,tppos,TPPos,/tppos 2000 300,"Teleported to tile (2000, 300).","Вы телепортированы к 2000, 300."
+chat-admin,tp,TP,/tp AuditPlayer,Source and destination must be different players.,Вы телепортированы к AuditPlayer.
+chat-admin,tphere,TPHere,/tphere AuditPlayer,Source and destination must be different players.,Вы были телепортированы к AuditPlayer. / AuditPlayer телепортирован к вам.
+chat-admin,tpnpc,TPNpc,/tpnpc Guide,Teleported to Guide.,Телепортированы к 'Ян — Гид'.
+chat-admin,tpallow,TPAllow,/tpallow,Incoming teleports disabled.,Входящие телепортации теперь отключены.
+chat-admin,buff,Buff,/buff 1 5,Applied 1 to AuditPlayer for 5 seconds.,You buffed yourself with Обсидиановая кожа (Иммунитет к лаве) for 5 seconds.
+chat-admin,item,Item,/item 2 1,Gave 1 Dirt Block.,Gave 1 Земля.
+chat-admin,spawnboss,SpawnBoss,/spawnboss eye,Announcement.HasAwoken / Spawned 1/1 Eye of Cthulhu.,AuditPlayer spawned Глаз Ктулху 1 time.
+chat-admin,spawnmob,SpawnMob,/spawnmob 1 1,Spawned 1/1 Blue Slime.,AuditPlayer has spawned Синий слизень 1 time.
+chat-admin,whisper,Whisper,/whisper AuditPlayer audit,Choose one other online player.,You cannot whisper to yourself.
+chat-admin,reply,Reply,/reply audit,There is no active whisper conversation.,You haven't previously received any whispers. / You can use [c/AAFFA<path> to whisper to other players.
+chat-admin,me,ThirdPerson,/me audit,* AuditPlayer audit,*AuditPlayer audit
+chat-admin,party,PartyChat,/party audit,Join a team first.,You are not in a party!
+chat-admin,wallow,Wallow,/wallow,Accepting whispers: False.,You will no longer receive whispers from other players. / You can use [c/AAFFA<path> to toggle this setting.
+chat-admin,death,ShowDeath,/death,AuditPlayer: PvE deaths = 0.,*You were slain 0 times.
+chat-admin,pvpdeath,ShowPVPDeath,/pvpdeath,AuditPlayer: PvP deaths = 0.,*You were slain by other players 0 times.
+chat-admin,group,Group,/group list,administrator | parent default | revision 1 / default | parent guest | revision 1 / guest | parent none | revision 1,"Группы (1/1): / guest, default, vip, insecure-guest, newadmin, admin, trustedadmin, owner, / superadmin"
+chat-admin,playing,ListConnectedPlayers,/who,Online players (1): / AuditPlayer,Online Players ([c/AAFFAA:1]/8) / AuditPlayer

@@ -1,5 +1,4 @@
 using System.Diagnostics;
-using System.Text.Json;
 using Microsoft.Xna.Framework;
 using Terraria;
 using Terraria.Chat;
@@ -54,11 +53,11 @@ public sealed class MixedGameplayBenchmark : VegaPlugin
                 string path = Path.GetFullPath($"mixed-{mode}.json");
                 try
                 {
-                    File.WriteAllText(path, JsonSerializer.Serialize(Run(mode, ticks, transport), new JsonSerializerOptions { WriteIndented = true }));
+                    BenchmarkReport.Write(path, Run(mode, ticks, transport));
                 }
                 catch (Exception ex)
                 {
-                    File.WriteAllText(path, JsonSerializer.Serialize(new { Error = ex.ToString() }));
+                    BenchmarkReport.Write(path, new { Error = ex.ToString() });
                 }
             });
             return ValueTask.FromResult(posted ? CommandExecutionResult.Success : CommandExecutionResult.Failed("benchmark.dispatcher_unavailable"));
@@ -222,12 +221,25 @@ public sealed class MixedGameplayBenchmark : VegaPlugin
             finally
             {
                 if ((uint)bossSlot < Main.npc.Length) Main.npc[bossSlot].active = false;
+                DetachFixtureClients(sockets);
                 Array.Copy(originalPlayers, Main.player, originalPlayers.Length);
                 Array.Copy(originalClients, Netplay.Clients, originalClients.Length);
                 for (int i = 0; i < Count; i++) NetMessage.buffer[i].broadcast = originalBroadcast[i];
                 Main.dayTime = day;
                 Main.time = time;
             }
+        }
+    }
+
+    internal static void DetachFixtureClients<TSocket>(TSocket[] sockets) where TSocket : class, ISocket
+    {
+        for (int slot = 0; slot < sockets.Length; slot++)
+        {
+            var client = Netplay.Clients[slot];
+            // The native network thread can still be inside IsConnected on this client.
+            // Balance Activate without resetting its socket from the game thread.
+            if (sockets[slot] is { } socket && ReferenceEquals(client.Socket, socket))
+                TerrariaRuntime.Hooks.Netplay.NotifyServerConnectionClosed(client, socket);
         }
     }
 

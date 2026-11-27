@@ -69,6 +69,45 @@ public sealed class VegaModuleHostTests
         Assert.That(calls, Is.EqualTo(new[] { "stop:unstarted" }));
     }
 
+    [Test]
+    public async Task SynchronousStartKeepsItsModuleAliveUntilItReturns()
+    {
+        var module = new BlockingModule();
+        using var host = new VegaModuleHost([module]);
+        using var cancel = new CancellationTokenSource();
+        Task start = host.StartAsync(TimeSpan.FromSeconds(10), cancel.Token);
+        try
+        {
+            await module.Entered.Task.WaitAsync(TimeSpan.FromSeconds(5));
+            cancel.Cancel();
+            Assert.CatchAsync<InvalidOperationException>(async () => await start);
+            host.Dispose();
+            Assert.That(module.Disposals, Is.Zero);
+        }
+        finally { module.Release.TrySetResult(); }
+        await module.Retired.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        Assert.That(module.Disposals, Is.EqualTo(1));
+    }
+
+    private sealed class BlockingModule : IVegaModule
+    {
+        internal readonly TaskCompletionSource Entered = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        internal readonly TaskCompletionSource Release = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        internal readonly TaskCompletionSource Retired = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        internal int Disposals;
+        public VegaModuleDescriptor Descriptor { get; } = new("blocking", "test", []);
+        public void Start()
+        {
+            Entered.SetResult();
+            Release.Task.GetAwaiter().GetResult();
+        }
+        public void Dispose()
+        {
+            Interlocked.Increment(ref Disposals);
+            Retired.TrySetResult();
+        }
+    }
+
     private sealed class RecordingModule(
         string name,
         IReadOnlyList<string> dependencies,

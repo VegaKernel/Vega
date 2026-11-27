@@ -36,7 +36,7 @@ public sealed class DeploymentBackupService : IDeploymentBackupService, IDisposa
         Func<string?> worldPath,
         IOperationsLogger logger)
     {
-        this.baseDirectory = Path.GetFullPath(baseDirectory);
+        this.baseDirectory = Path.TrimEndingDirectorySeparator(Path.GetFullPath(baseDirectory));
         backupsDirectory = Path.Combine(this.baseDirectory, "backups");
         stagingDirectory = Path.Combine(this.baseDirectory, "data", "backup-staging");
         this.options = options;
@@ -60,11 +60,16 @@ public sealed class DeploymentBackupService : IDeploymentBackupService, IDisposa
     public async ValueTask<DeploymentBackupSnapshot> CreateAsync(
         CancellationToken cancellationToken = default)
     {
-        ObjectDisposedException.ThrowIf(disposed, this);
-        if (!await execution.WaitAsync(0, cancellationToken).ConfigureAwait(false))
+        CancellationTokenSource lifetime;
+        lock (sync)
         {
-            return Read() with { Detail = "A deployment backup is already running." };
+            ObjectDisposedException.ThrowIf(disposed, this);
+            if (!execution.Wait(0, cancellationToken))
+                return snapshot with { Detail = "A deployment backup is already running." };
+            lifetime = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, stopping.Token);
         }
+        using var operation = lifetime;
+        cancellationToken = operation.Token;
 
         string? stage = null;
         string? stagedArchive = null;
@@ -101,6 +106,7 @@ public sealed class DeploymentBackupService : IDeploymentBackupService, IDisposa
                     cancellationToken)
                 .ConfigureAwait(false);
 
+            await CopyGameplayStateAsync(stage, cancellationToken).ConfigureAwait(false);
             await WriteRedactedConfigurationAsync(stage, cancellationToken).ConfigureAwait(false);
             var manifest = new BackupManifest(
                 "Vega deployment backup",
@@ -108,7 +114,7 @@ public sealed class DeploymentBackupService : IDeploymentBackupService, IDisposa
                 started,
                 DateTimeOffset.UtcNow,
                 Path.GetFileName(sourceWorld),
-                File.Exists(imagePath),
+                File.Exists(Path.Combine(worldDirectory, Path.GetFileName(imagePath))),
                 database.Provider,
                 database.SchemaVersion);
             await File.WriteAllTextAsync(
@@ -128,7 +134,11 @@ public sealed class DeploymentBackupService : IDeploymentBackupService, IDisposa
             string archive = Path.Combine(backupsDirectory, $"Vega-backup-{started:yyyyMMdd-HHmmssfff}.zip");
             File.Move(stagedArchive, archive);
             stagedArchive = null;
-            ApplyRetention();
+            try { ApplyRetention(); }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+            {
+                logger.Log(OperationsLogLevel.Warning, "backups", "Backup published, but pruning older archives failed.", ex);
+            }
             var completed = new DeploymentBackupSnapshot(
                 options.Enabled,
                 DeploymentBackupState.Succeeded,
@@ -174,16 +184,26 @@ public sealed class DeploymentBackupService : IDeploymentBackupService, IDisposa
         }
         finally
         {
-            if (stagedArchive is not null && File.Exists(stagedArchive)) File.Delete(stagedArchive);
-            if (stage is not null && Directory.Exists(stage)) Directory.Delete(stage, true);
-            execution.Release();
+            try
+            {
+                if (stagedArchive is not null) File.Delete(stagedArchive);
+                if (stage is not null && Directory.Exists(stage)) Directory.Delete(stage, true);
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+            {
+                logger.Log(OperationsLogLevel.Warning, "backups", $"Could not remove backup staging files in '{stagingDirectory}'.", ex);
+            }
+            finally { execution.Release(); }
         }
     }
 
     public void Dispose()
     {
-        if (disposed) return;
-        disposed = true;
+        lock (sync)
+        {
+            if (disposed) return;
+            disposed = true;
+        }
         stopping.Cancel();
         try { scheduler.GetAwaiter().GetResult(); } catch (OperationCanceledException) { }
         execution.Wait();
@@ -197,7 +217,8 @@ public sealed class DeploymentBackupService : IDeploymentBackupService, IDisposa
         using var timer = new PeriodicTimer(interval);
         while (await timer.WaitForNextTickAsync(cancellationToken).ConfigureAwait(false))
         {
-            await CreateAsync(cancellationToken).ConfigureAwait(false);
+            try { await CreateAsync(cancellationToken).ConfigureAwait(false); }
+            catch (ObjectDisposedException) when (disposed) { return; }
             lock (sync) snapshot = snapshot with { NextScheduledAt = DateTimeOffset.UtcNow + interval };
         }
     }
@@ -217,6 +238,53 @@ public sealed class DeploymentBackupService : IDeploymentBackupService, IDisposa
         }
 
         return resolved;
+    }
+
+    private async Task CopyGameplayStateAsync(string stage, CancellationToken token)
+    {
+        string data = Path.Combine(baseDirectory, "data");
+        foreach (string file in new[] { "whitelist.json", Path.Combine("sandboxes", "ssc.json"), Path.Combine("sandboxes", "catalog.json") })
+            await CopyStateFileAsync(Path.Combine(data, file)).ConfigureAwait(false);
+
+        await CopyWorldStateAsync(data).ConfigureAwait(false);
+        string instances = Path.Combine(data, "sandboxes", "instances");
+        if (Directory.Exists(instances))
+            foreach (string instance in Directory.EnumerateDirectories(instances))
+            {
+                await CopyStateFileAsync(Path.Combine(instance, "world.wld")).ConfigureAwait(false);
+                await CopyWorldStateAsync(Path.Combine(instance, "runtime", "data")).ConfigureAwait(false);
+            }
+        string templates = Path.Combine(data, "sandboxes", "templates");
+        if (Directory.Exists(templates))
+            foreach (string template in Directory.EnumerateDirectories(templates))
+                await CopyStateFileAsync(Path.Combine(template, "world.wld")).ConfigureAwait(false);
+
+        async Task CopyWorldStateAsync(string root)
+        {
+            foreach (string file in new[] { "restrictions.json", "build-protection.json", "chest-templates.json", "motd.txt", "rules.txt" })
+                await CopyStateFileAsync(Path.Combine(root, file)).ConfigureAwait(false);
+            foreach (string directory in new[] { "warps", "npc-account-progress" })
+            {
+                string path = Path.Combine(root, directory);
+                if (Directory.Exists(path))
+                    foreach (string file in Directory.EnumerateFiles(path, "*.json"))
+                        await CopyStateFileAsync(file).ConfigureAwait(false);
+            }
+        }
+
+        async Task CopyStateFileAsync(string file)
+        {
+            token.ThrowIfCancellationRequested();
+            if (!File.Exists(file)) return;
+            // Published gameplay files are replaced atomically. Reject links rather than
+            // following one into a different deployment or including unrelated data.
+            for (string? path = file; path != baseDirectory && path is not null; path = Path.GetDirectoryName(path))
+                if ((File.GetAttributes(path) & FileAttributes.ReparsePoint) != 0)
+                    throw new IOException($"Cannot snapshot linked gameplay state '{path}'.");
+            string destination = Path.Combine(stage, Path.GetRelativePath(baseDirectory, file));
+            Directory.CreateDirectory(Path.GetDirectoryName(destination)!);
+            await CopyAsync(file, destination, token).ConfigureAwait(false);
+        }
     }
 
     private async Task WriteRedactedConfigurationAsync(string stage, CancellationToken cancellationToken)
@@ -294,7 +362,7 @@ public sealed class DeploymentBackupService : IDeploymentBackupService, IDisposa
 
     private static async Task CopyAsync(string source, string destination, CancellationToken cancellationToken)
     {
-        await using FileStream input = new(source, FileMode.Open, FileAccess.Read, FileShare.Read, 1024 * 1024, true);
+        await using FileStream input = new(source, FileMode.Open, FileAccess.Read, FileShare.Read | FileShare.Delete, 1024 * 1024, true);
         await using FileStream output = new(destination, FileMode.CreateNew, FileAccess.Write, FileShare.None, 1024 * 1024, true);
         await input.CopyToAsync(output, cancellationToken).ConfigureAwait(false);
         await output.FlushAsync(cancellationToken).ConfigureAwait(false);

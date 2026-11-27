@@ -23,6 +23,8 @@ internal sealed class PacedLoopbackTransport : IDisposable
     private readonly CancellationTokenSource lifetime = new();
     private long nextTick;
     private int overruns;
+    private bool paced;
+    private readonly bool measuresQueueAge = false;
     private int peakEntries;
     private long peakBytes;
     private double peakSendAgeMs, peakCompletionAgeMs;
@@ -33,14 +35,20 @@ internal sealed class PacedLoopbackTransport : IDisposable
         peers = new Peer[count];
 #if !TSHOCK_COMPARISON
         if (mode == "ordered")
-            ordered = new NativeTcpTransportHost(new NativeTcpTransportOptions { MaxBatchRequests = 16, MeasureQueueAge = true,
+        {
+            var options = Environment.GetEnvironmentVariable("VEGA_BENCH_SERVER_DEFAULTS") == "1"
+                ? new ServerNetworkOptions().ToTransportOptions()
+                : new NativeTcpTransportOptions { MaxBatchRequests = 16, MeasureQueueAge = true,
                 CompletionDrainBatch = int.TryParse(Environment.GetEnvironmentVariable("VEGA_BENCH_COMPLETION_BATCH"), out int completionBatch) ? completionBatch : 1,
                 DeferWriterWake = Environment.GetEnvironmentVariable("VEGA_BENCH_DEFER_WAKE") == "1",
                 ProducerBatching = Environment.GetEnvironmentVariable("VEGA_BENCH_DEFER_WAKE") == "1" &&
                     Environment.GetEnvironmentVariable("VEGA_BENCH_PRODUCER_BATCHING") == "1",
                 DeferredWakeFlushInterval = TimeSpan.FromMilliseconds(double.TryParse(Environment.GetEnvironmentVariable("VEGA_BENCH_DEFER_MS"),
-                    System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out double interval) ? interval : 1) },
+                    System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out double interval) ? interval : 1) };
+            measuresQueueAge = options.MeasureQueueAge;
+            ordered = new NativeTcpTransportHost(options,
                 currentSocket: slot => (uint)slot < peers.Length ? peers[slot]?.Socket : null);
+        }
         else if (mode != "native") throw new ArgumentOutOfRangeException(nameof(mode));
 #else
         if (mode != "native") throw new ArgumentOutOfRangeException(nameof(mode));
@@ -93,6 +101,7 @@ internal sealed class PacedLoopbackTransport : IDisposable
     {
         Drain();
         foreach (Peer? peer in peers) peer!.ResetMeasurement();
+        paced = false;
         overruns = peakEntries = 0;
         peakBytes = 0;
         peakSendAgeMs = peakCompletionAgeMs = 0;
@@ -115,6 +124,7 @@ internal sealed class PacedLoopbackTransport : IDisposable
 
     public void Pace()
     {
+        paced = true;
         Sample();
         // Maintain ordinary 60 Hz offered load; do not catch up missed periods with bursts.
         long target = nextTick + Stopwatch.Frequency / 60;
@@ -146,8 +156,9 @@ internal sealed class PacedLoopbackTransport : IDisposable
         Drain();
         return new(peers.Sum(p => p!.MeasuredSends), peers.Sum(p => p!.MeasuredBytes),
             peers.Sum(p => p!.MeasuredCallbacks), peers.Sum(p => p!.MeasuredReceivedBytes), peers.Length,
-            true, overruns, peakEntries, peakBytes, peakSendAgeMs, peakCompletionAgeMs,
-            Stopwatch.GetElapsedTime(started).TotalMilliseconds, ReadSocketWrites() - initialSocketWrites);
+            true, paced ? overruns : null, peakEntries, peakBytes,
+            measuresQueueAge ? peakSendAgeMs : null, measuresQueueAge ? peakCompletionAgeMs : null,
+            Stopwatch.GetElapsedTime(started).TotalMilliseconds, measuresQueueAge ? ReadSocketWrites() - initialSocketWrites : null);
     }
 
     private long ReadSocketWrites()
@@ -185,6 +196,7 @@ internal sealed class PacedLoopbackTransport : IDisposable
         var retained = ordered.Retained;
         peakEntries = Math.Max(peakEntries, retained.Entries);
         peakBytes = Math.Max(peakBytes, retained.Bytes);
+        if (!measuresQueueAge) return;
         var ages = ordered.ReadQueueAges();
         peakSendAgeMs = Math.Max(peakSendAgeMs, ages.Send.TotalMilliseconds);
         peakCompletionAgeMs = Math.Max(peakCompletionAgeMs, ages.Completion.TotalMilliseconds);
@@ -208,8 +220,8 @@ internal sealed class PacedLoopbackTransport : IDisposable
     }
 
     public sealed record Result(long ScheduledCallbacks, long SentBytes, long CompletedCallbacks, long ReceivedBytes,
-        int ValidatedPeers, bool PayloadHashVerified, int TickOverruns, int PeakRetainedEntries, long PeakRetainedBytes,
-        double PeakSendQueueAgeMs, double PeakCompletionQueueAgeMs, double FinalDrainMs, long SocketWriteCalls);
+        int ValidatedPeers, bool PayloadHashVerified, int? TickOverruns, int PeakRetainedEntries, long PeakRetainedBytes,
+        double? PeakSendQueueAgeMs, double? PeakCompletionQueueAgeMs, double FinalDrainMs, long? SocketWriteCalls);
 
     internal sealed class Peer
     {

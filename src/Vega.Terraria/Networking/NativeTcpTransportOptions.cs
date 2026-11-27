@@ -38,7 +38,7 @@ internal sealed record NativeTcpTransportOptions
         if (MaxConnections <= 0 || MaxOutstandingPerConnection <= 0 || MaxRetainedBytesPerConnection <= 0 ||
             MaxOutstandingPerWorld < MaxOutstandingPerConnection || MaxRetainedBytesPerWorld < MaxRetainedBytesPerConnection ||
             MaxSendBytes <= 0 || MaxSendBytes > MaxRetainedBytesPerConnection || MaxReceiveBytes <= 0 ||
-            MaxCallbacksPerPass <= 0 || CallbackBudget <= TimeSpan.Zero || CompletionDrainBatch is < 1 or > 4 || MaxBatchRequests is < 1 or > NativeOutboundQueue.BatchRequestLimit ||
+            MaxCallbacksPerPass <= 0 || CallbackBudget <= TimeSpan.Zero || CompletionDrainBatch is < 1 or > 8 || MaxBatchRequests is < 1 or > NativeOutboundQueue.BatchRequestLimit ||
             (ProducerBatching && (!DeferWriterWake || MaxBatchRequests <= 1)) ||
             DeferredWakeFlushInterval <= TimeSpan.Zero || DeferredWakeFlushInterval > TimeSpan.FromMilliseconds(2))
             throw new ArgumentOutOfRangeException(nameof(NativeTcpTransportOptions), "Invalid native TCP transport limits.");
